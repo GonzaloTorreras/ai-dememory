@@ -1,0 +1,4 @@
+interface:
+  display_name: "ai DeMemory"
+  short_description: "Use the local Markdown and MCP memory toolchain safely."
+  default_prompt: "Use ai-dememory to recall, validate, index, and propose personal memory updates safely."

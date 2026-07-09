@@ -1,0 +1,37 @@
+# Generated indexes
+indexes/*.sqlite
+indexes/*.sqlite-shm
+indexes/*.sqlite-wal
+indexes/*.sqlite.tmp
+indexes/*.db
+indexes/*.db-shm
+indexes/*.db-wal
+indexes/*.db.tmp
+indexes/embeddings/
+
+# Generated context exports
+distilled/*.md
+!distilled/README.md
+
+# Local reports and sensitive temporary output
+reports/*.json
+reports/*.md
+!reports/README.md
+*.local.md
+
+# Local credentials and key material
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.obsidian/workspace*
+.obsidian/cache
+__pycache__/
+*.pyc

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python
+        run: python -m compileall -q scripts mcp/server ai_dememory_tool
+
+      - name: Validate memory schema
+        run: python scripts/ai_dememory.py validate
+
+      - name: Secret scan
+        run: python scripts/ai_dememory.py secret-scan
+
+      - name: Verify MCP contract
+        run: python scripts/ai_dememory.py verify-mcp
+
+      - name: Generated artifact guard
+        run: python scripts/ai_dememory.py artifact-guard
+
+      - name: Vault setup guard
+        run: python scripts/ai_dememory.py vault-setup-guard
+
+      - name: PR template guard
+        run: python scripts/ai_dememory.py pr-template-guard
+
+      - name: PR draft guard
+        run: python scripts/ai_dememory.py pr-draft-guard
+
+      - name: Manual acceptance guard
+        run: python scripts/ai_dememory.py acceptance-guard
+
+      - name: ADR guard
+        run: python scripts/ai_dememory.py adr-guard
+
+      - name: Release checklist guard
+        run: python scripts/ai_dememory.py release-checklist-guard
+
+      - name: Release readiness check
+        run: python scripts/ai_dememory.py release-check
+
+      - name: Roadmap status
+        run: python scripts/ai_dememory.py roadmap status --json
+
+      - name: Local REST API smoke
+        run: python scripts/ai_dememory.py api-smoke
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+
+      - name: Rebuild index smoke
+        run: python scripts/ai_dememory.py index
+
+      - name: Search smoke
+        run: python scripts/ai_dememory.py search codex --limit 1
+
+      - name: Recall quality smoke
+        run: python scripts/ai_dememory.py eval-recall
+
+      - name: Strict PR release readiness check
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          AI_DEMEMORY_PR_URL: ${{ github.event.pull_request.html_url }}
+        run: python scripts/ai_dememory.py release-check --strict
+
+      - name: MCP runtime smoke
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          AI_DEMEMORY_PR_URL: ${{ github.event.pull_request.html_url }}
+        run: python scripts/ai_dememory.py mcp-smoke
+
+      - name: Package install smoke
+        run: python scripts/ai_dememory.py install-smoke
+
+      - name: Package build smoke
+        run: python scripts/ai_dememory.py package-build-smoke
+
+      - name: Docker local MCP smoke
+        run: python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:ci
+
+      - name: Final package build artifact guard
+        run: python scripts/ai_dememory.py package-build-smoke --check-clean

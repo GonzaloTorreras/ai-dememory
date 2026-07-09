@@ -1,0 +1,10 @@
+# Reviewed suppressions for false positives and reviewed conflict findings.
+#
+# `ai-dememory false-positive ignore` writes sections like:
+# [false_positives.fp_<id>]
+#
+# `ai-dememory conflict dismiss` and `ai-dememory conflict resolve` write
+# sections like:
+# [conflicts.conf_<id>]
+#
+# Keep reasons brief and never include secret material.

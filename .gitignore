@@ -1,0 +1,65 @@
+# Generated indexes
+indexes/*.sqlite
+indexes/*.sqlite-shm
+indexes/*.sqlite-wal
+indexes/*.sqlite.tmp
+indexes/*.db
+indexes/*.db-shm
+indexes/*.db-wal
+indexes/*.db.tmp
+indexes/*.json
+indexes/embeddings/
+
+# Generated context exports
+distilled/*.md
+!distilled/README.md
+
+# Generated working-session state
+working/*
+!working/README.md
+
+# Local capture inbox. Only the structural README belongs in the public tree.
+inbox/**
+!inbox/README.md
+
+# Real memory belongs in a private vault. Re-open only reviewed demo fixtures.
+memories/**
+!memories/active/
+!memories/active/working-context.md
+!memories/durable/
+!memories/durable/preferences.md
+!memories/durable/tool-policy.md
+!memories/durable/values.md
+!memories/projects/
+!memories/projects/README.md
+!memories/tools/
+!memories/tools/codex.md
+
+# Local reports and sensitive temporary output
+reports/*.json
+reports/*.md
+reports/maintenance/
+reports/manual-acceptance-packets/
+reports/recall-review-packets/
+!reports/README.md
+*.local.md
+
+# Local credentials and key material
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.obsidian/workspace*
+.obsidian/cache
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+uv.lock

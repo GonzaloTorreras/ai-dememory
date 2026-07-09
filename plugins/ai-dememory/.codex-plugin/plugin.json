@@ -1,0 +1,19 @@
+{
+  "name": "ai-dememory",
+  "version": "2.0.0",
+  "description": "Local-first memory recall, working-session handoffs, review inbox, and maintenance workflows for Codex.",
+  "author": {
+    "name": "Gonzalo Torreras"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ai DeMemory",
+    "shortDescription": "Use a local ai-dememory vault from Codex.",
+    "longDescription": "ai DeMemory bundles skills, MCP configuration, and optional lifecycle hooks for local-first memory recall, generated working-session handoffs, inbox review, provider imports, and scheduled maintenance. Package install remains passive; scheduling and imports are explicit opt-in commands.",
+    "developerName": "Gonzalo Torreras",
+    "category": "Productivity",
+    "capabilities": ["MCP", "Skills", "Hooks"],
+    "defaultPrompt": "Use ai DeMemory to recall relevant local memory and keep writes review-first."
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "id": "recall_development_preferences",
+    "query": "WSL2 development execution preferences",
+    "expected_ids": ["mem_preferences_20260614"],
+    "min_rank": 3,
+    "include_sensitive": false,
+    "notes": "Durable preference memory should be easy to retrieve from setup wording.",
+    "source_ref": "initial-quality-fixture",
+    "created_at": "2026-06-17"
+  },
+  {
+    "id": "recall_github_connector_policy",
+    "query": "native GitHub connector before gh",
+    "expected_ids": ["mem_tool_policy_20260614"],
+    "min_rank": 3,
+    "include_sensitive": false,
+    "notes": "Tool policy should surface for GitHub workflow decisions.",
+    "source_ref": "initial-quality-fixture",
+    "created_at": "2026-06-17"
+  },
+  {
+    "id": "recall_core_values",
+    "query": "human readable memory source of truth",
+    "expected_ids": ["mem_values_20260614"],
+    "min_rank": 3,
+    "include_sensitive": false,
+    "notes": "Durable values should retrieve source-of-truth principles.",
+    "source_ref": "initial-quality-fixture",
+    "created_at": "2026-06-17"
+  },
+  {
+    "id": "recall_codex_setup_notes",
+    "query": "Codex CLI WSL Playwright MCP setup",
+    "expected_ids": ["mem_tool_codex_20260614"],
+    "min_rank": 3,
+    "include_sensitive": false,
+    "notes": "Tool setup notes should retrieve Codex environment setup.",
+    "source_ref": "initial-quality-fixture",
+    "created_at": "2026-06-17"
+  },
+  {
+    "id": "recall_active_context",
+    "query": "ai-dememory active working context",
+    "expected_ids": ["mem_active_context_20260614"],
+    "min_rank": 3,
+    "include_sensitive": false,
+    "notes": "Active context should surface for current ai-dememory work.",
+    "source_ref": "initial-quality-fixture",
+    "created_at": "2026-06-17"
+  }
+]

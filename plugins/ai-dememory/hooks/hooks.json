@@ -1,0 +1,57 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-dememory hook-event --event UserPromptSubmit",
+            "commandWindows": "ai-dememory hook-event --event UserPromptSubmit",
+            "timeout": 15,
+            "statusMessage": "Capturing memory hook metadata"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-dememory hook-event --event PreCompact",
+            "commandWindows": "ai-dememory hook-event --event PreCompact",
+            "timeout": 15,
+            "statusMessage": "Capturing pre-compact memory metadata"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-dememory hook-event --event PostCompact",
+            "commandWindows": "ai-dememory hook-event --event PostCompact",
+            "timeout": 15,
+            "statusMessage": "Capturing post-compact memory metadata"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ai-dememory hook-event --event Stop",
+            "commandWindows": "ai-dememory hook-event --event Stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

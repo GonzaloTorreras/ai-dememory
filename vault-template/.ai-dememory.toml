@@ -1,0 +1,67 @@
+[memory]
+schema_version = "2.0"
+canonical = "markdown"
+
+[mcp]
+transport = "stdio"
+include_sensitive_by_default = false
+
+[review]
+mode = "strict"
+require_human_for_durable = true
+allow_llm_conflict_recommendations = false
+allow_llm_false_positive_triage = false
+allow_llm_merge_proposals = false
+allow_autonomous_inbox_proposals = false
+allow_apply_reviewed = true
+require_secret_scan_before_promotion = true
+
+[false_positives]
+enabled = true
+allow_ignore_file = true
+ignore_file = ".ai-dememory-ignore.toml"
+review_after_days = 90
+triage_policy = "human_only"
+
+[conflicts]
+enabled = true
+scan_on_validate = true
+scan_on_consolidate = true
+report_path = "reports/conflicts.md"
+proposal_path = "inbox/conflict-resolution"
+resolution_policy = "human_only"
+llm_preselect_min_confidence = 0.85
+human_required_severities = ["high", "critical"]
+llm_auto_deny_categories = ["restricted", "durable", "policy"]
+
+[context]
+default_budget_tokens = 2000
+include_working_memory = true
+explain_results = false
+
+[lifecycle]
+enabled = true
+record_mark_seen = true
+record_outcomes = true
+ranking_uses_strength = true
+
+[embeddings]
+enabled = false
+provider = "none"
+require_explicit_remote_opt_in = true
+
+[schedule]
+enabled = false
+daily_time = "03:00"
+weekly_day = "SUN"
+weekly_time = "04:00"
+
+[providers.codex]
+enabled = false
+path = ""
+capture_raw = false
+
+[providers.claude]
+enabled = false
+path = ""
+capture_raw = false
