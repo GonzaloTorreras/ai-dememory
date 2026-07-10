@@ -261,8 +261,9 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `install_smoke.py`: installs the package in a fresh virtual environment,
   checks v2 CLI surfaces, promotes a synthetic recall miss fixture, and
   optionally verifies the local Docker MCP image.
-- `publish_guard.py`: validates that package publishing remains manual,
-  confirmation-gated, Trusted Publishing based, and token-free.
+- `publish_guard.py`: validates the AI-operated tag release, green-CI tagger,
+  OIDC, exact-artifact smoke, attestation and confirmation-gated, token-free
+  recovery contracts.
 - `ci_guard.py`: validates that CI keeps required v2 verification gates.
 - `artifact_guard.py`: fails when generated indexes, reports, context exports,
   build outputs, or caches are staged.

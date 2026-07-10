@@ -447,16 +447,17 @@ Conflict reports and merge proposals use `[conflicts].report_path` and
 `[conflicts].proposal_path` when no explicit report path is supplied; both paths
 are constrained to the vault.
 
-Manual release acceptance stays separate from automated gates. In this
-agent-owned repository, Codex can be the release owner for repeatable,
-non-secret checks it personally runs and inspects: set `AI_DEMEMORY_PR_URL` to
-the active PR, collect fresh evidence, record manual acceptance as
-`Codex Release Owner`, and publish the evidence back to the PR. Do not use this
-shortcut for secrets, private credentials, repository visibility, merge, or
-package publication; those still require explicit user approval. After the
-release owner or another reviewer uses a real MCP client, inspects an Obsidian
-vault, reviews a provider import, or verifies another manual checklist item,
-record proof with:
+Product acceptance stays separate from automated package gates. This repository
+is AI-operated and human-account-owned: Codex maintains release PRs, versions,
+changelog entries, merges and tags; green CI creates the immutable version tag;
+the canonical release workflow builds once, smokes the exact wheel and sdist,
+attests them, publishes through OIDC and verifies the installed index package.
+See `docs/ai-operated-releases.md`.
+
+Manual acceptance remains useful for product and vault behavior, but it does
+not authorize or block package publication. After a reviewer uses a real MCP
+client, inspects an Obsidian vault, reviews a provider import, or verifies
+another checklist item, record that separate product evidence with:
 
 ```bash
 ai-dememory acceptance record \
@@ -466,8 +467,7 @@ ai-dememory acceptance record \
 ai-dememory acceptance verify
 ai-dememory release-evidence --write-report
 ai-dememory release-evidence --strict
-ai-dememory publish-plan --repository testpypi --pr-url https://github.com/... --json
-ai-dememory publish-plan --repository testpypi --pr-url https://github.com/... --strict
+python scripts/ai_release_guard.py --version-only --json
 ```
 
 `publish-plan` is read-only. It resolves `workflow_url` from project repository

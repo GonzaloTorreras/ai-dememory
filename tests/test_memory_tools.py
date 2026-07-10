@@ -9060,18 +9060,15 @@ jobs:
         issues = validate_publish_workflow_text(unsafe)
 
         messages = "\n".join(issue.message for issue in issues)
-        self.assertIn("must not run on push", messages)
-        self.assertIn("confirm=publish", messages)
-        self.assertIn("workflow_dispatch.inputs.pr_url", messages)
         self.assertIn("stored PyPI tokens", messages)
-        self.assertIn("preflight verification", messages)
-        self.assertIn("python scripts/ai_dememory.py release-check", messages)
-        self.assertIn("python scripts/ai_dememory.py install-smoke", messages)
-        self.assertIn("python scripts/ai_dememory.py package-build-smoke --check-clean", messages)
-        self.assertIn("python scripts/ai_dememory.py install-smoke --skip-package --docker", messages)
-        self.assertIn("publish-plan --repository", messages)
+        self.assertIn("canonical release workflow is missing: tags:", messages)
+        self.assertIn("canonical release workflow is missing: concurrency:", messages)
+        self.assertIn("canonical release workflow is missing: python scripts/ai_release_guard.py --tag", messages)
+        self.assertIn("canonical release workflow is missing: release_artifact_smoke.py", messages)
+        self.assertIn("canonical release workflow is missing: SHA256SUMS", messages)
+        self.assertIn("recovery must require confirm=recover-<immutable-tag>", messages)
 
-    def test_publish_guard_requires_pr_url_env_on_preflight_job(self) -> None:
+    def test_publish_guard_requires_exact_recovery_confirmation(self) -> None:
         misplaced = """
 name: Publish Python Package
 
@@ -9103,8 +9100,8 @@ jobs:
         issues = validate_publish_workflow_text(misplaced)
 
         messages = "\n".join(issue.message for issue in issues)
-        self.assertIn("publish preflight must set AI_DEMEMORY_PR_URL", messages)
-        self.assertIn("publish preflight must expose repository input", messages)
+        self.assertIn("recovery must require confirm=recover-<immutable-tag>", messages)
+        self.assertIn("release distributions must be built exactly once", messages)
 
     def test_publish_plan_summarizes_manual_dispatch_without_publishing(self) -> None:
         plan = publish_plan(
@@ -9279,7 +9276,7 @@ jobs:
         )
         self.assertFalse(plan["publish_ready"])
         self.assertEqual(plan["workflow_url"], WORKFLOW_URL_PLACEHOLDER)
-        self.assertIn("publish workflow is missing", plan["guard_issues"][0]["message"])
+        self.assertIn("canonical release workflow is missing", plan["guard_issues"][0]["message"])
         self.assertIn("git distribution checkout", " ".join(plan["next_actions"]))
 
     def test_publish_plan_next_actions_require_testpypi_before_pypi(self) -> None:
