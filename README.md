@@ -42,7 +42,7 @@ Review the exported files, push them to a separate private repository, then mark
 that repository as a GitHub template. Keep the tool distribution repo separate
 from private memory vault repos.
 
-Before the package is published to PyPI, install from GitHub or a local checkout:
+For an unreleased development snapshot, install from GitHub or a local checkout:
 
 ```bash
 pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git

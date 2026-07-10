@@ -31,9 +31,9 @@ This keeps application dependencies isolated and makes upgrades simple.
 uv tool install ai-dememory
 ```
 
-### Pre-PyPI: GitHub URL install
+### Development snapshot: GitHub URL install
 
-Before PyPI publication:
+For unreleased commits:
 
 ```bash
 pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
@@ -99,24 +99,26 @@ ai-dememory mcp-config --client codex
 ai-dememory eval-recall
 ```
 
-## Current Blockers Before PyPI
+## Stable Release Requirements
 
-- Confirm that Apache-2.0 is the intended long-term license for code, docs,
-  templates, and packaged vault scaffolding.
-- Configure PyPI and TestPyPI trusted publishers for
-  `.github/workflows/publish.yml` with the `pypi` and `testpypi` GitHub
-  environments.
-- Test wheel installation outside the source checkout on Linux in CI after the
-  publish workflow is merged.
+- Keep Apache-2.0 as the declared license for code, docs, templates, and
+  packaged vault scaffolding unless a separately reviewed release changes it.
+- Keep PyPI and TestPyPI Trusted Publishers bound to
+  `.github/workflows/release.yml` with their matching `pypi` and `testpypi`
+  GitHub environments.
+- Require an RC to install successfully from TestPyPI and pass the isolated
+  wheel namespace/coexistence matrix before a stable tag is created.
 - Keep Docker support local-only unless an authentication and authorization
   design is approved for remote MCP.
-- Decide whether future releases should also be tied to GitHub Releases or
-  remain manual `workflow_dispatch` only.
 
 ## Publishing Workflow
 
-`.github/workflows/publish.yml` is manual-only. To publish, run the workflow,
-choose `testpypi` or `pypi`, and type `publish` in the confirmation input.
+The canonical release path is `.github/workflows/release.yml`, triggered by an
+immutable version tag. Prerelease tags publish only to TestPyPI; stable tags
+publish only to PyPI. The workflow creates the matching GitHub Release after
+the package can be installed back from its target index.
+
+`.github/workflows/publish.yml` is retained only as a legacy recovery surface.
 
 The workflow builds distributions, runs `twine check`, uploads the distribution
 artifact, then publishes through PyPI Trusted Publishing. It does not use stored
