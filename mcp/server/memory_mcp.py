@@ -4014,7 +4014,7 @@ def handle_rpc(message: dict[str, Any], root: Path) -> dict[str, Any] | None:
         return {
             "protocolVersion": negotiate_protocol_version(message),
             "capabilities": SERVER_CAPABILITIES,
-            "serverInfo": {"name": "ai-dememory", "version": "2.0.0"},
+            "serverInfo": {"name": "ai-dememory", "version": "2.0.0rc1"},
         }
     if method == "ping":
         return {}
