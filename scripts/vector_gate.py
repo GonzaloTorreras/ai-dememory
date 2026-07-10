@@ -48,10 +48,13 @@ def evaluate_vector_readiness(
     results = evaluate(root, fixtures)
     stats = summary(results)
     failed_ids = [result.id for result in results if not result.passed]
-    recall_value = float(stats["recall"])
+    recall_value = float(stats["recall"]) if stats["recall"] is not None else None
     failed_count = int(stats["failed_cases"])
 
-    if recall_value < recall_threshold and failed_count >= min_failed_cases:
+    if recall_value is None:
+        decision = "insufficient_evidence"
+        rationale = "No expected retrievals are available; vector readiness cannot be evaluated."
+    elif recall_value < recall_threshold and failed_count >= min_failed_cases:
         decision = "eligible_for_vector_experiment"
         rationale = "Recall fixtures are below threshold and enough cases fail to justify a measured vector experiment."
     elif failed_count:

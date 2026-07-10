@@ -11,7 +11,20 @@ Generate config from inside a memory vault:
 ai-dememory mcp-config --client codex
 ```
 
-The generated config sets `AI_DEMEMORY_ROOT` to the vault path.
+For Codex, the command emits native TOML for `~/.codex/config.toml` (or a
+trusted project's `.codex/config.toml`) and sets `AI_DEMEMORY_ROOT` to the
+vault path:
+
+```toml
+[mcp_servers.ai-dememory]
+command = "ai-dememory"
+args = ["mcp", "--stdio"]
+
+[mcp_servers.ai-dememory.env]
+AI_DEMEMORY_ROOT = "D:\\memory-vault"
+```
+
+Claude and generic clients continue to receive JSON in their native shape.
 
 Smoke test the generated installed-CLI config:
 
@@ -26,7 +39,7 @@ docker build -t ai-dememory:local .
 ai-dememory mcp-config --client codex --mode docker --root /path/to/vault
 ```
 
-From an editable install:
+Generic JSON form from an editable install:
 
 ```json
 {

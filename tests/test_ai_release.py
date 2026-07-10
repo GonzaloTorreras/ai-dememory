@@ -1,18 +1,65 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-
-from scripts.ai_release_guard import changelog_heading, project_version, validate_identity
-from scripts.published_artifact_guard import compare, local_digests
-
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from scripts.ai_release_guard import changelog_heading, project_version, validate_identity  # noqa: E402
+from scripts.published_artifact_guard import compare, local_digests  # noqa: E402
+from scripts.eval_recall import summary  # noqa: E402
+from scripts.release_artifact_smoke import validate_wheel_namespaces  # noqa: E402
 
 
 class AiReleaseGuardTests(unittest.TestCase):
+    def test_wheel_namespace_guard_rejects_public_package_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel = Path(tmp) / "example.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("ai_dememory_tool/__init__.py", "")
+                archive.writestr("mcp/__init__.py", "")
+                archive.writestr("ai_dememory-2.0.dist-info/METADATA", "")
+            with self.assertRaisesRegex(RuntimeError, "unsafe top-level packages"):
+                validate_wheel_namespaces(wheel)
+
+    def test_wheel_namespace_guard_rejects_top_level_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel = Path(tmp) / "example.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("ai_dememory_tool/__init__.py", "")
+                archive.writestr("mcp.py", "")
+                archive.writestr("ai_dememory-2.0.dist-info/METADATA", "")
+            with self.assertRaisesRegex(RuntimeError, "unsafe top-level packages"):
+                validate_wheel_namespaces(wheel)
+
+    def test_wheel_namespace_guard_rejects_data_scheme_packages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel = Path(tmp) / "example.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("ai_dememory_tool/__init__.py", "")
+                archive.writestr("ai_dememory-2.0.data/purelib/mcp/__init__.py", "")
+                archive.writestr("ai_dememory-2.0.dist-info/METADATA", "")
+            with self.assertRaisesRegex(RuntimeError, "unsafe top-level packages"):
+                validate_wheel_namespaces(wheel)
+
+    def test_wheel_namespace_guard_accepts_private_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wheel = Path(tmp) / "example.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("ai_dememory_tool/__init__.py", "")
+                archive.writestr("ai_dememory-2.0.dist-info/METADATA", "")
+            self.assertEqual(validate_wheel_namespaces(wheel), {"ai_dememory_tool"})
+
+    def test_empty_recall_has_insufficient_evidence(self) -> None:
+        stats = summary([])
+        self.assertEqual(stats["status"], "insufficient_evidence")
+        self.assertIsNone(stats["recall"])
+
     def test_current_version_has_matching_release_identity(self) -> None:
         version = project_version(ROOT)
         identity = validate_identity(ROOT, f"v{version}", version_only=True)

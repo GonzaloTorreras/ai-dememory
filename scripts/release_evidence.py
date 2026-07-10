@@ -185,6 +185,17 @@ def release_blockers(
             }
         )
 
+    if vector_readiness.get("decision") == "insufficient_evidence":
+        blockers.append(
+            {
+                "id": "recall_evidence_missing",
+                "kind": "quality",
+                "summary": "Recall readiness has no evaluated expected retrievals.",
+                "count": 1,
+                "items": [vector_readiness],
+            }
+        )
+
     if vector_readiness.get("decision") == "eligible_for_vector_experiment":
         failed_case_ids = list(vector_readiness.get("failed_case_ids") or [])
         blockers.append(

@@ -14,6 +14,7 @@ import tempfile
 from build_artifacts import cleanup_created_build_paths, generated_build_paths
 from install_smoke import InstallSmokeError, SmokeStep, run_step, venv_paths
 from memorylib import repo_root
+from release_artifact_smoke import validate_wheel_namespaces
 
 
 def assert_no_stale_build_paths(root: Path) -> None:
@@ -50,6 +51,10 @@ def run_package_build_smoke(root: Path, keep_temp: bool = False) -> list[SmokeSt
         run_step(steps, "upgrade build tooling", [str(python), "-m", "pip", "install", "--upgrade", "pip", "build", "twine"])
         run_step(steps, "build distributions", [str(python), "-m", "build", "--outdir", str(dist), str(root)], cwd=root)
         artifacts = assert_dist_artifacts(dist)
+        try:
+            validate_wheel_namespaces(next(path for path in artifacts if path.suffix == ".whl"))
+        except RuntimeError as exc:
+            raise InstallSmokeError(str(exc)) from exc
         run_step(steps, "twine check", [str(python), "-m", "twine", "check", *[str(path) for path in artifacts]])
         return steps
     finally:

@@ -91,12 +91,13 @@ def summary(results: list[FixtureResult]) -> dict[str, Any]:
     found_expected = sum(len(result.expected_ids) - len(result.missing_ids) for result in results)
     passed = [result for result in results if result.passed]
     return {
+        "status": "evaluated" if total_expected else "insufficient_evidence",
         "total_cases": len(results),
         "passed_cases": len(passed),
         "failed_cases": len(results) - len(passed),
         "total_expected": total_expected,
         "found_expected": found_expected,
-        "recall": round(found_expected / total_expected, 4) if total_expected else 1.0,
+        "recall": round(found_expected / total_expected, 4) if total_expected else None,
     }
 
 
@@ -124,11 +125,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(data, indent=2))
     else:
         stats = data["summary"]
-        print(
-            "Recall fixtures: "
-            f"{stats['passed_cases']}/{stats['total_cases']} passed, "
-            f"recall={stats['recall']:.4f}"
-        )
+        if stats["recall"] is None:
+            print("Recall fixtures: insufficient evidence (no expected retrievals)")
+        else:
+            print(
+                "Recall fixtures: "
+                f"{stats['passed_cases']}/{stats['total_cases']} passed, "
+                f"recall={stats['recall']:.4f}"
+            )
         for result in failed:
             print(
                 f"FAIL {result.id}: missing {', '.join(result.missing_ids)} "

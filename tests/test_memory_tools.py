@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import tomllib
 import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -324,11 +325,21 @@ class MemoryToolTests(unittest.TestCase):
                 exit_code = mcp_config(["--client", "codex", "--root", str(root)])
 
             self.assertEqual(exit_code, 0)
-            data = json.loads(output.getvalue())
-            config = data["mcpServers"]["ai-dememory"]
+            data = tomllib.loads(output.getvalue())
+            config = data["mcp_servers"]["ai-dememory"]
             self.assertEqual(config["command"], "ai-dememory")
             self.assertEqual(config["args"], ["mcp", "--stdio"])
             self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
+
+    def test_codex_mcp_config_is_toml_safe_for_unicode_and_quotes(self) -> None:
+        root = Path('C:/vault/emoji-U0001f9e0/quoted-"root"')
+        rendered = build_mcp_config(
+            "codex", "installed", root, command='ai-"dememory', command_args=["--label", "brain-U0001f9e0"]
+        )
+        config = tomllib.loads(rendered)["mcp_servers"]["ai-dememory"]
+        self.assertEqual(config["command"], 'ai-"dememory')
+        self.assertEqual(config["args"], ["--label", "brain-U0001f9e0", "mcp", "--stdio"])
+        self.assertEqual(config["env"]["AI_DEMEMORY_ROOT"], str(root))
 
     def test_cli_accepts_global_root_before_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -12778,7 +12789,7 @@ Commit placeholders: distilled/README.md indexes/README.md reports/README.md.
         self.assertFalse(recall_packet_archive_retention_result["records_fixture_promotions"])
         self.assertFalse(recall_packet_archive_retention_result["writes_fixture_file"])
         self.assertFalse(recall_packet_archive_retention_result["closes_miss_files"])
-        self.assertEqual(vector_status["decision"], "not_justified")
+        self.assertEqual(vector_status["decision"], "insufficient_evidence")
         self.assertEqual(vector_status["recall"]["failed_cases"], 0)
         self.assertFalse(distribution_roadmap_status["writes_files"])
         self.assertEqual(distribution_roadmap_status["status_counts"]["implemented"], 10)
