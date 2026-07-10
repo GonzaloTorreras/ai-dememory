@@ -214,6 +214,7 @@ jobs:
       - name: Create immutable GitHub Release with evidence
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         shell: bash
