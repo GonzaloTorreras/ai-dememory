@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-dememory"
-version = "2.0.0rc2"
+version = "2.0.0rc3"
 description = "Local-first personal multi-LLM memory toolchain and MCP server."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Gonzalo Torreras" }]
 dependencies = []
@@ -31,9 +31,8 @@ ai-dememory = "ai_dememory_tool.cli:main"
 [tool.setuptools]
 include-package-data = true
 license-files = ["LICENSE"]
-
-[tool.setuptools.packages.find]
-include = ["ai_dememory_tool*", "scripts", "mcp", "mcp.server"]
+packages = ["ai_dememory_tool", "ai_dememory_tool.admin", "ai_dememory_tool.mcp_server"]
+package-dir = { "ai_dememory_tool.admin" = "scripts", "ai_dememory_tool.mcp_server" = "mcp/server" }
 
 [tool.setuptools.package-data]
 ai_dememory_tool = [

@@ -38,17 +38,19 @@ Set-Location D:\Github\my-memory
 ai-dememory mcp-config --client codex
 ```
 
-The generated config uses:
+The generated Codex config uses TOML:
 
-```json
-{
-  "command": "ai-dememory",
-  "args": ["mcp", "--stdio"],
-  "env": {
-    "AI_DEMEMORY_ROOT": "<vault path>"
-  }
-}
+```toml
+[mcp_servers.ai-dememory]
+command = "ai-dememory"
+args = ["mcp", "--stdio"]
+
+[mcp_servers.ai-dememory.env]
+AI_DEMEMORY_ROOT = "<vault path>"
 ```
+
+This is the shape accepted by Codex in `~/.codex/config.toml` or a trusted
+project's `.codex/config.toml`. Claude and generic output modes use JSON.
 
 From a source checkout without an editable install, generate and smoke test a
 checkout-safe command:

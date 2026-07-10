@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import tomllib
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,8 +50,12 @@ def load_config(path: Path) -> dict[str, Any]:
     return data
 
 
-def select_server_config(config: dict[str, Any], server_name: str = "ai-dememory") -> tuple[dict[str, Any], str | None]:
-    servers = config.get("mcpServers")
+def select_server_config(
+    config: dict[str, Any] | str, server_name: str = "ai-dememory"
+) -> tuple[dict[str, Any], str | None]:
+    if isinstance(config, str):
+        config = tomllib.loads(config)
+    servers = config.get("mcpServers") or config.get("mcp_servers")
     if isinstance(servers, dict):
         server = servers.get(server_name)
         if not isinstance(server, dict):
@@ -76,7 +81,7 @@ def override_launch(
     return data
 
 
-def run_client_config_smoke(config: dict[str, Any], cwd: Path, server_name: str = "ai-dememory") -> ClientSmokeResult:
+def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name: str = "ai-dememory") -> ClientSmokeResult:
     server, selected_name = select_server_config(config, server_name)
     command = server.get("command")
     args = server.get("args") or []

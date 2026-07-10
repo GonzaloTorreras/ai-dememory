@@ -107,19 +107,18 @@ def find_memory_root(start: Path | None = None) -> Path:
 
 
 def configure_imports(root: Path) -> None:
-    for path in (root / "scripts", root / "mcp" / "server"):
+    package_root = Path(__file__).resolve().parent
+    checkout_root = package_root.parent
+    for path in (
+        root / "scripts",
+        root / "mcp" / "server",
+        checkout_root / "scripts",
+        checkout_root / "mcp" / "server",
+        package_root / "admin",
+        package_root / "mcp_server",
+    ):
         if path.exists() and str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    for package_name in ("scripts", "mcp.server"):
-        try:
-            package = importlib.import_module(package_name)
-        except ImportError:
-            continue
-        package_file = getattr(package, "__file__", None)
-        if package_file:
-            package_path = Path(package_file).resolve().parent
-            if str(package_path) not in sys.path:
-                sys.path.insert(0, str(package_path))
 
 
 def has_root_arg(argv: list[str]) -> bool:
@@ -133,7 +132,17 @@ def run_packaged_command(command: str, argv: list[str]) -> int:
     if not has_root_arg(argv):
         argv = ["--root", str(root), *argv]
     _, module_name = COMMANDS[command]
-    module = __import__(module_name)
+    prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
+    qualified_name = f"{prefix}.{module_name}"
+    try:
+        module = importlib.import_module(qualified_name)
+    except ModuleNotFoundError as exc:
+        # A source checkout has flat modules; installed and PEP 660 editable
+        # distributions expose the private namespaced mapping. Do not hide a
+        # missing dependency raised from inside a successfully located module.
+        if exc.name not in {prefix, qualified_name}:
+            raise
+        module = importlib.import_module(module_name)
     return int(module.main(argv))
 
 
@@ -240,7 +249,7 @@ def mcp_config(argv: list[str]) -> int:
         command_args=args.command_arg,
         image=args.image,
     )
-    print(json.dumps(output, indent=2))
+    print(output if isinstance(output, str) else json.dumps(output, indent=2))
     return 0
 
 
@@ -251,7 +260,7 @@ def build_mcp_config(
     command: str = "ai-dememory",
     command_args: list[str] | None = None,
     image: str = "ai-dememory:local",
-) -> dict[str, object]:
+) -> dict[str, object] | str:
     command_args = command_args or []
     if mode == "docker":
         config = {
@@ -275,7 +284,18 @@ def build_mcp_config(
             "env": {"AI_DEMEMORY_ROOT": str(root)},
         }
     if client == "codex":
-        output = {"mcpServers": {"ai-dememory": config}}
+        lines = [
+            "[mcp_servers.ai-dememory]",
+            f"command = {json.dumps(config['command'], ensure_ascii=False)}",
+        ]
+        lines.append(f"args = {json.dumps(config['args'], ensure_ascii=False)}")
+        env = config.get("env") or {}
+        if env:
+            lines.append("")
+            lines.append("[mcp_servers.ai-dememory.env]")
+            for key, value in env.items():
+                lines.append(f"{key} = {json.dumps(value, ensure_ascii=False)}")
+        output = "\n".join(lines)
     elif client == "claude":
         output = {"mcpServers": {"ai-dememory": config}}
     else:

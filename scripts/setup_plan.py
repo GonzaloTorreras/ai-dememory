@@ -198,6 +198,8 @@ def setup_health(
         and vector_readiness.get("decision") == "eligible_for_vector_experiment"
     ):
         next_actions.append("Review vector readiness evidence before approving any vector-search experiment.")
+    if vector_readiness.get("decision") == "insufficient_evidence":
+        next_actions.append("Add recall fixtures with expected retrievals before claiming recall readiness.")
     if not bool(vector_readiness.get("available", False)):
         next_actions.extend(str(action) for action in vector_readiness.get("next_actions", []))
     if not bool(context_config.get("valid", True)):

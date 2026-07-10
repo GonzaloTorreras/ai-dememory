@@ -759,6 +759,10 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 ## Package Install Smoke
 
 - [ ] Build/install the package in a fresh virtual environment.
+- [ ] The wheel contains exactly one import-package namespace,
+  `ai_dememory_tool`; it must not install top-level `mcp` or `scripts`.
+- [ ] The wheel co-installs with the official `mcp` SDK and both imports resolve
+  from the isolated environment on Python 3.11, 3.12, and 3.13.
 - [ ] `ai-dememory install-smoke` passes from the distribution checkout.
   It covers provenance, acceptance status, recall fixture promotion, generated
   MCP config, read-only setup planning, doctor profile summary, CLI auto
@@ -783,8 +787,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   missing-index warning.
 - [ ] From that vault, `ai-dememory validate`, `ai-dememory secret-scan`, and
   `ai-dememory index` succeed.
-- [ ] `ai-dememory mcp-config --client codex` emits a config with
-  `AI_DEMEMORY_ROOT` pointing at the vault.
+- [ ] `ai-dememory mcp-config --client codex` emits parseable Codex TOML under
+  `[mcp_servers.ai-dememory]`, with `AI_DEMEMORY_ROOT` pointing at the vault.
 - [ ] `ai-dememory setup plan --json` returns first-run setup commands without
   writing files, installing hooks, installing schedules, reading provider files,
   or writing import candidates.

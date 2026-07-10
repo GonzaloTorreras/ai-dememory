@@ -3,6 +3,13 @@
 All notable changes to ai-dememory are documented here. Release headings are
 machine-validated and use the form `## [VERSION] - YYYY-MM-DD`.
 
+## [2.0.0rc3] - 2026-07-10
+
+- Prevent the wheel from installing top-level `mcp` or `scripts` packages and
+  verify coexistence with the official MCP SDK across supported Python versions.
+- Require Python 3.11+, emit native Codex TOML configuration, and treat empty
+  recall evaluation as insufficient evidence instead of perfect recall.
+
 ## [2.0.0rc2] - 2026-07-10
 
 - Make recovery idempotent only when TestPyPI/PyPI filenames and SHA-256
