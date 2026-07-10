@@ -139,12 +139,24 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Check out immutable tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
       - name: Download tested release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: python-release-${{ needs.validate.outputs.tag }}
           path: release-bundle
+      - name: Verify whether exact artifacts already exist
+        id: existing
+        run: >-
+          python scripts/published_artifact_guard.py --dist release-bundle/dist
+          --repository testpypi --version "${{ needs.validate.outputs.version }}"
+          --github-output "$GITHUB_OUTPUT"
       - name: Publish prerelease to TestPyPI with OIDC
+        if: steps.existing.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: release-bundle/dist/
@@ -161,12 +173,24 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Check out immutable tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          persist-credentials: false
       - name: Download tested release bundle
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: python-release-${{ needs.validate.outputs.tag }}
           path: release-bundle
+      - name: Verify whether exact artifacts already exist
+        id: existing
+        run: >-
+          python scripts/published_artifact_guard.py --dist release-bundle/dist
+          --repository pypi --version "${{ needs.validate.outputs.version }}"
+          --github-output "$GITHUB_OUTPUT"
       - name: Publish stable release to PyPI with OIDC
+        if: steps.existing.outputs.published != 'true'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: release-bundle/dist/
