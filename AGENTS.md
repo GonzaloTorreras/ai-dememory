@@ -8,26 +8,31 @@ This repository stores personal and project memory for multiple LLM tools.
 - If GitHub tools are not visible, use tool discovery before falling back to gh.
 - gh is optional local CLI only, not the primary Codex integration.
 
-## PR And Merge Approval
+## AI-Operated Repository Authority
 
-- Treat this repository as agent-owned for day-to-day implementation, but keep
-  PR and merge approval review-gated.
-- Codex may act as release owner for repeatable, non-secret release checks:
-  collecting evidence, setting `AI_DEMEMORY_PR_URL`, recording manual
-  acceptance as `Codex Release Owner`, updating PR comments, and pushing scoped
-  release-readiness commits when the proof was generated and inspected in this
-  workspace.
-- Whenever a PR is ready for review or a merge needs approval, delegate a fresh,
+- The repository is AI-operated and human-account-owned. Codex owns routine
+  maintenance, release PRs, versioning, changelog updates, merges, immutable
+  tags, package publication, post-publish verification and fix-forward work.
+- Normal releases do not require human approval. They require protected `main`,
+  successful CI, a new PEP 440 version, a dated changelog entry, an immutable
+  tag, exact-artifact smoke tests, OIDC Trusted Publishing and post-publish
+  verification.
+- Product and memory-vault acceptance remains review-first, but it is not a
+  package-distribution gate. Never fabricate manual acceptance records to make
+  a release pass.
+- Whenever a PR is ready for merge, delegate a fresh,
   read-only professional review to a subagent with the GitHub plugin context
   before asking for or acting on approval.
 - Give the reviewer enough context to understand the stack, base/head branches,
   CI status, test evidence, and intended merge order, but avoid dumping noisy
   implementation history.
-- The reviewer must not merge, publish, or mutate repository state. Use its
-  findings to decide whether approval is safe or more work is needed.
-- Do not merge, make the repository public, publish packages, rotate secrets, or
-  dispatch trusted publishing without explicit user approval, even when Codex has
-  completed the release evidence and double-checks.
+- The reviewer must not merge, publish, or mutate repository state. Codex uses
+  its findings and required CI to decide whether to merge or continue fixing.
+- Codex must not bypass branch/tag protections, rewrite published tags, delete
+  releases, change repository visibility, rotate credentials, or weaken OIDC.
+  PyPI rollback is yank plus fix-forward with a new version, never overwrite.
+- Human recovery authority remains available for account compromise, legal
+  ownership, billing, PyPI ownership and destructive break-glass actions.
 
 ## Memory Contract
 

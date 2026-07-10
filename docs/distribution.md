@@ -142,7 +142,19 @@ ai-dememory artifact-guard
 ai-dememory package-build-smoke
 ```
 
-`publish-plan` is read-only. It reports the manual dispatch inputs, target
+The canonical package path is now the tag-driven, AI-operated flow documented
+in [AI-operated releases](ai-operated-releases.md). A green `main` build may
+create an immutable version tag; `.github/workflows/release.yml` then validates
+tag/version/changelog identity, builds once, smokes the exact wheel and sdist,
+attests them, publishes through OIDC, verifies the index install, and creates
+the GitHub Release. Routine package publication has no human approval gate.
+
+The older `publish.yml` and `publish-plan` interfaces are retained as a
+read-only compatibility and recovery surface during migration. PyPI Trusted
+Publisher identities must point only at `release.yml`, so this legacy workflow
+cannot become an alternate publication path.
+
+`publish-plan` is read-only. It reports the legacy manual dispatch inputs, target
 environment, resolved GitHub Actions workflow URL when the local remote is a
 GitHub repo, publish preflight commands, publish guard issues, release evidence
 blockers, and false publish side-effect flags before a maintainer runs the
@@ -164,11 +176,11 @@ stale generated `build/`, `dist/`, or `ai_dememory.egg-info/` paths already
 exist in the checkout. Remove those generated artifacts before release
 validation so stale local build state cannot mask package build failures.
 
-The guard checks that package publishing remains `workflow_dispatch` only,
-requires `confirm=publish`, requires a PR URL input, forwards that URL through
-`AI_DEMEMORY_PR_URL`, uses `testpypi` and `pypi` GitHub environments, requests
-OIDC `id-token: write`, runs a strict target publish plan after package and
-Docker smoke, and avoids token/password fields. The artifact guard checks staged
+The guard checks that canonical package publishing is tag-driven, concurrency
+controlled, build-once, exact-artifact tested, checksummed, attested and bound
+to the `testpypi` and `pypi` OIDC environments. It also checks the green-CI
+tagger and ensures the compatibility workflow remains manual and token-free.
+The artifact guard checks staged
 Git paths so generated SQLite, report, context export, build, and cache files do
 not ship with the release branch.
 
@@ -225,12 +237,12 @@ keeping fixture promotion and miss closure as separate reviewed commands. Use
 `ai-dememory recall-fixtures packet-archive-status --json` to list generated
 recall packet snapshots without writing files or promoting fixtures.
 
-In this agent-owned repository, Codex can act as the release owner for
-repeatable, non-secret checks it directly runs and inspects. That owner may set
-`AI_DEMEMORY_PR_URL`, record manual acceptance as `Codex Release Owner`, update
-PR evidence, and push scoped release-readiness commits. Keep secrets,
-credential changes, repository visibility, merge, TestPyPI/PyPI publication,
-and trusted-publishing dispatch behind explicit user approval.
+In this AI-operated, human-account-owned repository, Codex is the routine
+release owner. It may prepare and merge release changes, create immutable tags,
+publish through the canonical Trusted Publisher workflow, verify releases, and
+fix forward without per-release approval when all automated gates pass. Account
+recovery, legal ownership, billing, visibility, destructive changes, and
+trusted-publisher identity changes remain human break-glass operations.
 
 After the release owner or another reviewer completes one of those manual
 checks, record reviewed evidence:

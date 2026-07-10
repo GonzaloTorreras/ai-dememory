@@ -264,19 +264,19 @@ Before publishing a package:
   Docker `schedule plan --json`, `maintenance status` generated artifact and
   generated packet archive cleanup visibility, plus vault template export from
   the image.
-- Run `ai-dememory publish-guard` to verify the GitHub Actions publish workflow
-  remains manual-only, confirmation-gated, Trusted Publishing based, and free of
-  stored PyPI token fields. The guard also requires pre-publish installed
-  package smoke, package build smoke with `--check-clean`, and Docker local MCP
-  smoke.
+- Run `ai-dememory publish-guard` to verify the tag-driven AI-operated release,
+  green-CI tagger, exact-artifact smoke, checksums, attestations, OIDC jobs,
+  post-publish verification and token-free recovery contract.
 - Run `ai-dememory publish-plan --repository testpypi --json` to review the
   manual dispatch inputs, resolved workflow URL when the local remote is a
   GitHub repo, preflight commands, release blockers, and false publish
   side-effect flags before opening the GitHub Actions workflow.
 - Configure PyPI/TestPyPI trusted publishers for
-  `.github/workflows/publish.yml`.
-- Publish first to TestPyPI with the manual GitHub Actions workflow, then to
-  PyPI after a clean install test.
+  `.github/workflows/release.yml` and the matching `pypi`/`testpypi`
+  environments, then enable the `AI_RELEASE_ENABLED=true` repository variable.
+- Prove the path first with a PEP 440 release candidate on TestPyPI. After its
+  post-index install succeeds, enable the stable tag path to PyPI; subsequent
+  releases are automatic when all protected gates pass.
 
 References:
 

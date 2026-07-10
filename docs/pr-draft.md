@@ -40,7 +40,9 @@ review state.
 - Stacked on: `<parent PR or branch>`.
 - Draft PR: keep this PR in draft until CI and any required manual evidence are
   reviewed.
-- Do not merge or publish without explicit approval.
+- Routine release PRs may be merged and published by the AI release owner after
+  required checks pass; destructive or ownership-changing actions remain
+  human break-glass operations.
 ```
 
 ## Validation Commands
