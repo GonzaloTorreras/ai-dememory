@@ -40,9 +40,9 @@ py -3 -m venv .venv
 py -3 -m pip install ai-dememory
 ```
 
-## From GitHub Before PyPI
+## Development Snapshot From GitHub
 
-Until the package is published to PyPI, install directly from GitHub:
+To test an unreleased commit, install directly from GitHub:
 
 ```bash
 pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
