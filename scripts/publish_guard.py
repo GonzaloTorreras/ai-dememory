@@ -96,6 +96,10 @@ def validate_publish_workflow_text(text: str) -> list[PublishGuardIssue]:
         "release.yml:oidc": ("environment:\n      name: pypi", "id-token: write"),
         "release.yml:testpypi": ("environment:\n      name: testpypi", "https://test.pypi.org/legacy/"),
         "release.yml:publisher": ("pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b", "packages-dir:"),
+        "release.yml:idempotence": (
+            "published_artifact_guard.py",
+            "steps.existing.outputs.published != 'true'",
+        ),
         "release.yml:postpublish": (
             "Verify the published package from its index",
             "GH_REPO: ${{ github.repository }}",
