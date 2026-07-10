@@ -130,7 +130,7 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc  # noqa: E402
-from mcp_client_smoke import override_launch, run_client_config_smoke, run_tools_list_pages, verify_enabled_tools  # noqa: E402
+from mcp_client_smoke import override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
 from mcp_inventory import build_inventory, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import load_memory, repo_relative_path, validate_memories  # noqa: E402
@@ -332,14 +332,21 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
 
     def test_codex_mcp_config_is_toml_safe_for_unicode_and_quotes(self) -> None:
-        root = Path('C:/vault/emoji-U0001f9e0/quoted-"root"')
+        root = Path('C:/vault/emoji-🧠/quoted-"root"')
         rendered = build_mcp_config(
-            "codex", "installed", root, command='ai-"dememory', command_args=["--label", "brain-U0001f9e0"]
+            "codex", "installed", root, command='ai-"dememory', command_args=["--label", "brain-🧠"]
         )
         config = tomllib.loads(rendered)["mcp_servers"]["ai-dememory"]
         self.assertEqual(config["command"], 'ai-"dememory')
-        self.assertEqual(config["args"], ["--label", "brain-U0001f9e0", "mcp", "--stdio"])
+        self.assertEqual(config["args"], ["--label", "brain-🧠", "mcp", "--stdio"])
         self.assertEqual(config["env"]["AI_DEMEMORY_ROOT"], str(root))
+
+    def test_mcp_client_smoke_selects_server_from_codex_toml(self) -> None:
+        rendered = build_mcp_config("codex", "installed", Path("C:/vault"))
+        server, selected_name = select_server_config(rendered)
+        self.assertEqual(selected_name, "ai-dememory")
+        self.assertEqual(server["command"], "ai-dememory")
+        self.assertEqual(server["args"], ["mcp", "--stdio"])
 
     def test_cli_accepts_global_root_before_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
