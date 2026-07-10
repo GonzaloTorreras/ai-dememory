@@ -31,7 +31,7 @@ from vault_setup_guard import validate_vault_setup
 from verify_mcp_contract import validate_contract
 
 
-EXPECTED_VERSION = "2.0.0"
+EXPECTED_VERSION = "2.0.0rc1"
 EXPECTED_PLUGIN_MCP_TOOLS = (
     "memory.search",
     "memory.get",
