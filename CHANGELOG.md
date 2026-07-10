@@ -3,6 +3,12 @@
 All notable changes to ai-dememory are documented here. Release headings are
 machine-validated and use the form `## [VERSION] - YYYY-MM-DD`.
 
+## [2.0.0rc1] - 2026-07-10
+
+- Exercise the complete AI-operated Trusted Publishing path on TestPyPI.
+- Verify OIDC identity, exact-artifact smoke, checksums, attestations,
+  post-index installation and GitHub prerelease creation before stable launch.
+
 ## [2.0.0] - 2026-07-10
 
 - Publish the first clean public source snapshot under Apache-2.0.
