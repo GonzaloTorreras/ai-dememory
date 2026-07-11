@@ -32,7 +32,7 @@ from verify_mcp_contract import validate_contract
 from ai_dememory_tool.mcp_profiles import CORE_MCP_TOOLS
 
 
-EXPECTED_VERSION = "2.0.0"
+EXPECTED_VERSION = "2.1.0"
 LEGACY_DEFAULT_PLUGIN_MCP_TOOLS = (
     "memory.search",
     "memory.get",

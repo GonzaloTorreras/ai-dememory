@@ -1,6 +1,6 @@
 {
   "name": "ai-dememory",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Local-first memory recall, working-session handoffs, review inbox, and maintenance workflows for Codex.",
   "author": {
     "name": "Gonzalo Torreras"
