@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
 
-from memorylib import contained_relative_path, repo_relative_path, repo_root, slugify
+from memorylib import contained_relative_path, logical_relative_path, repo_relative_path, repo_root, slugify
 from secret_scan import scan_text
 
 
@@ -53,9 +54,9 @@ def handoff(root: Path, title: str, notes: str) -> Path:
 
 
 def reject_working_path_symlink_components(root: Path, target: Path, label: str) -> None:
-    root_abs = root.resolve()
+    root_abs = Path(os.path.abspath(root))
     try:
-        rel = contained_relative_path(target, root)
+        rel = logical_relative_path(target, root_abs)
     except ValueError as exc:
         raise ValueError(f"{label} must stay inside the memory root") from exc
     current = root_abs
@@ -63,6 +64,10 @@ def reject_working_path_symlink_components(root: Path, target: Path, label: str)
         current = current / part
         if current.is_symlink():
             raise ValueError(f"{label} must not contain symlinks")
+    try:
+        contained_relative_path(target, root_abs)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside the memory root") from exc
 
 
 def render_recent(payload: dict[str, Any]) -> str:

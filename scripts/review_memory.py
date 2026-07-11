@@ -20,6 +20,7 @@ from memorylib import (
     MemoryDocument,
     contained_relative_path,
     extract_summary,
+    logical_relative_path,
     parse_value,
     repo_relative_path,
     repo_root,
@@ -651,7 +652,7 @@ def archived_review_recommendations(
     invalid: list[InvalidReviewRecommendation] = []
     if archive_target.exists():
         for path in iter_review_recommendation_archive_files(archive_target, recursive):
-            relpath = contained_relative_path(path, root).as_posix()
+            relpath = logical_relative_path(path, root).as_posix()
             if path.is_symlink():
                 invalid.append(InvalidReviewRecommendation(path=relpath, error="archive entry must not be a symlink"))
                 continue
@@ -744,7 +745,7 @@ def review_recommendation_state(
     for path in sorted(directory.glob("*.md")):
         if path.name.lower() == "readme.md":
             continue
-        relpath = contained_relative_path(path, root).as_posix()
+        relpath = logical_relative_path(path, root).as_posix()
         if path.is_symlink():
             invalid.append(InvalidReviewRecommendation(path=relpath, error="review recommendation entry must not be a symlink"))
             continue
@@ -916,7 +917,7 @@ def restore_archived_review_recommendation(
 
     if archive_target.exists():
         for path in iter_review_recommendation_archive_files(archive_target, recursive):
-            relpath = contained_relative_path(path, root).as_posix()
+            relpath = logical_relative_path(path, root).as_posix()
             if path.is_symlink():
                 skipped.append({"path": relpath, "id": "", "reason": "symlink_archive_entry"})
                 continue

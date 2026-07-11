@@ -20,6 +20,7 @@ from memorylib import (
     FrontmatterError,
     SOURCE_KINDS,
     contained_relative_path,
+    logical_relative_path,
     parse_frontmatter_text,
     repo_relative_path,
     repo_root,
@@ -419,7 +420,7 @@ def hook_capture_summary(
     due_paths: list[str] = []
     unfiltered_total_count = 0
     for path in files:
-        relpath = contained_relative_path(path, root_abs).as_posix()
+        relpath = logical_relative_path(path, root_abs).as_posix()
         if path.is_symlink():
             malformed.append({"path": relpath, "error": "symlink capture entry"})
             continue
@@ -728,7 +729,7 @@ def archive_reviewed_hook_captures(
     unfiltered_total_count = 0
 
     for path in files:
-        relpath = contained_relative_path(path, root_abs).as_posix()
+        relpath = logical_relative_path(path, root_abs).as_posix()
         if path.is_symlink():
             skipped.append({"path": relpath, "reason": "symlink_capture_entry"})
             continue
@@ -819,7 +820,7 @@ def ensure_hook_capture_path(root: Path, capture_path: str | Path) -> Path:
     inbox = resolve_hook_capture_inbox_root(root)
     target = Path(os.path.abspath(candidate))
     try:
-        relative_target = contained_relative_path(target, inbox)
+        relative_target = logical_relative_path(target, inbox)
     except ValueError as exc:
         raise HookEventError("hook capture review path must stay under inbox/session-events") from exc
     current = inbox
@@ -827,6 +828,10 @@ def ensure_hook_capture_path(root: Path, capture_path: str | Path) -> Path:
         current = current / part
         if current.is_symlink():
             raise HookEventError("hook capture review path must not contain symlinks")
+    try:
+        contained_relative_path(target, inbox)
+    except ValueError as exc:
+        raise HookEventError("hook capture review path must stay under inbox/session-events") from exc
     if target.suffix.lower() != ".md":
         raise HookEventError("hook capture review path must be a Markdown file")
     if not target.exists():

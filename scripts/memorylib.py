@@ -94,6 +94,15 @@ def repo_root(path: str | Path | None = None) -> Path:
     return REPO_ROOT
 
 
+def logical_relative_path(path: str | Path, root: str | Path) -> Path:
+    """Return an abspath-normalized relative path without following symlinks."""
+    logical_root = Path(os.path.abspath(Path(root).expanduser()))
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = logical_root / candidate
+    return Path(os.path.abspath(candidate)).relative_to(logical_root)
+
+
 def contained_relative_path(path: str | Path, root: str | Path) -> Path:
     """Return the logical path below *root* after validating resolved containment.
 
@@ -113,7 +122,7 @@ def contained_relative_path(path: str | Path, root: str | Path) -> Path:
     resolved_candidate = logical_candidate.resolve(strict=False)
     resolved_relative = resolved_candidate.relative_to(resolved_root)
     try:
-        return logical_candidate.relative_to(logical_root)
+        return logical_relative_path(logical_candidate, logical_root)
     except ValueError:
         # The caller may have supplied one side through an OS path alias and
         # the other through its canonical spelling. Resolved containment above

@@ -69,7 +69,7 @@ class PathPortabilityTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 contained_relative_path(link / "current.json", root)
-            with self.assertRaisesRegex(ValueError, "stay inside"):
+            with self.assertRaisesRegex(ValueError, "must not contain symlinks"):
                 reject_working_path_symlink_components(root, link / "current.json", "working path")
 
     def test_symlink_component_inside_root_remains_visible_to_guard(self) -> None:
