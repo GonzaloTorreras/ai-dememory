@@ -13,6 +13,14 @@ from typing import Any
 
 from memorylib import repo_root
 
+try:
+    from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
+except ModuleNotFoundError:  # Direct execution from scripts/ outside the repo cwd.
+    package_root = Path(__file__).resolve().parents[1]
+    if str(package_root) not in sys.path:
+        sys.path.insert(0, str(package_root))
+    from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
+
 
 INVENTORY_DOCS = (
     "README.md",
@@ -38,10 +46,7 @@ class InventoryIssue:
 
 
 def load_server(root: Path) -> Any:
-    server_dir = root / "mcp" / "server"
-    if str(server_dir) not in sys.path:
-        sys.path.insert(0, str(server_dir))
-    import memory_mcp  # type: ignore
+    from ai_dememory_tool.mcp_server import memory_mcp
 
     return memory_mcp
 
@@ -49,16 +54,31 @@ def load_server(root: Path) -> Any:
 def build_inventory(root: Path) -> dict[str, Any]:
     server = load_server(root)
     tools = sorted(tool["name"] for tool in server.TOOLS)
+    tool_definitions = {tool["name"]: tool for tool in server.TOOLS}
     prompts = sorted(prompt["name"] for prompt in server.PROMPTS)
     resource_templates = [
         template["uriTemplate"]
         for template in server.list_resource_templates()["resourceTemplates"]
     ]
+    profiles: dict[str, dict[str, Any]] = {}
+    for profile_name in MCP_PROFILE_NAMES:
+        profile_tools = enabled_tools_for_profile(profile_name, tools) or ()
+        missing = sorted(set(profile_tools) - set(tools))
+        selected = [tool_definitions[name] for name in profile_tools if name in tool_definitions]
+        schema_bytes = len(json.dumps(selected, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        profiles[profile_name] = {
+            "tool_count": len(profile_tools),
+            "schema_bytes": schema_bytes,
+            "estimated_schema_tokens": (schema_bytes + 3) // 4,
+            "tools": list(profile_tools),
+            "missing_tools": missing,
+        }
     return {
         "protocol_versions": list(server.SUPPORTED_PROTOCOL_VERSIONS),
         "capabilities": sorted(server.SERVER_CAPABILITIES.keys()),
         "tool_count": len(tools),
         "tools": tools,
+        "profiles": profiles,
         "prompt_count": len(prompts),
         "prompts": prompts,
         "resource_templates": sorted(resource_templates),
@@ -101,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     parser.add_argument("--check-docs", action="store_true", help="Validate docs against the server inventory.")
+    parser.add_argument("--profile", choices=MCP_PROFILE_NAMES, help="Report one client tool profile.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
     args = parser.parse_args(argv)
 
@@ -118,12 +139,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if issues else 0
 
     inventory = build_inventory(root)
+    if args.profile:
+        inventory = {"profile": args.profile, **inventory["profiles"][args.profile]}
     if args.json:
         print(json.dumps(inventory, indent=2))
     else:
-        print(f"MCP inventory: {inventory['tool_count']} MCP tools")
-        for tool_name in inventory["tools"]:
-            print(f"- {tool_name}")
+        if args.profile:
+            print(
+                f"MCP profile {args.profile}: {inventory['tool_count']} tools, "
+                f"{inventory['schema_bytes']} schema bytes, "
+                f"~{inventory['estimated_schema_tokens']} schema tokens"
+            )
+            for tool_name in inventory["tools"]:
+                print(f"- {tool_name}")
+        else:
+            print(f"MCP inventory: {inventory['tool_count']} MCP tools")
+            for profile_name, profile in inventory["profiles"].items():
+                print(
+                    f"- {profile_name}: {profile['tool_count']} tools, "
+                    f"{profile['schema_bytes']} schema bytes, "
+                    f"~{profile['estimated_schema_tokens']} schema tokens"
+                )
+            for tool_name in inventory["tools"]:
+                print(f"- {tool_name}")
     return 0
 
 

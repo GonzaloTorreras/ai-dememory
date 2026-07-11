@@ -17,7 +17,7 @@ from config_file import load_config
 from consolidate_memory import write_report as write_consolidation_report
 from eval_recall import DEFAULT_FIXTURES, evaluate, summary
 from graph_memory import build_graph
-from hook_event import hook_capture_summary, write_hook_capture_report
+from hook_event import hook_capture_files, hook_capture_summary, write_hook_capture_report
 from index_memory import default_db_path, rebuild_index
 from lifecycle import lifecycle_scores, write_lifecycle_report, write_lifecycle_scores
 from manual_acceptance import acceptance_packet_archive_retention_plan, acceptance_packet_archive_status
@@ -374,7 +374,7 @@ def generated_artifact_freshness(
             if name not in WEEKLY_GENERATED_ARTIFACTS
         }
 
-    hook_capture_sources = sorted((root / "inbox" / "session-events").glob("*.md"))
+    hook_capture_sources = hook_capture_files(root / "inbox" / "session-events")
 
     def sources_for_artifact(name: str) -> list[Path]:
         if name == "hook_capture_report":

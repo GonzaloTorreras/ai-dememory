@@ -26,10 +26,7 @@ class ContractIssue:
 
 
 def load_server(root: Path) -> Any:
-    server_dir = root / "mcp" / "server"
-    if str(server_dir) not in sys.path:
-        sys.path.insert(0, str(server_dir))
-    import memory_mcp  # type: ignore
+    from ai_dememory_tool.mcp_server import memory_mcp
 
     return memory_mcp
 

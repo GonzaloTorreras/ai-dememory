@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from memorylib import repo_relative_path, repo_root, slugify
+from memorylib import contained_relative_path, repo_relative_path, repo_root, slugify
 from secret_scan import scan_text
 
 
@@ -55,9 +55,9 @@ def handoff(root: Path, title: str, notes: str) -> Path:
 def reject_working_path_symlink_components(root: Path, target: Path, label: str) -> None:
     root_abs = root.resolve()
     try:
-        rel = target.relative_to(root_abs)
-    except ValueError:
-        rel = target.resolve().relative_to(root_abs)
+        rel = contained_relative_path(target, root)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside the memory root") from exc
     current = root_abs
     for part in rel.parts:
         current = current / part

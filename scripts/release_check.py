@@ -29,10 +29,11 @@ from release_checklist_guard import validate_release_checklist
 from roadmap_status import roadmap_status
 from vault_setup_guard import validate_vault_setup
 from verify_mcp_contract import validate_contract
+from ai_dememory_tool.mcp_profiles import CORE_MCP_TOOLS
 
 
 EXPECTED_VERSION = "2.0.0"
-EXPECTED_PLUGIN_MCP_TOOLS = (
+LEGACY_DEFAULT_PLUGIN_MCP_TOOLS = (
     "memory.search",
     "memory.get",
     "memory.context",
@@ -109,6 +110,14 @@ EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS = (
     "memory.reindex",
     "memory.secret_scan",
     "memory.sleep_apply_reviewed",
+)
+
+# The complete historical classification remains a drift guard for the 74-tool
+# server, while the plugin now exposes the intentionally small core profile.
+ALL_CLASSIFIED_MCP_TOOLS = LEGACY_DEFAULT_PLUGIN_MCP_TOOLS + EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS
+EXPECTED_PLUGIN_MCP_TOOLS = CORE_MCP_TOOLS
+EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS = tuple(
+    tool for tool in ALL_CLASSIFIED_MCP_TOOLS if tool not in EXPECTED_PLUGIN_MCP_TOOLS
 )
 
 
@@ -640,6 +649,8 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
             errors.append("plugin name must be ai-dememory")
         if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("version") or "")):
             errors.append("plugin version must be semver")
+        elif manifest.get("version") != EXPECTED_VERSION:
+            errors.append(f"plugin version must match package version {EXPECTED_VERSION}")
         if manifest.get("skills") not in {"./skills/", "skills"}:
             errors.append("plugin skills path must point to ./skills/")
         if manifest.get("mcpServers") not in {"./.mcp.json", ".mcp.json"}:
@@ -649,6 +660,15 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
 
     inventory = build_inventory(root)
     inventory_tools = set(inventory["tools"])
+    for profile_name, profile in inventory["profiles"].items():
+        if profile["missing_tools"]:
+            errors.append(
+                f"MCP profile {profile_name} references missing tools "
+                + ", ".join(profile["missing_tools"][:5])
+            )
+    core_count = inventory["profiles"]["core"]["tool_count"]
+    if not 5 <= core_count <= 8:
+        errors.append(f"MCP core profile must contain 5-8 tools, found {core_count}")
     plugin_tools = set(EXPECTED_PLUGIN_MCP_TOOLS)
     server_only_tools = set(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)
     overlapping_classification = sorted(plugin_tools & server_only_tools)
@@ -737,6 +757,7 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
         "codex_plugin",
         f"manifest, MCP config with {len(EXPECTED_PLUGIN_MCP_TOOLS)} tools, "
         f"{len(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)} server-only tools classified, "
+        f"core schema {inventory['profiles']['core']['schema_bytes']} bytes, "
         f"hooks, marketplace, and {len(expected_skills)} skills",
     )
 

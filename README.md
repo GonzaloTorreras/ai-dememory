@@ -91,6 +91,10 @@ readiness, scheduler environment/status, provider readiness, maintenance
 preflight commands, generated artifact state and freshness, generated packet
 archive cleanup counts, lock state, and review queues into one local setup
 health summary.
+It reports separate `core_ready`, `retrieval_evaluated`,
+`maintenance_ready`, `integrations_ready`, and `release_ready` dimensions.
+The legacy `ready` field is deprecated and is only an alias for
+`core_ready`; it must not be interpreted as overall setup or release health.
 `schedule plan --json` is read-only and returns host scheduler commands,
 reviewed cron export entries, Docker command shapes when requested, and
 side-effect flags before any `schedule setup` command writes config or touches
@@ -205,6 +209,12 @@ Distribution and user vault setup:
 
 Implemented MCP surface: 74 MCP tools.
 
+Generated Codex config and the bundled plugin expose only the seven-tool
+`core` profile by default. Additive `working` and `review` profiles are opt-in;
+`admin` preserves the complete server for backwards compatibility. See
+[MCP tool profiles](docs/mcp-tool-profiles.md), including reproducible schema
+byte and estimated-token measurements.
+
 - Tools: `memory.search`, `memory.get`, `memory.write_proposal`,
   `memory.mark_seen`, `memory.reindex`, `memory.consolidate`,
   `memory.secret_scan`, `memory.graph`, `memory.doctor`,
@@ -253,12 +263,9 @@ Implemented MCP surface: 74 MCP tools.
   `memory_review_inbox`.
 - Utilities: `initialize`, `notifications/initialized`, and `ping`.
 
-The checked-in Codex plugin enables a curated review-first subset of the MCP
-server. `memory.reindex`, `memory.consolidate`, `memory.secret_scan`,
-`memory.mark_seen`, `memory.import_chats`, `memory.maintenance_run`, and
-`memory.sleep_apply_reviewed` are server-only by default for plugin installs;
-use the CLI or an explicitly broader MCP client config when those broad local
-actions are intended.
+The checked-in Codex plugin enables `core`. Use `working` or `review` only for
+those workflows; use the CLI or explicit `admin` profile when broad local
+execution tools are intended.
 
 Safety defaults:
 

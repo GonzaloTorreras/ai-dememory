@@ -8,6 +8,11 @@ description: Maintain generated ai-dememory working state and handoffs through M
 Use working-memory tools for operational session state only. Working files are
 not canonical durable memory and must not be treated as reviewed facts.
 
+Reading current state works with the default `core` profile. Snapshot, handoff,
+miss, and usefulness writes require the opt-in `working` profile. Durable
+candidate proposals require `review`; use the documented CLI fallback if the
+active client cannot change profiles.
+
 Preferred MCP workflow:
 
 1. Call `memory.working_status` before resuming work to see whether current
@@ -22,6 +27,10 @@ Preferred MCP workflow:
    continuation instructions.
 6. Use `memory.write_proposal` or explicit CLI capture only for facts that may
    become durable memory, keeping them in review-first inbox paths.
+7. At the end of meaningful work, extract only explicit stable learnings under
+   a concise `Learnings`/`Aprendizajes` heading or write them through
+   `memory.write_proposal`. Stop automation may capture those labelled bullets
+   as a deduplicated, secret-scanned proposal; do not copy the raw transcript.
 
 CLI fallback:
 
@@ -37,5 +46,7 @@ Safety rules:
 - Treat `working/current.json`, `working/recent-session.md`, and
   `working/handoffs/` as generated operational state.
 - Do not promote working state to durable memory without explicit human review.
+- Do not infer preferences, values, or recommendations from silence or a single
+  incidental action; propose only explicit signals for review.
 - Keep handoffs concise enough for the next agent to verify from repository and
   PR state instead of trusting the handoff blindly.

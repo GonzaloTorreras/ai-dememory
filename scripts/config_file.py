@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,12 @@ def load_config_path(path: Path) -> dict[str, dict[str, Any]]:
 
 def parse_scalar(value: str) -> Any:
     value = value.strip()
+    if value.startswith("[") and value.endswith("]"):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        return parsed if isinstance(parsed, list) else value
     if value.startswith('"') and value.endswith('"'):
         return value[1:-1].replace("\\\\", "\\").replace('\\"', '"')
     if value in {"true", "false"}:
@@ -53,6 +60,8 @@ def format_scalar(value: Any) -> str:
         return str(value)
     if value is None:
         return '""'
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 

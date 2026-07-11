@@ -18,6 +18,7 @@ from config_file import ensure_safe_write_path, load_config, load_config_path, s
 from memorylib import (
     FrontmatterError,
     MemoryDocument,
+    contained_relative_path,
     extract_summary,
     parse_value,
     repo_relative_path,
@@ -526,7 +527,7 @@ def capture_review_recommendation(
     )
     path = Path(os.path.abspath(target_dir / filename))
     try:
-        path.relative_to(target_dir)
+        contained_relative_path(path, target_dir)
     except ValueError as exc:
         raise ReviewError("review recommendation file must stay inside review recommendation inbox") from exc
     reject_review_recommendation_symlink_components(
@@ -650,13 +651,12 @@ def archived_review_recommendations(
     invalid: list[InvalidReviewRecommendation] = []
     if archive_target.exists():
         for path in iter_review_recommendation_archive_files(archive_target, recursive):
-            relpath = path.absolute().relative_to(root.resolve()).as_posix()
+            relpath = contained_relative_path(path, root).as_posix()
             if path.is_symlink():
                 invalid.append(InvalidReviewRecommendation(path=relpath, error="archive entry must not be a symlink"))
                 continue
-            source = path.resolve()
             try:
-                source.relative_to(archive_target)
+                contained_relative_path(path, archive_target)
             except ValueError:
                 invalid.append(InvalidReviewRecommendation(path=relpath, error="archive entry must stay under archive root"))
                 continue
@@ -744,13 +744,12 @@ def review_recommendation_state(
     for path in sorted(directory.glob("*.md")):
         if path.name.lower() == "readme.md":
             continue
-        relpath = path.absolute().relative_to(root.resolve()).as_posix()
+        relpath = contained_relative_path(path, root).as_posix()
         if path.is_symlink():
             invalid.append(InvalidReviewRecommendation(path=relpath, error="review recommendation entry must not be a symlink"))
             continue
-        source = path.resolve()
         try:
-            source.relative_to(directory)
+            contained_relative_path(path, directory)
         except ValueError:
             invalid.append(InvalidReviewRecommendation(path=relpath, error="review recommendation entry must stay under inbox root"))
             continue
@@ -854,7 +853,7 @@ def archive_review_recommendations(
 
         source = (root / record.path).resolve()
         try:
-            source.relative_to(inbox_root)
+            contained_relative_path(source, inbox_root)
         except ValueError:
             skipped.append({"path": record.path, "id": record.id or "", "reason": "outside_recommendation_inbox"})
             continue
@@ -917,13 +916,13 @@ def restore_archived_review_recommendation(
 
     if archive_target.exists():
         for path in iter_review_recommendation_archive_files(archive_target, recursive):
-            relpath = path.absolute().relative_to(root.resolve()).as_posix()
+            relpath = contained_relative_path(path, root).as_posix()
             if path.is_symlink():
                 skipped.append({"path": relpath, "id": "", "reason": "symlink_archive_entry"})
                 continue
             source = path.resolve()
             try:
-                source.relative_to(archive_target)
+                contained_relative_path(source, archive_target)
             except ValueError:
                 skipped.append({"path": relpath, "id": "", "reason": "outside_archive_root"})
                 continue
@@ -1064,7 +1063,7 @@ def record_review_recommendation_outcome(
     path = (root / match.path).resolve()
     directory = (root / REVIEW_RECOMMENDATION_DIR).resolve()
     try:
-        path.relative_to(directory)
+        contained_relative_path(path, directory)
     except ValueError as exc:
         raise ReviewError("review recommendation outcome path must stay inside recommendation inbox") from exc
     data, body = parse_review_recommendation_artifact_text(path.read_text(encoding="utf-8"), path)

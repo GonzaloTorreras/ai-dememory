@@ -8,9 +8,16 @@ description: Set up ai-dememory for a local vault, MCP server use, provider impo
 Use the installed `ai-dememory` CLI as the source of truth. Do not edit Codex
 config or OS schedulers unless the user explicitly asks.
 
+The plugin defaults to the small MCP `core` profile. Setup and scheduler tools
+remain CLI-first/admin operations; do not assume that installing the plugin
+exposes their schemas.
+
 Workflow:
 
-1. Run `ai-dememory setup plan --json` for a read-only first-run checklist.
+1. Run `ai-dememory setup plan --json` for a read-only first-run checklist, then
+   use `ai-dememory setup wizard` to preview the minimum reviewed baseline of
+   values, preferences, recommendations, and project profiles. Applying it
+   requires the exact `plan_sha256` returned by that preview.
 2. Run `ai-dememory setup health --json` for combined scheduler, provider,
    artifact, generated packet archive cleanup, lock, and review status before
    applying setup changes.
@@ -19,10 +26,14 @@ Workflow:
 5. Use `ai-dememory hooks config --client codex` or
    `ai-dememory hooks config --client claude` to generate optional hook
    fragments. Do not install them without user approval.
+   Explain that the repository/hook command must be trusted before native
+   injection runs, and that managed instructions are only a weaker fallback.
 6. Use `ai-dememory hooks install --client <client> --dry-run` before writing
    managed `AGENTS.md` or `CLAUDE.md` blocks. Repeated hook captures reuse the
    existing inbox file when provider, event, and payload fingerprint match.
    JSON hook payloads use canonical sorted-key fingerprints.
+   Verify that `UserPromptSubmit` emits JSON `additionalContext`, while Stop and
+   compact events emit valid JSON without free-form capture messages.
 7. Use `ai-dememory providers detect` and `ai-dememory providers plan --json`
    to inspect possible provider folders and show reviewable configure/import
    commands.

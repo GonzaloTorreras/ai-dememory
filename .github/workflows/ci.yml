@@ -26,10 +26,17 @@ jobs:
         run: python -m pip install . mcp==1.28.1
       - name: Verify isolated package namespaces and CLI
         working-directory: ${{ runner.temp }}
-        run: python -c "import mcp, ai_dememory_tool; assert all('site-packages' in module.__file__ for module in (mcp, ai_dememory_tool)); print(mcp.__file__, ai_dememory_tool.__file__)"
+        run: python -c "import mcp, ai_dememory_tool; from ai_dememory_tool.mcp_server import memory_mcp; assert all('site-packages' in module.__file__ for module in (mcp, ai_dememory_tool, memory_mcp)); print(mcp.__file__, ai_dememory_tool.__file__, memory_mcp.__file__)"
       - name: Verify CLI
         working-directory: ${{ runner.temp }}
         run: ai-dememory --version
+      - name: Run platform-pure unit tests
+        run: >-
+          python -m unittest
+          tests.test_portability
+          tests.test_harness_hooks
+          tests.test_onboarding
+          tests.test_turn_context
 
   verify:
     runs-on: ubuntu-latest

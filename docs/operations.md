@@ -33,6 +33,11 @@ readiness, scheduler environment/status, provider readiness, maintenance
 preflight commands and artifact targets, generated artifact state, generated
 packet archive cleanup counts, lock state, and false-positive/conflict review
 queues into one local health response.
+The response intentionally separates `core_ready`, `retrieval_evaluated`,
+`maintenance_ready`, `integrations_ready`, and `release_ready`. A seed-only
+fixture set is not retrieval evidence: `retrieval_evaluated` requires at least
+one valid, fresh reviewed promotion. The deprecated `ready` field is scoped to
+`core_ready` and is retained only for compatibility.
 
 ## Before Indexing Or Exporting
 

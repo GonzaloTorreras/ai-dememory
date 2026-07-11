@@ -12,12 +12,22 @@ from typing import Any
 
 from config_file import load_config
 from index_memory import default_db_path
-from memorylib import extract_summary, load_memory, repo_relative_path, repo_root
-from search_memory import result_to_dict, search
+from memorylib import (
+    MemoryDocument,
+    MemoryError,
+    discover_memory_files,
+    extract_summary,
+    is_memory_file,
+    load_memory,
+    repo_relative_path,
+    repo_root,
+)
+from search_memory import result_to_dict, search, tokenize
 from secret_scan import scan_text
 
 
 DEFAULT_BUDGET_TOKENS = 2000
+DEFAULT_BASELINE_BUDGET_TOKENS = 480
 
 
 @dataclass(frozen=True)
@@ -51,13 +61,34 @@ def assemble_context(
     include_working_memory: bool = True,
     explain_results: bool = False,
     query_source: str = "explicit",
+    project_hint: str | None = None,
+    include_reviewed_durable: bool = False,
+    baseline_budget_tokens: int = DEFAULT_BASELINE_BUDGET_TOKENS,
+    require_reviewed_results: bool = False,
+    min_relevance_score: float | None = None,
 ) -> dict[str, Any]:
     if budget_tokens < 200:
         raise ValueError("budget_tokens must be at least 200")
-    results = search(query, root, limit=limit, include_sensitive=include_sensitive)
+    if baseline_budget_tokens < 0:
+        raise ValueError("baseline_budget_tokens cannot be negative")
+    results = search(
+        query,
+        root,
+        limit=limit,
+        include_sensitive=include_sensitive,
+        project_hint=project_hint,
+    )
     remaining = budget_tokens
     items: list[ContextItem] = []
     sections: list[str] = []
+    selected_ids: set[str] = set()
+    degradation: list[str] = []
+    security_filtered_items = 0
+    relevant_result_ids = {
+        result.id
+        for result in results
+        if min_relevance_score is None or result.score >= min_relevance_score
+    }
 
     if include_working_memory:
         working = working_context(root)
@@ -67,27 +98,95 @@ def assemble_context(
                 sections.append("## Working Memory\n\n" + working)
                 remaining -= tokens
 
+    if include_reviewed_durable:
+        durable_documents, durable_errors = reviewed_durable_documents(root, project_hint)
+        degradation.extend(durable_errors)
+        baseline_remaining = min(remaining, baseline_budget_tokens)
+        for document in durable_documents:
+            data = document.frontmatter
+            if str(data.get("id")) not in relevant_result_ids:
+                continue
+            excerpt = extract_summary(document.content, max_chars=650)
+            path = repo_relative_path(document.path, root)
+            why = {
+                "baseline": "reviewed_durable",
+                "project_hint": project_hint,
+                "project_match": 1.0 if same_project(data.get("project"), project_hint) else 0.0,
+            }
+            section = render_item(str(data["id"]), str(data["title"]), path, 1.0, excerpt, why, explain_results)
+            tokens = estimate_tokens(section)
+            if tokens > remaining or tokens > baseline_remaining:
+                continue
+            if scan_text(section, f"<context:{data['id']}>"):
+                security_filtered_items += 1
+                continue
+            sections.append(section)
+            remaining -= tokens
+            baseline_remaining -= tokens
+            selected_ids.add(str(data["id"]))
+            items.append(
+                ContextItem(
+                    id=str(data["id"]),
+                    title=str(data["title"]),
+                    path=path,
+                    score=1.0,
+                    estimated_tokens=tokens,
+                    why=why,
+                    excerpt=excerpt,
+                )
+            )
+
     for result in results:
-        path = root / result.path
-        document = load_memory(path)
-        excerpt = extract_summary(document.content, max_chars=900) or result.snippet
-        section = render_item(result.id, result.title, result.path, result.score, excerpt, result.why, explain_results)
+        if min_relevance_score is not None and result.score < min_relevance_score:
+            continue
+        if result.id in selected_ids:
+            continue
+        path = safe_memory_path(root, result.path)
+        if path is None:
+            degradation.append(f"invalid_memory_path:{result.id}")
+            continue
+        try:
+            document = load_memory(path)
+        except (MemoryError, OSError, UnicodeError):
+            degradation.append(f"invalid_memory_payload:{result.id}")
+            continue
+        if require_reviewed_results and not auto_injectable(document):
+            degradation.append(f"untrusted_memory_filtered:{result.id}")
+            continue
+        canonical_id = str(document.frontmatter.get("id", ""))
+        if result.id != canonical_id:
+            degradation.append(f"index_identity_mismatch:{result.id}")
+            continue
+        canonical_title = str(document.frontmatter.get("title", canonical_id))
+        canonical_path = repo_relative_path(document.path, root)
+        canonical_why = canonical_selection_evidence(document, query, result.score, project_hint)
+        excerpt = extract_summary(document.content, max_chars=900)
+        section = render_item(
+            canonical_id,
+            canonical_title,
+            canonical_path,
+            result.score,
+            excerpt,
+            canonical_why,
+            explain_results,
+        )
         tokens = estimate_tokens(section)
         if tokens > remaining:
             continue
-        findings = scan_text(section, f"<context:{result.id}>")
+        findings = scan_text(section, f"<context:{canonical_id}>")
         if findings:
+            security_filtered_items += 1
             continue
         sections.append(section)
         remaining -= tokens
         items.append(
             ContextItem(
-                id=result.id,
-                title=result.title,
-                path=result.path,
+                id=canonical_id,
+                title=canonical_title,
+                path=canonical_path,
                 score=result.score,
                 estimated_tokens=tokens,
-                why=result.why,
+                why=canonical_why,
                 excerpt=excerpt,
             )
         )
@@ -100,9 +199,116 @@ def assemble_context(
         "estimated_tokens": estimate_tokens(text),
         "remaining_tokens": max(0, remaining),
         "explain_results": explain_results,
+        "project_hint": project_hint,
+        "degradation": unique_strings(degradation),
+        "security_filtered_items": security_filtered_items,
         "items": [asdict(item) for item in items],
         "text": text,
     }
+
+
+def reviewed_durable_documents(root: Path, project_hint: str | None) -> tuple[list[MemoryDocument], list[str]]:
+    documents: list[MemoryDocument] = []
+    errors: list[str] = []
+    for path in discover_memory_files(root):
+        try:
+            document = load_memory(path)
+        except (MemoryError, OSError, UnicodeError):
+            errors.append(f"invalid_memory_payload:{repo_relative_path(path, root)}")
+            continue
+        data = document.frontmatter
+        if data.get("type") != "durable" or data.get("reviewed") is not True:
+            continue
+        if data.get("status") != "active":
+            continue
+        if data.get("sensitivity") not in {"public", "internal"}:
+            continue
+        tags = data.get("tags") if isinstance(data.get("tags"), list) else []
+        normalized_tags = {str(tag).casefold() for tag in tags}
+        if "baseline" not in normalized_tags and "onboarding" not in normalized_tags:
+            continue
+        project = data.get("project")
+        if project is not None and not same_project(project, project_hint):
+            continue
+        documents.append(document)
+    documents.sort(
+        key=lambda document: (
+            not bool(document.frontmatter.get("pin")),
+            document.frontmatter.get("project") is None,
+            str(document.frontmatter.get("id", "")),
+        )
+    )
+    return documents, errors
+
+
+def auto_injectable(document: MemoryDocument) -> bool:
+    data = document.frontmatter
+    return (
+        data.get("reviewed") is True
+        and data.get("status") == "active"
+        and data.get("sensitivity") in {"public", "internal"}
+    )
+
+
+def canonical_selection_evidence(
+    document: MemoryDocument,
+    query: str,
+    score: float,
+    project_hint: str | None,
+) -> dict[str, Any]:
+    """Rebuild rendered selection metadata from canonical Markdown.
+
+    SQLite is disposable and may be stale. It can choose and score a candidate,
+    but no index-controlled identity or descriptive metadata is injected into
+    model context.
+    """
+    data = document.frontmatter
+    query_terms = tokenize(query)
+    content_terms = set(tokenize(document.content))
+    title_terms = set(tokenize(str(data.get("title", ""))))
+    tags = data.get("tags") if isinstance(data.get("tags"), list) else []
+    aliases = data.get("aliases") if isinstance(data.get("aliases"), list) else []
+    tag_terms = set(tokenize(" ".join(str(value) for value in tags)))
+    alias_terms = set(tokenize(" ".join(str(value) for value in aliases)))
+    canonical_terms = content_terms | title_terms | tag_terms | alias_terms
+    matched_terms = [term for term in query_terms if term in canonical_terms]
+    matched_fields: list[str] = []
+    if any(term in title_terms for term in query_terms):
+        matched_fields.append("title")
+    if any(term in content_terms for term in query_terms):
+        matched_fields.append("content")
+    if any(term in tag_terms for term in query_terms):
+        matched_fields.append("tags")
+    if any(term in alias_terms for term in query_terms):
+        matched_fields.append("aliases")
+    return {
+        "ranking_score": score,
+        "project_hint": project_hint,
+        "project_match": 1.0 if same_project(data.get("project"), project_hint) else 0.0,
+        "matched_terms": matched_terms,
+        "matched_fields": matched_fields,
+        "matched_tags": [str(value) for value in tags if set(tokenize(str(value))) & set(query_terms)],
+        "matched_aliases": [str(value) for value in aliases if set(tokenize(str(value))) & set(query_terms)],
+    }
+
+
+def safe_memory_path(root: Path, relative_path: str) -> Path | None:
+    path = (root / relative_path).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return path if is_memory_file(path, root) else None
+
+
+def same_project(project: Any, project_hint: str | None) -> bool:
+    if not isinstance(project, str) or not project_hint:
+        return False
+    return tokenize(project) == tokenize(project_hint)
+
+
+def unique_strings(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def context_defaults(root: Path) -> ContextDefaults:
@@ -240,6 +446,7 @@ def render_item(
         "fts",
         "tag_overlap",
         "alias_match",
+        "project_match",
         "recency",
         "confidence",
         "type_boost",
@@ -254,6 +461,10 @@ def render_item(
         values = why.get(key)
         if values:
             lines.append(f"- {key}: `{', '.join(str(item) for item in values)}`")
+    if why.get("baseline"):
+        lines.append(f"- baseline: `{why['baseline']}`")
+    if why.get("project_hint"):
+        lines.append(f"- project_hint: `{why['project_hint']}`")
     return section.rstrip() + "\n" + "\n".join(lines) + "\n"
 
 
