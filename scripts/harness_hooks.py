@@ -263,4 +263,3 @@ def resolve_learning_inbox(root: Path) -> Path:
         if current.is_symlink():
             raise ValueError("learning proposal inbox must not contain symlinks")
     return target
-
