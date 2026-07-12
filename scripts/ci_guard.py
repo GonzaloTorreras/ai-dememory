@@ -14,6 +14,7 @@ from memorylib import repo_root
 
 
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
+AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
 
 REQUIRED_COMMANDS = {
     "compile": "python -m compileall -q scripts mcp/server ai_dememory_tool",
@@ -79,7 +80,80 @@ def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return [CiGuardIssue(str(WORKFLOW_PATH), "CI workflow is missing")]
-    return validate_ci_workflow_text(text)
+    issues = validate_ci_workflow_text(text)
+    auto_approve_path = root / AUTO_APPROVE_WORKFLOW_PATH
+    try:
+        auto_approve_text = auto_approve_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        issues.append(CiGuardIssue(str(AUTO_APPROVE_WORKFLOW_PATH), "auto-approval workflow is missing"))
+    else:
+        issues.extend(validate_auto_approve_workflow_text(auto_approve_text))
+    return issues
+
+
+def validate_auto_approve_workflow_text(text: str) -> list[CiGuardIssue]:
+    issues: list[CiGuardIssue] = []
+    required_fragments = {
+        "trigger": "issue_comment:",
+        "created_only": "types: [created]",
+        "actions_read": "actions: read",
+        "contents_read": "contents: read",
+        "issues_read": "issues: read",
+        "pull_requests_write": "pull-requests: write",
+        "trusted_commenter": "github.event.comment.user.login == 'GonzaloTorreras'",
+        "receipt_prefix": "startsWith(github.event.comment.body, '<!-- codex-double-check ')",
+        "tuple_receipt": 'receipt_marker="codex-double-check pr=$PR_NUMBER head=$head_sha base=$base_sha"',
+        "exact_receipt": 'test "$first_line" = "<!-- $receipt_marker -->"',
+        "approved_verdict": "grep -Fxq 'Verdict: APPROVED'",
+        "owner": '.user.login == "GonzaloTorreras"',
+        "main_base": '.base.ref == "main"',
+        "exact_base": '.base.sha == $base',
+        "shared_pr_validator": 'validate_pr() {',
+        "initial_pr_validation": 'validate_pr "$pr_json"',
+        "fresh_pr_validation": 'validate_pr "$fresh_pr_json"',
+        "final_pr_validation": 'validate_pr "$final_pr_json"',
+        "internal_repo": ".head.repo.full_name == $repo",
+        "codex_branch": 'startswith("codex/")',
+        "exact_head": '.head.sha == $sha',
+        "canonical_ci": 'actions/workflows/ci.yml/runs',
+        "pr_binding": '.number == $pr',
+        "ci_base_binding": '.base.sha == $base',
+        "ci_success": 'select(.status == "completed" and .conclusion == "success")',
+        "paginated_reviews": 'gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100"',
+        "review_marker": 'contains($marker)',
+        "boundary_workflows": 'startswith(".github/workflows/")',
+        "boundary_actions": 'startswith(".github/actions/")',
+        "boundary_policy": '. == "AGENTS.md"',
+        "boundary_guard": '. == "scripts/ci_guard.py"',
+        "file_count_cap": '.changed_files | select(type == "number" and . >= 0 and . <= 3000)',
+        "file_count_complete": 'test "$returned_file_count" -eq "$expected_file_count"',
+        "fresh_head": '.head.sha == $sha',
+        "approve": "-f event='APPROVE'",
+        "commit_id": '-f commit_id="$head_sha"',
+    }
+    for name, fragment in required_fragments.items():
+        if fragment not in text:
+            issues.append(
+                CiGuardIssue(
+                    f"auto-approve.yml:{name}",
+                    f"auto-approval workflow is missing required guard: {fragment}",
+                )
+            )
+    forbidden_fragments = {
+        "pull_request_target": "pull_request_target:",
+        "checkout": "actions/checkout@",
+        "artifact_download": "download-artifact",
+        "cache": "actions/cache",
+    }
+    for name, fragment in forbidden_fragments.items():
+        if fragment in text:
+            issues.append(
+                CiGuardIssue(
+                    f"auto-approve.yml:{name}",
+                    f"privileged auto-approval workflow must not contain: {fragment}",
+                )
+            )
+    return issues
 
 
 def validate_ci_workflow_text(text: str) -> list[CiGuardIssue]:
