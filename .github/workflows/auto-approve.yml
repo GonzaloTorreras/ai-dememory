@@ -1,0 +1,143 @@
+name: Auto-approve after Codex double-check
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: write
+
+concurrency:
+  group: codex-auto-approve-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: >-
+      github.event.issue.pull_request != null &&
+      github.event.comment.user.login == 'GonzaloTorreras' &&
+      startsWith(github.event.comment.body, '<!-- codex-double-check ')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Approve the exact double-checked head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          RECEIPT_BODY: ${{ github.event.comment.body }}
+          RECEIPT_URL: ${{ github.event.comment.html_url }}
+        run: |
+          set -euo pipefail
+
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*) echo "invalid PR number" >&2; exit 1 ;;
+          esac
+
+          pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          head_sha="$(jq -er '.head.sha | select(test("^[0-9a-f]{40}$"))' <<<"$pr_json")"
+          base_sha="$(jq -er '.base.sha | select(test("^[0-9a-f]{40}$"))' <<<"$pr_json")"
+          head_branch="$(jq -er '.head.ref' <<<"$pr_json")"
+
+          validate_pr() {
+            jq -e \
+              --arg repo "$REPO" \
+              --arg sha "$head_sha" \
+              --arg base "$base_sha" \
+              --arg branch "$head_branch" \
+              '.state == "open" and
+               .draft == false and
+               .base.ref == "main" and
+               .base.sha == $base and
+               .head.sha == $sha and
+               .head.ref == $branch and
+               .head.repo.full_name == $repo and
+               .user.login == "GonzaloTorreras" and
+               ($branch | startswith("codex/"))' \
+              <<<"$1" >/dev/null
+          }
+          validate_pr "$pr_json"
+
+          changed_files="$(
+            gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100"
+          )"
+          expected_file_count="$(
+            jq -er '.changed_files | select(type == "number" and . >= 0 and . <= 3000)' \
+              <<<"$pr_json"
+          )"
+          returned_file_count="$(jq -er 'flatten | length' <<<"$changed_files")"
+          test "$returned_file_count" -eq "$expected_file_count"
+          if jq -e \
+            'any(.[][] | .filename;
+                 . == "AGENTS.md" or
+                 . == "scripts/ci_guard.py" or
+                 startswith(".github/workflows/") or
+                 startswith(".github/actions/"))' \
+            <<<"$changed_files" >/dev/null; then
+            echo "security-boundary changes require the explicit bootstrap path" >&2
+            exit 1
+          fi
+
+          receipt_marker="codex-double-check pr=$PR_NUMBER head=$head_sha base=$base_sha"
+          first_line="${RECEIPT_BODY%%$'\n'*}"
+          test "$first_line" = "<!-- $receipt_marker -->"
+          grep -Fxq 'Verdict: APPROVED' <<<"$RECEIPT_BODY"
+
+          reviews_json="$(
+            gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100"
+          )"
+
+          fresh_pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          validate_pr "$fresh_pr_json"
+
+          runs_json="$(
+            gh api --method GET "repos/$REPO/actions/workflows/ci.yml/runs" \
+              -f head_sha="$head_sha" \
+              -f event='pull_request' \
+              -f per_page=20
+          )"
+          latest_run="$(
+            jq -cer \
+              --arg repo "$REPO" \
+              --arg sha "$head_sha" \
+              --arg base "$base_sha" \
+              --arg branch "$head_branch" \
+              --argjson pr "$PR_NUMBER" \
+              '[.workflow_runs[] |
+                select(.head_sha == $sha and
+                       .head_branch == $branch and
+                       .head_repository.full_name == $repo and
+                       .event == "pull_request" and
+                       any(.pull_requests[]?;
+                           .number == $pr and
+                           .base.ref == "main" and
+                           .base.sha == $base and
+                           .head.ref == $branch and
+                           .head.sha == $sha))] |
+               sort_by(.run_number, .run_attempt) |
+               last | select(.status == "completed" and .conclusion == "success")' \
+              <<<"$runs_json"
+          )"
+          ci_url="$(jq -er '.html_url' <<<"$latest_run")"
+
+          if jq -e --arg sha "$head_sha" --arg marker "$receipt_marker" \
+            'any(.[][];
+                 .user.login == "github-actions[bot]" and
+                 .state == "APPROVED" and
+                 .commit_id == $sha and
+                 (.body // "" | contains($marker)))' \
+            <<<"$reviews_json" >/dev/null; then
+            echo "github-actions[bot] already approved $receipt_marker"
+            exit 0
+          fi
+
+          final_pr_json="$(gh api "repos/$REPO/pulls/$PR_NUMBER")"
+          validate_pr "$final_pr_json"
+
+          gh api --method POST "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+            -f event='APPROVE' \
+            -f commit_id="$head_sha" \
+            -f body="Automated approval after $receipt_marker; receipt $RECEIPT_URL; successful CI $ci_url."
