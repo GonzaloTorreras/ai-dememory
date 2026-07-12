@@ -22,12 +22,29 @@ This repository stores personal and project memory for multiple LLM tools.
   a release pass.
 - Whenever a PR is ready for merge, delegate a fresh,
   read-only professional review to a subagent with the GitHub plugin context
-  before asking for or acting on approval.
+  before recording or acting on approval.
 - Give the reviewer enough context to understand the stack, base/head branches,
   CI status, test evidence, and intended merge order, but avoid dumping noisy
   implementation history.
 - The reviewer must not merge, publish, or mutate repository state. Codex uses
   its findings and required CI to decide whether to merge or continue fixing.
+- After the fresh reviewer approves and CI is green for the exact unchanged PR
+  number, head SHA, and base SHA, Codex records a tuple-bound
+  `codex-double-check` receipt on the PR.
+  The trusted default-branch workflow then submits the formal review as
+  `github-actions[bot]`; no second human account is required.
+- Auto-approval is restricted to non-draft PRs authored by `GonzaloTorreras`,
+  targeting `main`, using an internal `codex/*` branch, with successful
+  canonical CI for that exact tuple. It never checks out PR code or reads PR
+  artifacts in the privileged workflow.
+- A new head commit or movement of `main` invalidates the receipt. Codex must
+  update the branch, rerun relevant tests, obtain a fresh read-only review,
+  wait for green CI, and record a new tuple-bound receipt before approval or
+  merge. Branch protection must require one approval, dismiss stale reviews,
+  require approval after the latest push, and require the branch to be current.
+- PRs that change `AGENTS.md`, `scripts/ci_guard.py`, `.github/workflows/*`, or
+  `.github/actions/*` are outside auto-approval. They use the explicit
+  security-boundary bootstrap procedure in `docs/auto-approval.md`.
 - Codex must not bypass branch/tag protections, rewrite published tags, delete
   releases, change repository visibility, rotate credentials, or weaken OIDC.
   PyPI rollback is yank plus fix-forward with a new version, never overwrite.

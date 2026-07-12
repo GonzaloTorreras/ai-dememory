@@ -224,7 +224,7 @@ from review_memory import (  # noqa: E402
     write_stale_false_positive_report,
 )
 from ai_dememory_tool.cli import build_mcp_config, copy_template_tree, export_vault_template, main as cli_main, mcp_config  # noqa: E402
-from ci_guard import validate_ci_workflow, validate_ci_workflow_text  # noqa: E402
+from ci_guard import validate_auto_approve_workflow_text, validate_ci_workflow, validate_ci_workflow_text  # noqa: E402
 from artifact_guard import validate_artifact_paths  # noqa: E402
 from vault_setup_guard import validate_create_memory_repo_text, validate_vault_setup  # noqa: E402
 from durable_provenance import audit_durable_provenance, render_markdown as render_provenance_markdown  # noqa: E402
@@ -9406,6 +9406,96 @@ jobs:
         issues = validate_ci_workflow(ROOT)
 
         self.assertFalse(issues)
+
+    def test_auto_approve_guard_accepts_current_workflow(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+
+        issues = validate_auto_approve_workflow_text(text)
+
+        self.assertFalse(issues)
+
+    def test_auto_approve_guard_rejects_untrusted_code_execution(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+
+        issues = validate_auto_approve_workflow_text(
+            text
+            + "\n  pull_request_target:\n"
+            + "\n      - uses: actions/checkout@deadbeef\n"
+            + "\n      - uses: actions/download-artifact@deadbeef\n"
+        )
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("pull_request_target", messages)
+        self.assertIn("actions/checkout@", messages)
+        self.assertIn("download-artifact", messages)
+
+    def test_auto_approve_guard_requires_tuple_receipt_and_successful_ci(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+        weakened = text.replace(
+            'test "$first_line" = "<!-- $receipt_marker -->"',
+            "echo receipt-not-bound",
+        ).replace(
+            'select(.status == "completed" and .conclusion == "success")',
+            "select(.conclusion != null)",
+        )
+
+        issues = validate_auto_approve_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("auto-approve.yml:exact_receipt", targets)
+        self.assertIn("auto-approve.yml:ci_success", targets)
+
+    def test_auto_approve_guard_requires_pr_base_and_review_binding(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+        weakened = (
+            text.replace('.number == $pr', '.number > 0')
+            .replace('.base.sha == $base', '.base.sha != null')
+            .replace('contains($marker)', 'length > 0')
+        )
+
+        issues = validate_auto_approve_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("auto-approve.yml:pr_binding", targets)
+        self.assertIn("auto-approve.yml:exact_base", targets)
+        self.assertIn("auto-approve.yml:ci_base_binding", targets)
+        self.assertIn("auto-approve.yml:review_marker", targets)
+
+    def test_auto_approve_guard_requires_security_boundary_exclusions(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+        weakened = text.replace('startswith(".github/workflows/")', 'false')
+
+        issues = validate_auto_approve_workflow_text(weakened)
+
+        self.assertIn(
+            "auto-approve.yml:boundary_workflows",
+            {issue.target for issue in issues},
+        )
+
+    def test_auto_approve_guard_rejects_truncated_changed_file_listing(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+        weakened = text.replace(
+            'test "$returned_file_count" -eq "$expected_file_count"',
+            'echo truncated-list-accepted',
+        )
+
+        issues = validate_auto_approve_workflow_text(weakened)
+
+        self.assertIn(
+            "auto-approve.yml:file_count_complete",
+            {issue.target for issue in issues},
+        )
+
+    def test_auto_approve_guard_requires_full_fresh_state_recheck(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+        weakened = text.replace('validate_pr "$final_pr_json"', 'echo stale-state-accepted')
+
+        issues = validate_auto_approve_workflow_text(weakened)
+
+        self.assertIn(
+            "auto-approve.yml:final_pr_validation",
+            {issue.target for issue in issues},
+        )
 
     def test_ci_guard_rejects_missing_required_v2_gates(self) -> None:
         incomplete = """
