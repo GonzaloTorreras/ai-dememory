@@ -49,6 +49,14 @@ If fixture results make a vector experiment eligible, release evidence adds a
 `vector_readiness_review` blocker. The reviewed promotion itself is still the
 evidence that weekly recall quality is improving from real misses.
 
+For the 2.1.0 release, the five checked-in fixtures are bootstrap fixtures with
+`source_ref: initial-quality-fixture`; they validate deterministic mechanics,
+not production recall effectiveness. Do not convert their passing result into
+a recall-quality claim. Product evidence starts when reviewed misses are
+promoted with their source references. A useful next evidence milestone is at
+least 20 promoted misses spanning multiple projects and both project-specific
+and cross-project queries, reported separately from the bootstrap set.
+
 Use `recall-fixtures review-plan` during weekly review to list pending
 `inbox/recall-feedback/` miss files, malformed miss files, fixture freshness,
 bounded recent resolved misses, a `candidate_check_command` template, and the

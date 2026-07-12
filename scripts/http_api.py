@@ -20,7 +20,7 @@ if str(MCP_SERVER) not in sys.path:
 
 from graph_memory import build_graph
 from index_memory import default_db_path, rebuild_index
-from memory_mcp import get_memory, write_proposal
+from ai_dememory_tool.mcp_server.memory_mcp import get_memory, write_proposal
 from memorylib import repo_root
 from search_memory import result_to_dict, search
 from secret_scan import scan_paths

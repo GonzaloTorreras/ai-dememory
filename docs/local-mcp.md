@@ -44,6 +44,7 @@ The generated Codex config uses TOML:
 [mcp_servers.ai-dememory]
 command = "ai-dememory"
 args = ["mcp", "--stdio"]
+enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.graph", "memory.doctor", "memory.working_current", "memory.working_status"]
 
 [mcp_servers.ai-dememory.env]
 AI_DEMEMORY_ROOT = "<vault path>"
@@ -51,6 +52,9 @@ AI_DEMEMORY_ROOT = "<vault path>"
 
 This is the shape accepted by Codex in `~/.codex/config.toml` or a trusted
 project's `.codex/config.toml`. Claude and generic output modes use JSON.
+The generated Codex config uses the seven-tool `core` profile by default. Pass
+`--profile working`, `--profile review`, or explicitly `--profile admin` to
+change that model-visible surface.
 
 From a source checkout without an editable install, generate and smoke test a
 checkout-safe command:

@@ -8,6 +8,12 @@ the tool, then create a separate private memory vault.
 Use `pipx` for normal CLI use because it installs Python applications in
 isolated environments while keeping their commands on `PATH`.
 
+Normal `ai-dememory --help` foregrounds vault, recall, working-memory, review,
+and setup workflows. Advanced quality tooling plus maintainer-only CI,
+distribution, release, and publishing commands live under
+`ai-dememory dev --help`. Their historical top-level forms remain compatibility
+aliases for existing automation.
+
 ```bash
 pipx install ai-dememory
 ```
@@ -40,9 +46,10 @@ py -3 -m venv .venv
 py -3 -m pip install ai-dememory
 ```
 
-## Development Snapshot From GitHub
+## From GitHub
 
-To test an unreleased commit, install directly from GitHub:
+PyPI is the normal installation source. To test an unreleased development
+snapshot, install directly from GitHub:
 
 ```bash
 pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
@@ -72,6 +79,7 @@ ai-dememory doctor
 ai-dememory index
 ai-dememory graph
 ai-dememory setup plan --json
+ai-dememory setup wizard
 ai-dememory setup health --json
 ai-dememory mcp-config --client codex
 ai-dememory mcp-client-smoke
@@ -92,13 +100,24 @@ repository as a GitHub template. The export command does not create or publish
 the GitHub repository.
 
 Package installation is passive. It does not install scheduler jobs, scan
-provider folders, or enable hook capture.
+provider folders, run the wizard, or enable hook recall/capture.
 
 For a reviewable first-run checklist, use:
 
 ```bash
 ai-dememory setup plan --json
 ```
+
+Then run `ai-dememory setup wizard` to preview a minimum baseline of values,
+preferences, recommendations, and project profiles. Durable writes require
+reviewer identity plus `--expect-plan-sha256 <preview fingerprint>` so changed
+answers cannot be stamped reviewed without a new preview; reconfiguration
+remains review-first.
+
+Hook installation is separate and trust-gated. Generate a fragment with
+`ai-dememory hooks config --client codex` or `--client claude`, inspect it, and
+enable it only in a trusted repository. `hook-event dispatch` uses stdin JSON
+and stdout JSON; invalid payloads or unavailable indexes fail open with `{}`.
 
 The setup plan returns command arrays for MCP config, provider planning, hook
 config, scheduler dry-run, reviewed cron export, maintenance, and manual
@@ -135,6 +154,13 @@ environment/status, provider readiness, maintenance preflight commands and
 artifact targets, generated artifact state, generated packet archive cleanup
 counts, lock state, and review queues. It does not run commands, read provider
 files, write files, or delete archives.
+
+Readiness is dimensional: `core_ready` covers canonical validation and context
+configuration; `retrieval_evaluated` requires fresh reviewed recall evidence;
+`maintenance_ready` covers scheduler and generated artifacts;
+`integrations_ready` covers configured provider/hook surfaces without malformed
+captures; and `release_ready` requires every dimension plus manual acceptance
+and clear review queues. `ready` is a deprecated alias for `core_ready`.
 
 ## Run As A Local MCP Server
 
@@ -264,19 +290,17 @@ Before publishing a package:
   Docker `schedule plan --json`, `maintenance status` generated artifact and
   generated packet archive cleanup visibility, plus vault template export from
   the image.
-- Run `ai-dememory publish-guard` to verify the tag-driven AI-operated release,
-  green-CI tagger, exact-artifact smoke, checksums, attestations, OIDC jobs,
-  post-publish verification and token-free recovery contract.
-- Run `ai-dememory publish-plan --repository testpypi --json` to review the
-  manual dispatch inputs, resolved workflow URL when the local remote is a
-  GitHub repo, preflight commands, release blockers, and false publish
-  side-effect flags before opening the GitHub Actions workflow.
-- Configure PyPI/TestPyPI trusted publishers for
-  `.github/workflows/release.yml` and the matching `pypi`/`testpypi`
-  environments, then enable the `AI_RELEASE_ENABLED=true` repository variable.
-- Prove the path first with a PEP 440 release candidate on TestPyPI. After its
-  post-index install succeeds, enable the stable tag path to PyPI; subsequent
-  releases are automatic when all protected gates pass.
+- Run `ai-dememory dev publish-guard`, package/install smokes, and the release
+  guard before merging the release PR.
+- Merge through protected `main`. After CI succeeds on that exact commit,
+  `.github/workflows/tag-release.yml` derives and creates the immutable
+  matching tag (`v<version>`); do not race it with a manual tag.
+  `.github/workflows/release.yml` is the canonical AI-operated Trusted
+  Publishing path: prerelease tags publish to TestPyPI, stable tags to PyPI,
+  followed by post-index installation and GitHub Release verification.
+- Never reuse or rewrite a published tag. Recovery uses the guarded
+  `workflow_dispatch` path for the same immutable tag; package rollback is yank
+  plus fix-forward with a new version.
 
 References:
 

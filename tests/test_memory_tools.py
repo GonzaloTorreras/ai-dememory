@@ -50,6 +50,7 @@ from hook_event import (  # noqa: E402
     hook_status,
     hook_status_summary,
     install_hook_instructions,
+    serialize_hook_command,
     uninstall_hook_instructions,
     write_hook_capture_report,
 )
@@ -1031,7 +1032,10 @@ class MemoryToolTests(unittest.TestCase):
             path.write_text(f"OPENAI_API_KEY={secret}\n", encoding="utf-8")
             target = false_positive_reviews(root)[0]
 
-            with patch("review_memory.today", return_value=date(2026, 6, 21)):
+            with patch.dict(
+                call_tool.__globals__["ignore_false_positive"].__globals__,
+                {"today": lambda: date(2026, 6, 21)},
+            ):
                 receipt = call_tool(
                     "memory.false_positive_ignore",
                     {
@@ -1376,7 +1380,7 @@ class MemoryToolTests(unittest.TestCase):
             target = false_positive_reviews(root)[0]
             ignore_false_positive(root, target.id, "Documented test fixture redaction.", "Unit Test", review_after_days=1)
 
-            with patch("review_memory.today", return_value=date(2099, 1, 1)):
+            with patch("ai_dememory_tool.admin.review_memory.today", return_value=date(2099, 1, 1)):
                 result = call_tool("memory.review_false_positives", {"due_only": True}, root)
 
         self.assertTrue(result["due_only"])
@@ -7492,6 +7496,16 @@ class MemoryToolTests(unittest.TestCase):
             ["ai-dememory", "maintenance", "run", "--profile", "weekly", "--dry-run", "--json"],
         )
         self.assertTrue(any("quality/recall-fixtures.json" in action for action in health["recall_review"]["next_actions"]))
+        self.assertTrue(health["core_ready"])
+        self.assertFalse(health["retrieval_evaluated"])
+        self.assertFalse(health["maintenance_ready"])
+        self.assertFalse(health["integrations_ready"])
+        self.assertFalse(health["release_ready"])
+        self.assertTrue(health["ready_deprecated"])
+        self.assertEqual(health["ready_scope"], "core_ready")
+        self.assertEqual(health["ready"], health["core_ready"])
+        self.assertEqual(payload["readiness"], health["readiness"])
+        self.assertEqual(mcp_health["release_ready"], health["release_ready"])
 
     def test_setup_health_reports_generated_packet_archive_retention(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7554,6 +7568,7 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertEqual(health["recall_review"]["status"], "pending_review")
         self.assertTrue(health["recall_review"]["available"])
+        self.assertFalse(health["retrieval_evaluated"])
         self.assertEqual(health["recall_review"]["pending_count"], 1)
         self.assertFalse(health["vector_readiness"]["available"])
         self.assertIn("index", health["vector_readiness"]["rationale"])
@@ -8650,6 +8665,16 @@ class MemoryToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(commands["context auto"], ["context", "--auto", "--budget", "700", "--json"])
+        self.assertEqual(
+            commands["turn context"],
+            ["turn-context", "continue install smoke package policy", "--cwd", "{vault}", "--json"],
+        )
+        self.assertEqual(
+            commands["hook prompt dispatch"],
+            ["hook-event", "dispatch", "--client", "codex", "--event", "UserPromptSubmit"],
+        )
+        self.assertIn("--apply", commands["onboarding apply"])
+        self.assertNotIn("--apply", commands["onboarding preview"])
         self.assertEqual(
             commands["mark seen receipt"],
             ["mark-seen", "--id", "mem_install_smoke_policy", "--query", "install smoke package policy", "--json"],
@@ -9881,6 +9906,35 @@ Do the thing.
         self.assertIn("limitations", messages)
         self.assertIn("future_risks", messages)
         self.assertIn("Dependencies", messages)
+
+    def test_adr_guard_rejects_duplicate_numbers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            adr_dir = root / "docs" / "adr"
+            adr_dir.mkdir(parents=True)
+            template = """# ADR 0031: {title}
+
+Status: Accepted
+
+## Context
+Context.
+## Decision
+Decision.
+## Consequences
+Benefit.
+## Limitations
+Limit.
+## Future Work
+Future.
+## Dependencies
+Dependency.
+"""
+            (adr_dir / "0031-first.md").write_text(template.format(title="First"), encoding="utf-8")
+            (adr_dir / "0031-second.md").write_text(template.format(title="Second"), encoding="utf-8")
+
+            issues = validate_adr_docs(root)
+
+        self.assertTrue(any("duplicate ADR 0031" in issue.message for issue in issues))
 
     def test_adr_guard_accepts_legacy_section_names_before_dependency_cutoff(self) -> None:
         legacy = """# ADR 0002: Legacy Shape
@@ -11449,6 +11503,28 @@ Commit placeholders: distilled/README.md indexes/README.md reports/README.md.
         self.assertIn("Claude hook event SessionStart", text)
         self.assertNotIn("startup", text)
 
+    def test_fresh_vault_hook_captures_ignores_inbox_readme(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            init_output = io.StringIO()
+            with redirect_stdout(init_output):
+                init_exit = cli_main(["init", str(root), "--no-wizard"])
+            captures_output = io.StringIO()
+            with redirect_stdout(captures_output):
+                captures_exit = cli_main(["--root", str(root), "hooks", "captures", "--json"])
+            summary = json.loads(captures_output.getvalue())
+            health = setup_health(root, target_platform="linux", mode="installed")
+
+        self.assertEqual(init_exit, 0)
+        self.assertEqual(captures_exit, 0)
+        self.assertEqual(summary["total_count"], 0)
+        self.assertEqual(summary["malformed_count"], 0)
+        self.assertEqual(summary["malformed"], [])
+        self.assertTrue(health["recall_review"]["available"])
+        self.assertEqual(health["recall_review"]["freshness"]["reviewed_promotions"], 0)
+        self.assertFalse(health["retrieval_evaluated"])
+        self.assertFalse(health["release_ready"])
+
     def test_hook_capture_summary_counts_frontmatter_without_payload_body(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -12272,6 +12348,100 @@ Commit placeholders: distilled/README.md indexes/README.md reports/README.md.
         self.assertIn(str(root), claude_command)
         self.assertIn("commandWindows", codex["hooks"]["UserPromptSubmit"][0]["hooks"][0])
         self.assertIn("--provider codex", codex_command)
+
+    def test_generated_hook_command_keeps_shell_metacharacters_in_root_argument(self) -> None:
+        sentinel = "AI_DEMEMORY_HOOK_INJECTION_SENTINEL"
+        root = Path(f"C:\\vault&echo.{sentinel}") if os.name == "nt" else Path(f"/tmp/vault&echo {sentinel}")
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "hook-event").write_text(
+                "import json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            config = hook_config("codex", command=sys.executable, root=root)
+            definition = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+            command_line = definition["commandWindows"] if os.name == "nt" else definition["command"]
+
+            completed = subprocess.run(
+                command_line,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+                cwd=tmp,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        observed_args = json.loads(completed.stdout.strip())
+        self.assertEqual(observed_args[-2:], ["--root", str(root)])
+        expected = serialize_hook_command(
+            [
+                sys.executable,
+                "hook-event",
+                "dispatch",
+                "--provider",
+                "codex",
+                "--event",
+                "UserPromptSubmit",
+                "--root",
+                str(root),
+            ],
+            windows=os.name == "nt",
+        )
+        self.assertEqual(command_line, expected)
+
+    @unittest.skipUnless(os.name == "nt", "cmd.exe environment expansion is Windows-specific")
+    def test_windows_hook_command_does_not_expand_environment_from_root(self) -> None:
+        sentinel = "AI_DEMEMORY_PERCENT_EXPANSION_SENTINEL"
+        root = Path("C:\\vault%AI_DEMEMORY_HOOK_POC%")
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "hook-event").write_text(
+                "import json, sys\nprint(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            config = hook_config("codex", command=sys.executable, root=root)
+            command_line = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]["commandWindows"]
+            environment = os.environ.copy()
+            environment["AI_DEMEMORY_HOOK_POC"] = f'"&echo.{sentinel}&echo "'
+
+            completed = subprocess.run(
+                command_line,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                env=environment,
+                cwd=tmp,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        observed_args = json.loads(completed.stdout.strip())
+        self.assertEqual(observed_args[-2:], ["--root", str(root)])
+        self.assertNotIn("%AI_DEMEMORY_HOOK_POC%", command_line)
+
+    @unittest.skipUnless(os.name == "nt", "Windows launcher round-trip is Windows-specific")
+    def test_windows_hook_command_round_trips_argv_without_shell_interpolation(self) -> None:
+        payload = 'C:\\vault%AI_DEMEMORY_HOOK_POC%&echo.bad!VALUE!`$()'
+        command_line = serialize_hook_command(
+            [sys.executable, "-c", "import sys; print(repr(sys.argv[1]))", payload],
+            windows=True,
+        )
+        environment = os.environ.copy()
+        environment["AI_DEMEMORY_HOOK_POC"] = '"&whoami&echo "'
+
+        completed = subprocess.run(
+            command_line,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            env=environment,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.strip(), repr(payload))
 
     def test_hook_instruction_install_is_idempotent_and_removable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

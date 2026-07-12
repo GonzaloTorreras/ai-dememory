@@ -94,16 +94,52 @@ def repo_root(path: str | Path | None = None) -> Path:
     return REPO_ROOT
 
 
+def logical_relative_path(path: str | Path, root: str | Path) -> Path:
+    """Return an abspath-normalized relative path without following symlinks."""
+    logical_root = Path(os.path.abspath(Path(root).expanduser()))
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = logical_root / candidate
+    return Path(os.path.abspath(candidate)).relative_to(logical_root)
+
+
+def contained_relative_path(path: str | Path, root: str | Path) -> Path:
+    """Return the logical path below *root* after validating resolved containment.
+
+    Both logical paths use ``abspath`` so platform aliases such as macOS
+    ``/var`` and ``/private/var`` are never mixed in one ``relative_to`` call.
+    Resolved containment is checked separately so a symlink cannot escape the
+    root.  Returning the logical relative path preserves symlink components for
+    callers that intentionally reject them one component at a time.
+    """
+    logical_root = Path(os.path.abspath(Path(root).expanduser()))
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = logical_root / candidate
+    logical_candidate = Path(os.path.abspath(candidate))
+
+    resolved_root = logical_root.resolve(strict=False)
+    resolved_candidate = logical_candidate.resolve(strict=False)
+    resolved_relative = resolved_candidate.relative_to(resolved_root)
+    try:
+        return logical_relative_path(logical_candidate, logical_root)
+    except ValueError:
+        # The caller may have supplied one side through an OS path alias and
+        # the other through its canonical spelling. Resolved containment above
+        # has already established that returning this path is safe.
+        return resolved_relative
+
+
 def repo_relative_path(path: Path, root: Path) -> str:
     """Return a repository-relative path with stable POSIX separators."""
-    return path.resolve().relative_to(root.resolve()).as_posix()
+    return contained_relative_path(path, root).as_posix()
 
 
 def is_memory_file(path: Path, root: Path) -> bool:
     if path.name == "README.md" or path.suffix.lower() != ".md":
         return False
     try:
-        rel = path.resolve().relative_to(root.resolve())
+        rel = contained_relative_path(path, root)
     except ValueError:
         return False
     return any(rel == d or d in rel.parents for d in MEMORY_DIRS)

@@ -476,12 +476,76 @@ def assert_vault_template_export(stdout: str, target: Path, expected_reported_ta
         raise InstallSmokeError("vault template export missing LLM capture inbox README")
 
 
+def assert_onboarding(stdout: str, *, applied: bool) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"onboarding did not return JSON: {exc}") from exc
+    if data.get("ok") is not True or data.get("applied") is not applied:
+        raise InstallSmokeError("onboarding apply/preview state was incorrect")
+    if data.get("auto_promotes") is not False or data.get("durable_memory_reviewed") is not True:
+        raise InstallSmokeError("onboarding review-first boundary was missing")
+    if not isinstance(data.get("writes"), list) or len(data["writes"]) < 4:
+        raise InstallSmokeError("onboarding did not plan the minimum memory baseline")
+    if not isinstance(data.get("plan_sha256"), str) or len(data["plan_sha256"]) != 64:
+        raise InstallSmokeError("onboarding did not return a reviewable plan fingerprint")
+    if applied and not data.get("changed"):
+        raise InstallSmokeError("onboarding apply did not write the reviewed baseline")
+
+
+def assert_turn_context(stdout: str) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"turn context did not return JSON: {exc}") from exc
+    if data.get("decision") != "inject" or data.get("query_source") != "turn":
+        raise InstallSmokeError("turn context did not inject prompt-aware memory")
+    if not data.get("items") or not str(data.get("text", "")).strip():
+        raise InstallSmokeError("turn context did not return bounded memory items")
+
+
+def assert_hook_dispatch(stdout: str) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"hook dispatch did not return JSON: {exc}") from exc
+    output = data.get("hookSpecificOutput")
+    if not isinstance(output, dict) or output.get("hookEventName") != "UserPromptSubmit":
+        raise InstallSmokeError("hook dispatch did not return UserPromptSubmit context")
+    if not str(output.get("additionalContext", "")).strip():
+        raise InstallSmokeError("hook dispatch additionalContext was empty")
+
+
 def package_smoke_commands() -> list[tuple[str, list[str]]]:
     return [
         ("doctor", ["doctor"]),
+        (
+            "onboarding preview",
+            [
+                "onboard", "--reviewed-by", "Install Smoke", "--value", "Prefer safe package checks.",
+                "--preference", "Run isolated install smoke first.", "--recommendation",
+                "Recall install smoke project memory.", "--project", "install-smoke", "--json",
+            ],
+        ),
+        (
+            "onboarding apply",
+            [
+                "onboard", "--reviewed-by", "Install Smoke", "--value", "Prefer safe package checks.",
+                "--preference", "Run isolated install smoke first.", "--recommendation",
+                "Recall install smoke project memory.", "--project", "install-smoke", "--apply", "--json",
+            ],
+        ),
         ("validate", ["validate"]),
         ("secret scan", ["secret-scan"]),
         ("index", ["index"]),
+        (
+            "turn context",
+            ["turn-context", "continue install smoke package policy", "--cwd", "{vault}", "--json"],
+        ),
+        (
+            "hook prompt dispatch",
+            ["hook-event", "dispatch", "--client", "codex", "--event", "UserPromptSubmit"],
+        ),
         (
             "working snapshot",
             [
@@ -829,11 +893,13 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         run_step(steps, "create venv", [sys.executable, "-m", "venv", str(venv)])
         python, pip, ai_dememory = venv_paths(venv)
         run_step(steps, "upgrade pip", [str(python), "-m", "pip", "install", "--upgrade", "pip"])
-        run_step(steps, "install package", [str(pip), "install", package], cwd=root)
+        install_env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
+        run_step(steps, "install package", [str(pip), "install", package], cwd=root, env=install_env)
         run_step(steps, "init vault", [str(ai_dememory), "init", str(vault)])
         write_install_smoke_memory(vault)
         sample.write_text("# Install Smoke\n\nCapture this non-secret note.\n", encoding="utf-8")
         env = {**os.environ, "AI_DEMEMORY_ROOT": str(vault)}
+        onboarding_plan_sha256: str | None = None
         doctor_summary = run_step(
             steps,
             "doctor summary",
@@ -843,14 +909,38 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         )
         assert_doctor_summary(doctor_summary.stdout)
         for name, args in package_smoke_commands():
+            input_text = None
+            command_args = materialize_args(args, root, vault, sample, ai_dememory, template_export)
+            if name == "onboarding apply":
+                if not onboarding_plan_sha256:
+                    raise InstallSmokeError("onboarding preview did not return a plan fingerprint")
+                command_args.extend(["--expect-plan-sha256", onboarding_plan_sha256])
+            if name == "hook prompt dispatch":
+                input_text = json.dumps(
+                    {
+                        "prompt": "continue install smoke package policy",
+                        "cwd": str(vault),
+                        "session_id": "install-smoke",
+                    }
+                )
             completed = run_step(
                 steps,
                 name,
-                [str(ai_dememory), *materialize_args(args, root, vault, sample, ai_dememory, template_export)],
+                [str(ai_dememory), *command_args],
                 cwd=vault,
                 env=env,
                 allowed_returncodes={0, 1} if name == "roadmap status" else None,
+                input_text=input_text,
             )
+            if name == "onboarding preview":
+                assert_onboarding(completed.stdout, applied=False)
+                onboarding_plan_sha256 = str(json.loads(completed.stdout).get("plan_sha256") or "")
+            if name == "onboarding apply":
+                assert_onboarding(completed.stdout, applied=True)
+            if name == "turn context":
+                assert_turn_context(completed.stdout)
+            if name == "hook prompt dispatch":
+                assert_hook_dispatch(completed.stdout)
             if name == "mcp release evidence unavailable":
                 assert_release_evidence_unavailable(completed.stdout)
             if name == "mcp release evidence report unavailable":

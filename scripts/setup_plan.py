@@ -46,6 +46,10 @@ def setup_plan(
     clients = selected_clients(client)
     modes = ["installed", "docker"] if mode == "both" else [mode]
     commands: dict[str, Any] = {
+        "onboarding_preview": [command, "setup", "wizard", "--json"],
+        "onboarding_apply": [
+            command, "setup", "wizard", "--apply", "--expect-plan-sha256", "<preview plan_sha256>", "--json"
+        ],
         "doctor": [command, "doctor"],
         "index": [command, "index"],
         "graph": [command, "graph"],
@@ -131,7 +135,8 @@ def setup_plan(
         "commands": commands,
         "provider_plan": provider_plan,
         "next_actions": [
-            "Run doctor and index after creating or opening a vault.",
+            "Preview minimum values, preferences, recommendations, and project aliases with the onboarding wizard.",
+            "Apply the reviewed onboarding payload explicitly, then run doctor and index.",
             "Copy an MCP config for the client you actually use.",
             "Generate report artifacts only when you need a release or review handoff.",
             "Review provider paths before running any providers configure command.",
@@ -198,8 +203,6 @@ def setup_health(
         and vector_readiness.get("decision") == "eligible_for_vector_experiment"
     ):
         next_actions.append("Review vector readiness evidence before approving any vector-search experiment.")
-    if vector_readiness.get("decision") == "insufficient_evidence":
-        next_actions.append("Add recall fixtures with expected retrievals before claiming recall readiness.")
     if not bool(vector_readiness.get("available", False)):
         next_actions.extend(str(action) for action in vector_readiness.get("next_actions", []))
     if not bool(context_config.get("valid", True)):
@@ -217,11 +220,79 @@ def setup_health(
         next_actions.append("Preview maintenance with `ai-dememory maintenance run --profile daily --dry-run --json` before enabling schedules.")
     if not next_actions:
         next_actions.append("Setup health has no immediate review actions.")
+    core_ready = bool(validation.get("ok", False) and context_config.get("valid", True))
+    recall_freshness = recall_review.get("freshness", {})
+    if not isinstance(recall_freshness, dict):
+        recall_freshness = {}
+    retrieval_evaluated = bool(
+        recall_review.get("available", False)
+        and int(recall_review.get("invalid_count", 0)) == 0
+        and int(recall_freshness.get("reviewed_promotions", 0)) > 0
+        and not recall_freshness.get("stale", True)
+    )
+    maintenance_ready = bool(
+        schedule_env.get("ready", False)
+        and schedule.get("valid", False)
+        and not artifact_freshness.get("needs_maintenance", False)
+        and not maintenance.get("lock_exists", False)
+    )
+    integration_configured = bool(
+        int(hooks.get("installed_count", 0)) > 0
+        or int(maintenance["provider_readiness"].get("configured_count", 0)) > 0
+    )
+    integrations_ready = bool(
+        integration_configured
+        and int(hook_captures.get("malformed_count", 0)) == 0
+    )
+    review_queues_clear = bool(
+        int(review_due.get("due_findings", 0)) == 0
+        and int(conflict_review.get("active_conflicts", 0)) == 0
+        and int(review_recommendations.get("pending_count", 0)) == 0
+        and int(review_recommendations.get("invalid_count", 0)) == 0
+        and int(hook_captures.get("review_due_count", 0)) == 0
+    )
+    release_ready = bool(
+        core_ready
+        and retrieval_evaluated
+        and maintenance_ready
+        and integrations_ready
+        and manual_acceptance.get("complete", False)
+        and review_queues_clear
+    )
     return {
         "root": str(root),
         "platform": schedule_env["platform"],
         "mode": mode,
-        "ready": bool(validation.get("ok", False) and schedule_env["ready"] and schedule["valid"]),
+        # Deprecated compatibility field. It now has the explicit narrow
+        # meaning documented by ready_scope instead of implying full health.
+        "ready": core_ready,
+        "ready_deprecated": True,
+        "ready_scope": "core_ready",
+        "core_ready": core_ready,
+        "retrieval_evaluated": retrieval_evaluated,
+        "maintenance_ready": maintenance_ready,
+        "integrations_ready": integrations_ready,
+        "release_ready": release_ready,
+        "readiness": {
+            "core": {"ready": core_ready, "requires": ["valid memories", "valid context config"]},
+            "retrieval": {
+                "evaluated": retrieval_evaluated,
+                "requires": ["valid recall fixtures", "at least one fresh reviewed promotion"],
+            },
+            "maintenance": {
+                "ready": maintenance_ready,
+                "requires": ["scheduler available", "valid schedule config", "fresh artifacts", "no active lock"],
+            },
+            "integrations": {
+                "ready": integrations_ready,
+                "configured": integration_configured,
+                "requires": ["at least one configured provider or hook", "no malformed hook captures"],
+            },
+            "release": {
+                "ready": release_ready,
+                "requires": ["all readiness dimensions", "manual acceptance complete", "review queues clear"],
+            },
+        },
         "mutates_system": False,
         "runs_commands": False,
         "writes_files": False,
@@ -392,7 +463,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2))
         else:
             print("ai-dememory setup health")
-            print(f"ready: {str(result['ready']).lower()}")
+            print(f"core_ready: {str(result['core_ready']).lower()}")
+            print(f"retrieval_evaluated: {str(result['retrieval_evaluated']).lower()}")
+            print(f"maintenance_ready: {str(result['maintenance_ready']).lower()}")
+            print(f"integrations_ready: {str(result['integrations_ready']).lower()}")
+            print(f"release_ready: {str(result['release_ready']).lower()}")
+            print("ready: deprecated alias for core_ready")
             print(f"platform: {result['platform']}")
             print(f"mode: {result['mode']}")
             for action in result["next_actions"]:

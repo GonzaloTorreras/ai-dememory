@@ -39,6 +39,21 @@ default_budget_tokens = 2000
 include_working_memory = true
 explain_results = false
 
+[recall]
+enabled = true
+per_turn = true
+default_budget_tokens = 1200
+baseline_budget_tokens = 480
+max_keywords = 12
+project_from_cwd = true
+min_relevance_score = 0.18
+clients = ["codex", "claude"]
+
+[learning]
+hook_metadata = true
+session_proposals = false
+clients = ["codex", "claude"]
+
 [lifecycle]
 enabled = true
 record_mark_seen = true

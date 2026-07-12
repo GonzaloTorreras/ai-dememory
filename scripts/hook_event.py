@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import sys
 import tempfile
@@ -17,12 +19,15 @@ import tempfile
 from memorylib import (
     FrontmatterError,
     SOURCE_KINDS,
+    contained_relative_path,
+    logical_relative_path,
     parse_frontmatter_text,
     repo_relative_path,
     repo_root,
     slugify,
 )
 from secret_scan import scan_text
+from harness_hooks import dispatch_hook_event, hook_metadata_enabled
 
 
 MAX_STDIN_BYTES = 64 * 1024
@@ -405,7 +410,7 @@ def hook_capture_summary(
     )
     root_abs = Path(os.path.abspath(root))
     inbox = resolve_hook_capture_inbox_root(root)
-    files = sorted(inbox.glob("*.md")) if inbox.exists() else []
+    files = hook_capture_files(inbox)
     captures: list[dict[str, object]] = []
     malformed: list[dict[str, str]] = []
     by_provider: dict[str, int] = {}
@@ -415,13 +420,12 @@ def hook_capture_summary(
     due_paths: list[str] = []
     unfiltered_total_count = 0
     for path in files:
-        relpath = path.absolute().relative_to(root_abs).as_posix()
+        relpath = logical_relative_path(path, root_abs).as_posix()
         if path.is_symlink():
             malformed.append({"path": relpath, "error": "symlink capture entry"})
             continue
-        source = path.resolve()
         try:
-            source.relative_to(inbox)
+            contained_relative_path(path, inbox)
         except ValueError:
             malformed.append({"path": relpath, "error": "capture entry outside inbox"})
             continue
@@ -489,6 +493,13 @@ def hook_capture_summary(
         "reads_raw_payloads": False,
         "writes_files": False,
     }
+
+
+def hook_capture_files(inbox: Path) -> list[Path]:
+    """Return candidate capture files while excluding inbox documentation."""
+    if not inbox.exists():
+        return []
+    return sorted(path for path in inbox.glob("*.md") if path.name.casefold() != "readme.md")
 
 
 def resolve_hook_report_path(root: Path, output: str | Path) -> Path:
@@ -710,7 +721,7 @@ def archive_reviewed_hook_captures(
 
     root_abs = Path(os.path.abspath(root))
     inbox = resolve_hook_capture_inbox_root(root)
-    files = sorted(inbox.glob("*.md")) if inbox.exists() else []
+    files = hook_capture_files(inbox)
     candidates: list[dict[str, str]] = []
     archived: list[dict[str, str]] = []
     skipped: list[dict[str, str]] = []
@@ -718,13 +729,12 @@ def archive_reviewed_hook_captures(
     unfiltered_total_count = 0
 
     for path in files:
-        relpath = path.absolute().relative_to(root_abs).as_posix()
+        relpath = logical_relative_path(path, root_abs).as_posix()
         if path.is_symlink():
             skipped.append({"path": relpath, "reason": "symlink_capture_entry"})
             continue
-        source = path.resolve()
         try:
-            source.relative_to(inbox)
+            contained_relative_path(path, inbox)
         except ValueError:
             skipped.append({"path": relpath, "reason": "outside_inbox"})
             continue
@@ -810,15 +820,18 @@ def ensure_hook_capture_path(root: Path, capture_path: str | Path) -> Path:
     inbox = resolve_hook_capture_inbox_root(root)
     target = Path(os.path.abspath(candidate))
     try:
-        target.relative_to(inbox)
+        relative_target = logical_relative_path(target, inbox)
     except ValueError as exc:
         raise HookEventError("hook capture review path must stay under inbox/session-events") from exc
-    relative_target = target.relative_to(inbox)
     current = inbox
     for part in relative_target.parts:
         current = current / part
         if current.is_symlink():
             raise HookEventError("hook capture review path must not contain symlinks")
+    try:
+        contained_relative_path(target, inbox)
+    except ValueError as exc:
+        raise HookEventError("hook capture review path must stay under inbox/session-events") from exc
     if target.suffix.lower() != ".md":
         raise HookEventError("hook capture review path must be a Markdown file")
     if not target.exists():
@@ -1141,11 +1154,14 @@ def instruction_block(client: str) -> str:
     return f"""{begin}
 ## {title} Memory Hooks
 
-`ai-dememory` hook capture is optional and review-first for this vault.
+`ai-dememory` recall hooks are optional, trust-gated, and review-first.
 
 - Generate local hook config with `ai-dememory hooks config --client {client} --root <vault-path>`.
 - Supported events: {events}.
-- Hook captures write metadata only to `inbox/session-events/` by default.
+- Before a relevant non-trivial or project task, recall by prompt keywords and working directory; skip trivial self-contained requests.
+- Native hooks can inject reviewed public/internal memory. If hooks are unavailable, follow these instructions and use the memory recall skill as a weaker fallback.
+- Hook metadata is deduplicated under `inbox/session-events/`; raw payload capture is off by default.
+- At task end, emit only explicit stable learning signals for a review-first proposal. Never infer a durable fact from the raw transcript.
 - Do not promote hook captures to durable memory without explicit human review.
 - Do not store secrets, tokens, cookies, private keys, or `.env` content in memory.
 {end}"""
@@ -1164,10 +1180,10 @@ def hook_command_definition(
     root: Path | None,
     include_windows_command: bool = False,
 ) -> dict[str, object]:
-    args = [command, "hook-event", "--provider", provider, "--event", event]
+    args = [command, "hook-event", "dispatch", "--provider", provider, "--event", event]
     if root is not None:
         args.extend(["--root", str(root)])
-    command_line = " ".join(quote_arg(arg) for arg in args)
+    command_line = serialize_hook_command(args, windows=False)
     definition: dict[str, object] = {
         "type": "command",
         "command": command_line,
@@ -1175,16 +1191,42 @@ def hook_command_definition(
         "statusMessage": "Capturing memory hook metadata",
     }
     if include_windows_command:
-        definition["commandWindows"] = command_line
+        definition["commandWindows"] = serialize_hook_command(args, windows=True)
     return definition
 
 
-def quote_arg(value: str) -> str:
-    if not value:
-        return '""'
-    if any(char.isspace() for char in value) or '"' in value:
-        return '"' + value.replace('"', '\\"') + '"'
-    return value
+def serialize_hook_command(args: list[str], *, windows: bool) -> str:
+    """Serialize hook argv for the provider's documented shell.
+
+    Provider configs require a command string rather than an argv array. Use
+    the platform serializers instead of bespoke quoting so valid vault paths
+    containing shell metacharacters remain a single inert argument.
+    """
+    return serialize_windows_hook_command(args) if windows else shlex.join(args)
+
+
+def serialize_windows_hook_command(args: list[str]) -> str:
+    """Build a cmd-safe launcher without interpolating user data into a shell."""
+    # cmd.exe expands %VAR% even inside quotes, while delayed expansion can do
+    # the same for !VAR!. Encode argv as data and let a fixed PowerShell script
+    # invoke it as an argument array. The outer command contains no user bytes.
+    argv_payload = base64.b64encode(
+        json.dumps(args, ensure_ascii=False).encode("utf-8")
+    ).decode("ascii")
+    script = (
+        f"$p='{argv_payload}';"
+        "$j=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p));"
+        "[string[]]$a=$j|ConvertFrom-Json;"
+        "$e=[string]$a[0];"
+        "$r=@($a|Select-Object -Skip 1);"
+        "& $e @r;"
+        "if($null-ne$LASTEXITCODE){exit $LASTEXITCODE}"
+    )
+    encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    return (
+        "powershell.exe -NoLogo -NoProfile -NonInteractive "
+        f"-EncodedCommand {encoded_script}"
+    )
 
 
 def run_capture(argv: list[str] | None = None) -> int:
@@ -1199,10 +1241,37 @@ def run_capture(argv: list[str] | None = None) -> int:
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
     path = capture_hook_event(root, args.event, payload, capture_raw=args.capture_raw, provider=args.provider)
     result = {"path": repo_relative_path(path, root) if path else None, "captured": path is not None}
-    if args.json:
-        print(json.dumps(result, indent=2))
-    elif path:
-        print(f"Captured {repo_relative_path(path, root)}")
+    # hook-event may be invoked directly by a harness; stdout is always JSON.
+    print(json.dumps(result, indent=2 if args.json else None))
+    return 0
+
+
+def run_dispatch(argv: list[str] | None = None) -> int:
+    """Dispatch a generic stdin JSON hook without ever emitting free-form stdout."""
+    parser = argparse.ArgumentParser(description="Inject relevant memory into a harness hook.")
+    parser.add_argument("--root", default=None, help="Memory vault root. Defaults to this repo.")
+    parser.add_argument("--client", "--provider", dest="client", choices=(*HOOK_EVENTS.keys(), "generic"), default="generic")
+    parser.add_argument("--event", required=True, help="Harness event name.")
+    parser.add_argument("--budget-tokens", type=int, default=None)
+    parser.add_argument("--capture-raw", action="store_true", help="Opt in to raw metadata capture after secret scan.")
+    args = parser.parse_args(argv)
+    payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
+    try:
+        root = repo_root(args.root)
+        if (
+            args.client in HOOK_EVENTS
+            and args.event in HOOK_EVENTS[args.client]
+            and hook_metadata_enabled(root, args.client)
+        ):
+            try:
+                capture_hook_event(root, args.event, payload, capture_raw=args.capture_raw, provider=args.client)
+            except Exception:
+                # Metadata capture is independent from the hook protocol.
+                pass
+        response = dispatch_hook_event(root, args.event, payload, args.client, args.budget_tokens)
+    except Exception:
+        response = {}
+    print(json.dumps(response, ensure_ascii=False, separators=(",", ":")))
     return 0
 
 
@@ -1454,6 +1523,11 @@ def has_root_arg(argv: list[str]) -> bool:
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     root_override = pop_global_root(args)
+    if args and args[0] == "dispatch":
+        dispatch_args = args[1:]
+        if root_override and not has_root_arg(dispatch_args):
+            dispatch_args = ["--root", root_override, *dispatch_args]
+        return run_dispatch(dispatch_args)
     if args and args[0] == "events":
         return run_events(args[1:])
     if args and args[0] == "list":

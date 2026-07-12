@@ -1,8 +1,8 @@
 # Local Hook Integrations
 
-`ai-dememory` can capture small lifecycle-event metadata from local LLM tools
-into `inbox/session-events/` for review. Hooks are optional. They do not import
-chat history, run maintenance, or promote durable memory.
+`ai-dememory` can inject bounded, relevant reviewed memory at prompt time and
+capture small lifecycle-event metadata for review. Hooks are optional. They do
+not import chat history, run maintenance, or promote durable memory.
 
 The CLI supports Codex plugin hooks and Claude Code command hooks:
 
@@ -73,14 +73,44 @@ Claude Code:
 - `Notification`
 
 Claude Code command hooks receive JSON context on stdin. The generated
-configuration uses the same stdin pattern and calls:
+configuration uses the same stdin-JSON/stdout-JSON pattern and calls:
 
 ```bash
-ai-dememory hook-event --provider claude --event UserPromptSubmit --root ~/code/my-memory
+ai-dememory hook-event dispatch --client claude --event UserPromptSubmit --root ~/code/my-memory
 ```
 
 Claude Code hook behavior is defined by the official Claude Code hooks
 documentation: https://code.claude.com/docs/en/hooks
+
+## JSON Dispatch Contract
+
+Codex, Claude Code, and generic wrappers use the same adapter:
+
+```bash
+printf '{"prompt":"continue the scheduler","cwd":"/code/ai-dememory"}' |
+  ai-dememory hook-event dispatch --client generic --event UserPromptSubmit --root ~/memory
+```
+
+`UserPromptSubmit` extracts `prompt`, `cwd`, and optional `session_id`, builds
+turn context, and emits only:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}
+```
+
+It emits `{}` when recall is irrelevant, the payload is invalid, the index is
+missing, or recall fails. `Stop`, `PreCompact`, and `PostCompact` also emit valid
+JSON and never print `Captured <path>`. Metadata capture is a separate
+best-effort side effect and cannot block the harness.
+
+Native hooks run only after the user trusts the repository and hook command in
+the client. Without that trust, use the managed instruction block and memory
+recall skill; this fallback is advisory and therefore weaker than a native
+hook. Recalled memory is reference data, not trusted instructions.
+
+For recall across repositories, generate the hook with `--root <vault>` or set
+`AI_DEMEMORY_ROOT` in the hook environment. A plugin hook that cannot locate a
+vault returns `{}` and continues without injection.
 
 ## Safety Boundary
 
@@ -107,6 +137,14 @@ the existing inbox file instead of writing duplicates.
 JSON hook payloads use a canonical sorted-key fingerprint, so formatting-only
 or key-order-only changes do not create duplicate inbox files. Non-JSON payloads
 use raw-text fingerprints.
+
+If `.ai-dememory.toml` sets `[learning].session_proposals = true`, `Stop` may
+write a deduplicated candidate under `inbox/llm-captures/`. Only structured
+learning fields, bullets under an explicit `Learnings`/`Aprendizajes` (or
+decision/root-cause) heading, or text inside
+`[ai-dememory-learning]...[/ai-dememory-learning]` markers are eligible. The
+candidate is secret-scanned, excludes raw transcript content by default, and
+remains proposed until human review.
 
 `memory.hook_status` includes a bounded `captures` summary for
 `inbox/session-events/`: total count, counts by provider and event, latest
@@ -212,6 +250,9 @@ PowerShell:
 '{"prompt":"non-secret setup note"}' | ai-dememory hook-event --provider codex --event UserPromptSubmit
 '{"source":"startup"}' | ai-dememory hook-event --provider claude --event SessionStart
 ```
+
+Direct capture returns a JSON receipt. Use `hook-event dispatch` to test the
+actual harness protocol and prompt-time context injection.
 
 ## MCP Helpers
 

@@ -52,7 +52,22 @@ Without an installed CLI, override the plugin launch command to the local script
 py -3 scripts\ai_dememory.py mcp-client-smoke --config plugins\ai-dememory\.mcp.json --command py --command-arg -3 --command-arg scripts\ai_dememory.py
 ```
 
-The default enabled tools are read-heavy and review-first:
+The checked-in plugin defaults to the seven-tool `core` profile:
+
+- `memory.search`
+- `memory.get`
+- `memory.context`
+- `memory.graph`
+- `memory.doctor`
+- `memory.working_current`
+- `memory.working_status`
+
+This keeps model-visible schemas smaller than the recalled context budget. See
+[MCP tool profiles](mcp-tool-profiles.md) for the additive `working`, `review`,
+and explicit `admin` profiles.
+
+The broader review/admin server inventory remains available for clients that
+opt in:
 
 - `memory.search`
 - `memory.get`
@@ -124,9 +139,9 @@ The default enabled tools are read-heavy and review-first:
 
 ## Server-only MCP tools
 
-The local MCP server exposes a few broader execution or generated-artifact
-tools that are intentionally not enabled in the Codex plugin default
-`enabled_tools` allowlist:
+Every tool outside `core` is server-only by default. The following broad local
+execution tools are available only through the unfiltered `admin` profile or
+their explicit CLI equivalents (they are not added by `working` or `review`):
 
 - `memory.reindex`
 - `memory.consolidate`
@@ -137,7 +152,7 @@ tools that are intentionally not enabled in the Codex plugin default
 - `memory.sleep_apply_reviewed`
 
 These tools remain available to direct MCP clients that opt into the full server
-surface, and to the CLI equivalents. The plugin defaults keep them server-only
+surface, and to the CLI equivalents. The plugin `core` defaults keep them server-only
 because they either run broader local checks, rebuild generated artifacts, read
 configured provider sources, record lifecycle telemetry, or apply reviewed
 packets. Plugin setup and maintenance skills should use read-only planning and

@@ -5,10 +5,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ai-dememory hook-event --event UserPromptSubmit",
-            "commandWindows": "ai-dememory hook-event --event UserPromptSubmit",
+            "command": "ai-dememory hook-event dispatch --client codex --event UserPromptSubmit",
+            "commandWindows": "ai-dememory hook-event dispatch --client codex --event UserPromptSubmit",
             "timeout": 15,
-            "statusMessage": "Capturing memory hook metadata"
+            "statusMessage": "Recalling relevant project memory"
           }
         ]
       }
@@ -19,8 +19,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ai-dememory hook-event --event PreCompact",
-            "commandWindows": "ai-dememory hook-event --event PreCompact",
+            "command": "ai-dememory hook-event dispatch --client codex --event PreCompact",
+            "commandWindows": "ai-dememory hook-event dispatch --client codex --event PreCompact",
             "timeout": 15,
             "statusMessage": "Capturing pre-compact memory metadata"
           }
@@ -33,8 +33,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ai-dememory hook-event --event PostCompact",
-            "commandWindows": "ai-dememory hook-event --event PostCompact",
+            "command": "ai-dememory hook-event dispatch --client codex --event PostCompact",
+            "commandWindows": "ai-dememory hook-event dispatch --client codex --event PostCompact",
             "timeout": 15,
             "statusMessage": "Capturing post-compact memory metadata"
           }
@@ -46,8 +46,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "ai-dememory hook-event --event Stop",
-            "commandWindows": "ai-dememory hook-event --event Stop",
+            "command": "ai-dememory hook-event dispatch --client codex --event Stop",
+            "commandWindows": "ai-dememory hook-event dispatch --client codex --event Stop",
             "timeout": 15
           }
         ]

@@ -5,6 +5,10 @@ description: Run or inspect ai-dememory daily/weekly maintenance, recall benchma
 
 # Memory Maintenance
 
+Maintenance remains CLI-first and requires the explicit MCP `admin` surface if
+performed through MCP. The default `core` profile intentionally omits broad
+maintenance, import, release, and acceptance schemas.
+
 Use the CLI or MCP maintenance tools:
 
 - Status: `ai-dememory maintenance status`

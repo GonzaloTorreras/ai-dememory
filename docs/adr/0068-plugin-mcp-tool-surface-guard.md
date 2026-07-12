@@ -27,12 +27,11 @@ Keep an exact expected plugin MCP tool list in `scripts/release_check.py`.
 - `enabled_tools` has no duplicates
 - `docs/codex-plugin.md` mentions every expected enabled tool
 
-The plugin tool surface includes read-only tools and selected review-first
-write tools that create inbox artifacts, working-state artifacts, review-state
-receipts, or explicit local review configuration. Destructive or broad
+ADR 0249 narrows this exact allowlist to the seven-tool `core` profile. Working
+and review writes now require their named opt-in profiles; destructive or broad
 execution tools such as direct maintenance runs and provider imports remain off
-the default plugin surface. ADR 0241 makes that exclusion explicit by requiring
-every MCP tool to be classified as plugin-enabled or server-only.
+the default plugin surface. The guard still requires every other MCP tool to be
+classified as server-only by default.
 
 ## Benefits
 
@@ -65,6 +64,7 @@ every MCP tool to be classified as plugin-enabled or server-only.
 - ADR 0066 defines read-only scheduler status.
 - ADR 0067 defines read-only provider status.
 - ADR 0241 defines the plugin server-only MCP tool classification.
+- ADR 0249 defines the current profile model and maintainer CLI namespace.
 - `plugins/ai-dememory/.mcp.json` remains the plugin MCP server config.
 - `docs/codex-plugin.md` remains the user-facing plugin tool surface
   documentation.

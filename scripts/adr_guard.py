@@ -84,13 +84,25 @@ def validate_adr_docs(root: Path) -> list[AdrGuardIssue]:
     paths = sorted(directory.glob("*.md"))
     if not paths:
         return [AdrGuardIssue(str(ADR_DIR), "ADR directory has no Markdown files")]
+    paths_by_number: dict[int, list[Path]] = {}
     for path in paths:
         relpath = path.relative_to(root).as_posix()
         number = adr_number(path)
         if number is None:
             issues.append(AdrGuardIssue(relpath, "ADR filename must start with a zero-padded number"))
             continue
+        paths_by_number.setdefault(number, []).append(path)
         issues.extend(validate_adr_text(relpath, path.read_text(encoding="utf-8"), number))
+    for number, duplicate_paths in sorted(paths_by_number.items()):
+        if len(duplicate_paths) < 2:
+            continue
+        names = ", ".join(path.name for path in duplicate_paths)
+        issues.append(
+            AdrGuardIssue(
+                str(ADR_DIR),
+                f"duplicate ADR {number:04d} filenames: {names}",
+            )
+        )
     return issues
 
 

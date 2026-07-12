@@ -3,6 +3,20 @@
 All notable changes to ai-dememory are documented here. Release headings are
 machine-validated and use the form `## [VERSION] - YYYY-MM-DD`.
 
+## [2.1.0] - 2026-07-11
+
+- Add prompt-aware, project-aware reviewed recall hooks and a fingerprint-bound
+  onboarding wizard for baseline values, preferences and recommendations.
+- Make path handling and the unit-test matrix portable across Linux, macOS and
+  Windows while preserving symlink and vault-boundary protections.
+- Separate setup readiness into core, retrieval, maintenance, integration and
+  release dimensions, and ignore inbox documentation when parsing captures.
+- Introduce bounded MCP tool profiles with a small default core surface, plus
+  clearer user and maintainer CLI command groups.
+- Stabilize imports from the installed wheel and extend isolated-package smoke
+  coverage. Recall quality remains evidence-gated until real misses are reviewed
+  and promoted into the evaluation corpus.
+
 ## [2.0.0] - 2026-07-10
 
 - Publish the first clean public source snapshot under Apache-2.0 after three

@@ -14,29 +14,24 @@ import sys
 from typing import Any
 from urllib.parse import quote, unquote
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS_DIR = REPO_ROOT / "scripts"
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
-
-from consolidate_memory import build_report  # noqa: E402
-from context_memory import assemble_context, context_defaults, resolve_context_query  # noqa: E402
-from capture_miss import capture_miss  # noqa: E402
-from doctor import doctor_profile, run_checks as run_doctor_checks, summarize_checks  # noqa: E402
-from durable_provenance import audit_durable_provenance  # noqa: E402
-from graph_memory import build_graph  # noqa: E402
-from git_lessons import learn_git  # noqa: E402
-from hook_event import (  # noqa: E402
+from ai_dememory_tool.admin.consolidate_memory import build_report
+from ai_dememory_tool.admin.context_memory import assemble_context, context_defaults, resolve_context_query
+from ai_dememory_tool.admin.capture_miss import capture_miss
+from ai_dememory_tool.admin.doctor import doctor_profile, run_checks as run_doctor_checks, summarize_checks
+from ai_dememory_tool.admin.durable_provenance import audit_durable_provenance
+from ai_dememory_tool.admin.graph_memory import build_graph
+from ai_dememory_tool.admin.git_lessons import learn_git
+from ai_dememory_tool.admin.hook_event import (
     HOOK_CAPTURE_REVIEW_STATUSES,
     hook_config,
     hook_events,
     hook_status_summary,
     review_hook_capture,
 )
-from index_memory import default_db_path, rebuild_index  # noqa: E402
-from lifecycle import lifecycle_scores, record_outcome  # noqa: E402
-from maintenance import dry_run_maintenance, maintenance_status, run_maintenance  # noqa: E402
-from manual_acceptance import (  # noqa: E402
+from ai_dememory_tool.admin.index_memory import default_db_path, rebuild_index
+from ai_dememory_tool.admin.lifecycle import lifecycle_scores, record_outcome
+from ai_dememory_tool.admin.maintenance import dry_run_maintenance, maintenance_status, run_maintenance
+from ai_dememory_tool.admin.manual_acceptance import (
     ACCEPTANCE_ITEMS,
     annotate_acceptance_packet_plan,
     acceptance_packet_archive_retention_plan,
@@ -49,7 +44,7 @@ from manual_acceptance import (  # noqa: E402
     status_to_dict,
     verify_acceptance,
 )
-from memorylib import (  # noqa: E402
+from ai_dememory_tool.admin.memorylib import (
     SOURCE_KINDS,
     discover_memory_files,
     extract_summary,
@@ -59,10 +54,10 @@ from memorylib import (  # noqa: E402
     repo_root,
     slugify,
 )
-from search_memory import result_to_dict, search  # noqa: E402
-from provider_import import CAPTURE_KINDS, capture_source, detect_providers, import_chats, provider_setup_plan, providers_status  # noqa: E402
-from publish_plan import REPOSITORIES, publish_plan  # noqa: E402
-from recall_fixtures import (  # noqa: E402
+from ai_dememory_tool.admin.search_memory import result_to_dict, search
+from ai_dememory_tool.admin.provider_import import CAPTURE_KINDS, capture_source, detect_providers, import_chats, provider_setup_plan, providers_status
+from ai_dememory_tool.admin.publish_plan import REPOSITORIES, publish_plan
+from ai_dememory_tool.admin.recall_fixtures import (
     annotate_recall_review_packet_plan,
     paginate_recall_review_plan,
     recall_fixture_freshness,
@@ -73,9 +68,9 @@ from recall_fixtures import (  # noqa: E402
     render_recall_review_packet,
     review_recall_miss,
 )
-from release_evidence import build_release_evidence, evidence_to_dict, render_markdown as render_release_evidence_markdown  # noqa: E402
-from roadmap_status import roadmap_status  # noqa: E402
-from review_memory import (  # noqa: E402
+from ai_dememory_tool.admin.release_evidence import build_release_evidence, evidence_to_dict, render_markdown as render_release_evidence_markdown
+from ai_dememory_tool.admin.roadmap_status import roadmap_status
+from ai_dememory_tool.admin.review_memory import (
     REVIEW_MODE_ALIASES,
     REVIEW_MODES,
     REVIEW_RECOMMENDATION_ACTIONS,
@@ -104,13 +99,13 @@ from review_memory import (  # noqa: E402
     string_or_none,
     unignore_false_positive,
 )
-from schedule_memory import schedule_environment, schedule_plan, schedule_status  # noqa: E402
-from setup_plan import setup_health, setup_plan  # noqa: E402
-from secret_scan import scan_paths, scan_text  # noqa: E402
-from sleep_consolidation import apply_review_packets, build_sleep_plan  # noqa: E402
-from validate_memory import validate_repo_result  # noqa: E402
-from vector_gate import DEFAULT_MIN_FAILED_CASES, DEFAULT_RECALL_THRESHOLD, evaluate_vector_readiness  # noqa: E402
-from working_memory import (  # noqa: E402
+from ai_dememory_tool.admin.schedule_memory import schedule_environment, schedule_plan, schedule_status
+from ai_dememory_tool.admin.setup_plan import setup_health, setup_plan
+from ai_dememory_tool.admin.secret_scan import scan_paths, scan_text
+from ai_dememory_tool.admin.sleep_consolidation import apply_review_packets, build_sleep_plan
+from ai_dememory_tool.admin.validate_memory import validate_repo_result
+from ai_dememory_tool.admin.vector_gate import DEFAULT_MIN_FAILED_CASES, DEFAULT_RECALL_THRESHOLD, evaluate_vector_readiness
+from ai_dememory_tool.admin.working_memory import (
     handoff as write_working_handoff,
     show_current,
     snapshot as write_working_snapshot,
@@ -4014,7 +4009,7 @@ def handle_rpc(message: dict[str, Any], root: Path) -> dict[str, Any] | None:
         return {
             "protocolVersion": negotiate_protocol_version(message),
             "capabilities": SERVER_CAPABILITIES,
-            "serverInfo": {"name": "ai-dememory", "version": "2.0.0"},
+            "serverInfo": {"name": "ai-dememory", "version": "2.1.0"},
         }
     if method == "ping":
         return {}

@@ -1,19 +1,21 @@
 # ADR 0241: Plugin Server-only Tool Classification
 
-Status: Accepted.
+Status: Superseded by ADR 0249 for the default profile; retained as historical
+classification context.
 
 ## Context
 
 The MCP server exposes the full local memory surface, while the Codex plugin
 ships a default `enabled_tools` allowlist for review-first workflows. The server
-currently has 74 tools and the plugin enables 67. The difference is deliberate,
+had 74 tools and the plugin enabled 67. The difference was deliberate,
 but release evidence only reported the two counts. That made it easy for docs or
 skills to recommend a broad execution tool as plugin-default even when the
 checked-in plugin config did not expose it.
 
 ## Decision
 
-Classify every MCP tool in release checks as either:
+The historical decision was to classify every MCP tool in release checks as
+either plugin-enabled or server-only:
 
 - plugin-enabled, listed in `EXPECTED_PLUGIN_MCP_TOOLS`; or
 - server-only, listed in `EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS`.
@@ -27,6 +29,10 @@ The current server-only tools are:
 - `memory.import_chats`
 - `memory.maintenance_run`
 - `memory.sleep_apply_reviewed`
+
+ADR 0249 replaces the two-way default split with `core`, `working`, `review`,
+and `admin` profiles. The release guard still classifies every non-core tool as
+server-only by default and validates the narrower plugin allowlist.
 
 `release-check` now fails if a server tool is unclassified, if a classified tool
 does not exist in the server inventory, if plugin-enabled and server-only

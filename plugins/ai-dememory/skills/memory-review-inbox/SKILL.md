@@ -5,6 +5,10 @@ description: Review ai-dememory inbox proposals, provider imports, explicit capt
 
 # Memory Review Inbox
 
+MCP review operations require the opt-in `review` profile. The default `core`
+profile intentionally omits these schemas; use the equivalent explicit CLI
+workflow when the client cannot select a broader profile.
+
 Review-first rules:
 
 1. Run `ai-dememory secret-scan` before promoting anything from `inbox/`.

@@ -11,6 +11,15 @@ Generate config from inside a memory vault:
 ai-dememory mcp-config --client codex
 ```
 
+For Codex, the default is `--profile core`. Use `--profile working` for session
+writes, `--profile review` for inbox/review workflows, or the explicit
+`--profile admin` escape hatch for the unfiltered 74-tool server. Generic and
+Claude config output defaults to `admin` because those formats do not enforce
+Codex `enabled_tools`; requesting a narrower profile is rejected instead of
+silently claiming a budget that the client cannot enforce. Profile
+definitions and current schema measurements are documented in
+[MCP tool profiles](mcp-tool-profiles.md).
+
 For Codex, the command emits native TOML for `~/.codex/config.toml` (or a
 trusted project's `.codex/config.toml`) and sets `AI_DEMEMORY_ROOT` to the
 vault path:
@@ -19,6 +28,7 @@ vault path:
 [mcp_servers.ai-dememory]
 command = "ai-dememory"
 args = ["mcp", "--stdio"]
+enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.graph", "memory.doctor", "memory.working_current", "memory.working_status"]
 
 [mcp_servers.ai-dememory.env]
 AI_DEMEMORY_ROOT = "D:\\memory-vault"
@@ -185,12 +195,11 @@ server notifications.
   `memory_review_inbox`.
 - Utilities: `initialize`, `notifications/initialized`, and `ping`.
 
-The Codex plugin config is narrower than the full server surface. It keeps
-`memory.reindex`, `memory.consolidate`, `memory.secret_scan`,
-`memory.mark_seen`, `memory.import_chats`, `memory.maintenance_run`, and
-`memory.sleep_apply_reviewed` out of plugin-default `enabled_tools`; direct MCP
-clients can still opt into those tools when their broader local side effects
-are desired.
+The Codex plugin config uses the same seven-tool `core` allowlist as generated
+Codex TOML. Direct clients can opt into `working` or `review`; `admin` removes
+the allowlist and therefore exposes the complete server. Broad execution tools
+such as `memory.reindex`, `memory.secret_scan`, `memory.import_chats`, and
+`memory.maintenance_run` remain admin-only.
 
 ## Security Notes
 

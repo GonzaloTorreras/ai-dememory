@@ -57,6 +57,7 @@ def search(
     limit: int = 10,
     include_expired: bool = False,
     include_sensitive: bool = False,
+    project_hint: str | None = None,
 ) -> list[SearchResult]:
     db_path = db_path or default_db_path(root)
     if not db_path.exists():
@@ -85,12 +86,13 @@ def search(
         aliases = split_aliases(row["aliases"])
         tag_match = token_overlap(tokens, tags)
         alias_match = alias_score(tokens, aliases, query_lower)
+        project_match = project_match_score(row["project"], project_hint)
         matched_fields = matched_search_fields(row, tokens)
         matched_aliases = matched_alias_values(aliases, tokens, query_lower)
         matched_tags = ordered_overlap(tokens, tags)
         fts_component = fts_scores.get(row["rowid"], 0.0)
 
-        if tokens and fts_component == 0 and tag_match == 0 and alias_match == 0:
+        if tokens and fts_component == 0 and tag_match == 0 and alias_match == 0 and project_match == 0:
             continue
 
         recency = recency_score(row["updated_at"], row["decay"], today())
@@ -109,6 +111,7 @@ def search(
             + 0.05 * type_boost
             + 0.04 * pin_boost
             + 0.08 * strength
+            + 0.10 * project_match
             - status
             - sensitivity
         )
@@ -126,6 +129,8 @@ def search(
                     "fts": round(fts_component, 4),
                     "tag_overlap": round(tag_match, 4),
                     "alias_match": round(alias_match, 4),
+                    "project_hint": project_hint,
+                    "project_match": round(project_match, 4),
                     "recency": round(recency, 4),
                     "confidence": round(confidence, 4),
                     "type_boost": round(type_boost, 4),
@@ -217,6 +222,17 @@ def alias_score(tokens: list[str], aliases: list[str], query_lower: str) -> floa
             return 1.0
     alias_words = set(word for alias in aliases for word in tokenize(alias))
     return token_overlap(tokens, alias_words)
+
+
+def project_match_score(project: str | None, project_hint: str | None) -> float:
+    """Return an explainable exact project match without fuzzy cross-project leakage."""
+    if not project or not project_hint:
+        return 0.0
+    project_tokens = tokenize(project)
+    hint_tokens = tokenize(project_hint)
+    if not project_tokens or not hint_tokens:
+        return 0.0
+    return 1.0 if project_tokens == hint_tokens else 0.0
 
 
 def matched_alias_values(aliases: list[str], tokens: list[str], query_lower: str) -> list[str]:
