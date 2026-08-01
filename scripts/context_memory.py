@@ -42,6 +42,7 @@ class ContextItem:
     id: str
     title: str
     path: str
+    sensitivity: str
     score: float
     estimated_tokens: int
     why: dict[str, Any]
@@ -66,6 +67,7 @@ def assemble_context(
     baseline_budget_tokens: int = DEFAULT_BASELINE_BUDGET_TOKENS,
     require_reviewed_results: bool = False,
     min_relevance_score: float | None = None,
+    public_only: bool = False,
 ) -> dict[str, Any]:
     if budget_tokens < 200:
         raise ValueError("budget_tokens must be at least 200")
@@ -75,8 +77,9 @@ def assemble_context(
         query,
         root,
         limit=limit,
-        include_sensitive=include_sensitive,
+        include_sensitive=include_sensitive and not public_only,
         project_hint=project_hint,
+        public_only=public_only,
     )
     remaining = budget_tokens
     items: list[ContextItem] = []
@@ -84,6 +87,13 @@ def assemble_context(
     selected_ids: set[str] = set()
     degradation: list[str] = []
     security_filtered_items = 0
+    non_public_filtered_items = 0
+    working_memory_status = {
+        "requested": include_working_memory,
+        "included": False,
+        "filtered": False,
+        "sensitivity": "internal",
+    }
     relevant_result_ids = {
         result.id
         for result in results
@@ -91,12 +101,22 @@ def assemble_context(
     }
 
     if include_working_memory:
-        working = working_context(root)
-        if working:
-            tokens = estimate_tokens(working)
-            if tokens <= remaining:
-                sections.append("## Working Memory\n\n" + working)
-                remaining -= tokens
+        if public_only:
+            # The public ceiling is both an egress and a read boundary.
+            working_memory_status["filtered"] = True
+            degradation.append("non_public_working_memory_filtered")
+        else:
+            working = working_context(root)
+            working_section = "## Working Memory\n\n- sensitivity: `internal`\n\n" + working if working else ""
+            if working_section and scan_text(working_section, "<context:working-memory>"):
+                working_memory_status["filtered"] = True
+                security_filtered_items += 1
+            elif working_section:
+                tokens = estimate_tokens(working_section)
+                if tokens <= remaining:
+                    sections.append(working_section)
+                    remaining -= tokens
+                    working_memory_status["included"] = True
 
     if include_reviewed_durable:
         durable_documents, durable_errors = reviewed_durable_documents(root, project_hint)
@@ -106,6 +126,9 @@ def assemble_context(
             data = document.frontmatter
             if str(data.get("id")) not in relevant_result_ids:
                 continue
+            if public_only and data.get("sensitivity") != "public":
+                non_public_filtered_items += 1
+                continue
             excerpt = extract_summary(document.content, max_chars=650)
             path = repo_relative_path(document.path, root)
             why = {
@@ -113,7 +136,17 @@ def assemble_context(
                 "project_hint": project_hint,
                 "project_match": 1.0 if same_project(data.get("project"), project_hint) else 0.0,
             }
-            section = render_item(str(data["id"]), str(data["title"]), path, 1.0, excerpt, why, explain_results)
+            sensitivity = str(data.get("sensitivity", "unknown"))
+            section = render_item(
+                str(data["id"]),
+                str(data["title"]),
+                path,
+                sensitivity,
+                1.0,
+                excerpt,
+                why,
+                explain_results,
+            )
             tokens = estimate_tokens(section)
             if tokens > remaining or tokens > baseline_remaining:
                 continue
@@ -129,6 +162,7 @@ def assemble_context(
                     id=str(data["id"]),
                     title=str(data["title"]),
                     path=path,
+                    sensitivity=sensitivity,
                     score=1.0,
                     estimated_tokens=tokens,
                     why=why,
@@ -157,14 +191,19 @@ def assemble_context(
         if result.id != canonical_id:
             degradation.append(f"index_identity_mismatch:{result.id}")
             continue
+        if public_only and document.frontmatter.get("sensitivity") != "public":
+            non_public_filtered_items += 1
+            continue
         canonical_title = str(document.frontmatter.get("title", canonical_id))
         canonical_path = repo_relative_path(document.path, root)
+        canonical_sensitivity = str(document.frontmatter.get("sensitivity", "unknown"))
         canonical_why = canonical_selection_evidence(document, query, result.score, project_hint)
         excerpt = extract_summary(document.content, max_chars=900)
         section = render_item(
             canonical_id,
             canonical_title,
             canonical_path,
+            canonical_sensitivity,
             result.score,
             excerpt,
             canonical_why,
@@ -184,6 +223,7 @@ def assemble_context(
                 id=canonical_id,
                 title=canonical_title,
                 path=canonical_path,
+                sensitivity=canonical_sensitivity,
                 score=result.score,
                 estimated_tokens=tokens,
                 why=canonical_why,
@@ -191,6 +231,8 @@ def assemble_context(
             )
         )
 
+    if non_public_filtered_items:
+        degradation.append("non_public_memory_filtered")
     text = "# Memory Context\n\n" + "\n\n".join(sections) if sections else "# Memory Context\n\n_No matching memory context._\n"
     return {
         "query": query,
@@ -199,9 +241,12 @@ def assemble_context(
         "estimated_tokens": estimate_tokens(text),
         "remaining_tokens": max(0, remaining),
         "explain_results": explain_results,
+        "public_only": public_only,
+        "working_memory": working_memory_status,
         "project_hint": project_hint,
         "degradation": unique_strings(degradation),
         "security_filtered_items": security_filtered_items,
+        "non_public_filtered_items": non_public_filtered_items,
         "items": [asdict(item) for item in items],
         "text": text,
     }
@@ -407,8 +452,15 @@ def working_context(root: Path) -> str:
     return "\n\n".join(parts)
 
 
-def resolve_context_query(root: Path, query: str = "", auto: bool = False) -> tuple[str, str]:
+def resolve_context_query(
+    root: Path,
+    query: str = "",
+    auto: bool = False,
+    public_only: bool = False,
+) -> tuple[str, str]:
     query = query.strip()
+    if public_only and auto:
+        raise ValueError("public-only context requires an explicit query; --auto reads non-public working state")
     if query:
         return query, "explicit"
     if not auto:
@@ -426,6 +478,7 @@ def render_item(
     memory_id: str,
     title: str,
     path: str,
+    sensitivity: str,
     score: float,
     excerpt: str,
     why: dict[str, Any] | None = None,
@@ -435,6 +488,7 @@ def render_item(
 
 - id: `{memory_id}`
 - path: `{path}`
+- sensitivity: `{sensitivity}`
 - score: `{score:.4f}`
 
 {excerpt}
@@ -475,6 +529,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget", type=int, default=None, help="Approximate token budget.")
     parser.add_argument("--limit", type=int, default=20, help="Maximum search results to consider.")
     parser.add_argument("--include-sensitive", action="store_true", help="Include private/sensitive memories.")
+    parser.add_argument(
+        "--public-only",
+        action="store_true",
+        help="Enforce a public-sensitivity ceiling and exclude generated working memory.",
+    )
     working_group = parser.add_mutually_exclusive_group()
     working_group.add_argument(
         "--include-working-memory",
@@ -503,7 +562,12 @@ def main(argv: list[str] | None = None) -> int:
         budget = args.budget if args.budget is not None else defaults.budget_tokens
         include_working_memory = args.working_memory if args.working_memory is not None else defaults.include_working_memory
         explain_results = args.explain_results if args.explain_results is not None else defaults.explain_results
-        query, query_source = resolve_context_query(root, " ".join(args.query), auto=args.auto)
+        query, query_source = resolve_context_query(
+            root,
+            " ".join(args.query),
+            auto=args.auto,
+            public_only=args.public_only,
+        )
         data = assemble_context(
             root,
             query,
@@ -513,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
             include_working_memory=include_working_memory,
             explain_results=explain_results,
             query_source=query_source,
+            public_only=args.public_only,
         )
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

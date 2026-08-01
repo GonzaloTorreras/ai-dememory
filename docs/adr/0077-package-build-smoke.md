@@ -1,14 +1,15 @@
 # ADR 0077: Package Build Smoke
 
-Status: Accepted for the v2 draft.
+Status: Accepted for isolated package-build validation. References to the
+legacy manual workflow building or uploading were superseded by ADR 0255 on
+2026-07-26.
 
 ## Context
 
-The v2 release path already checks installed-package behavior through
-`install-smoke`, and the manual publish workflow builds distributions before
-uploading them. That leaves a gap before maintainers reach the publish workflow:
-normal CI can pass without proving that the source tree can build both a wheel
-and source distribution and that the resulting metadata passes `twine check`.
+The release path checks installed-package behavior through `install-smoke`, but
+normal CI also needs to prove independently that the source tree can build both
+a wheel and source distribution and that the resulting metadata passes
+`twine check`.
 
 Running package builds directly in the repository workspace can also leave
 generated `dist/`, `build/`, or egg-info artifacts that are easy to stage by
@@ -29,11 +30,12 @@ the v2 checklist all include the command as a required release gate.
 
 ## Benefits
 
-- Proves package metadata and distribution builds before manual publishing.
+- Proves package metadata and distribution builds before an immutable-tag
+  release is authorized.
 - Keeps wheel and source distribution artifacts out of the repository workspace.
 - Makes the release checklist executable through CI and local guard scripts.
 - Gives maintainers a focused command for package-build failures without
-  invoking the publishing workflow.
+  invoking the canonical release workflow.
 
 ## Limitations
 
@@ -51,14 +53,14 @@ the v2 checklist all include the command as a required release gate.
   guard coverage must remain strict enough to catch it.
 - ADR 0105 later adds a fail-fast preflight for stale generated package build
   paths before invoking the build backend.
-- If the publish workflow gains tag-based release behavior, this smoke may need
-  version/tag consistency checks before upload.
+- Canonical tag/version consistency remains a separate `release.yml` gate; this
+  smoke must not claim immutable-tag provenance.
 
 ## Dependencies
 
-- ADR 0012 defines manual Trusted Publishing.
+- ADR 0255 defines the sole canonical publisher.
 - ADR 0019 defines CI workflow guard coverage.
 - ADR 0020 defines generated artifact staging boundaries.
-- ADR 0076 defines publish workflow preflight gates.
+- ADR 0076 retains the hosted readiness-preflight rationale.
 - ADR 0105 defines stale generated package build artifact preflight behavior.
 - `scripts/package_build_smoke.py` is the executable package-build contract.

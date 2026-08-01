@@ -13,7 +13,16 @@ import re
 import sys
 from typing import Any
 
-from memorylib import FrontmatterError, is_date_string, parse_frontmatter_text, repo_relative_path, repo_root, slugify
+from memorylib import (
+    FrontmatterError,
+    is_date_string,
+    parse_frontmatter_text,
+    path_is_link_like,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+    slugify,
+)
 from secret_scan import scan_text
 
 
@@ -27,9 +36,14 @@ ACCEPTANCE_ITEMS: dict[str, str] = {
     "daily-maintenance": "Run one daily maintenance pass and inspect index, graph, weights, and report artifacts.",
     "review-reports": "Generate false-positive and conflict reports, then review one intentional case or the empty-report evidence.",
     "testpypi-publish": (
-        "Publish to TestPyPI only after package and Docker smoke pass in CI and publish workflow preflight."
+        "Publish an immutable prerelease tag through the canonical release workflow only after package and Docker "
+        "smoke pass, then verify the exact version installs from TestPyPI."
     ),
 }
+ACCEPTANCE_REVISIONS: dict[str, int] = {item: 1 for item in ACCEPTANCE_ITEMS}
+# Revision 2 invalidates legacy passes produced against the former publish.yml
+# publisher. A current pass must prove the immutable-tag release.yml path.
+ACCEPTANCE_REVISIONS["testpypi-publish"] = 2
 
 SUGGESTED_ACCEPTANCE_ARTIFACTS: dict[str, list[str]] = {
     "obsidian-vault": [
@@ -66,9 +80,9 @@ SUGGESTED_ACCEPTANCE_ARTIFACTS: dict[str, list[str]] = {
         "review notes for one intentional finding, conflict, or empty-report state",
     ],
     "testpypi-publish": [
-        "TestPyPI Trusted Publishing workflow URL",
-        "publish workflow preflight log showing install, package build, and Docker smoke",
-        "fresh TestPyPI install smoke log",
+        "canonical `.github/workflows/release.yml` run URL for the immutable prerelease tag",
+        "release workflow validation, exact-artifact build, TestPyPI publish, and post-index install logs",
+        "TestPyPI project/version URL and fresh exact-version install smoke log",
     ],
 }
 
@@ -82,6 +96,7 @@ DEFAULT_ACCEPTANCE_PACKET_ARCHIVE_DIR = Path("reports/manual-acceptance-packets"
 class AcceptanceRecord:
     path: str
     item: str
+    revision: int
     status: str
     reviewed_by: str
     reviewed_at: str
@@ -93,6 +108,7 @@ class AcceptanceRecord:
 class AcceptanceItemStatus:
     id: str
     description: str
+    required_revision: int
     completed: bool
     records: list[AcceptanceRecord]
 
@@ -110,6 +126,7 @@ class AcceptanceVerification:
 class AcceptancePlanItem:
     id: str
     description: str
+    required_revision: int
     status: str
     completed: bool
     record_count: int
@@ -228,6 +245,8 @@ def record_acceptance(
     scan_target = "\n".join([item, status, reviewed_by, summary, *artifacts])
     if scan_text(scan_target, "<manual-acceptance>"):
         raise ValueError("acceptance evidence rejected by secret scan")
+    if status == "passed" and not artifacts:
+        raise ValueError("passed acceptance evidence requires at least one reviewed artifact")
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     directory = safe_acceptance_dir(root, create=True)
@@ -243,6 +262,7 @@ def record_acceptance(
 type: manual-acceptance
 status: {status}
 acceptance_item: {frontmatter_scalar(item)}
+acceptance_revision: {ACCEPTANCE_REVISIONS[item]}
 reviewed_by: {frontmatter_scalar(reviewed_by)}
 reviewed_at: {now.date().isoformat()}
 summary: {frontmatter_scalar(summary)}
@@ -263,7 +283,7 @@ artifacts: {frontmatter_list(artifacts)}
 """
     if scan_text(text, "<manual-acceptance.rendered>"):
         raise ValueError("acceptance evidence rejected by rendered secret scan")
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path
 
 
@@ -296,12 +316,15 @@ def record_from_frontmatter(root: Path, path: Path, data: dict[str, Any]) -> Acc
     if data.get("type") != "manual-acceptance":
         return None
     item = data.get("acceptance_item")
+    revision = data.get("acceptance_revision", 1)
     status = data.get("status")
     reviewed_by = data.get("reviewed_by")
     reviewed_at = data.get("reviewed_at")
     summary = data.get("summary")
     artifacts = data.get("artifacts", [])
     if item not in ACCEPTANCE_ITEMS or status not in STATUSES:
+        return None
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
         return None
     if not isinstance(reviewed_by, str) or not reviewed_by.strip():
         return None
@@ -314,6 +337,7 @@ def record_from_frontmatter(root: Path, path: Path, data: dict[str, Any]) -> Acc
     return AcceptanceRecord(
         path=repo_relative_path(path, root),
         item=str(item),
+        revision=revision,
         status=str(status),
         reviewed_by=reviewed_by,
         reviewed_at=str(reviewed_at),
@@ -331,7 +355,13 @@ def acceptance_status(root: Path) -> list[AcceptanceItemStatus]:
         AcceptanceItemStatus(
             id=item,
             description=description,
-            completed=bool(by_item.get(item)) and by_item.get(item, [])[-1].status == "passed",
+            required_revision=ACCEPTANCE_REVISIONS[item],
+            completed=(
+                bool(by_item.get(item))
+                and by_item.get(item, [])[-1].status == "passed"
+                and by_item.get(item, [])[-1].revision == ACCEPTANCE_REVISIONS[item]
+                and bool(by_item.get(item, [])[-1].artifacts)
+            ),
             records=by_item.get(item, []),
         )
         for item, description in ACCEPTANCE_ITEMS.items()
@@ -350,6 +380,7 @@ def verify_acceptance(items: list[AcceptanceItemStatus]) -> AcceptanceVerificati
         row = {
             "id": item.id,
             "description": item.description,
+            "required_revision": item.required_revision,
             "records": [asdict(record) for record in item.records],
         }
         if item.completed:
@@ -447,6 +478,7 @@ def render_acceptance_plan_report(plan: AcceptancePlan) -> str:
                     "",
                     f"- status: `{item.status}`",
                     f"- completed: `{str(item.completed).lower()}`",
+                    f"- required_revision: `{item.required_revision}`",
                     f"- record_count: `{item.record_count}`",
                     f"- description: {item.description}",
                     f"- next_action: {item.next_action}",
@@ -507,7 +539,7 @@ def write_acceptance_plan_report(
     text = render_acceptance_plan_report(plan)
     if scan_text(text, "<manual-acceptance-plan-report>"):
         raise ValueError("acceptance plan report rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 
@@ -553,6 +585,7 @@ def render_acceptance_packet_report(plan: AcceptancePlan) -> str:
                 f"### {item.id}",
                 "",
                 f"- status: `{item.status}`",
+                f"- required revision: `{item.required_revision}`",
                 f"- description: {item.description}",
                 f"- next action: {item.next_action}",
                 "",
@@ -617,7 +650,7 @@ def write_acceptance_packet_report(
     text = render_acceptance_packet_report(plan)
     if scan_text(text, "<manual-acceptance-packet-report>"):
         raise ValueError("acceptance packet report rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 
@@ -648,7 +681,7 @@ def reject_acceptance_packet_symlink_components(root_abs: Path, target: Path, la
     current = root_abs
     for part in target.relative_to(root_abs).parts:
         current = current / part
-        if current.is_symlink():
+        if path_is_link_like(current):
             raise ValueError(f"{label} must not contain symlinks")
 
 
@@ -702,7 +735,7 @@ def write_acceptance_packet_archive(
     text = render_acceptance_packet_report(plan)
     if scan_text(text, "<manual-acceptance-packet-archive>"):
         raise ValueError("acceptance packet archive rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=False)
     return target
 
 
@@ -837,6 +870,7 @@ def acceptance_template(
 Status: `{status}`
 Reviewer: {markdown_code_span(clean_reviewer)}
 PR URL: {markdown_code_span(clean_pr_url)}
+Required revision: `{ACCEPTANCE_REVISIONS[item_id]}`
 
 ## Check
 
@@ -922,6 +956,7 @@ def acceptance_plan(root: Path, reviewer: str | None = None, pr_url: str | None 
             AcceptancePlanItem(
                 id=item.id,
                 description=item.description,
+                required_revision=item.required_revision,
                 status=status,
                 completed=item.completed,
                 record_count=len(item.records),
@@ -991,6 +1026,7 @@ def status_to_dict(items: list[AcceptanceItemStatus]) -> list[dict[str, Any]]:
         {
             "id": item.id,
             "description": item.description,
+            "required_revision": item.required_revision,
             "completed": item.completed,
             "records": [asdict(record) for record in item.records],
         }

@@ -148,9 +148,9 @@ python3 scripts/ai_dememory.py working status --json
 python3 scripts/ai_dememory.py sleep apply-reviewed --all
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py schedule plan --json
-python3 scripts/ai_dememory.py schedule plan --json --mode docker --image ai-dememory:local
+python3 scripts/ai_dememory.py schedule plan --json --mode docker --image sha256:<64-hex-image-id>
 python3 scripts/ai_dememory.py schedule setup --dry-run
-python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image ai-dememory:local
+python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image sha256:<64-hex-image-id>
 python3 scripts/ai_dememory.py schedule cron --json
 python3 scripts/ai_dememory.py schedule doctor --json
 python3 scripts/ai_dememory.py hooks events
@@ -261,9 +261,9 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `install_smoke.py`: installs the package in a fresh virtual environment,
   checks v2 CLI surfaces, promotes a synthetic recall miss fixture, and
   optionally verifies the local Docker MCP image.
-- `publish_guard.py`: validates the AI-operated tag release, green-CI tagger,
-  OIDC, exact-artifact smoke, attestation and confirmation-gated, token-free
-  recovery contracts.
+- `publish_guard.py`: validates the exact tag/SHA-confirmed manual tagger,
+  single OIDC publisher, exact-artifact smoke, attestation, and
+  confirmation-gated token-free recovery contracts.
 - `ci_guard.py`: validates that CI keeps required v2 verification gates.
 - `artifact_guard.py`: fails when generated indexes, reports, context exports,
   build outputs, or caches are staged.
@@ -290,8 +290,15 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `api_smoke.py`: starts the local REST API on loopback and verifies health,
   search, graph, proposal, reindex, API-key, and non-loopback safety behavior.
 - `validate_memory.py`: validates canonical Markdown memory frontmatter.
-- `secret_scan.py`: detects forbidden secret-like material and redacts output.
-- `index_memory.py`: parses Markdown and rebuilds `indexes/memory.sqlite`.
+- `secret_scan.py`: incrementally detects forbidden secret-like material,
+  redacts output, skips dependency environments, rejects links, and fails
+  closed on entry/file/byte/finding ceilings.
+- `resource_limits.py`: central non-configurable scan, graph, protocol-adjacent,
+  and generated-history safety ceilings.
+- `process_control.py`: owns child stdin/output/deadlines and reaps complete
+  Windows Job Object or POSIX process-group trees.
+- `index_memory.py`: parses bounded Markdown, rebuilds
+  `indexes/memory.sqlite`, and retains bounded generated audit history.
 - `search_memory.py`: queries SQLite FTS with tags, aliases, recency, confidence,
   pin/type boosts, and stale/archive/disputed penalties.
 - `context_memory.py`: assembles token-budgeted session context from ranked
@@ -299,8 +306,8 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `working_memory.py`: writes current working snapshots and handoffs.
 - `lifecycle.py`: records retrieval and good/bad usefulness outcomes, computes
   generated lifecycle scores, and writes guarded lifecycle reports.
-- `graph_memory.py`: builds a generated memory/tag/project/type relationship
-  graph.
+- `graph_memory.py`: builds a bounded, paginated generated
+  memory/tag/project/type relationship graph.
 - `http_api.py`: serves a dependency-free local REST API for health, search,
   graph, proposal writes, and reindexing.
 - `provider_import.py`: imports configured LLM provider chat/session files and

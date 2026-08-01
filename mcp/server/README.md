@@ -52,6 +52,10 @@ Run as a stdio JSON-RPC server:
 python3 mcp/server/memory_mcp.py --stdio
 ```
 
+The server has a 600-second idle lease by default, including when the host
+leaves stdin open. Override it with `--idle-timeout-seconds <30..3600>`; zero
+disables self-termination and should only be used with external supervision.
+
 List resources:
 
 ```powershell
@@ -130,6 +134,14 @@ derive the query from generated working memory, and returns `query_source` so
 clients can display where the query came from. Omitted `budget_tokens`,
 `include_working_memory`, and `explain_results` arguments use the vault-local
 `[context]` defaults from `.ai-dememory.toml`.
+
+For public-repository work, call it with an explicit `query`,
+`public_only: true`, and `include_working_memory: false`. That ceiling filters
+non-public rows before applying the result limit, filters generated working
+state without returning private identifiers, and rejects `auto: true` before
+working state is read. `memory.search` and `memory.get` also accept
+`public_only: true`; public-repository agents must not use working-memory tools,
+graph, resources, prompts, or a recall surface without that ceiling.
 
 `memory.mark_seen` records retrieval usage in generated SQLite tables and
 returns a structured receipt containing the query, selected memory id, score,
@@ -249,13 +261,14 @@ without recording evidence.
 or recording evidence; the rendered report includes next actions and the
 maintenance summary. It accepts the same optional `reviewer` and `pr_url`
 metadata as the structured release-evidence tool.
-`memory.publish_plan` returns the same manual TestPyPI or PyPI workflow
-dispatch plan as `ai-dememory publish-plan --json` without writing files,
-running publish or preflight commands, recording evidence, or uploading
-packages. It may run local read-only inspection commands to collect release
-evidence and resolve the workflow URL. It includes the trusted publishing
-workflow path, confirmation inputs, release blockers, preflight command arrays,
-and next actions.
+`memory.publish_plan` returns the same TestPyPI or PyPI readiness plan as
+`ai-dememory publish-plan --json` without writing files, running hosted
+commands, recording evidence, or uploading packages. It may run local
+read-only inspection commands to collect release evidence and resolve the
+legacy preflight URL. It includes `confirm=preflight`, canonical release
+blockers, inspection command arrays, `uses_trusted_publishing=false`, and next
+actions. Package publication belongs only to the immutable-tag
+`.github/workflows/release.yml` path.
 
 `memory.consolidate` returns a dry-run consolidation report and includes
 conflict scan evidence when `[conflicts].scan_on_consolidate = true`.
@@ -317,8 +330,10 @@ corresponding MCP listing tools return empty candidate lists and write tools
 reject the call before writing review state.
 
 `private` and `sensitive` memories are excluded from default `memory.search` and
-`memory.get` output unless `include_sensitive` is explicitly set. Resources and
-generated prompts never expose private/sensitive memory by default.
+`memory.get` output unless `include_sensitive` is explicitly set. `internal`
+memory is still present by default, so public consumers must use
+`public_only: true`. Resources and generated prompts exclude private/sensitive
+memory by default but do not provide a public-only ceiling.
 
 Safety limits:
 

@@ -24,6 +24,7 @@ from memorylib import (
     parse_value,
     repo_relative_path,
     repo_root,
+    safe_write_text,
     slugify,
     today,
     validate_memories,
@@ -453,9 +454,19 @@ def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = Non
         raise ReviewError(f"unknown review mode: {mode_name}")
     config = load_config(root)
     current = dict(config.get("review", {}))
+    current.update(review_mode_config_values(mode_name, reviewer))
+    return set_section(root, "review", current)
+
+
+def review_mode_config_values(mode_name: str, reviewer: str | None = None) -> dict[str, Any]:
+    """Return the canonical persisted policy fields for one review mode."""
+    mode = REVIEW_MODES.get(canonical_review_mode(mode_name))
+    if not mode:
+        raise ReviewError(f"unknown review mode: {mode_name}")
+    values: dict[str, Any] = {}
     if reviewer is not None:
-        current["reviewer"] = safe_review_text(reviewer, "reviewer")
-    current.update(
+        values["reviewer"] = safe_review_text(reviewer, "reviewer")
+    values.update(
         {
             "mode": mode.name,
             "require_human_for_durable": mode.require_human_for_durable,
@@ -468,7 +479,7 @@ def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = Non
             "updated_at": today().isoformat(),
         }
     )
-    return set_section(root, "review", current)
+    return values
 
 
 def review_plan(root: Path, kind: str) -> ReviewPlan:
@@ -554,7 +565,7 @@ def capture_review_recommendation(
     if scan_text(text, "<review-recommendation>"):
         raise ReviewError("review recommendation rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return ReviewRecommendationResult(
         id=recommendation_id,
         path=repo_relative_path(path, root),
@@ -1077,7 +1088,7 @@ def record_review_recommendation_outcome(
     updated_text = render_review_recommendation_artifact_text(data, body)
     if scan_text(updated_text, "<review-recommendation-outcome>"):
         raise ReviewError("review recommendation outcome rejected by secret scan")
-    path.write_text(updated_text, encoding="utf-8")
+    safe_write_text(path, updated_text, root=root, overwrite=True)
     refreshed = parse_review_recommendation_record(match.path, data)
     return {
         "path": match.path,
@@ -1277,7 +1288,7 @@ def write_review_recommendation_outcome_report(
     if scan_text(text, "<review-recommendation-outcome-report>"):
         raise ReviewError("review recommendation outcome report rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path, payload
 
 
@@ -2196,7 +2207,7 @@ def write_false_positive_report(
     if scan_text(text, "<false-positive-report>"):
         raise ReviewError("false-positive report rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path, reviews
 
 
@@ -2210,7 +2221,7 @@ def write_stale_false_positive_report(
     if scan_text(text, "<stale-false-positive-report>"):
         raise ReviewError("stale false-positive report rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path, items
 
 
@@ -2510,7 +2521,12 @@ def write_conflict_merge_proposal(root: Path, conflict: ConflictReview, reviewer
     ]
     for memory_id, path_value, summary in zip(conflict.memory_ids, conflict.paths, conflict.summaries):
         lines.extend([f"### {memory_id}", "", f"- path: `{path_value}`", "", summary, ""])
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    safe_write_text(
+        path,
+        "\n".join(lines).rstrip() + "\n",
+        root=root,
+        overwrite=False,
+    )
     return path
 
 
@@ -2583,7 +2599,7 @@ def write_conflict_report(root: Path, output: str | Path | None = None) -> tuple
     if scan_text(text, "<conflict-report>"):
         raise ReviewError("conflict report rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path, conflicts
 
 

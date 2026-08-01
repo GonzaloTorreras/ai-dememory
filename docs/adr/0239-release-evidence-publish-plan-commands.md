@@ -9,12 +9,14 @@ Accepted
 ADR 0235 added top-level release-evidence handoff commands for generated
 reports, manual acceptance, recall review, strict release evidence, and
 `publish-guard`. ADR 0236 later added `ai-dememory publish-plan` as the
-read-only command that combines publish workflow dispatch inputs, preflight
+read-only command that combines readiness-preflight metadata, local inspection
 commands, release blockers, and explicit non-publishing side-effect flags.
+ADR 0255 retained that compatibility surface while moving all publication
+authority to the immutable-tag-driven `release.yml` workflow.
 
-That left release evidence slightly behind the current publish workflow: the
+That left release evidence slightly behind the current readiness contract: the
 handoff pointed maintainers at the guard, but not at the richer TestPyPI and
-PyPI publish plans.
+PyPI readiness plans.
 
 ## Decision
 
@@ -37,14 +39,15 @@ handoff: `payload_mutates_system=false`, `payload_runs_commands=false`,
 `payload_records_evidence=false`, and `payload_writes_files=false`.
 `command_side_effects` continues to describe the explicit reviewer action of
 running suggested commands. The publish-plan commands remain non-publishing,
-but are marked with `runs_commands=true` because publish planning performs
-local read-only inspection.
+but are marked with `runs_commands=true` because readiness planning performs
+local read-only inspection. They do not dispatch either the legacy preflight or
+the canonical publisher.
 
 ## Consequences
 
-- Final release handoffs now expose the same publish planning path as the CLI,
+- Final release handoffs now expose the same readiness planning path as the CLI,
   MCP tool, installed smoke, and Docker smoke.
-- Maintainers can inspect TestPyPI and PyPI plans directly from release
+- Maintainers can inspect TestPyPI and PyPI readiness plans directly from release
   evidence JSON or Markdown.
 - Publish execution remains outside release evidence and still requires
   explicit human approval.
@@ -53,6 +56,8 @@ local read-only inspection.
 
 - The commands do not prove a publish workflow was dispatched or completed.
 - The commands cannot verify external PyPI/TestPyPI Trusted Publisher settings.
+- Compatibility names containing `publish` do not identify an executable
+  publisher path; ADR 0255 governs actual publication.
 - The `pypi` command is guidance only; it still reminds maintainers to complete
   TestPyPI first.
 
@@ -72,6 +77,8 @@ local read-only inspection.
 - ADR 0236 defines CLI publish planning.
 - ADR 0237 defines MCP publish planning.
 - ADR 0238 defines package and Docker smoke for MCP publish planning.
+- ADR 0255 supersedes the original publication interpretation and defines the
+  sole canonical publisher.
 - `scripts/release_evidence.py` owns release evidence JSON and Markdown.
 - `scripts/publish_plan.py` owns publish-plan semantics.
 

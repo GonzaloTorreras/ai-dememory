@@ -14,10 +14,23 @@ sys.path.insert(0, str(SCRIPTS))
 from index_memory import rebuild_index  # noqa: E402
 from search_memory import SearchResult  # noqa: E402
 from search_memory import search  # noqa: E402
-from turn_context import build_turn_context  # noqa: E402
+from turn_context import build_turn_context, recall_settings  # noqa: E402
 
 
 class TurnContextTests(unittest.TestCase):
+    def test_nonfinite_relevance_config_is_rejected_and_defaults_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[recall]\nmin_relevance_score = nan\n",
+                encoding="utf-8",
+            )
+
+            settings, errors = recall_settings(root)
+
+        self.assertEqual(settings.min_relevance_score, 0.18)
+        self.assertIn("invalid_recall_setting:min_relevance_score", errors)
+
     def test_project_hint_is_explainable_and_can_retrieve_project_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -297,6 +310,39 @@ min_relevance_score = "0.99"
         self.assertTrue(result["security"]["secret_detected"])
         self.assertNotIn(fake_secret, str(result))
 
+    def test_public_only_turn_context_excludes_internal_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_memory(
+                root,
+                "memories/active/internal.md",
+                "mem_internal_hook",
+                title="Internal retry guidance",
+                body="Internal retry implementation details.",
+            )
+            write_memory(
+                root,
+                "memories/active/public.md",
+                "mem_public_hook",
+                title="Public retry guidance",
+                body="Public retry implementation details.",
+                sensitivity="public",
+                reviewed=True,
+            )
+            rebuild_index(root, root / "indexes/memory.sqlite")
+
+            result = build_turn_context(
+                root,
+                "Implement retry guidance and deterministic tests",
+                cwd=root,
+                public_only=True,
+            )
+
+        self.assertEqual(result["decision"], "inject")
+        self.assertEqual([item["id"] for item in result["items"]], ["mem_public_hook"])
+        self.assertTrue(result["security"]["public_only"])
+        self.assertNotIn("mem_internal_hook", str(result))
+
 
 def write_memory(
     root: Path,
@@ -310,6 +356,7 @@ def write_memory(
     body: str = "Project guidance for implementation and tests.",
     tags: list[str] | None = None,
     status: str = "active",
+    sensitivity: str = "internal",
 ) -> Path:
     path = root / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -331,7 +378,7 @@ aliases: [project guidance]
 created_at: 2026-07-10
 updated_at: 2026-07-10
 confidence: 0.9
-sensitivity: internal
+sensitivity: {sensitivity}
 source:
   kind: manual
   ref: unittest

@@ -1,22 +1,33 @@
 # ai DeMemory
 
-Personal multi-LLM memory repository for Codex, Claude, Gemini, Obsidian, and
-future tools.
+Public source and package-distribution repository for ai DeMemory, a local
+multi-LLM memory tool for Codex, Claude, Gemini, Obsidian, and future clients.
+Private memory lives in separately bound vaults and is never repository state.
 
 Markdown is the canonical source of truth. SQLite FTS, exports, reports, and
 future vector indexes are generated from Markdown and can be rebuilt.
 
 ## Status
 
-- Current release target: local MCP v2.0 readiness.
+- Published stable release: `ai-dememory` 2.0.0 on PyPI and GitHub Releases.
+- Current public source version: 2.1.0 on `main`. It remains unreleased until an
+  immutable `v2.1.0` tag, the canonical release workflow, index verification,
+  and explicit release authorization all exist.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
+- Runtime boundary: Python 3.11+ remains authoritative; Node is not a headless
+  runtime dependency. See `docs/adr/0254-python-node-runtime-boundary.md`.
 - Transport: local MCP stdio plus optional local REST API.
 - License: Apache-2.0; use, modification and redistribution are permitted under
   the terms in `LICENSE`.
-- Pull request workflow: keep PRs draft until human review is complete.
+- Repository workflow: Codex owns routine implementation and release readiness;
+  independent read-only review precedes PR readiness, while merge, tag and
+  publication require explicit user approval.
 - Remote HTTP, OAuth, automatic durable writes, and vector search are out of
   scope for this release.
+
+The active modernization and selective MemPalace adoption plan is documented in
+`docs/public-modernization-roadmap.md`.
 
 ## Quick Start
 
@@ -27,9 +38,28 @@ pipx install ai-dememory
 ai-dememory init ~/code/my-memory
 cd ~/code/my-memory
 ai-dememory doctor
+ai-dememory setup plan --intensity balanced --model-policy off --json
+ai-dememory setup wizard
 ```
 
 `uv` users can install the same tool with `uv tool install ai-dememory`.
+
+The initial wizard is preview-first. It asks for reviewed baseline values and
+one bounded operating envelope, then prints an exact fingerprint before any
+apply:
+
+| Intensity | Automatic recall | Local jobs after explicit install | Import cap/run | MCP profile |
+| --- | ---: | ---: | ---: | --- |
+| `minimal` | 0 tokens per turn; manual recall remains available | 1 weekly | 5 | `core` |
+| `balanced` | up to 1,200 tokens per eligible turn | 8/week | 20 | `core` |
+| `active` | up to 2,400 tokens per eligible turn | 8/week | 50 | `working` |
+
+`balanced` is the default. Separately choose host-model policy `off`,
+`advisory`, or `proposals`. ai-dememory itself makes zero model and embedding
+calls in all profiles; `advisory` and `proposals` only authorize bounded work by
+an already active host agent, whose normal token usage still applies. No policy
+automatically promotes durable memory. Installation and the wizard do not
+install hooks or scheduler jobs.
 
 If you want a reusable private GitHub vault template repo instead of creating a
 single local vault, export the packaged vault template:
@@ -78,6 +108,14 @@ fields such as `matched_terms`, `matched_fields`, `matched_tags`, and
 explicit CLI flags and MCP arguments take precedence. Use `context --why` or
 MCP `memory.context` with `explain_results=true` to include ranking evidence in
 assembled Markdown context.
+For public-repository work, use an explicit query with `context --public-only
+--no-working-memory` or MCP `memory.context` with `public_only=true` and
+`include_working_memory=false`. The ceiling filters non-public memories before
+the result limit is applied, ranks only revalidated canonical public Markdown,
+ignores generated lifecycle state, does not read generated working state, and
+rejects `public_only` combined with `auto`. `search --public-only`, MCP
+`memory.search(public_only=true)`, and MCP `memory.get(public_only=true)` expose
+the same public-sensitivity boundary for narrower recall.
 `setup plan --json` is read-only and includes `generated_reports` command
 arrays for optional recall review, recall review packet, manual acceptance,
 manual acceptance packet, hook capture review, and release evidence handoff
@@ -92,7 +130,10 @@ preflight commands, generated artifact state and freshness, generated packet
 archive cleanup counts, lock state, and review queues into one local setup
 health summary.
 It reports separate `core_ready`, `retrieval_evaluated`,
-`maintenance_ready`, `integrations_ready`, and `release_ready` dimensions.
+`manual_maintenance_ready`, `automation_ready`, `maintenance_ready`,
+`integrations_ready`, `autonomy_ready`, and `release_ready` dimensions.
+Automation is not ready until a namespaced scheduler receipt has been checked
+against the host after installation.
 The legacy `ready` field is deprecated and is only an alias for
 `core_ready`; it must not be interpreted as overall setup or release health.
 `schedule plan --json` is read-only and returns host scheduler commands,
@@ -172,6 +213,9 @@ Distribution and user vault setup:
   rejected from canonical memory.
 - `private` and `sensitive` memories are excluded from default search/MCP
   results and generated LLM context unless explicitly included by a local user.
+- `internal` memory remains valid for a private vault but is not public-safe.
+  Public-repository work must opt into the fail-closed `public_only` ceiling;
+  default exclusion of only private/sensitive data is not an egress policy.
 
 ## Repository Layout
 
@@ -209,9 +253,13 @@ Distribution and user vault setup:
 
 Implemented MCP surface: 74 MCP tools.
 
-Generated Codex config and the bundled plugin expose only the seven-tool
-`core` profile by default. Additive `working` and `review` profiles are opt-in;
-`admin` preserves the complete server for backwards compatibility. See
+Generated Codex, Claude, and generic private-vault configs expose only the
+four-tool server-enforced `core` profile by default. The checked-in public
+plugin is stricter: its three-tool `public` profile exposes only search, get,
+and context and forces `public_only=true`, `include_sensitive=false`, and no
+working-memory injection in the server. Additive `working` and `review`
+profiles are opt-in; `admin` preserves the complete server for backwards
+compatibility. Generated configs require an explicitly bound vault. See
 [MCP tool profiles](docs/mcp-tool-profiles.md), including reproducible schema
 byte and estimated-token measurements.
 
@@ -263,9 +311,10 @@ byte and estimated-token measurements.
   `memory_review_inbox`.
 - Utilities: `initialize`, `notifications/initialized`, and `ping`.
 
-The checked-in Codex plugin enables `core`. Use `working` or `review` only for
-those workflows; use the CLI or explicit `admin` profile when broad local
-execution tools are intended.
+The checked-in Codex plugin enables the server-forced three-tool `public`
+profile. Generated private-vault configs default to `core`; opt into `working`
+or `review` only for those workflows, and use the CLI or explicit `admin`
+profile when broad local execution tools are intended.
 
 Safety defaults:
 
@@ -299,8 +348,9 @@ python3 scripts/ai_dememory.py api --host 127.0.0.1 --port 8765
 ```
 
 Endpoints include `/health`, `/search`, `/memories/{id}`, `/graph`,
-`/proposals`, and `/reindex`. Non-loopback binds require `AI_DEMEMORY_API_KEY`
-or an explicit unsafe override. See [docs/local-api.md](docs/local-api.md).
+`/proposals`, and `/reindex`. Graph responses are paginated. Non-loopback
+binds require both `AI_DEMEMORY_API_KEY` and TLS certificate/key arguments;
+there is no unauthenticated override. See [docs/local-api.md](docs/local-api.md).
 
 ## Workflow
 
@@ -339,7 +389,7 @@ python3 scripts/ai_dememory.py recall-fixtures review-plan --write-report
 python3 scripts/ai_dememory.py recall-fixtures packet --write-report
 python3 scripts/ai_dememory.py recall-fixtures promote-miss --help
 python3 scripts/ai_dememory.py recall-fixtures review-miss --help
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests -t .
 python3 -m compileall -q scripts mcp/server ai_dememory_tool
 ```
 
@@ -392,8 +442,9 @@ python3 scripts/ai_dememory.py hooks archive --json
 python3 scripts/ai_dememory.py hooks install --client all --dry-run
 python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex" --dry-run --json
 python3 scripts/ai_dememory.py schedule plan --json
-python3 scripts/ai_dememory.py schedule plan --json --mode docker --image ai-dememory:local
-python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image ai-dememory:local
+IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
+python3 scripts/ai_dememory.py schedule plan --json --mode docker --image "$IMAGE_ID"
+python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image "$IMAGE_ID"
 python3 scripts/ai_dememory.py schedule cron --json
 python3 scripts/ai_dememory.py schedule doctor --json
 python3 scripts/ai_dememory.py export-context
@@ -455,16 +506,20 @@ Conflict reports and merge proposals use `[conflicts].report_path` and
 are constrained to the vault.
 
 Product acceptance stays separate from automated package gates. This repository
-is AI-operated and human-account-owned: Codex maintains release PRs, versions,
-changelog entries, merges and tags; green CI creates the immutable version tag;
-the canonical release workflow builds once, smokes the exact wheel and sdist,
-attests them, publishes through OIDC and verifies the installed index package.
+is operationally maintained by Codex: it prepares release PRs, versions,
+changelog entries and exact-artifact evidence. A release PR is not merged and
+no tag or package is published until the user explicitly authorizes those
+important actions. Once authorized, the canonical tag-driven workflow builds
+once, smokes the exact wheel and sdist, attests them, publishes through OIDC and
+verifies the installed index package.
 See `docs/ai-operated-releases.md`.
 
 Manual acceptance remains useful for product and vault behavior, but it does
-not authorize or block package publication. After a reviewer uses a real MCP
-client, inspects an Obsidian vault, reviews a provider import, or verifies
-another checklist item, record that separate product evidence with:
+not substitute for release authorization and is not consumed by the package
+workflow. Missing evidence is surfaced in the owner handoff for an explicit
+decision. After a reviewer uses a real MCP client, inspects an Obsidian vault,
+reviews a provider import, or verifies another checklist item, record that
+separate product evidence with:
 
 ```bash
 ai-dememory acceptance record \
@@ -477,15 +532,24 @@ ai-dememory release-evidence --strict
 python scripts/ai_release_guard.py --version-only --json
 ```
 
-`publish-plan` is read-only. It resolves `workflow_url` from project repository
-metadata first, falls back to the local GitHub remote when available, and keeps
-a placeholder in plain vaults or non-GitHub checkouts. It reports both final
-`release_ready` and target-specific `publish_ready`. TestPyPI `publish_ready`
-can defer only the `testpypi-publish` acceptance item because that evidence is
-created by the TestPyPI workflow; all other blockers still prevent dispatch.
-PyPI `publish_ready` requires full `release_ready` after TestPyPI evidence is
-recorded. The publish workflow requires a PR URL and sets
-`AI_DEMEMORY_PR_URL` from that input before strict publish planning.
+The release-identity command succeeds only after an authorized release-prep
+change replaces the current version's `Unreleased` changelog heading with its
+actual release date.
+
+`publish-plan` is read-only. Its compatibility `workflow_url` resolves the
+legacy hosted readiness preflight, never a publisher. That workflow requires
+`confirm=preflight`, a PR URL, read-only repository permission, and cannot
+request OIDC, target a package environment, upload artifacts, or publish.
+The plan retains the fields `release_ready` and `publish_ready` for API
+compatibility: TestPyPI local readiness may defer only the
+`testpypi-publish` acceptance item, while the local PyPI planner requires full
+release evidence. The canonical workflow cannot read private-vault receipts
+and does not enforce either field. Actual publication belongs exclusively to
+the immutable-tag-driven `.github/workflows/release.yml` path and requires
+explicit owner authorization after any remaining evidence gaps are disclosed.
+`testpypi-publish` requires acceptance revision 2. Legacy revision-1 or
+unversioned passing records from the former manual publisher remain auditable
+but do not complete the current local acceptance/readiness signal.
 
 Use `ai-dememory release-evidence --write-report --report-path
 reports/v2-release-evidence.md` when a handoff needs an explicit generated
@@ -555,9 +619,9 @@ archives, refreshing generated artifacts, or running maintenance commands.
 It also includes `handoff_commands`: copyable command arrays for writing release
 evidence, generating manual acceptance and recall review packets, running
 strict release evidence, verifying manual acceptance, checking recall freshness,
-planning TestPyPI/PyPI publishes, and running the publish guard. These commands
-are guidance; reviewers still need real evidence before recording acceptance or
-publishing.
+evaluating TestPyPI/PyPI readiness, and running the publish guard. These
+commands are guidance; reviewers still need real evidence before recording
+acceptance or publishing.
 The handoff payload separates `payload_*` side-effect flags from
 `command_side_effects`; constructing release evidence remains read-only, while
 commands such as `--write-report` are explicitly marked as writing generated
@@ -630,6 +694,21 @@ Run as a stdio MCP server:
 ```bash
 python3 scripts/ai_dememory.py mcp --stdio
 ```
+
+The stdio server exits after 600 seconds without an MCP message by default.
+Generated onboarding configs use 120/600/1800 seconds for the
+`minimal`/`balanced`/`active` intensity profiles. This prevents completed agent
+sessions from retaining idle MCP processes indefinitely. Pass
+`--idle-timeout-seconds 0` only when a separate supervisor owns cleanup.
+Package-owned Git, scheduler, install-smoke, and maintenance children receive
+closed stdin and run in an owned process group/tree. Every deadline reaps the
+complete descendant tree; MCP response reads also have a deadline and graceful
+EOF shutdown. Windows creates each child suspended, assigns it to a retained
+kill-on-close Job Object, and only then allows it to execute. POSIX uses an
+owned session/process group. Canonical scans, secret
+scans, graph pages, MCP input queues, captured output, and SQLite histories
+also have hard ceilings. These controls cover ai-dememory processes, not
+unrelated Node/Python tool servers owned by the host application.
 
 PowerShell direct smoke examples:
 

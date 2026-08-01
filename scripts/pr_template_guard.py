@@ -35,7 +35,7 @@ REQUIRED_SNIPPETS = {
     "eval_recall": "python3 scripts/ai_dememory.py eval-recall",
     "install_smoke": "python3 scripts/ai_dememory.py install-smoke",
     "package_build_smoke": "python3 scripts/ai_dememory.py package-build-smoke",
-    "unit_tests": "python3 -m unittest discover -s tests",
+    "unit_tests": "python3 -m unittest discover -s tests -t .",
     "compileall": "python3 -m compileall -q scripts mcp/server ai_dememory_tool",
     "pr_gate": "AI_DEMEMORY_PR_URL",
     "mcp_smoke": "python3 scripts/ai_dememory.py mcp-smoke",

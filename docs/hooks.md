@@ -4,6 +4,29 @@
 capture small lifecycle-event metadata for review. Hooks are optional. They do
 not import chat history, run maintenance, or promote durable memory.
 
+Generated hook commands are vault-bound and include the fail-closed
+public-only recall ceiling by default. The `minimal` and `balanced` resource
+profiles keep hook metadata capture off; `active` may enable metadata after the
+wizard preview. Raw payload capture is always off unless separately requested.
+The pending metadata inbox is hard-capped by the selected resource policy
+(25/100/500 for minimal/balanced/active), and a full queue suppresses new
+captures while preserving deduplication of an existing event.
+
+Every rendered memory section and structured context item preserves its
+frontmatter `sensitivity` label. Client or repository policy must enforce the
+appropriate egress ceiling. In particular, work on a public repository must
+ignore non-public recalled blocks unless the user explicitly authorizes
+disclosure and separate review; secret scanning alone cannot classify ordinary
+proprietary prose.
+
+For active recall during public-repository work, use an explicit query with
+MCP `memory.context` (`public_only=true`, `include_working_memory=false`) or
+`memory.search` (`public_only=true`), and fetch an item only with
+`memory.get(public_only=true)`. The CLI equivalents are `context "<query>"
+--public-only --no-working-memory` and `search "<query>" --public-only`.
+Do not use auto context, working-memory tools, graph/resources/prompts, or a
+surface without a public-only ceiling for that work.
+
 The CLI supports Codex plugin hooks and Claude Code command hooks:
 
 ```bash
@@ -114,7 +137,7 @@ vault returns `{}` and continues without injection.
 
 ## Safety Boundary
 
-By default, hook capture stores only:
+When hook metadata has been explicitly enabled, capture stores only:
 
 - provider name
 - event name

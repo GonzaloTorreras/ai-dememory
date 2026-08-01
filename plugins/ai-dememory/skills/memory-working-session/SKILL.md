@@ -15,19 +15,25 @@ active client cannot change profiles.
 
 Preferred MCP workflow:
 
-1. Call `memory.working_status` before resuming work to see whether current
+1. Establish whether the current output destination is public. For
+   public-repository work, do not read or inject generated working state;
+   resume from public repository, issue, PR, and CI evidence instead.
+2. For authorized private-vault work, call `memory.working_status` before
+   resuming work to see whether current
    task state, recent-session notes, or handoffs exist.
-2. Call `memory.working_current` when the status shows current task state that
+3. Call `memory.working_current` when the status shows current task state that
    may affect the answer.
-3. Call `memory.context` when the user needs broader recall; it already includes
-   working state unless disabled by the caller.
-4. Call `memory.working_snapshot` after a meaningful task step or before a long
+4. Call `memory.context` when the user needs broader private-vault recall; it
+   includes working state unless disabled by the caller. For public-repository
+   recall, leave this skill and use explicit
+   `memory.context(public_only=true, include_working_memory=false)` instead.
+5. Call `memory.working_snapshot` after a meaningful task step or before a long
    interruption. Include a short title, optional task name, and concise notes.
-5. Call `memory.working_handoff` when the user asks to hand off, pause, or leave
+6. Call `memory.working_handoff` when the user asks to hand off, pause, or leave
    continuation instructions.
-6. Use `memory.write_proposal` or explicit CLI capture only for facts that may
+7. Use `memory.write_proposal` or explicit CLI capture only for facts that may
    become durable memory, keeping them in review-first inbox paths.
-7. At the end of meaningful work, extract only explicit stable learnings under
+8. At the end of meaningful work, extract only explicit stable learnings under
    a concise `Learnings`/`Aprendizajes` heading or write them through
    `memory.write_proposal`. Stop automation may capture those labelled bullets
    as a deduplicated, secret-scanned proposal; do not copy the raw transcript.
@@ -41,6 +47,9 @@ CLI fallback:
 
 Safety rules:
 
+- Never read working-memory tools into public-repository output. A private
+  working snapshot or handoff may track a public task only when it stays in an
+  explicitly bound private vault and is not treated as public source evidence.
 - Never place secrets, tokens, cookies, private keys, service account JSON, or
   `.env` content in working notes.
 - Treat `working/current.json`, `working/recent-session.md`, and

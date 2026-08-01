@@ -11,7 +11,14 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from memorylib import contained_relative_path, logical_relative_path, repo_relative_path, repo_root, slugify
+from memorylib import (
+    contained_relative_path,
+    logical_relative_path,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+    slugify,
+)
 from secret_scan import scan_text
 
 
@@ -32,10 +39,10 @@ def snapshot(root: Path, title: str, notes: str, task: str | None = None) -> Pat
     path = root / "working" / "current.json"
     reject_working_path_symlink_components(root, path, "working snapshot path")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(rendered + "\n", encoding="utf-8")
+    safe_write_text(path, rendered + "\n", root=root, overwrite=True)
     recent = root / "working" / "recent-session.md"
     reject_working_path_symlink_components(root, recent, "working recent-session path")
-    recent.write_text(render_recent(payload), encoding="utf-8")
+    safe_write_text(recent, render_recent(payload), root=root, overwrite=True)
     return path
 
 
@@ -46,9 +53,11 @@ def handoff(root: Path, title: str, notes: str) -> Path:
     path = root / "working" / "handoffs" / f"{timestamp}_{slugify(title, 'handoff')}.md"
     reject_working_path_symlink_components(root, path, "working handoff path")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    safe_write_text(
+        path,
         f"# {title}\n\nGenerated at: `{now_iso()}`\n\n{notes.strip()}\n",
-        encoding="utf-8",
+        root=root,
+        overwrite=False,
     )
     return path
 

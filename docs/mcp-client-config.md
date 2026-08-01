@@ -1,7 +1,9 @@
 # MCP Client Configuration
 
-The server is local-first and uses stdio. Configure clients to run the command
-from this repository checkout.
+The server is local-first and uses stdio. Configure clients to run the
+installed command against an explicit private vault. A source checkout may be
+the command working directory for development only; it must not also be the
+vault.
 
 ## Preferred Command
 
@@ -11,14 +13,20 @@ Generate config from inside a memory vault:
 ai-dememory mcp-config --client codex
 ```
 
-For Codex, the default is `--profile core`. Use `--profile working` for session
-writes, `--profile review` for inbox/review workflows, or the explicit
-`--profile admin` escape hatch for the unfiltered 74-tool server. Generic and
-Claude config output defaults to `admin` because those formats do not enforce
-Codex `enabled_tools`; requesting a narrower profile is rejected instead of
-silently claiming a budget that the client cannot enforce. Profile
-definitions and current schema measurements are documented in
+Every client defaults to the server-enforced `--profile core`. Use
+`--profile working` for session writes, `--profile review` for inbox/review
+workflows, or the explicit `--profile admin` escape hatch for the unfiltered
+74-tool server. Codex also receives a matching `enabled_tools` allowlist, but
+generic and Claude clients are bounded even without that client feature because
+the launched server enforces the profile. Profile definitions and current
+schema measurements are documented in
 [MCP tool profiles](mcp-tool-profiles.md).
+
+Generated configs also enforce an idle process lease. `balanced` defaults to
+600 seconds, while onboarding emits 120/600/1800 seconds for
+`minimal`/`balanced`/`active`. This bounds abandoned MCP processes when a host
+keeps stdio open after an agent ends. Set `--idle-timeout-seconds 0` only for a
+deliberately persistent server with external lifecycle supervision.
 
 For Codex, the command emits native TOML for `~/.codex/config.toml` (or a
 trusted project's `.codex/config.toml`) and sets `AI_DEMEMORY_ROOT` to the
@@ -27,8 +35,8 @@ vault path:
 ```toml
 [mcp_servers.ai-dememory]
 command = "ai-dememory"
-args = ["mcp", "--stdio"]
-enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.graph", "memory.doctor", "memory.working_current", "memory.working_status"]
+args = ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"]
+enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.doctor"]
 
 [mcp_servers.ai-dememory.env]
 AI_DEMEMORY_ROOT = "D:\\memory-vault"
@@ -54,9 +62,9 @@ Generic JSON form from an editable install:
 ```json
 {
   "command": "ai-dememory",
-  "args": ["mcp", "--stdio"],
+  "args": ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "env": {
-    "AI_DEMEMORY_ROOT": "D:\\Github\\ai-dememory"
+    "AI_DEMEMORY_ROOT": "D:\\memory-vault"
   }
 }
 ```
@@ -66,10 +74,10 @@ Without editable install:
 ```json
 {
   "command": "py",
-  "args": ["-3", "scripts\\ai_dememory.py", "mcp", "--stdio"],
+  "args": ["-3", "scripts\\ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "cwd": "D:\\Github\\ai-dememory",
   "env": {
-    "AI_DEMEMORY_ROOT": "D:\\Github\\ai-dememory"
+    "AI_DEMEMORY_ROOT": "D:\\memory-vault"
   }
 }
 ```
@@ -77,7 +85,7 @@ Without editable install:
 The equivalent local checkout smoke command is:
 
 ```powershell
-py -3 scripts\ai_dememory.py --root D:\Github\ai-dememory mcp-client-smoke --command py --command-arg -3 --command-arg scripts\ai_dememory.py
+py -3 scripts\ai_dememory.py --root D:\memory-vault mcp-client-smoke --command py --command-arg -3 --command-arg scripts\ai_dememory.py
 ```
 
 For WSL/Linux paths:
@@ -85,10 +93,10 @@ For WSL/Linux paths:
 ```json
 {
   "command": "python3",
-  "args": ["scripts/ai_dememory.py", "mcp", "--stdio"],
+  "args": ["scripts/ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "cwd": "/home/user/code/ai-dememory",
   "env": {
-    "AI_DEMEMORY_ROOT": "/home/user/code/ai-dememory"
+    "AI_DEMEMORY_ROOT": "/home/user/memory-vault"
   }
 }
 ```
@@ -96,13 +104,16 @@ For WSL/Linux paths:
 WSL/Linux checkout smoke:
 
 ```bash
-python3 scripts/ai_dememory.py --root /home/user/code/ai-dememory mcp-client-smoke \
+python3 scripts/ai_dememory.py --root /home/user/memory-vault mcp-client-smoke \
   --command python3 \
   --command-arg scripts/ai_dememory.py
 ```
 
 Adapt field names to the host application's MCP configuration format. The
-important contract is command, args, working directory, and `AI_DEMEMORY_ROOT`.
+important contract is command, args, working directory, `AI_DEMEMORY_ROOT`, the
+server profile, and `--require-bound-root`. An unbound generated configuration
+must fail closed instead of falling back to the public source checkout or an
+unintended vault.
 `ai-dememory mcp-client-smoke --config <file>` honors a `cwd` field when a
 client config includes one. Pass `--command` and repeated `--command-arg`
 values to smoke an existing config file with an explicit launch command while
@@ -110,7 +121,7 @@ preserving the config's environment and tool allowlist. When the config includes
 `enabled_tools`, the smoke also calls `tools/list` and fails if any enabled tool
 is absent from the launched server, following `nextCursor` until the final page.
 
-For the repo plugin config:
+For the repository plugin's source-development smoke only:
 
 ```bash
 python3 scripts/ai_dememory.py mcp-client-smoke \
@@ -119,15 +130,18 @@ python3 scripts/ai_dememory.py mcp-client-smoke \
   --command-arg scripts/ai_dememory.py
 ```
 
+That command intentionally exercises the repository's public demo fixtures. It
+is not a user MCP configuration and must not be repurposed as a private vault.
+
 ## Preflight
 
 Before connecting a client:
 
 ```bash
-python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py verify-mcp
-python3 scripts/ai_dememory.py index
-python3 scripts/ai_dememory.py mcp-client-smoke --command python3 --command-arg scripts/ai_dememory.py
+ai-dememory --root /path/to/private-memory-vault doctor
+ai-dememory --root /path/to/private-memory-vault verify-mcp
+ai-dememory --root /path/to/private-memory-vault index
+ai-dememory --root /path/to/private-memory-vault mcp-client-smoke
 ```
 
 After a draft PR exists, run the runtime smoke from the same checkout:
@@ -195,9 +209,10 @@ server notifications.
   `memory_review_inbox`.
 - Utilities: `initialize`, `notifications/initialized`, and `ping`.
 
-The Codex plugin config uses the same seven-tool `core` allowlist as generated
-Codex TOML. Direct clients can opt into `working` or `review`; `admin` removes
-the allowlist and therefore exposes the complete server. Broad execution tools
+The checked-in public Codex plugin uses a three-tool `public` allowlist and
+server ceiling; generated private-vault Codex TOML defaults to four-tool
+`core`. Direct clients can opt into `working` or `review`; `admin` removes the
+allowlist and therefore exposes the complete server. Broad execution tools
 such as `memory.reindex`, `memory.secret_scan`, `memory.import_chats`, and
 `memory.maintenance_run` remain admin-only.
 

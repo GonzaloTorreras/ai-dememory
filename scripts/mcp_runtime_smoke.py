@@ -7,16 +7,31 @@ import argparse
 import json
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from typing import Any
 
 from hook_event import capture_hook_event
 from memorylib import repo_root
+from process_control import (
+    attach_bounded_stderr_drain,
+    bounded_stderr_tail,
+    close_stdin_and_reap,
+    join_bounded_stderr_drain,
+    noninteractive_git_environment,
+    run_owned_capture,
+    start_owned_process,
+)
 
 MAX_LIST_PAGES = 20
+MCP_RESPONSE_TIMEOUT_SECONDS = 30
+MCP_SHUTDOWN_GRACE_SECONDS = 2
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+PINNED_SMOKE_IMAGE = "registry.example/ai-dememory@sha256:" + ("a" * 64)
 
 
 class SmokeError(RuntimeError):
@@ -38,8 +53,8 @@ def start_server(checkout_root: Path, memory_root: Path | None = None) -> subpro
     command = [sys.executable, "-m", "ai_dememory_tool.cli", "mcp"]
     if memory_root is not None:
         command.extend(["--root", str(memory_root)])
-    command.append("--stdio")
-    return subprocess.Popen(
+    command.extend(["--stdio", "--profile", "admin"])
+    process = start_owned_process(
         command,
         cwd=checkout_root,
         stdin=subprocess.PIPE,
@@ -47,6 +62,35 @@ def start_server(checkout_root: Path, memory_root: Path | None = None) -> subpro
         stderr=subprocess.PIPE,
         text=True,
     )
+    attach_bounded_stderr_drain(process)
+    return process
+
+
+def response_line(process: subprocess.Popen[str], timeout_seconds: float) -> str:
+    if process.stdout is None:
+        raise SmokeError("MCP server stdout pipe was not created")
+    result: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+
+    def read_line() -> None:
+        try:
+            result.put(("line", process.stdout.readline()))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            result.put(("error", exc))
+
+    threading.Thread(
+        target=read_line,
+        name="ai-dememory-mcp-smoke-stdout",
+        daemon=True,
+    ).start()
+    try:
+        kind, value = result.get(timeout=timeout_seconds)
+    except queue.Empty as exc:
+        raise SmokeError(
+            f"MCP server did not respond within {timeout_seconds:g} seconds"
+        ) from exc
+    if kind == "error":
+        raise SmokeError("MCP server stdout reader failed") from value
+    return str(value)
 
 
 def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> dict[str, Any]:
@@ -57,10 +101,31 @@ def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> dic
         raise SmokeError("MCP runtime smoke requests must use integer ids")
     process.stdin.write(json.dumps(request) + "\n")
     process.stdin.flush()
+    deadline = time.monotonic() + MCP_RESPONSE_TIMEOUT_SECONDS
     while True:
-        line = process.stdout.readline()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            method = str(request.get("method") or "<unknown>")
+            params = request.get("params")
+            tool_name = params.get("name") if isinstance(params, dict) else None
+            label = f"{method} {tool_name}" if tool_name else method
+            raise SmokeError(
+                f"MCP server did not respond to {label} within "
+                f"{MCP_RESPONSE_TIMEOUT_SECONDS:g} seconds"
+            )
+        try:
+            line = response_line(process, remaining)
+        except SmokeError as exc:
+            method = str(request.get("method") or "<unknown>")
+            params = request.get("params")
+            tool_name = params.get("name") if isinstance(params, dict) else None
+            label = f"{method} {tool_name}" if tool_name else method
+            raise SmokeError(
+                f"MCP server did not respond to {label} within "
+                f"{MCP_RESPONSE_TIMEOUT_SECONDS:g} seconds"
+            ) from exc
         if not line:
-            stderr = process.stderr.read() if process.stderr else ""
+            stderr = bounded_stderr_tail(process)
             raise SmokeError(f"MCP server returned no response. stderr={stderr}")
         response = json.loads(line)
         if not isinstance(response, dict):
@@ -232,14 +297,26 @@ def write_recall_fixture(root: Path) -> None:
     )
 
 
+def run_fixture_git(repo: Path, *args: str) -> None:
+    command = ["git", *args]
+    completed = run_owned_capture(
+        command,
+        cwd=repo,
+        env=noninteractive_git_environment(),
+        timeout_seconds=30,
+    )
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            command,
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+
 def stop_server(process: subprocess.Popen[str]) -> None:
-    if process.stdin:
-        process.stdin.close()
-    process.terminate()
-    try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
+    close_stdin_and_reap(process, grace_seconds=MCP_SHUTDOWN_GRACE_SECONDS)
+    join_bounded_stderr_drain(process, timeout=MCP_SHUTDOWN_GRACE_SECONDS)
     for stream in (process.stdout, process.stderr):
         if stream:
             stream.close()
@@ -277,6 +354,15 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
             "memories/tools/internal.md",
             "mem_fixture_internal",
             body="Internal fixture memory for resource exposure.",
+        )
+        write_fixture_memory(
+            fixture_root,
+            "memories/tools/public.md",
+            "mem_fixture_public",
+            sensitivity="public",
+            body="Public runtime ceiling memory for safe repository recall.",
+            aliases=["public runtime ceiling"],
+            title="Public Runtime Ceiling",
         )
         write_fixture_memory(
             fixture_root,
@@ -655,30 +741,12 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
 
             lesson_repo = fixture_root / "lesson-repo"
             lesson_repo.mkdir()
-            subprocess.run(["git", "init"], cwd=lesson_repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            subprocess.run(
-                ["git", "config", "user.email", "runtime@example.test"],
-                cwd=lesson_repo,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Runtime Smoke"],
-                cwd=lesson_repo,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            run_fixture_git(lesson_repo, "init")
+            run_fixture_git(lesson_repo, "config", "user.email", "runtime@example.test")
+            run_fixture_git(lesson_repo, "config", "user.name", "Runtime Smoke")
             (lesson_repo / "ci.yml").write_text("pipeline\n", encoding="utf-8")
-            subprocess.run(["git", "add", "ci.yml"], cwd=lesson_repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            subprocess.run(
-                ["git", "commit", "-m", "fix ci workflow"],
-                cwd=lesson_repo,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            run_fixture_git(lesson_repo, "add", "ci.yml")
+            run_fixture_git(lesson_repo, "commit", "-m", "fix ci workflow")
             git_lessons = tool_call(
                 process,
                 130,
@@ -903,7 +971,12 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
             )
             checks.append("fixture memory.providers_plan")
 
-            setup = tool_call(process, 913, "memory.setup_plan", {"client": "codex", "mode": "both"})
+            setup = tool_call(
+                process,
+                913,
+                "memory.setup_plan",
+                {"client": "codex", "mode": "both", "image": PINNED_SMOKE_IMAGE},
+            )
             assert_condition("commands" in setup, "setup_plan missing commands")
             assert_condition(setup.get("mutates_system") is False, "setup_plan must be read-only")
             assert_condition(setup.get("writes_files") is False, "setup_plan must not write files")
@@ -919,12 +992,14 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 "setup_plan should flag archive retention commands",
             )
             assert_condition(
-                setup["commands"].get("schedule_cron") == ["ai-dememory", "schedule", "cron"],
+                setup["commands"].get("schedule_cron")
+                == ["ai-dememory", "schedule", "cron", "--intensity", "balanced"],
                 "setup_plan should include installed cron export command",
             )
             assert_condition(
-                setup["commands"].get("docker_schedule_cron", [])[:4]
-                == ["ai-dememory", "schedule", "cron", "--mode"],
+                setup["commands"].get("docker_schedule_cron", [])[:3]
+                == ["ai-dememory", "schedule", "cron"]
+                and "--mode" in setup["commands"].get("docker_schedule_cron", []),
                 "setup_plan should include Docker cron export command",
             )
             report_commands = setup["commands"].get("generated_reports", {})
@@ -1035,13 +1110,20 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 "schedule_plan returned unexpected linux command",
             )
             assert_condition(
-                any("ai-dememory-daily.timer" in command["command"] for command in schedule_commands),
+                any(
+                    any(str(part).endswith("-daily.timer") for part in command["command"])
+                    for command in schedule_commands
+                ),
                 "schedule_plan missing daily timer command",
             )
             cron_entries = schedule.get("cron_entries", [])
             assert_condition(len(cron_entries) == 2, "schedule_plan should return daily and weekly cron entries")
             assert_condition(
-                any("ai-dememory maintenance run --profile daily" in entry.get("line", "") for entry in cron_entries),
+                any(
+                    "ai-dememory --root" in entry.get("line", "")
+                    and "maintenance run --profile daily --timeout-seconds 300" in entry.get("line", "")
+                    for entry in cron_entries
+                ),
                 "schedule_plan missing installed cron daily line",
             )
             assert_condition(schedule.get("mutates_system") is False, "schedule_plan must be read-only")
@@ -1052,7 +1134,12 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 process,
                 113,
                 "memory.schedule_plan",
-                {"platform": "linux", "action": "install", "mode": "docker", "image": "ai-dememory:local"},
+                {
+                    "platform": "linux",
+                    "action": "install",
+                    "mode": "docker",
+                    "image": PINNED_SMOKE_IMAGE,
+                },
             )
             docker_commands = docker_schedule.get("commands", [])
             assert_condition(
@@ -1455,6 +1542,72 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 "memory.context auto did not use working state as query",
             )
             checks.append("fixture memory.context auto")
+
+            public_context = tool_call(
+                process,
+                1202,
+                "memory.context",
+                {
+                    "query": "memory",
+                    "budget_tokens": 700,
+                    "limit": 1,
+                    "include_working_memory": True,
+                    "public_only": True,
+                },
+            )
+            public_context_text = json.dumps(public_context)
+            assert_condition(public_context.get("public_only") is True, "public context ceiling was not reported")
+            assert_condition(
+                [item.get("id") for item in public_context.get("items", [])] == ["mem_fixture_public"],
+                "public context did not filter before applying its result limit",
+            )
+            assert_condition(
+                public_context.get("working_memory", {}).get("included") is False,
+                "public context included generated working memory",
+            )
+            assert_condition(
+                "mem_fixture_internal" not in public_context_text
+                and "Runtime Smoke Working State" not in public_context_text,
+                "public context exposed internal memory or working state",
+            )
+            public_search = tool_call(
+                process,
+                1203,
+                "memory.search",
+                {"query": "memory", "limit": 1, "public_only": True},
+            )
+            assert_condition(
+                [item.get("id") for item in public_search.get("results", [])] == ["mem_fixture_public"],
+                "public search did not filter before applying its result limit",
+            )
+            public_get = tool_call(
+                process,
+                1204,
+                "memory.get",
+                {"id": "mem_fixture_public", "public_only": True},
+            )
+            assert_condition(
+                public_get.get("frontmatter", {}).get("sensitivity") == "public",
+                "public get did not return the public fixture",
+            )
+            public_auto = rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1205,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "memory.context",
+                        "arguments": {"auto": True, "public_only": True},
+                    },
+                },
+            )
+            assert_condition(public_auto.get("isError") is True, "public auto context did not fail closed")
+            assert_condition(
+                "Runtime Smoke Working State" not in json.dumps(public_auto),
+                "public auto context exposed its working query",
+            )
+            checks.append("fixture memory.public_only")
 
             false_secret = "sk-" + "proj-" + ("f" * 40)
             secret_fixture = fixture_root / "docs" / "false-positive-fixture.md"
@@ -2158,7 +2311,11 @@ def run_smoke(root: Path, allow_without_pr: bool = False) -> list[str]:
             "memory.publish_plan must not run preflight commands",
         )
         assert_condition(
-            publish_structured.get("dispatch_inputs", {}).get("confirm") == "publish",
+            publish_structured.get("uses_trusted_publishing") is False,
+            "memory.publish_plan must report no trusted-publishing capability",
+        )
+        assert_condition(
+            publish_structured.get("dispatch_inputs", {}).get("confirm") == "preflight",
             "memory.publish_plan missing manual confirmation input",
         )
         checks.append("tools/call memory.publish_plan")

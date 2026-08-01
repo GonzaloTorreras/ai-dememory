@@ -34,10 +34,46 @@ preflight commands and artifact targets, generated artifact state, generated
 packet archive cleanup counts, lock state, and false-positive/conflict review
 queues into one local health response.
 The response intentionally separates `core_ready`, `retrieval_evaluated`,
-`maintenance_ready`, `integrations_ready`, and `release_ready`. A seed-only
+`manual_maintenance_ready`, `automation_ready`, `maintenance_ready`,
+`integrations_ready`, `autonomy_ready`, and `release_ready`. A seed-only
 fixture set is not retrieval evidence: `retrieval_evaluated` requires at least
-one valid, fresh reviewed promotion. The deprecated `ready` field is scoped to
-`core_ready` and is retained only for compatibility.
+one valid, fresh reviewed promotion. Manual maintenance readiness does not imply
+automation readiness: the latter requires a valid, fresh, host-verified
+scheduler receipt. The deprecated `ready` field is scoped to `core_ready` and is
+retained only for compatibility.
+
+## Agent And Process Hygiene
+
+Treat model-agent concurrency as a resource budget, not free parallelism.
+Repository work defaults to the root agent and at most one bounded, fresh
+read-only reviewer. Do not recycle a completed subagent through repeated turns:
+some hosts create a complete browser/MCP tool stack per turn and may retain it
+after the logical agent disappears.
+
+Generated MCP configs include an idle lease:
+
+- `minimal`: 120 seconds;
+- `balanced`: 600 seconds;
+- `active`: 1800 seconds.
+
+The Python MCP process exits when the lease expires even if its host keeps the
+stdio pipe open. A client may reconnect on the next call. An intentionally
+persistent deployment may set `--idle-timeout-seconds 0`, but only when an
+external supervisor owns termination and restart.
+
+All package-owned external commands use closed stdin, bounded execution, and
+an independently reaped process group/tree. On Windows, each child starts
+suspended, is assigned to a retained kill-on-close Job Object, and only then
+resumes; cleanup therefore does not depend on a racy PID snapshot or
+`taskkill`, and early descendants cannot escape assignment. POSIX uses a
+separate session/process group.
+MCP smoke reads also have a per-response deadline, so a blocked Git or protocol
+child cannot hold the validation process indefinitely.
+
+If a Codex session still shows rising Node/Python process counts after all
+subagents finish, stop spawning agents. Confirm parent/child ownership before
+terminating only exact completed-agent process trees; never bulk-kill unrelated
+Node, Python, browser, shell, or Codex processes.
 
 ## Before Indexing Or Exporting
 
@@ -98,7 +134,7 @@ consolidation evidence path. The report path must stay inside the memory root.
 Use `ai-dememory review false-positives --report-path
 reports/false-positives.md` and `ai-dememory review conflicts --report-path
 reports/conflicts.md` when attaching review report evidence.
-12. Commit reviewed Markdown changes. Generated SQLite, reports, and distilled
+13. Commit reviewed Markdown changes. Generated SQLite, reports, and distilled
    context remain disposable unless explicitly promoted.
 
 ## Scheduled Maintenance
@@ -107,11 +143,42 @@ Preview scheduler installation before writing OS scheduler state:
 
 ```bash
 python3 scripts/ai_dememory.py schedule plan --json
-python3 scripts/ai_dememory.py schedule plan --json --mode docker --image ai-dememory:local
+python3 scripts/ai_dememory.py schedule plan --intensity minimal --json
 python3 scripts/ai_dememory.py schedule setup --dry-run
-python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image ai-dememory:local
+IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
+python3 scripts/ai_dememory.py schedule plan --json --mode docker --image "$IMAGE_ID"
+python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image "$IMAGE_ID"
 python3 scripts/ai_dememory.py schedule cron --json
 ```
+
+The plan reports the effective `minimal`, `balanced`, or `active` resource
+policy, resolved root, exact command, a vault-specific task namespace, and
+`plan_sha256`. Install only the exact reviewed projection:
+
+```bash
+python3 scripts/ai_dememory.py schedule setup \
+  --intensity balanced \
+  --expect-plan-sha256 <plan_sha256>
+python3 scripts/ai_dememory.py schedule status
+```
+
+Installation creates definitions exclusively, reads them back, and records
+their exact digests. `schedule status` refreshes verification only on an exact
+match and treats cached host verification as stale after five minutes; removal
+uses the receipt's original namespace after a vault move, refuses drift, and
+compensates partial failure (including exact Windows task XML restoration).
+The receipted cadence and intensity remain authoritative for status and full
+removal even if resource-policy defaults change later.
+`minimal`
+installs only weekly maintenance; `balanced` and `active` install daily and
+weekly jobs by default. Docker schedules require an immutable image digest, run
+without network access, and apply intensity-specific CPU, memory, and PID caps.
+The resource policy also bounds provider candidates, bytes per file, scanned
+directory entries, report retention, tree-supervised job timeout, and pending
+hook captures. Canonical and secret scans, graph pages/nodes/edges, MCP
+frames/queues/output, and SQLite audit retention have additional
+non-configurable ceilings. Malformed or out-of-range overrides make the policy
+invalid instead of widening those ceilings.
 
 Run profiles manually:
 
@@ -151,6 +218,10 @@ report, and hook capture report, generated packet archive cleanup counts,
 false-positive review due counts, stale suppression counts, conflict review
 counts, hook capture review counts, and sleep plan report status. It does not
 refresh artifacts or delete generated packet archives.
+It also reports the resolved resource policy and explicitly states zero
+ai-dememory runtime model calls and embedding calls per maintenance run. Any
+tokens consumed by an already active host agent under `advisory` or
+`proposals` policy remain host usage.
 Use `ai-dememory lifecycle report --report-path reports/lifecycle.md` when a
 review packet needs an explicit lifecycle report path; the path must stay inside
 the memory root.
@@ -209,7 +280,7 @@ python3 scripts/ai_dememory.py recall-fixtures review-plan --write-report
 python3 scripts/ai_dememory.py recall-fixtures packet --write-report
 python3 scripts/ai_dememory.py recall-fixtures promote-miss --help
 python3 scripts/ai_dememory.py recall-fixtures review-miss --help
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests -t .
 python3 -m compileall -q scripts mcp/server ai_dememory_tool
 ```
 
@@ -271,8 +342,9 @@ review workflow tools.
   vaults skip distribution-only MCP contract checks. Use `ai-dememory doctor
   --json --summary` to see the selected `vault`, `distribution`, or `unknown`
   profile.
-- MCP client cannot start: verify it runs from the repo root or set
-  `AI_DEMEMORY_ROOT` to the checkout path.
+- MCP client cannot start: verify the installed `ai-dememory` command is on
+  `PATH` and set `AI_DEMEMORY_ROOT` to the explicit private vault. A source-
+  development launch may use the repository as `cwd`, but never as the vault.
 - MCP runtime smoke refuses to run: create the PR first and set
   `AI_DEMEMORY_PR_URL` to the draft PR URL.
 - Scheduler install fails: run `ai-dememory schedule setup --dry-run`, inspect
@@ -283,7 +355,9 @@ review workflow tools.
 
 - No durable memory mutation without human review.
 - No secrets in Markdown, reports, indexes, distilled context, or inbox captures.
-- No automatic push, deployment, or release.
+- No merge, release tag, trusted-publishing dispatch, or package publication
+  without explicit owner authorization. Tag and publication automation may run
+  only as the stated consequence of that exact authorized release merge.
 - MCP write paths stay proposal-only unless a human explicitly approves a
   different workflow.
 - Package and plugin installation do not create background jobs. Scheduler,

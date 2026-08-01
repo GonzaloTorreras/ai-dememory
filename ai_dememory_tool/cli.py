@@ -12,7 +12,12 @@ import shutil
 import sys
 
 from ai_dememory_tool import __version__
-from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
+from ai_dememory_tool.mcp_profiles import (
+    DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
+    MCP_PROFILE_NAMES,
+    enabled_tools_for_profile,
+    normalize_mcp_idle_timeout_seconds,
+)
 
 
 LOCAL_COMMANDS = {
@@ -28,8 +33,8 @@ COMMANDS = {
     "release-check": ("Run non-runtime v2 release readiness checks.", "release_check"),
     "install-smoke": ("Run fresh package and local Docker install smoke checks.", "install_smoke"),
     "package-build-smoke": ("Build package distributions in temp space and run twine check.", "package_build_smoke"),
-    "publish-guard": ("Validate manual Trusted Publishing workflow safety.", "publish_guard"),
-    "publish-plan": ("Plan manual TestPyPI/PyPI publishing without uploading packages.", "publish_plan"),
+    "publish-guard": ("Validate the canonical tag publisher and legacy read-only preflight.", "publish_guard"),
+    "publish-plan": ("Plan TestPyPI/PyPI readiness without publishing packages.", "publish_plan"),
     "ci-guard": ("Validate CI workflow v2 gate coverage.", "ci_guard"),
     "artifact-guard": ("Validate no generated artifacts are staged.", "artifact_guard"),
     "vault-setup-guard": ("Validate private vault setup docs avoid generated artifacts.", "vault_setup_guard"),
@@ -179,6 +184,17 @@ def root_arg_value(argv: list[str]) -> str | None:
 def run_packaged_command(command: str, argv: list[str]) -> int:
     explicit_root = root_arg_value(argv)
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    if (
+        command == "mcp"
+        and "--require-bound-root" in argv
+        and not (explicit_root or configured_root)
+    ):
+        print(
+            "MCP configuration is not bound to a vault. Generate it with "
+            "`ai-dememory mcp-config --root <vault-path>`.",
+            file=sys.stderr,
+        )
+        return 2
     if command == "hook-event" and "dispatch" in argv and not (explicit_root or configured_root):
         # Never discover a hook vault from an untrusted project working tree.
         print("{}")
@@ -308,7 +324,16 @@ def mcp_config(argv: list[str]) -> int:
         "--profile",
         choices=MCP_PROFILE_NAMES,
         default=None,
-        help="Codex tool profile. Defaults to core for Codex and admin for clients without allowlist support.",
+        help="Server-enforced tool profile. Generated configs default to core for every client.",
+    )
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
+        help=(
+            "Stop an idle MCP process after this many seconds. "
+            f"Default: {DEFAULT_MCP_IDLE_TIMEOUT_SECONDS}; use 0 only for an intentionally persistent server."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -322,6 +347,7 @@ def mcp_config(argv: list[str]) -> int:
             command_args=args.command_arg,
             image=args.image,
             profile=args.profile,
+            idle_timeout_seconds=args.idle_timeout_seconds,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -337,14 +363,11 @@ def build_mcp_config(
     command_args: list[str] | None = None,
     image: str = "ai-dememory:local",
     profile: str | None = None,
+    idle_timeout_seconds: int = DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
 ) -> dict[str, object] | str:
     command_args = command_args or []
-    resolved_profile = profile or ("core" if client == "codex" else "admin")
-    if client != "codex" and resolved_profile != "admin":
-        raise ValueError(
-            f"MCP profile {resolved_profile!r} is not enforceable for {client}; "
-            "use --profile admin or a client-specific tool allowlist"
-        )
+    resolved_profile = profile or "core"
+    idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(idle_timeout_seconds)
     if mode == "docker":
         config = {
             "command": "docker",
@@ -357,13 +380,29 @@ def build_mcp_config(
                 "-v",
                 f"{root}:/memory",
                 image,
+                "mcp",
+                "--stdio",
+                "--idle-timeout-seconds",
+                str(idle_timeout_seconds),
+                "--profile",
+                resolved_profile,
+                "--require-bound-root",
             ],
             "env": {},
         }
     else:
         config = {
             "command": command,
-            "args": [*command_args, "mcp", "--stdio"],
+            "args": [
+                *command_args,
+                "mcp",
+                "--stdio",
+                "--idle-timeout-seconds",
+                str(idle_timeout_seconds),
+                "--profile",
+                resolved_profile,
+                "--require-bound-root",
+            ],
             "env": {"AI_DEMEMORY_ROOT": str(root)},
         }
     enabled_tools = enabled_tools_for_profile(resolved_profile)
@@ -448,8 +487,8 @@ def usage() -> str:
             "  ai-dememory schedule doctor --json",
             "  ai-dememory schedule plan --json",
             "  ai-dememory schedule setup --dry-run",
-            "  ai-dememory schedule setup --dry-run --mode docker --image ai-dememory:local",
-            "  ai-dememory schedule cron --mode docker --image ai-dememory:local",
+            "  ai-dememory schedule setup --dry-run --mode docker --image sha256:<64-hex-image-id>",
+            "  ai-dememory schedule cron --mode docker --image sha256:<64-hex-image-id>",
             "  ai-dememory hooks config --client codex",
             "  ai-dememory hooks config --client claude",
             "  ai-dememory hooks list",

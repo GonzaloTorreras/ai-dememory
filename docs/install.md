@@ -3,6 +3,11 @@
 This repository is the ai-dememory tool distribution repo. Users should install
 the tool, then create a separate private memory vault.
 
+PyPI currently serves stable `ai-dememory` 2.0.0. The public source tree declares
+2.1.0, but those bytes are an unreleased development line until the immutable
+tag, canonical release workflow, post-index verification, and explicit release
+authorization are complete.
+
 ## Recommended User Install
 
 Use `pipx` for normal CLI use because it installs Python applications in
@@ -65,7 +70,7 @@ For contributor development, prefer editable install:
 
 ```bash
 python3 -m pip install -e .
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests -t .
 ```
 
 ## Create A Vault
@@ -114,6 +119,22 @@ reviewer identity plus `--expect-plan-sha256 <preview fingerprint>` so changed
 answers cannot be stamped reviewed without a new preview; reconfiguration
 remains review-first.
 
+The wizard also asks for two independent policies:
+
+| Intensity | Recall per eligible turn | Scheduled cadence after explicit setup | Provider candidates/run | File/scan ceilings |
+| --- | ---: | --- | ---: | --- |
+| `minimal` | manual only | weekly | 5 | 32 KiB / 500 entries |
+| `balanced` | up to 1,200 tokens | daily + weekly | 20 | 64 KiB / 2,500 entries |
+| `active` | up to 2,400 tokens | daily + weekly | 50 | 128 KiB / 10,000 entries |
+
+`balanced` is recommended for a first installation. Host-model policy is
+separate: `off` permits deterministic local tools only, `advisory` lets the
+already active host agent recommend, and `proposals` lets it create
+review-first inbox proposals. ai-dememory runtime model calls and embedding
+calls are zero in every option; host-agent token consumption is external and
+still applies. No option installs integrations, captures raw payloads, or
+promotes durable memory during the wizard.
+
 Hook installation is separate and trust-gated. Generate a fragment with
 `ai-dememory hooks config --client codex` or `--client claude`, inspect it, and
 enable it only in a trusted repository. `hook-event dispatch` uses stdin JSON
@@ -157,10 +178,16 @@ files, write files, or delete archives.
 
 Readiness is dimensional: `core_ready` covers canonical validation and context
 configuration; `retrieval_evaluated` requires fresh reviewed recall evidence;
-`maintenance_ready` covers scheduler and generated artifacts;
+`manual_maintenance_ready` covers a valid one-shot maintenance preflight;
+`automation_ready` additionally requires a configured, fresh,
+fingerprint-valid scheduler receipt that has been checked against the host;
+`maintenance_ready` is the compatibility automation dimension;
 `integrations_ready` covers configured provider/hook surfaces without malformed
-captures; and `release_ready` requires every dimension plus manual acceptance
-and clear review queues. `ready` is a deprecated alias for `core_ready`.
+captures; `autonomy_ready` combines verified automation, integrations, and a
+valid bounded resource policy; and `release_ready` requires every release
+dimension plus manual acceptance and clear review queues. This is a local
+sign-off signal surfaced to the release owner, not a field consumed by the
+canonical package workflow. `ready` is a deprecated alias for `core_ready`.
 
 ## Run As A Local MCP Server
 
@@ -205,11 +232,23 @@ Preview scheduler setup:
 
 ```bash
 ai-dememory schedule plan --json
-ai-dememory schedule plan --json --mode docker --image ai-dememory:local
+ai-dememory schedule plan --intensity minimal --json
 ai-dememory schedule setup --dry-run
-ai-dememory schedule setup --dry-run --mode docker --image ai-dememory:local
+IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
+ai-dememory schedule plan --json --mode docker --image "$IMAGE_ID"
+ai-dememory schedule setup --dry-run --mode docker --image "$IMAGE_ID"
 ai-dememory schedule cron
 ```
+
+The plan includes the resolved vault root, exact command, vault-specific task
+namespace, effective intensity, wall-clock/tree-cleanup policy, and
+`plan_sha256`. Installation recomputes the exact projection before applying it,
+then reads back and fingerprints the definitions it created.
+`ai-dememory schedule status` refreshes verification only when the live
+definitions still match, and cached host verification expires after five
+minutes. Docker schedules require an immutable image ID/digest and add
+`--network none` plus intensity-specific CPU, memory, and PID limits; installed
+host mode does not claim native CPU/memory quotas.
 
 Detect and configure chat/session providers:
 
@@ -225,6 +264,8 @@ ai-dememory import-chats codex
 Use the provider configure dry-run to review the selected folder before writing
 `.ai-dememory.toml`. It normalizes the path and reports whether the folder
 exists without reading provider chat files.
+Bounded imports report `coverage_blocked` and a suggested larger scan window
+when a truncated prefix contains only previously imported files.
 
 Run maintenance manually:
 
@@ -292,9 +333,14 @@ Before publishing a package:
   the image.
 - Run `ai-dememory dev publish-guard`, package/install smokes, and the release
   guard before merging the release PR.
-- Merge through protected `main`. After CI succeeds on that exact commit,
-  `.github/workflows/tag-release.yml` derives and creates the immutable
-  matching tag (`v<version>`); do not race it with a manual tag.
+- Obtain explicit user authorization for the exact release PR, version, merge,
+  release tag, and consequent package publication.
+- After that authorization, merge through protected `main` and wait for CI on
+  the exact main commit. Then manually dispatch
+  `.github/workflows/tag-release.yml` with `tag=v<version>`,
+  `approved_sha=<40-character-main-sha>`, and
+  `confirm=release-<tag>@<approved_sha>`. The workflow refuses a stale main
+  commit, missing successful push CI, identity drift, or a conflicting tag.
   `.github/workflows/release.yml` is the canonical AI-operated Trusted
   Publishing path: prerelease tags publish to TestPyPI, stable tags to PyPI,
   followed by post-index installation and GitHub Release verification.

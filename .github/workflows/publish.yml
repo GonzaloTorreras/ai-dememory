@@ -1,10 +1,10 @@
-name: Publish Python Package
+name: Legacy publish readiness (no upload)
 
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: "Package index to publish to."
+        description: "Package index whose release readiness should be checked."
         required: true
         default: "testpypi"
         type: choice
@@ -12,7 +12,7 @@ on:
           - testpypi
           - pypi
       confirm:
-        description: "Type publish to confirm package upload."
+        description: "Type preflight to confirm this read-only hosted validation."
         required: true
         type: string
       pr_url:
@@ -25,17 +25,17 @@ permissions:
 
 jobs:
   validate-inputs:
-    name: Validate publish confirmation
+    name: Validate preflight confirmation
     runs-on: ubuntu-latest
     steps:
       - name: Require explicit confirmation
-        if: ${{ inputs.confirm != 'publish' }}
+        if: ${{ inputs.confirm != 'preflight' }}
         run: |
-          echo "Set confirm=publish to build and publish distributions." >&2
+          echo "Set confirm=preflight to run legacy readiness checks without publishing." >&2
           exit 1
 
   preflight:
-    name: Pre-publish verification
+    name: Legacy publish readiness verification
     needs: validate-inputs
     runs-on: ubuntu-latest
     env:
@@ -43,10 +43,12 @@ jobs:
       PUBLISH_REPOSITORY: ${{ inputs.repository }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
@@ -82,74 +84,3 @@ jobs:
 
       - name: Strict publish readiness plan
         run: python scripts/ai_dememory.py publish-plan --repository "$PUBLISH_REPOSITORY" --pr-url "$AI_DEMEMORY_PR_URL" --strict
-
-  build:
-    name: Build distributions
-    needs: preflight
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install build tooling
-        run: python -m pip install --upgrade build twine
-
-      - name: Build package
-        run: python -m build
-
-      - name: Check distributions
-        run: python -m twine check dist/*
-
-      - name: Upload distributions
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-distributions
-          path: dist/
-          if-no-files-found: error
-
-  publish-testpypi:
-    name: Publish to TestPyPI
-    needs: build
-    if: ${{ inputs.repository == 'testpypi' && inputs.confirm == 'publish' }}
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-    steps:
-      - name: Download distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distributions
-          path: dist/
-
-      - name: Publish package distributions to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
-  publish-pypi:
-    name: Publish to PyPI
-    needs: build
-    if: ${{ inputs.repository == 'pypi' && inputs.confirm == 'publish' }}
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-    steps:
-      - name: Download distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: python-distributions
-          path: dist/
-
-      - name: Publish package distributions to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1

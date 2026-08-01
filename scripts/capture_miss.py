@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import sys
 
-from memorylib import repo_relative_path, repo_root, slugify
+from memorylib import path_is_link_like, repo_relative_path, repo_root, safe_write_text, slugify
+from resource_policy import resolved_resource_policy
 from secret_scan import scan_text
 
 
@@ -21,7 +23,7 @@ def safe_recall_feedback_dir(root: Path) -> Path:
     inbox = root / "inbox"
     capture_dir = inbox / "recall-feedback"
     for component in (inbox, capture_dir):
-        if component.is_symlink():
+        if path_is_link_like(component):
             raise ValueError("recall feedback path must not contain symlinks")
         if component.exists():
             try:
@@ -31,7 +33,7 @@ def safe_recall_feedback_dir(root: Path) -> Path:
 
     capture_dir.mkdir(parents=True, exist_ok=True)
     for component in (inbox, capture_dir):
-        if component.is_symlink():
+        if path_is_link_like(component):
             raise ValueError("recall feedback path must not contain symlinks")
         try:
             component.resolve().relative_to(root)
@@ -52,6 +54,7 @@ def validate_miss_fields(
     reason: str,
     expected_id: str | None = None,
     expected_path: str | None = None,
+    source_ref: str | None = None,
 ) -> tuple[str, str]:
     query = query.strip()
     reason = reason.strip()
@@ -61,10 +64,24 @@ def validate_miss_fields(
         raise ValueError("reason is required")
     if bool(expected_id) == bool(expected_path):
         raise ValueError("provide exactly one of expected_id or expected_path")
-    if len(query) > MAX_FIELD_CHARS or len(reason) > MAX_FIELD_CHARS:
-        raise ValueError(f"query and reason must be at most {MAX_FIELD_CHARS} characters")
+    fields = {
+        "query": query,
+        "reason": reason,
+        "expected_id": expected_id or "",
+        "expected_path": expected_path or "",
+        "source_ref": source_ref or "",
+    }
+    oversized = [name for name, value in fields.items() if len(value) > MAX_FIELD_CHARS]
+    if oversized:
+        raise ValueError(
+            f"recall miss fields must be at most {MAX_FIELD_CHARS} characters: "
+            + ", ".join(oversized)
+        )
 
-    scan_target = f"query: {query}\nreason: {reason}\nexpected_id: {expected_id or ''}\nexpected_path: {expected_path or ''}\n"
+    scan_target = (
+        f"query: {query}\nreason: {reason}\nexpected_id: {expected_id or ''}\n"
+        f"expected_path: {expected_path or ''}\nsource_ref: {source_ref or ''}\n"
+    )
     if scan_text(scan_target, "<capture-miss>"):
         raise ValueError("recall miss rejected by secret scan")
     return query, reason
@@ -78,7 +95,7 @@ def render_miss_text(
     source_ref: str | None = None,
     created_at: str | None = None,
 ) -> str:
-    query, reason = validate_miss_fields(query, reason, expected_id, expected_path)
+    query, reason = validate_miss_fields(query, reason, expected_id, expected_path, source_ref)
     created_at = created_at or datetime.now(timezone.utc).date().isoformat()
     expected_label = expected_id or expected_path or ""
     text = f"""---
@@ -110,18 +127,55 @@ def capture_miss(
     expected_id: str | None = None,
     expected_path: str | None = None,
     source_ref: str | None = None,
+    max_pending: int | None = None,
 ) -> Path:
-    query, _ = validate_miss_fields(query, reason, expected_id, expected_path)
+    query, reason = validate_miss_fields(query, reason, expected_id, expected_path, source_ref)
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     slug = slugify(query, "recall-miss")
     capture_dir = safe_recall_feedback_dir(root)
-    path = capture_dir / f"{now.strftime('%Y%m%dT%H%M%SZ')}_{slug}.md"
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "query": query,
+                "reason": reason,
+                "expected_id": expected_id,
+                "expected_path": expected_path,
+                "source_ref": source_ref,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    matches = sorted(capture_dir.glob(f"*_{slug}_{digest}.md"))
+    if matches:
+        return matches[0]
+    if max_pending is None:
+        policy = resolved_resource_policy(root)
+        resources = policy.get("resources", {})
+        max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
+    if feedback_queue_at_capacity(capture_dir, max_pending):
+        raise ValueError("recall feedback queue is at its configured pending-item capacity")
+    path = capture_dir / f"{now.strftime('%Y%m%dT%H%M%SZ')}_{slug}_{digest}.md"
     if path.exists() or path.is_symlink():
         raise ValueError("recall miss path already exists")
     text = render_miss_text(query, reason, expected_id, expected_path, source_ref, now.date().isoformat())
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return path
+
+
+def feedback_queue_at_capacity(directory: Path, max_pending: int) -> bool:
+    if max_pending <= 0:
+        return True
+    count = 0
+    for path in directory.glob("*.md"):
+        if path.name.casefold() == "readme.md":
+            continue
+        count += 1
+        if count >= max_pending:
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:

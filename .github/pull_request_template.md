@@ -23,7 +23,7 @@
 - [ ] `python3 scripts/ai_dememory.py eval-recall`
 - [ ] `python3 scripts/ai_dememory.py install-smoke`
 - [ ] `python3 scripts/ai_dememory.py package-build-smoke`
-- [ ] `python3 -m unittest discover -s tests`
+- [ ] `python3 -m unittest discover -s tests -t .`
 - [ ] `python3 -m compileall -q scripts mcp/server ai_dememory_tool`
 
 ## MCP Runtime

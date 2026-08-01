@@ -10,11 +10,14 @@ from pathlib import Path
 import sys
 
 from memorylib import (
+    MemoryError,
     MemoryDocument,
+    discover_markdown_files,
     extract_summary,
     parse_date,
     repo_relative_path,
     repo_root,
+    safe_write_text,
     today,
     validate_memories,
 )
@@ -71,8 +74,10 @@ def build_report(root: Path) -> str:
     disputed = [document for document in documents if document.frontmatter["status"] == "disputed"]
     stale = [document for document in documents if document.frontmatter["status"] == "stale"]
     conflict_scan = consolidation_conflict_scan(root)
-    inbox_files = sorted((root / "inbox").rglob("*.md")) if (root / "inbox").exists() else []
-    inbox_files = [path for path in inbox_files if path.name != "README.md"]
+    try:
+        inbox_files = discover_markdown_files(root, "inbox")
+    except MemoryError as exc:
+        raise RuntimeError(f"inbox scan failed before consolidation: {exc}") from exc
 
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     lines = [
@@ -232,7 +237,7 @@ def write_report(root: Path, output: Path) -> Path:
     if scan_text(report, "<consolidation-report>"):
         raise RuntimeError("consolidation report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(report, encoding="utf-8")
+    safe_write_text(target, report, root=root, overwrite=True)
     return target
 
 

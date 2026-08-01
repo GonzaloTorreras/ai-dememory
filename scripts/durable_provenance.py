@@ -11,7 +11,14 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from memorylib import discover_memory_files, is_date_string, load_memory, repo_relative_path, repo_root
+from memorylib import (
+    discover_memory_files,
+    is_date_string,
+    load_memory,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+)
 from secret_scan import scan_text
 
 
@@ -123,7 +130,7 @@ def write_report(
         raise ValueError("durable provenance report rejected by secret scan")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan a manual TestPyPI or PyPI publish without uploading packages."""
+"""Plan release readiness and the legacy hosted preflight without publishing."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from memorylib import repo_root
 from manual_acceptance import ACCEPTANCE_ITEMS
+from process_control import noninteractive_git_environment, run_owned_capture
 from publish_guard import REQUIRED_PREFLIGHT_COMMANDS, WORKFLOW_PATH, validate_publish_workflow
 from release_evidence import build_release_evidence, markdown_code_span
 
@@ -55,7 +56,7 @@ def publish_plan(
         publish_blocker_count = len(publish_blockers)
         manual_remaining = len(evidence.manual_acceptance_remaining)
         recall_status = evidence.recall_fixture_freshness.get("status")
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
         release_available = False
         release_ready = False
         release_error = str(exc)
@@ -82,7 +83,7 @@ def publish_plan(
         manual_remaining = None
         recall_status = "unavailable"
     publish_ready = release_available and publish_blocker_count == 0
-    dispatch_inputs = {"repository": repository, "confirm": "publish", "pr_url": pr_url or "<pr-url>"}
+    dispatch_inputs = {"repository": repository, "confirm": "preflight", "pr_url": pr_url or "<pr-url>"}
     preflight_base = shlex.split(command)
     preflight_commands = [
         preflight_base + shlex.split(required)[2:]
@@ -109,7 +110,7 @@ def publish_plan(
         "requires_manual_dispatch": True,
         "requires_confirmation": True,
         "requires_pr_url": True,
-        "uses_trusted_publishing": True,
+        "uses_trusted_publishing": False,
         "guard_issue_count": len(guard_issues),
         "guard_issues": [asdict(issue) for issue in guard_issues],
         "release_evidence_available": release_available,
@@ -154,7 +155,7 @@ def publish_readiness_blockers(
             {
                 "id": "publish_guard_issues",
                 "kind": "publish_workflow",
-                "summary": "Publish workflow guard issues must be fixed before dispatch.",
+                "summary": "Release/preflight workflow guard issues must be fixed before dispatch.",
                 "count": len(guard_issues),
                 "items": [asdict(issue) for issue in guard_issues],
             }
@@ -204,7 +205,7 @@ def publish_pr_url_issue(pr_url: str | None, *, expected_owner_repo: str | None 
         return {
             "id": "pr_url_required",
             "kind": "publish_review",
-            "summary": "A GitHub PR URL is required before publish workflow dispatch.",
+            "summary": "A GitHub PR URL is required before hosted readiness preflight.",
             "count": 1,
             "items": ["Set AI_DEMEMORY_PR_URL or pass --pr-url with the release PR URL."],
         }
@@ -241,13 +242,13 @@ def publish_owner_repo(root: Path) -> str | None:
     if owner_repo is not None:
         return owner_repo
     try:
-        completed = subprocess.run(
+        completed = run_owned_capture(
             ["git", "-C", str(root), "remote", "get-url", "origin"],
+            timeout_seconds=30,
+            env=noninteractive_git_environment(),
             check=True,
-            capture_output=True,
-            text=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return None
     return github_owner_repo_from_remote(completed.stdout.strip())
 
@@ -302,20 +303,31 @@ def publish_plan_next_actions(
     effective_publish_ready = release_ready if publish_ready is None else publish_ready
     effective_blocker_ids = blocker_ids if publish_blocker_ids is None else publish_blocker_ids
     if guard_issues:
-        actions.append("Fix publish workflow guard issues before dispatching the publish workflow.")
+        actions.append("Fix release/preflight workflow guard issues before running the hosted preflight.")
     if not release_available:
         actions.append("Run publish planning from a git distribution checkout with release evidence available.")
     if not effective_publish_ready:
-        actions.append("Resolve target publish readiness blockers before dispatching the publish workflow.")
+        actions.append("Resolve target publish readiness blockers before relying on the hosted preflight.")
     if "manual_acceptance_remaining" in effective_blocker_ids:
-        actions.append("Record reviewed passing manual acceptance evidence before publishing.")
+        actions.append(
+            "Record reviewed passing manual acceptance for complete local sign-off, "
+            "or disclose each remaining item in the owner-authorization handoff."
+        )
     if "recall_fixture_review" in effective_blocker_ids:
-        actions.append("Promote or reject reviewed recall misses before publishing.")
+        actions.append(
+            "Promote or reject reviewed recall misses for complete local sign-off, "
+            "or disclose the remaining recall gap in the owner-authorization handoff."
+        )
     if repository == "testpypi" and not release_ready:
-        actions.append("TestPyPI may defer only the TestPyPI publish acceptance record; all other release blockers still apply.")
+        actions.append(
+            "The TestPyPI planner may defer only its post-publish acceptance record; "
+            "all other local readiness blockers still apply."
+        )
     if repository == "pypi":
-        actions.append("Publish to TestPyPI and verify install evidence before publishing to PyPI.")
-    actions.append("Dispatch the publish workflow manually only after explicit human approval.")
+        actions.append("Use a canonical prerelease tag for TestPyPI and verify install evidence before a PyPI release.")
+    actions.append(
+        "The legacy hosted preflight cannot publish; use the canonical tag-driven release only after explicit owner authorization."
+    )
     return actions
 
 

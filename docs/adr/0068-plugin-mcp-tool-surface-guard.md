@@ -27,11 +27,11 @@ Keep an exact expected plugin MCP tool list in `scripts/release_check.py`.
 - `enabled_tools` has no duplicates
 - `docs/codex-plugin.md` mentions every expected enabled tool
 
-ADR 0249 narrows this exact allowlist to the seven-tool `core` profile. Working
-and review writes now require their named opt-in profiles; destructive or broad
-execution tools such as direct maintenance runs and provider imports remain off
-the default plugin surface. The guard still requires every other MCP tool to be
-classified as server-only by default.
+ADRs 0249 and 0256 narrow this exact allowlist to the three-tool `public`
+profile. The server forces public-only search/get/context semantics regardless
+of client arguments. Private-vault core, working, graph/review, and broad
+execution tools remain off the checked-in public plugin surface. The guard
+still requires every other MCP tool to be classified as server-only by default.
 
 ## Benefits
 

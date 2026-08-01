@@ -14,6 +14,8 @@ import subprocess
 import sys
 import tomllib
 
+from process_control import noninteractive_git_environment, run_owned_capture
+
 
 TAG_RE = re.compile(r"^v(?P<version>[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?)$")
 EXPECTED_REPOSITORY = "GonzaloTorreras/ai-dememory"
@@ -43,7 +45,12 @@ def changelog_heading(root: Path, version: str) -> str:
 
 
 def git(root: Path, *args: str) -> str:
-    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+    return run_owned_capture(
+        ["git", "-C", str(root), *args],
+        timeout_seconds=30,
+        env=noninteractive_git_environment(),
+        check=True,
+    ).stdout.strip()
 
 
 def validate_identity(root: Path, tag: str, *, version_only: bool = False) -> ReleaseIdentity:
@@ -62,7 +69,12 @@ def validate_identity(root: Path, tag: str, *, version_only: bool = False) -> Re
     if repository and repository != EXPECTED_REPOSITORY:
         raise ValueError(f"release repository must be {EXPECTED_REPOSITORY}, got {repository}")
     commit = git(root, "rev-parse", f"{tag}^{{commit}}")
-    subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", commit, "origin/main"], check=True)
+    run_owned_capture(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", commit, "origin/main"],
+        timeout_seconds=30,
+        env=noninteractive_git_environment(),
+        check=True,
+    )
     return ReleaseIdentity(tag=tag, version=version, prerelease=prerelease, changelog_heading=heading, commit=commit)
 
 
@@ -85,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     tag = args.tag or f"v{project_version(root)}"
     try:
         identity = validate_identity(root, tag, version_only=args.version_only)
-    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         print(f"release identity validation failed: {exc}", file=sys.stderr)
         return 1
     if args.github_output:

@@ -60,7 +60,10 @@ chat files or write import candidates. Unchanged provider files that already
 have a matching inbox candidate are skipped with reason `already imported`, so
 recurring maintenance does not create duplicate review candidates for the same
 source path and text. Review and rewrite candidates before promoting any fact
-into canonical memory.
+into canonical memory. If a bounded traversal is truncated and a later run sees
+only already imported files inside the same window, the result reports
+`coverage_blocked=true` plus a bounded `suggested_scan_entries`/next action
+instead of claiming complete coverage.
 
 ## Install A Schedule
 
@@ -68,6 +71,7 @@ Preview the commands first:
 
 ```bash
 ai-dememory schedule plan --json
+ai-dememory schedule plan --intensity minimal --json
 ai-dememory schedule setup --dry-run
 ```
 
@@ -75,18 +79,26 @@ Preview a Docker-backed schedule when you want recurring maintenance to run
 through the local image instead of the installed CLI:
 
 ```bash
+IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
 ai-dememory schedule plan --json \
   --mode docker \
-  --image ai-dememory:local
+  --image "$IMAGE_ID"
 ai-dememory schedule setup --dry-run \
   --mode docker \
-  --image ai-dememory:local
+  --image "$IMAGE_ID"
 ```
 
-Install after review:
+Unattended Docker schedules accept only immutable
+`sha256:<64-hex-image-id>` or `repository@sha256:<64-hex-digest>` references.
+The plan reports `docker_image_immutable` and `installable`; a mutable tag has
+no `apply_command` or cron export and cannot be installed.
+
+Install the exact reviewed plan:
 
 ```bash
-ai-dememory schedule setup
+ai-dememory schedule setup \
+  --intensity balanced \
+  --expect-plan-sha256 <plan_sha256>
 ```
 
 Inspect or remove:
@@ -97,6 +109,30 @@ ai-dememory schedule doctor --json
 ai-dememory maintenance status
 ai-dememory schedule remove
 ```
+
+Each vault receives a stable task namespace derived from its path identity, so
+multiple vaults do not share global `ai-dememory-daily`/`weekly` task names.
+Definitions are created exclusively: Windows does not use forced task
+replacement, and systemd/launchd files do not overwrite existing files. The
+install transaction reads back the created host definitions and persists their
+SHA-256 values with resolved vault root, exact command, versioned plan
+projection, namespace, selected profiles, platform, intensity, timestamps, and
+plan fingerprint. Apply recomputes that projection and rejects any drift. A
+failed write, command, readback, or receipt commit removes the new jobs,
+restores files, and does not leave enabled config. `schedule status` refreshes
+`verified_at` only when current definitions exactly match that receipt;
+host-state verification expires after five minutes. If a vault has moved,
+status/removal reports the move and continues to address the original receipt
+namespace for host commands and systemd/launchd definition files, so it does
+not orphan old jobs. The receipted cadence and intensity remain authoritative
+for status and complete removal if resource-policy defaults change later.
+If the original path still holds the same enabled receipt, the new path is a
+copy rather than an unambiguous move and removal fails closed. Remove from the
+original vault first; a future explicit transfer flow can reassign ownership.
+Removal first performs the same
+comparison, refuses partial profile selection, and restores already removed
+jobs if a later removal fails. Windows rollback recreates the exact captured
+task XML, not an approximation of the task.
 
 `maintenance status` reports configured providers, provider import readiness
 without reading provider files, schedule settings, recent maintenance reports,
@@ -112,13 +148,17 @@ does not delete generated packet archives or refresh generated artifacts.
 same platform scheduler commands as `schedule setup --dry-run`, includes
 reviewed cron export entries for minimal hosts, and reports
 `mutates_system=false`, `runs_commands=false`, `writes_files=false`, and
-`installs_schedules=false`. Use it in plugin or scripted setup before asking a
-user to run the mutating `schedule setup` command.
+`installs_schedules=false`. It also returns `task_namespace`, `intensity`,
+`plan_sha256`, and an exact `apply_command`. Use it in plugin or scripted setup
+before asking a user to run the mutating command. Docker plans additionally
+return `docker_image_immutable` and `installable`.
 
 MCP clients can inspect schedule setup with `memory.schedule_status`. The tool
-returns persisted schedule settings, platform status commands, and the compact
-maintenance `review_due` summary. It does not run `systemctl`, `schtasks`, or
-`launchctl`, and it never installs or removes scheduler state. If persisted
+returns persisted schedule settings, receipt validity, host verification state,
+platform status commands, and the compact maintenance `review_due` summary. It
+does not install or remove scheduler state. The CLI `schedule status` executes
+the platform checks, hashes current definitions, compares the exact receipt,
+and clears stale verification evidence on mismatch. If persisted
 schedule config contains an invalid time or weekly day, the status response
 reports `valid=false` with validation errors and returns no platform status
 commands while still reporting pending review work.
@@ -135,7 +175,7 @@ timers:
 
 ```bash
 ai-dememory schedule cron
-ai-dememory schedule cron --mode docker --image ai-dememory:local
+ai-dememory schedule cron --mode docker --image "$IMAGE_ID"
 ai-dememory schedule cron --json
 ```
 
@@ -152,13 +192,33 @@ Platform behavior:
 - Docker mode still uses the host scheduler. Generated daily and weekly run
   commands bind-mount the vault and set `AI_DEMEMORY_ROOT=/memory`.
 
+Resource intensities:
+
+| Intensity | Default cadence | Import candidates/run | Timeout | Docker CPU / memory / PIDs |
+| --- | --- | ---: | ---: | --- |
+| `minimal` | weekly | 5 | 120 s | 0.5 / 256 MiB / 64 |
+| `balanced` | daily + weekly | 20 | 300 s | 1.0 / 512 MiB / 128 |
+| `active` | daily + weekly | 50 | 900 s | 2.0 / 1 GiB / 256 |
+
+Maintenance subprocesses run in owned process groups/trees. Deadlines terminate
+and reap descendants, including grandchildren; Git receives closed stdin and a
+non-interactive environment. Windows uses a kill-on-close Job Object and POSIX
+uses a new session/process group. Installed mode guarantees tree cleanup and
+wall-clock deadlines, not native host CPU/memory quotas. Docker additionally
+enforces the table's CPU, memory and PID caps and uses `--network none`; no
+intensity enables runtime model calls, embeddings, or durable auto-promotion.
+
 Docker scheduled jobs run the same profiles as the installed CLI:
 
 ```bash
 docker run --rm \
+  --network none \
+  --cpus 1.0 \
+  --memory 512m \
+  --pids-limit 128 \
   -e AI_DEMEMORY_ROOT=/memory \
   -v "$PWD:/memory" \
-  ai-dememory:local \
+  "$IMAGE_ID" \
   maintenance run --profile daily --root /memory
 ```
 

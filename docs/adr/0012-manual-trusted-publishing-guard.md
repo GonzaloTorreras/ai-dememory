@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted for v2 draft.
+Superseded for publication behavior by ADR 0255 on 2026-07-26. Historical
+rationale is retained; the current guard permits Trusted Publishing only in
+`.github/workflows/release.yml` and requires `.github/workflows/publish.yml` to
+remain a read-only preflight.
 
 ## Context
 
@@ -18,9 +21,11 @@ or avoided stored PyPI tokens.
 
 ## Decision
 
-Add `ai-dememory publish-guard`, backed by `scripts/publish_guard.py`.
+Historical decision, superseded as described in Status: the original v2 draft
+added `ai-dememory publish-guard`, backed by
+`scripts/publish_guard.py`.
 
-The guard validates that the publish workflow:
+The original guard validated that the manual publisher:
 
 - runs from `workflow_dispatch`
 - does not run on push, pull request, or schedule
@@ -33,6 +38,11 @@ The guard validates that the publish workflow:
 - does not configure stored PyPI token/password fields
 
 `release-check` fails if the guard reports issues.
+
+ADR 0255 retained the command but inverted the legacy-workflow contract. The
+current guard validates `release.yml` as the sole immutable-tag publisher and
+rejects OIDC, environments, artifacts, pushes, releases, or uploads in
+`publish.yml`.
 
 ## Benefits
 

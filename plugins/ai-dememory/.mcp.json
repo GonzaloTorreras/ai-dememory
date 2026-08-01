@@ -2,18 +2,22 @@
   "mcpServers": {
     "ai-dememory": {
       "command": "ai-dememory",
-      "args": ["mcp", "--stdio"],
+      "args": [
+        "mcp",
+        "--stdio",
+        "--idle-timeout-seconds",
+        "600",
+        "--profile",
+        "public",
+        "--require-bound-root"
+      ],
       "env": {},
       "enabled": true,
       "default_tools_approval_mode": "prompt",
       "enabled_tools": [
         "memory.search",
         "memory.get",
-        "memory.context",
-        "memory.graph",
-        "memory.doctor",
-        "memory.working_current",
-        "memory.working_status"
+        "memory.context"
       ]
     }
   }

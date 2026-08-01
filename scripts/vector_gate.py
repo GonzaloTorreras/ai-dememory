@@ -12,7 +12,7 @@ import sys
 from typing import Any
 
 from eval_recall import DEFAULT_FIXTURES, evaluate, summary
-from memorylib import repo_relative_path, repo_root
+from memorylib import repo_relative_path, repo_root, resolve_reports_path, safe_write_text
 from secret_scan import scan_text
 
 
@@ -75,23 +75,12 @@ def evaluate_vector_readiness(
     )
 
 
-def resolve_repo_path(root: Path, path: str | Path) -> Path:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        candidate = root / candidate
-    return candidate.resolve()
-
-
 def write_vector_report(
     root: Path,
     readiness: VectorReadiness,
     report_path: str | Path = DEFAULT_VECTOR_REPORT,
 ) -> Path:
-    target = resolve_repo_path(root, report_path)
-    try:
-        target.relative_to(root.resolve())
-    except ValueError as exc:
-        raise ValueError("report path must stay inside the memory root") from exc
+    target = resolve_reports_path(root, report_path)
     text = f"""# Vector Readiness
 
 Generated: `{readiness.generated_at}`
@@ -124,7 +113,8 @@ dependency and privacy model.
     if scan_text(text, "<vector-readiness-report>"):
         raise ValueError("vector readiness report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    target = resolve_reports_path(root, report_path)
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 

@@ -16,7 +16,16 @@ from manual_acceptance import acceptance_plan
 from memorylib import repo_root
 from provider_import import provider_setup_plan
 from recall_fixtures import recall_fixture_review_plan
-from schedule_memory import schedule_environment, schedule_status
+from resource_policy import (
+    DEFAULT_INTENSITY,
+    DEFAULT_MODEL_POLICY,
+    model_policy_catalog,
+    model_policy_names,
+    profile_catalog,
+    profile_names,
+    resolved_resource_policy,
+)
+from schedule_memory import immutable_docker_image, schedule_environment, schedule_status
 from validate_memory import validate_repo_result
 from vector_gate import evaluate_vector_readiness
 
@@ -29,8 +38,29 @@ def selected_clients(client: str) -> list[str]:
     return list(CLIENTS) if client == "all" else [client]
 
 
-def mcp_config_command(command: str, client: str, mode: str, root: Path, image: str) -> list[str]:
-    args = [command, "mcp-config", "--client", client, "--mode", mode, "--root", str(root)]
+def mcp_config_command(
+    command: str,
+    client: str,
+    mode: str,
+    root: Path,
+    image: str,
+    idle_timeout_seconds: int,
+    profile: str,
+) -> list[str]:
+    args = [
+        command,
+        "mcp-config",
+        "--client",
+        client,
+        "--mode",
+        mode,
+        "--root",
+        str(root),
+        "--idle-timeout-seconds",
+        str(idle_timeout_seconds),
+        "--profile",
+        profile,
+    ]
     if mode == "docker":
         args.extend(["--image", image])
     return args
@@ -42,13 +72,37 @@ def setup_plan(
     mode: str = "installed",
     command: str = "ai-dememory",
     image: str = "ai-dememory:local",
+    intensity: str = DEFAULT_INTENSITY,
+    model_policy: str = DEFAULT_MODEL_POLICY,
 ) -> dict[str, Any]:
     clients = selected_clients(client)
     modes = ["installed", "docker"] if mode == "both" else [mode]
+    resource_policy = resolved_resource_policy(root, intensity=intensity, model_policy=model_policy)
+    idle_timeout_seconds = int(resource_policy["resources"]["mcp_idle_timeout_seconds"])
+    docker_schedule_installable = immutable_docker_image(image)
     commands: dict[str, Any] = {
-        "onboarding_preview": [command, "setup", "wizard", "--json"],
+        "onboarding_preview": [
+            command,
+            "setup",
+            "wizard",
+            "--intensity",
+            intensity,
+            "--model-policy",
+            model_policy,
+            "--json",
+        ],
         "onboarding_apply": [
-            command, "setup", "wizard", "--apply", "--expect-plan-sha256", "<preview plan_sha256>", "--json"
+            command,
+            "setup",
+            "wizard",
+            "--intensity",
+            intensity,
+            "--model-policy",
+            model_policy,
+            "--apply",
+            "--expect-plan-sha256",
+            "<preview plan_sha256>",
+            "--json",
         ],
         "doctor": [command, "doctor"],
         "index": [command, "index"],
@@ -56,9 +110,9 @@ def setup_plan(
         "provider_plan": [command, "providers", "plan", "--json"],
         "hook_install_dry_run": [command, "hooks", "install", "--client", "all", "--dry-run"],
         "schedule_environment": [command, "schedule", "doctor", "--json"],
-        "schedule_plan": [command, "schedule", "plan", "--json"],
-        "schedule_dry_run": [command, "schedule", "setup", "--dry-run"],
-        "schedule_cron": [command, "schedule", "cron"],
+        "schedule_plan": [command, "schedule", "plan", "--intensity", intensity, "--json"],
+        "schedule_dry_run": [command, "schedule", "setup", "--intensity", intensity, "--dry-run"],
+        "schedule_cron": [command, "schedule", "cron", "--intensity", intensity],
         "docker_schedule_environment": [
             command,
             "schedule",
@@ -74,6 +128,8 @@ def setup_plan(
             "--json",
             "--mode",
             "docker",
+            "--intensity",
+            intensity,
             "--image",
             image,
         ],
@@ -82,12 +138,24 @@ def setup_plan(
             "schedule",
             "setup",
             "--dry-run",
+            "--intensity",
+            intensity,
             "--mode",
             "docker",
             "--image",
             image,
-        ],
-        "docker_schedule_cron": [command, "schedule", "cron", "--mode", "docker", "--image", image],
+        ] if docker_schedule_installable else [],
+        "docker_schedule_cron": [
+            command,
+            "schedule",
+            "cron",
+            "--intensity",
+            intensity,
+            "--mode",
+            "docker",
+            "--image",
+            image,
+        ] if docker_schedule_installable else [],
         "daily_maintenance": [command, "maintenance", "run", "--profile", "daily"],
         "weekly_maintenance": [command, "maintenance", "run", "--profile", "weekly"],
         "acceptance_plan": [command, "acceptance", "plan", "--json"],
@@ -109,7 +177,15 @@ def setup_plan(
         },
     }
     commands["mcp_configs"] = [
-        mcp_config_command(command, selected, selected_mode, root, image)
+        mcp_config_command(
+            command,
+            selected,
+            selected_mode,
+            root,
+            image,
+            idle_timeout_seconds,
+            str(resource_policy["mcp_profile"]),
+        )
         for selected_mode in modes
         for selected in clients
     ]
@@ -119,16 +195,22 @@ def setup_plan(
         if selected in {"codex", "claude"}
     ]
     provider_plan = provider_setup_plan(root, command=command)
-    return {
+    result = {
         "root": str(root),
         "client": client,
         "mode": mode,
+        "intensity": intensity,
+        "model_policy": model_policy,
+        "resource_policy": resource_policy,
+        "resource_profiles": profile_catalog(),
+        "model_policies": model_policy_catalog(),
         "mutates_system": False,
         "writes_files": False,
         "reads_provider_files": False,
         "writes_import_candidates": False,
         "installs_schedules": False,
         "installs_hooks": False,
+        "docker_schedule_installable": docker_schedule_installable,
         "suggests_generated_reports": True,
         "suggests_generated_archive_status": True,
         "suggests_generated_archive_retention": True,
@@ -136,6 +218,7 @@ def setup_plan(
         "provider_plan": provider_plan,
         "next_actions": [
             "Preview minimum values, preferences, recommendations, and project aliases with the onboarding wizard.",
+            "Review the selected intensity, hard caps, zero-runtime-model-call statement, and host-model policy.",
             "Apply the reviewed onboarding payload explicitly, then run doctor and index.",
             "Copy an MCP config for the client you actually use.",
             "Generate report artifacts only when you need a release or review handoff.",
@@ -145,6 +228,12 @@ def setup_plan(
             "Record real-client and reviewed manual acceptance evidence only after a human check.",
         ],
     }
+    if not docker_schedule_installable:
+        result["next_actions"].insert(
+            0,
+            "Resolve the Docker image to sha256:<image-id> or repository@sha256:<digest> before previewing unattended Docker apply/cron commands.",
+        )
+    return result
 
 
 def setup_health(
@@ -152,8 +241,16 @@ def setup_health(
     target_platform: str | None = None,
     mode: str = "installed",
 ) -> dict[str, Any]:
-    schedule_env = schedule_environment(target_platform=target_platform, mode=mode)
     schedule = schedule_status(root, target_platform=target_platform)
+    effective_schedule_mode = (
+        str(schedule.get("mode") or mode)
+        if schedule.get("configured", False)
+        else mode
+    )
+    schedule_env = schedule_environment(
+        target_platform=target_platform,
+        mode=effective_schedule_mode,
+    )
     maintenance = maintenance_status(root)
     hooks = hook_status_summary(root)
     validation = validate_repo_result(root)
@@ -163,11 +260,14 @@ def setup_health(
     vector_readiness = setup_health_vector_readiness(root)
     maintenance_preflight = setup_health_maintenance_preflight(root, maintenance)
     generated_packet_archives = setup_health_generated_packet_archives(root)
+    resource_policy = resolved_resource_policy(root)
     review_due = maintenance["review_due"]
     conflict_review = maintenance["conflict_review"]
     review_recommendations = maintenance["review_recommendations"]
     artifact_freshness = maintenance.get("artifact_freshness", {})
     next_actions: list[str] = []
+    if not bool(resource_policy.get("valid", False)):
+        next_actions.append("Fix invalid automation/resource settings before enabling autonomous maintenance.")
     if not bool(validation.get("ok", False)):
         next_actions.append("Fix memory validation errors with `ai-dememory validate --json` before indexing or enabling schedules.")
     if not schedule_env["ready"]:
@@ -175,6 +275,12 @@ def setup_health(
         next_actions.append(f"Install or choose a supported scheduler path for missing requirement(s): {missing}.")
     if not schedule["valid"]:
         next_actions.append("Fix persisted schedule config before installing or relying on maintenance schedules.")
+    if not schedule["configured"]:
+        next_actions.append("Review `ai-dememory schedule plan --json` before explicitly enabling autonomous maintenance.")
+    elif not schedule.get("install_receipt_valid", False):
+        next_actions.append("Reinstall the scheduler from a reviewed fingerprint because its install receipt is missing or drifted.")
+    elif not schedule.get("host_state_verified", False):
+        next_actions.append("Run `ai-dememory schedule status` to verify the persisted jobs against the host scheduler.")
     if int(review_due.get("due_findings", 0)) > 0:
         next_actions.append("Review due false-positive suppressions with `ai-dememory review false-positives --due-only`.")
     if int(review_due.get("stale_suppressions", 0)) > 0:
@@ -220,7 +326,12 @@ def setup_health(
         next_actions.append("Preview maintenance with `ai-dememory maintenance run --profile daily --dry-run --json` before enabling schedules.")
     if not next_actions:
         next_actions.append("Setup health has no immediate review actions.")
-    core_ready = bool(validation.get("ok", False) and context_config.get("valid", True))
+    resource_policy_valid = bool(resource_policy.get("valid", False))
+    core_ready = bool(
+        validation.get("ok", False)
+        and context_config.get("valid", True)
+        and resource_policy_valid
+    )
     recall_freshness = recall_review.get("freshness", {})
     if not isinstance(recall_freshness, dict):
         recall_freshness = {}
@@ -230,15 +341,23 @@ def setup_health(
         and int(recall_freshness.get("reviewed_promotions", 0)) > 0
         and not recall_freshness.get("stale", True)
     )
-    maintenance_ready = bool(
-        schedule_env.get("ready", False)
-        and schedule.get("valid", False)
+    manual_maintenance_ready = bool(
+        schedule.get("valid", False)
+        and resource_policy_valid
         and not artifact_freshness.get("needs_maintenance", False)
         and not maintenance.get("lock_exists", False)
     )
+    automation_ready = bool(
+        manual_maintenance_ready
+        and schedule_env.get("ready", False)
+        and schedule.get("configured", False)
+        and schedule.get("install_receipt_valid", False)
+        and schedule.get("host_state_verified", False)
+    )
+    maintenance_ready = automation_ready
     integration_configured = bool(
         int(hooks.get("installed_count", 0)) > 0
-        or int(maintenance["provider_readiness"].get("configured_count", 0)) > 0
+        or int(maintenance["provider_readiness"].get("enabled_count", 0)) > 0
     )
     integrations_ready = bool(
         integration_configured
@@ -251,8 +370,10 @@ def setup_health(
         and int(review_recommendations.get("invalid_count", 0)) == 0
         and int(hook_captures.get("review_due_count", 0)) == 0
     )
+    autonomy_ready = bool(automation_ready and integrations_ready and resource_policy_valid)
     release_ready = bool(
         core_ready
+        and resource_policy_valid
         and retrieval_evaluated
         and maintenance_ready
         and integrations_ready
@@ -271,17 +392,31 @@ def setup_health(
         "core_ready": core_ready,
         "retrieval_evaluated": retrieval_evaluated,
         "maintenance_ready": maintenance_ready,
+        "manual_maintenance_ready": manual_maintenance_ready,
+        "automation_ready": automation_ready,
+        "autonomy_ready": autonomy_ready,
+        "autonomy_requested": bool(schedule.get("configured", False)),
         "integrations_ready": integrations_ready,
         "release_ready": release_ready,
         "readiness": {
-            "core": {"ready": core_ready, "requires": ["valid memories", "valid context config"]},
+            "core": {
+                "ready": core_ready,
+                "requires": ["valid memories", "valid context config", "valid resource policy"],
+            },
             "retrieval": {
                 "evaluated": retrieval_evaluated,
                 "requires": ["valid recall fixtures", "at least one fresh reviewed promotion"],
             },
             "maintenance": {
                 "ready": maintenance_ready,
-                "requires": ["scheduler available", "valid schedule config", "fresh artifacts", "no active lock"],
+                "manual_ready": manual_maintenance_ready,
+                "automation_ready": automation_ready,
+                "requires": [
+                    "scheduler available",
+                    "valid installed and verified schedule receipt",
+                    "fresh artifacts",
+                    "no active lock",
+                ],
             },
             "integrations": {
                 "ready": integrations_ready,
@@ -301,6 +436,7 @@ def setup_health(
         "context_config": context_config,
         "manual_acceptance": manual_acceptance,
         "vector_readiness": vector_readiness,
+        "resource_policy": resource_policy,
         "generated_packet_archives": generated_packet_archives,
         "schedule_environment": schedule_env,
         "schedule_status": schedule,
@@ -424,6 +560,8 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--mode", choices=MODES, default="installed")
     plan.add_argument("--command", default="ai-dememory", help="CLI command to include in generated command arrays.")
     plan.add_argument("--image", default="ai-dememory:local", help="Docker image for Docker command examples.")
+    plan.add_argument("--intensity", choices=profile_names(), default=DEFAULT_INTENSITY)
+    plan.add_argument("--model-policy", choices=model_policy_names(), default=DEFAULT_MODEL_POLICY)
     plan.add_argument("--json", action="store_true", help="Emit JSON output.")
     health = subparsers.add_parser("health", help="Print read-only local setup health.")
     health.add_argument("--platform", choices=("windows", "linux", "macos"), default=None)
@@ -440,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
             mode=args.mode,
             command=args.command,
             image=args.image,
+            intensity=args.intensity,
+            model_policy=args.model_policy,
         )
         if args.json:
             print(json.dumps(result, indent=2))
@@ -466,6 +606,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"core_ready: {str(result['core_ready']).lower()}")
             print(f"retrieval_evaluated: {str(result['retrieval_evaluated']).lower()}")
             print(f"maintenance_ready: {str(result['maintenance_ready']).lower()}")
+            print(f"manual_maintenance_ready: {str(result['manual_maintenance_ready']).lower()}")
+            print(f"automation_ready: {str(result['automation_ready']).lower()}")
+            print(f"autonomy_ready: {str(result['autonomy_ready']).lower()}")
             print(f"integrations_ready: {str(result['integrations_ready']).lower()}")
             print(f"release_ready: {str(result['release_ready']).lower()}")
             print("ready: deprecated alias for core_ready")

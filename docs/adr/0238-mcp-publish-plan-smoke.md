@@ -12,9 +12,9 @@ the installed package or the local Docker image. A release could therefore pass
 source MCP checks while still missing packaged proof that the MCP publish plan
 is callable from a fresh private vault.
 
-The publish plan is intentionally non-publishing, so smoke coverage must verify
-side-effect flags and manual dispatch inputs without contacting GitHub, PyPI,
-or TestPyPI.
+The compatibility-named publish plan is intentionally non-publishing. Under ADR
+0255, smoke coverage verifies side-effect flags and manual readiness-preflight
+inputs without contacting GitHub, PyPI, or TestPyPI.
 
 ## Decision
 
@@ -34,8 +34,8 @@ docker run --rm -v <vault>:/memory -e AI_DEMEMORY_ROOT=/memory ai-dememory:local
 ```
 
 Both paths reuse the publish-plan validator already used by CLI smoke. The
-validator requires TestPyPI as the default repository, manual dispatch and
-confirmation inputs, non-empty preflight commands and next actions,
+validator requires TestPyPI as the default target, manual read-only preflight
+dispatch and confirmation inputs, non-empty inspection commands and next actions,
 `runs_commands=true` for local read-only inspection, and false values for
 `mutates_system`, `runs_publish_commands`, `runs_preflight_commands`,
 `writes_files`, and `publishes_package`.
@@ -47,6 +47,7 @@ confirmation inputs, non-empty preflight commands and next actions,
 - Release checklists and guards now name the package and Docker smoke commands.
 - Distribution smoke remains local-only and does not publish packages or mutate
   host scheduler or repository state.
+- No smoke in this ADR is evidence that the canonical tag-driven publisher ran.
 
 ## Limitations
 
@@ -66,7 +67,8 @@ confirmation inputs, non-empty preflight commands and next actions,
 
 ## Dependencies
 
-- ADR 0127 defines publish workflow package and Docker smoke gates.
+- ADR 0255 supersedes the old manual-publisher interpretation and defines the
+  legacy workflow as readiness-only.
 - ADR 0236 defines the CLI publish plan.
 - ADR 0237 defines MCP publish planning.
 - `scripts/install_smoke.py` owns installed package and Docker smoke.

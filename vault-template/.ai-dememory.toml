@@ -6,6 +6,11 @@ canonical = "markdown"
 transport = "stdio"
 include_sensitive_by_default = false
 
+[automation]
+profile_version = 1
+intensity = "balanced"
+model_policy = "off"
+
 [review]
 mode = "strict"
 require_human_for_durable = true
@@ -47,12 +52,22 @@ baseline_budget_tokens = 480
 max_keywords = 12
 project_from_cwd = true
 min_relevance_score = 0.18
+hook_public_only = true
 clients = ["codex", "claude"]
 
 [learning]
-hook_metadata = true
+hook_metadata = false
 session_proposals = false
 clients = ["codex", "claude"]
+
+[resources]
+provider_file_limit = 20
+provider_max_file_bytes = 65536
+provider_scan_entries = 2500
+maintenance_report_retention = 20
+maintenance_timeout_seconds = 300
+mcp_idle_timeout_seconds = 600
+hook_capture_max_pending = 100
 
 [lifecycle]
 enabled = true
@@ -67,6 +82,8 @@ require_explicit_remote_opt_in = true
 
 [schedule]
 enabled = false
+daily_enabled = true
+weekly_enabled = true
 daily_time = "03:00"
 weekly_day = "SUN"
 weekly_time = "04:00"

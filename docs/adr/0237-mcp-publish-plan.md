@@ -6,12 +6,14 @@ Accepted
 
 ## Context
 
-ADR 0236 added `ai-dememory publish-plan` so maintainers can inspect manual
-TestPyPI and PyPI workflow dispatch inputs before publishing. The Codex plugin
-and local MCP server are the primary review surfaces during release handoffs,
-but they could inspect release evidence and roadmap status only indirectly. A
-plugin session still had to shell out to the CLI to see the publish workflow
-plan.
+ADR 0236 added `ai-dememory publish-plan` so maintainers could inspect the
+then-manual TestPyPI and PyPI publisher workflow. ADR 0255 later made
+`.github/workflows/release.yml` the sole publisher and reduced
+`.github/workflows/publish.yml` to a manual read-only readiness preflight. The
+Codex plugin and local MCP server remain primary review surfaces during release
+handoffs, but they could inspect release evidence and roadmap status only
+indirectly. A plugin session still had to shell out to the CLI to see the
+readiness plan.
 
 Publishing must remain explicit and manual. Exposing the plan over MCP must not
 turn MCP into a package release channel or let a client trigger uploads.
@@ -27,9 +29,10 @@ The tool accepts:
 - optional `command` for rendered preflight command arrays.
 
 It returns the same structured payload as `ai-dememory publish-plan --json`,
-including workflow path, dispatch inputs, guard issues, release blockers,
-manual acceptance and recall fixture status, preflight commands, next actions,
-and side-effect flags.
+including the legacy readiness-preflight workflow path and dispatch inputs,
+guard issues, release blockers, manual acceptance and recall fixture status,
+local inspection commands, next actions, and side-effect flags. Compatibility
+field names containing `publish` do not grant publication authority.
 
 The tool is annotated read-only and returns `publishes_package=false`,
 `runs_publish_commands=false`, `runs_preflight_commands=false`, and
@@ -55,6 +58,8 @@ failing the MCP call.
 - It does not prove a real TestPyPI publish happened.
 - It does not replace manual acceptance evidence or explicit human approval to
   publish.
+- It does not dispatch the canonical immutable-tag publisher; the legacy
+  workflow metadata describes readiness-only preflight.
 
 ## Future Work
 
@@ -67,10 +72,8 @@ failing the MCP call.
 
 ## Dependencies
 
-- ADR 0012 defines the manual Trusted Publishing guard.
-- ADR 0076 defines publish workflow preflight gates.
-- ADR 0127 defines package and Docker smoke gates in publish preflight.
-- ADR 0128 defines TestPyPI manual acceptance evidence requirements.
+- ADR 0255 supersedes the original manual-publisher interpretation and defines
+  the sole tag-driven publisher plus legacy read-only readiness preflight.
 - ADR 0194 defines MCP release evidence report rendering.
 - ADR 0233 defines MCP roadmap status.
 - ADR 0236 defines the CLI publish plan.

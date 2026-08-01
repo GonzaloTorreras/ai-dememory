@@ -69,7 +69,7 @@ jobs:
 
       - name: Unit and runtime tests
         run: |
-          python -m unittest discover -s tests
+          python -m unittest discover -s tests -t .
           python scripts/ai_dememory.py install-smoke
           python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:release
 

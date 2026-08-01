@@ -34,8 +34,18 @@ explicit opt-in actions.
 The plugin MCP config launches:
 
 ```bash
-ai-dememory mcp --stdio
+ai-dememory mcp --stdio --idle-timeout-seconds 600 --profile public --require-bound-root
 ```
+
+The checked-in template deliberately has no private vault path and therefore
+fails closed until the installation binds `AI_DEMEMORY_ROOT`. Run the setup
+wizard, or pass an explicit `--root <vault>` when generating Codex config, then
+install that vault-specific configuration; never point it at the public package
+checkout.
+
+The 600-second idle lease is intentional process hygiene. It lets a completed
+Codex task release an abandoned plugin server even if the host keeps its stdio
+pipe open. Codex can start a fresh bounded server on the next tool call.
 
 Smoke test the checked-in plugin config from a source checkout with the
 installed CLI:
@@ -52,19 +62,19 @@ Without an installed CLI, override the plugin launch command to the local script
 py -3 scripts\ai_dememory.py mcp-client-smoke --config plugins\ai-dememory\.mcp.json --command py --command-arg -3 --command-arg scripts\ai_dememory.py
 ```
 
-The checked-in plugin defaults to the seven-tool `core` profile:
+The checked-in public plugin defaults to the three-tool `public` profile:
 
 - `memory.search`
 - `memory.get`
 - `memory.context`
-- `memory.graph`
-- `memory.doctor`
-- `memory.working_current`
-- `memory.working_status`
 
-This keeps model-visible schemas smaller than the recalled context budget. See
-[MCP tool profiles](mcp-tool-profiles.md) for the additive `working`, `review`,
-and explicit `admin` profiles.
+The server filters `tools/list` and rejects calls outside this profile; the
+matching Codex `enabled_tools` list is defense in depth. It also forces
+`public_only=true`, `include_sensitive=false`, and excludes working-memory
+injection regardless of client arguments. This keeps a public-repository agent
+from recalling private/internal vault state. See
+[MCP tool profiles](mcp-tool-profiles.md) for private-vault `core`, additive
+`working`/`review`, and explicit `admin` profiles.
 
 The broader review/admin server inventory remains available for clients that
 opt in:
@@ -139,7 +149,8 @@ opt in:
 
 ## Server-only MCP tools
 
-Every tool outside `core` is server-only by default. The following broad local
+Every tool outside `public` is server-only in the checked-in plugin. The
+following broad local
 execution tools are available only through the unfiltered `admin` profile or
 their explicit CLI equivalents (they are not added by `working` or `review`):
 
@@ -152,7 +163,7 @@ their explicit CLI equivalents (they are not added by `working` or `review`):
 - `memory.sleep_apply_reviewed`
 
 These tools remain available to direct MCP clients that opt into the full server
-surface, and to the CLI equivalents. The plugin `core` defaults keep them server-only
+surface, and to the CLI equivalents. The plugin `public` defaults keep them server-only
 because they either run broader local checks, rebuild generated artifacts, read
 configured provider sources, record lifecycle telemetry, or apply reviewed
 packets. Plugin setup and maintenance skills should use read-only planning and
@@ -177,12 +188,22 @@ manual acceptance, hook capture review, and release evidence handoff artifacts;
 the MCP tool does not write those reports. `generated_archive_status` commands
 list generated packet archives without writing files. `generated_archive_retention`
 commands preview generated packet cleanup candidates without deleting files.
+The plan exposes `minimal`, `balanced`, and `active` resource catalogs plus
+`off`, `advisory`, and `proposals` host-model policies. All report zero
+ai-dememory runtime model and embedding calls. The wizard emits vault-bound
+MCP config, public-only hook config, hard resource ceilings, and an exact apply
+fingerprint; it never installs those integrations itself.
 
 `memory-recall` tells Codex how to use context, search, get, graph, and current
-working-state tools.
+working-state tools. For public-repository work it requires explicit
+`public_only=true` context/search/get calls, disables working-memory inclusion
+and auto queries, and forbids graph/resources/prompts or any recall surface
+without the same ceiling.
 
 `memory-working-session` tells Codex how to read generated current task state,
 write working snapshots, and leave handoffs without promoting durable memory.
+It explicitly excludes working-state reads from public-repository output and
+routes public recall back to explicit public-only context.
 
 `memory-review-inbox` keeps imports, hook captures, proposals, recall misses,
 git lessons, false positives, review modes, conflict dismissals, keep decisions,
@@ -232,7 +253,8 @@ The matching CLI command is `ai-dememory schedule plan --json`; plugin setup
 skills should prefer it over parsing `schedule setup --dry-run` output when
 they need a structured local preview outside MCP.
 `memory.schedule_status` is also read-only. It returns the persisted scheduler
-settings, compact `review_due` summary, and the platform status commands a
+settings, vault-specific task namespace, intensity, installation receipt and
+verification state, compact `review_due` summary, and the platform status commands a
 reviewer can run, but it does not query or mutate the host scheduler. Invalid
 persisted scheduler config is reported with `valid=false`, validation errors,
 and no platform status commands.
@@ -284,12 +306,13 @@ distribution checkout; `memory.release_evidence_report` renders the same
 Markdown handoff without writing reports. Both release-evidence tools accept
 optional `reviewer` and `pr_url` metadata to pre-fill manual acceptance plans
 and handoff command arrays without recording proof. `memory.publish_plan`
-returns the manual TestPyPI/PyPI workflow dispatch plan, preflight command
-arrays, release blockers, target-specific `publish_ready`, final
-`release_ready`, required PR URL dispatch input, and false side-effect flags
-without uploading packages. Plain vaults get unavailable release evidence
-inside the publish plan instead of a failed tool call. Evidence recording stays
-on the CLI through `ai-dememory acceptance record`.
+returns TestPyPI/PyPI readiness, legacy read-only-preflight inputs and
+inspection commands, local canonical-release readiness blockers, target-specific
+`publish_ready`, final `release_ready`, required PR URL input,
+`uses_trusted_publishing=false`, and false side-effect flags without uploading
+packages. Plain vaults get unavailable release evidence inside the plan instead
+of a failed tool call. Evidence recording stays on the CLI through
+`ai-dememory acceptance record`.
 
 Recall quality freshness can also be inspected through
 `memory.recall_fixture_status`. It reports seed-only or stale fixtures without

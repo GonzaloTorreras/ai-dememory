@@ -103,6 +103,9 @@ ai-dememory eval-recall
 
 - Keep Apache-2.0 as the declared license for code, docs, templates, and
   packaged vault scaffolding unless a separately reviewed release changes it.
+  Declare it with PEP 639 `project.license` and `project.license-files` metadata
+  rather than deprecated TOML tables, setuptools-only fields, or license
+  classifiers.
 - Keep PyPI and TestPyPI Trusted Publishers bound to
   `.github/workflows/release.yml` with their matching `pypi` and `testpypi`
   GitHub environments.
@@ -118,18 +121,18 @@ immutable version tag. Prerelease tags publish only to TestPyPI; stable tags
 publish only to PyPI. The workflow creates the matching GitHub Release after
 the package can be installed back from its target index.
 
-`.github/workflows/publish.yml` is retained only as a legacy recovery surface.
+`.github/workflows/publish.yml` is retained only as a legacy hosted readiness
+preflight. It has read-only repository permission, disables persisted checkout
+credentials, and cannot build a release artifact, request OIDC, target a package
+environment, upload, create a release, push a tag, or publish. Its explicit
+confirmation value is `preflight`.
 
-The workflow builds distributions, runs `twine check`, uploads the distribution
-artifact, then publishes through PyPI Trusted Publishing. It does not use stored
-PyPI API tokens.
-
-Before building distributions, the workflow runs a preflight job with
+The preflight runs
 `publish-guard`, `artifact-guard`, `validate`, `secret-scan`, `verify-mcp`, and
 `release-check`, followed by installed-package smoke, package build smoke with
-`--check-clean`, and Docker local MCP smoke. Those smoke commands run in the
-preflight workspace; the distribution build job uses a separate checkout so
-smoke output cannot pollute the uploaded package artifact.
+`--check-clean`, Docker local MCP smoke, and strict readiness planning. Any
+artifacts created inside smoke isolation are discarded with the workflow and
+are never passed to a publisher.
 Installed-package and Docker smoke both validate the read-only scheduler plan
 payload, including scheduler commands, cron entries, and false side-effect
 flags, before any package can be published.
@@ -144,29 +147,31 @@ ai-dememory artifact-guard
 ai-dememory package-build-smoke
 ```
 
-The canonical package path is now the tag-driven, AI-operated flow documented
-in [AI-operated releases](ai-operated-releases.md). A green `main` build may
-create an immutable version tag; `.github/workflows/release.yml` then validates
+The canonical package path is the tag-driven flow documented in
+[AI-operated releases](ai-operated-releases.md). Codex prepares and verifies
+the release, but must not merge a release PR, create or push its tag, or publish
+without explicit user authorization. Once authorized, a green `main` build may
+create the immutable version tag; `.github/workflows/release.yml` validates
 tag/version/changelog identity, builds once, smokes the exact wheel and sdist,
 attests them, publishes through OIDC, verifies the index install, and creates
-the GitHub Release. Routine package publication has no human approval gate.
+the GitHub Release.
 
 The older `publish.yml` and `publish-plan` interfaces are retained as a
-read-only compatibility and recovery surface during migration. PyPI Trusted
+read-only compatibility and diagnostic surface during migration. PyPI Trusted
 Publisher identities must point only at `release.yml`, so this legacy workflow
 cannot become an alternate publication path.
 
-`publish-plan` is read-only. It reports the legacy manual dispatch inputs, target
-environment, resolved GitHub Actions workflow URL when the local remote is a
-GitHub repo, publish preflight commands, publish guard issues, release evidence
-blockers, and false publish side-effect flags before a maintainer runs the
-workflow. It includes both `release_ready`, the final PyPI release-evidence
-state, and `publish_ready`, the target-specific dispatch gate used by the
-publish workflow. TestPyPI publish readiness may defer only the
-`testpypi-publish` acceptance record because that evidence can exist only after
-the TestPyPI workflow has run; all other release blockers still block
-`publish_ready`. PyPI publish readiness requires full `release_ready` after
-TestPyPI evidence is recorded.
+`publish-plan` reports the legacy preflight inputs, target index under
+evaluation, resolved GitHub Actions URL when the local remote is a GitHub repo,
+read-only commands, guard issues, release-evidence blockers, and false
+publication side-effect flags. The existing `publish_ready` field is retained
+for API compatibility; it is readiness evidence for the canonical tag path,
+not permission or capability to publish from `publish.yml`. TestPyPI readiness
+may defer only its post-publish acceptance record; within this local planner,
+PyPI readiness requires the full evidence set after TestPyPI verification.
+Neither `publish_ready` nor `release_ready` is consumed by `release.yml`,
+which cannot read private-vault acceptance receipts. Missing local evidence is
+instead disclosed to the owner before explicit release authorization.
 
 The plan may run local inspection commands to read git status and the
 configured remote, but it does not run publish workflow commands, run preflight
@@ -239,12 +244,12 @@ keeping fixture promotion and miss closure as separate reviewed commands. Use
 `ai-dememory recall-fixtures packet-archive-status --json` to list generated
 recall packet snapshots without writing files or promoting fixtures.
 
-In this AI-operated, human-account-owned repository, Codex is the routine
-release owner. It may prepare and merge release changes, create immutable tags,
-publish through the canonical Trusted Publisher workflow, verify releases, and
-fix forward without per-release approval when all automated gates pass. Account
-recovery, legal ownership, billing, visibility, destructive changes, and
-trusted-publisher identity changes remain human break-glass operations.
+Codex is the operational release owner: it may prepare changes, evidence,
+reviews, versioning, changelog and fix-forward plans. Merge, immutable tag
+creation and Trusted Publisher execution remain explicit user-approved actions
+even when every automated gate passes. Account recovery, legal ownership,
+billing, visibility, destructive changes, and trusted-publisher identity changes
+remain human break-glass operations.
 
 After the release owner or another reviewer completes one of those manual
 checks, record reviewed evidence:

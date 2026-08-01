@@ -20,11 +20,19 @@ Build token-budgeted context:
 ai-dememory context "ai-dememory scheduler" --budget 2000
 ai-dememory context --auto --budget 2000
 ai-dememory context "ai-dememory scheduler" --why
+ai-dememory context "public project decision" --public-only --no-working-memory
 ```
 
 The context command uses SQLite FTS ranking, excludes private/sensitive memories
 by default, and includes `working/current.json` plus `working/recent-session.md`
 unless `--no-working-memory` is set.
+
+For public-repository work, `--public-only` is the fail-closed egress ceiling:
+it filters non-public memories before applying `--limit`, suppresses generated
+working memory, and never returns rejected memory identifiers. It requires an
+explicit query and rejects `--auto` because auto-query text comes from
+non-public working state. Use `search "<query>" --public-only` for a narrower
+ranked result set.
 
 Vaults can set context defaults in `.ai-dememory.toml`:
 
@@ -42,11 +50,16 @@ the rendered context includes the same matched fields and scoring components
 already returned in JSON item metadata.
 
 MCP clients can call `memory.context` with `query`, `budget_tokens`, `limit`,
-`include_sensitive`, `include_working_memory`, and `explain_results`.
+`include_sensitive`, `include_working_memory`, `public_only`, and
+`explain_results`.
 Omitted MCP arguments use the vault `[context]` defaults. Clients can also call
 it with `auto: true` and no query to derive the search query from generated
 working memory; the response includes `query_source` so clients can tell
 explicit and working-memory context apart.
+For public-repository work, pass an explicit `query`, `public_only: true`, and
+`include_working_memory: false`; `public_only` with `auto: true` fails before
+working state is read. MCP `memory.search` and `memory.get` also accept
+`public_only: true`.
 
 ## Explainable Search
 

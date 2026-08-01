@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for v2 draft.
+Accepted for v2 draft. The non-loopback rule was strengthened on 2026-07-27 to
+require both an API key and TLS certificate/key; no unsafe override remains.
 
 ## Context
 
@@ -26,8 +27,8 @@ and verifies:
 - sensitive memories are excluded by default
 - `/proposals` writes only to `inbox/llm-captures/`
 - `/reindex` rebuilds the local SQLite index
-- `ai-dememory api --host 0.0.0.0` refuses startup without
-  `AI_DEMEMORY_API_KEY` or an explicit unsafe override
+- `ai-dememory api --host 0.0.0.0` refuses startup unless
+  `AI_DEMEMORY_API_KEY`, `--tls-cert`, and `--tls-key` are all supplied
 
 Wire the smoke into CI and package install smoke. Keep `release-check`
 dependency-light and non-server-starting, but require the smoke script and ADR

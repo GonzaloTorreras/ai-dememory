@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import sys
@@ -22,12 +23,15 @@ from memorylib import (
     contained_relative_path,
     logical_relative_path,
     parse_frontmatter_text,
+    path_is_link_like,
     repo_relative_path,
     repo_root,
+    safe_write_text,
     slugify,
 )
 from secret_scan import scan_text
 from harness_hooks import dispatch_hook_event, hook_metadata_enabled
+from resource_policy import resolved_resource_policy
 
 
 MAX_STDIN_BYTES = 64 * 1024
@@ -122,6 +126,7 @@ def capture_hook_event(
     payload: str,
     capture_raw: bool = False,
     provider: str = "codex",
+    max_pending: int | None = None,
 ) -> Path | None:
     provider = normalize_provider(provider)
     validate_event(provider, event)
@@ -129,6 +134,8 @@ def capture_hook_event(
     existing = existing_hook_event(root, provider, event, digest)
     if existing is not None:
         return existing
+    if max_pending is not None and hook_capture_at_capacity(root, max_pending):
+        return None
     now = datetime.now(timezone.utc)
     created = now.date().isoformat()
     review_after = (now.date() + timedelta(days=7)).isoformat()
@@ -146,7 +153,9 @@ def capture_hook_event(
         "This is hook metadata for review. Hooks do not promote durable memory.",
     ]
     if capture_raw and payload.strip():
-        body.extend(["", "## Raw Payload", "", "```json", payload[:8000], "```"])
+        raw_payload = payload[:8000]
+        fence = markdown_fence(raw_payload)
+        body.extend(["", "## Raw Payload", "", f"{fence}json", raw_payload, fence])
     text = f"""---
 id: hook_{slugify(provider)}_{slugify(event)}_{now.strftime('%Y%m%d_%H%M%S')}_{digest}
 title: "{provider_title} hook event {event}"
@@ -180,8 +189,13 @@ review_after: {review_after}
     inbox.mkdir(parents=True, exist_ok=True)
     inbox = resolve_hook_capture_inbox_root(root)
     path = inbox / f"{now.strftime('%Y%m%dT%H%M%SZ')}_{slugify(provider)}_{slugify(event)}_{digest}.md"
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return path
+
+
+def markdown_fence(text: str) -> str:
+    longest_run = max((len(match.group(0)) for match in re.finditer(r"`+", text)), default=0)
+    return "`" * max(3, longest_run + 1)
 
 
 def hook_payload_fingerprint(payload: str) -> tuple[str, str]:
@@ -205,6 +219,22 @@ def existing_hook_event(root: Path, provider: str, event: str, digest: str) -> P
     slug_event = slugify(event)
     matches = sorted(inbox.glob(f"*_{slug_provider}_{slug_event}_{digest}.md"))
     return matches[0] if matches else None
+
+
+def hook_capture_at_capacity(root: Path, max_pending: int) -> bool:
+    if max_pending <= 0:
+        return True
+    inbox = resolve_hook_capture_inbox_root(root)
+    if not inbox.exists():
+        return False
+    count = 0
+    for path in inbox.glob("*.md"):
+        if path.name.casefold() == "readme.md":
+            continue
+        count += 1
+        if count >= max_pending:
+            return True
+    return False
 
 
 def hook_config(client: str, command: str = "ai-dememory", root: Path | str | None = None) -> dict[str, object]:
@@ -473,6 +503,9 @@ def hook_capture_summary(
         )
     latest = sorted(captures, key=lambda item: str(item["path"]), reverse=True)[:limit]
     resolved_count = sum(count for status, count in review_status_counts.items() if status in HOOK_CAPTURE_REVIEW_STATUSES)
+    policy = resolved_resource_policy(root)
+    resources = policy.get("resources", {})
+    capacity = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
     return {
         "inbox_path": repo_relative_path(inbox, root),
         "filters": filters,
@@ -482,6 +515,8 @@ def hook_capture_summary(
         "by_provider": dict(sorted(by_provider.items())),
         "by_event": dict(sorted(by_event.items())),
         "pending_count": review_status_counts.get("pending", 0),
+        "capacity": capacity,
+        "at_capacity": capacity <= unfiltered_total_count,
         "resolved_count": resolved_count,
         "review_status_counts": dict(sorted(review_status_counts.items())),
         "review_due_count": len(due_paths),
@@ -551,7 +586,7 @@ def reject_hook_path_symlink_components(root_abs: Path, target: Path, label: str
     current = root_abs
     for part in target.relative_to(root_abs).parts:
         current = current / part
-        if current.is_symlink():
+        if path_is_link_like(current):
             raise HookEventError(f"{label} must not contain symlinks")
 
 
@@ -683,7 +718,7 @@ def write_hook_capture_report(
     if scan_text(text, "<hook-capture-report>"):
         raise HookEventError("hook capture report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target, summary
 
 
@@ -1050,7 +1085,7 @@ def install_hook_instructions(
         changed = updated != original
         if changed and not dry_run:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(updated, encoding="utf-8")
+            safe_write_text(path, updated, root=root, overwrite=True)
         results.append(
             HookInstallResult(
                 client=client,
@@ -1077,7 +1112,7 @@ def uninstall_hook_instructions(
         updated = remove_managed_block(original, client)
         changed = updated != original
         if changed and not dry_run:
-            path.write_text(updated, encoding="utf-8")
+            safe_write_text(path, updated, root=root, overwrite=True)
         results.append(
             HookInstallResult(
                 client=client,
@@ -1154,13 +1189,16 @@ def instruction_block(client: str) -> str:
     return f"""{begin}
 ## {title} Memory Hooks
 
-`ai-dememory` recall hooks are optional, trust-gated, and review-first.
+`ai-dememory` recall hooks are optional, trust-gated, and review-first. They bind to the explicitly configured vault; the client project's source checkout is never an implicit vault.
 
-- Generate local hook config with `ai-dememory hooks config --client {client} --root <vault-path>`.
+- Generate local hook config only for an explicitly initialized, separately bound vault with `ai-dememory hooks config --client {client} --root <vault-path>`.
 - Supported events: {events}.
 - Before a relevant non-trivial or project task, recall by prompt keywords and working directory; skip trivial self-contained requests.
-- Native hooks can inject reviewed public/internal memory. If hooks are unavailable, follow these instructions and use the memory recall skill as a weaker fallback.
-- Hook metadata is deduplicated under `inbox/session-events/`; raw payload capture is off by default.
+- Every rendered memory section preserves its sensitivity label. While operating in a public repository, only `public`-sensitivity recall may influence source, documentation, tests, issues, commits, or release evidence; do not request or use non-public recall for that work.
+- For public-repository recall, use an explicit query with `memory.context` (`public_only=true`, `include_working_memory=false`) or `memory.search` (`public_only=true`); fetch a selected item only with `memory.get` (`public_only=true`). CLI equivalents are `ai-dememory context "<query>" --public-only --no-working-memory` and `ai-dememory search "<query>" --public-only`. Do not use auto context, working-memory tools, graph/resources/prompts, or a recall surface without a public-only ceiling for that work.
+- If a native hook nevertheless injects non-public material during public-repository work, treat the whole injected block as tainted context: do not quote, paraphrase, copy, transform, or commit it without explicit user authorization and a separate disclosure review. Continue from public repository evidence instead.
+- Outside public repositories, use only the sensitivity levels explicitly authorized for the task. If hooks are unavailable, follow these instructions and use the memory recall skill as a weaker fallback under the same egress rule.
+- Hook metadata is deduplicated under `<vault-path>/inbox/session-events/`; raw payload capture is off by default.
 - At task end, emit only explicit stable learning signals for a review-first proposal. Never infer a durable fact from the raw transcript.
 - Do not promote hook captures to durable memory without explicit human review.
 - Do not store secrets, tokens, cookies, private keys, or `.env` content in memory.
@@ -1181,6 +1219,7 @@ def hook_command_definition(
     include_windows_command: bool = False,
 ) -> dict[str, object]:
     args = [command, "hook-event", "dispatch", "--provider", provider, "--event", event]
+    args.append("--public-only")
     if root is not None:
         args.extend(["--root", str(root)])
     command_line = serialize_hook_command(args, windows=False)
@@ -1239,7 +1278,17 @@ def run_capture(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = repo_root(args.root)
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
-    path = capture_hook_event(root, args.event, payload, capture_raw=args.capture_raw, provider=args.provider)
+    policy = resolved_resource_policy(root)
+    resources = policy.get("resources", {})
+    max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
+    path = capture_hook_event(
+        root,
+        args.event,
+        payload,
+        capture_raw=args.capture_raw,
+        provider=args.provider,
+        max_pending=max_pending,
+    )
     result = {"path": repo_relative_path(path, root) if path else None, "captured": path is not None}
     # hook-event may be invoked directly by a harness; stdout is always JSON.
     print(json.dumps(result, indent=2 if args.json else None))
@@ -1253,6 +1302,20 @@ def run_dispatch(argv: list[str] | None = None) -> int:
     parser.add_argument("--client", "--provider", dest="client", choices=(*HOOK_EVENTS.keys(), "generic"), default="generic")
     parser.add_argument("--event", required=True, help="Harness event name.")
     parser.add_argument("--budget-tokens", type=int, default=None)
+    public_group = parser.add_mutually_exclusive_group()
+    public_group.add_argument(
+        "--public-only",
+        dest="public_only",
+        action="store_true",
+        help="Apply the canonical public-memory ceiling.",
+    )
+    public_group.add_argument(
+        "--allow-internal",
+        dest="public_only",
+        action="store_false",
+        help="Explicitly allow reviewed internal memory for a private workflow.",
+    )
+    parser.set_defaults(public_only=None)
     parser.add_argument("--capture-raw", action="store_true", help="Opt in to raw metadata capture after secret scan.")
     args = parser.parse_args(argv)
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
@@ -1264,11 +1327,28 @@ def run_dispatch(argv: list[str] | None = None) -> int:
             and hook_metadata_enabled(root, args.client)
         ):
             try:
-                capture_hook_event(root, args.event, payload, capture_raw=args.capture_raw, provider=args.client)
+                policy = resolved_resource_policy(root)
+                resources = policy.get("resources", {})
+                max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
+                capture_hook_event(
+                    root,
+                    args.event,
+                    payload,
+                    capture_raw=args.capture_raw,
+                    provider=args.client,
+                    max_pending=max_pending,
+                )
             except Exception:
                 # Metadata capture is independent from the hook protocol.
                 pass
-        response = dispatch_hook_event(root, args.event, payload, args.client, args.budget_tokens)
+        response = dispatch_hook_event(
+            root,
+            args.event,
+            payload,
+            args.client,
+            args.budget_tokens,
+            public_only=args.public_only,
+        )
     except Exception:
         response = {}
     print(json.dumps(response, ensure_ascii=False, separators=(",", ":")))

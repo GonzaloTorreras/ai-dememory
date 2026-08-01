@@ -5,7 +5,10 @@ ENV PYTHONUNBUFFERED=1
 ENV AI_DEMEMORY_ROOT=/memory
 
 WORKDIR /app
-COPY . /app
+COPY pyproject.toml README.md LICENSE ./
+COPY ai_dememory_tool ./ai_dememory_tool
+COPY scripts ./scripts
+COPY mcp ./mcp
 RUN python -m pip install --no-cache-dir .
 
 VOLUME ["/memory"]

@@ -12,7 +12,8 @@ import re
 from typing import Any
 
 from config_file import load_config
-from memorylib import slugify
+from memorylib import path_is_link_like, safe_write_text, slugify
+from resource_policy import resolved_resource_policy
 from secret_scan import scan_text
 
 
@@ -44,6 +45,7 @@ def dispatch_hook_event(
     payload_text: str,
     client: str = "generic",
     budget_tokens: int | None = None,
+    public_only: bool | None = None,
 ) -> dict[str, object]:
     """Return a hook-compatible JSON object and fail open on malformed input."""
     payload = parse_payload(payload_text)
@@ -68,11 +70,20 @@ def dispatch_hook_event(
     cwd = first_string(payload, "cwd", "working_directory", "project_root") or str(root)
     session_id = first_string(payload, "session_id", "sessionId", "conversation_id") or None
     budget = effective_budget(root, payload, budget_tokens)
+    public_ceiling = hook_public_only_enabled(root) if public_only is None else public_only
 
     try:
         from turn_context import build_turn_context
 
-        context = build_turn_context(root, prompt, cwd, client, session_id, budget)
+        context = build_turn_context(
+            root,
+            prompt,
+            cwd,
+            client,
+            session_id,
+            budget,
+            public_only=public_ceiling,
+        )
     except Exception:
         # Missing/stale indexes and provider differences are fail-open conditions.
         return {}
@@ -108,14 +119,24 @@ def first_string(payload: dict[str, Any], *keys: str) -> str:
 
 
 def effective_budget(root: Path, payload: dict[str, Any], override: int | None) -> int:
-    if isinstance(override, int):
-        return max(200, min(20_000, override))
+    configured = configured_recall_budget(root)
+    requested: int | None = None
+    if isinstance(override, int) and not isinstance(override, bool):
+        requested = override
     payload_budget = payload.get("budget_tokens")
-    if isinstance(payload_budget, int) and not isinstance(payload_budget, bool):
-        return max(200, min(20_000, payload_budget))
+    if requested is None and isinstance(payload_budget, int) and not isinstance(payload_budget, bool):
+        requested = payload_budget
+    if requested is None:
+        return configured
+    return max(200, min(configured, requested))
+
+
+def configured_recall_budget(root: Path) -> int:
     try:
-        configured = load_config(root).get("recall", {}).get("default_budget_tokens", DEFAULT_BUDGET_TOKENS)
-        return max(200, min(20_000, int(configured)))
+        policy = resolved_resource_policy(root)
+        resources = policy.get("resources", {})
+        configured = resources.get("recall_budget_tokens", DEFAULT_BUDGET_TOKENS)
+        return max(200, min(8000, int(configured)))
     except (OSError, TypeError, ValueError):
         return DEFAULT_BUDGET_TOKENS
 
@@ -140,7 +161,12 @@ def client_enabled(root: Path, section: str, client: str) -> bool:
 
 def hook_metadata_enabled(root: Path, client: str) -> bool:
     learning = section_config(root, "learning")
-    return learning.get("hook_metadata", True) is True and client_enabled(root, "learning", client)
+    return learning.get("hook_metadata", False) is True and client_enabled(root, "learning", client)
+
+
+def hook_public_only_enabled(root: Path) -> bool:
+    recall = section_config(root, "recall")
+    return recall.get("hook_public_only", True) is not False
 
 
 def session_proposals_enabled(root: Path, client: str) -> bool:
@@ -162,6 +188,8 @@ def maybe_write_session_proposal(root: Path, payload: dict[str, Any], client: st
         matches = sorted(inbox.glob(f"*_session-learning_{digest}.md"))
         if matches:
             return matches[0]
+    if markdown_queue_at_capacity(inbox, configured_pending_limit(root)):
+        return None
 
     now = datetime.now(timezone.utc)
     created = now.date().isoformat()
@@ -202,8 +230,10 @@ This candidate is not durable memory. Review it before promotion.
         return None
     inbox.mkdir(parents=True, exist_ok=True)
     inbox = resolve_learning_inbox(root)
+    if markdown_queue_at_capacity(inbox, configured_pending_limit(root)):
+        return None
     path = inbox / f"{now.strftime('%Y%m%dT%H%M%SZ')}_session-learning_{digest}.md"
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return path
 
 
@@ -260,6 +290,30 @@ def resolve_learning_inbox(root: Path) -> Path:
     current = root_abs
     for part in target.relative_to(root_abs).parts:
         current = current / part
-        if current.is_symlink():
+        if path_is_link_like(current):
             raise ValueError("learning proposal inbox must not contain symlinks")
     return target
+
+
+def configured_pending_limit(root: Path) -> int:
+    try:
+        policy = resolved_resource_policy(root)
+        resources = policy.get("resources", {})
+        return max(0, int(resources.get("hook_capture_max_pending", 0)))
+    except (OSError, TypeError, ValueError):
+        return 0
+
+
+def markdown_queue_at_capacity(directory: Path, max_pending: int) -> bool:
+    if max_pending <= 0:
+        return True
+    if not directory.exists():
+        return False
+    count = 0
+    for path in directory.glob("*.md"):
+        if path.name.casefold() == "readme.md":
+            continue
+        count += 1
+        if count >= max_pending:
+            return True
+    return False

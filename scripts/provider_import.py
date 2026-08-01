@@ -10,11 +10,20 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import stat
 import sys
 from typing import Any
 
 from config_file import CONFIG_NAME, load_config, set_section
-from memorylib import repo_relative_path, repo_root, slugify
+from memorylib import (
+    path_is_link_like,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+    slugify,
+)
+from resource_policy import HARD_LIMITS, resolved_resource_policy
 from secret_scan import scan_text
 
 
@@ -23,6 +32,7 @@ SKIP_PARTS = {"Cache", "Code Cache", "GPUCache", "__pycache__", "node_modules", 
 MAX_FILE_BYTES = 64 * 1024
 MAX_EXPORT_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20
+MAX_SCAN_ENTRIES = 2500
 CAPTURE_KINDS = {"chatgpt", "claude", "codex", "cursor", "windsurf", "markdown", "text", "conversation"}
 
 
@@ -40,6 +50,13 @@ class CaptureItem:
     title: str
     source_label: str
     text: str
+
+
+@dataclass(frozen=True)
+class ChatFileScan:
+    files: list[Path]
+    scanned_entries: int
+    truncated: bool
 
 
 def default_provider_paths() -> dict[str, list[Path]]:
@@ -204,24 +221,30 @@ def configure_provider_preview(root: Path, name: str, path: Path, enabled: bool 
 
 def configured_import_path(root: Path, provider: str, source_path: Path | None) -> Path:
     if source_path is not None:
-        return source_path.expanduser().resolve()
-    config = provider_config(root).get(provider)
-    if not config:
-        raise ValueError(f"provider {provider} is not configured")
-    if not config.get("enabled", False):
-        raise ValueError(f"provider {provider} is disabled")
-    path = str(config.get("path") or "").strip()
-    if not path:
-        raise ValueError(f"provider {provider} has no path")
-    return Path(path).expanduser().resolve()
+        path = source_path
+    else:
+        config = provider_config(root).get(provider)
+        if not config:
+            raise ValueError(f"provider {provider} is not configured")
+        if not config.get("enabled", False):
+            raise ValueError(f"provider {provider} is disabled")
+        configured = str(config.get("path") or "").strip()
+        if not configured:
+            raise ValueError(f"provider {provider} has no path")
+        path = Path(configured)
+    lexical = Path(os.path.abspath(path.expanduser()))
+    if path_is_link_like(lexical):
+        raise ValueError(f"provider path must not be a symlink or junction: {lexical}")
+    return lexical
 
 
 def import_chats(
     root: Path,
     provider: str,
     source_path: Path | None = None,
-    limit: int = MAX_FILES,
-    max_file_bytes: int = MAX_FILE_BYTES,
+    limit: int | None = None,
+    max_file_bytes: int | None = None,
+    max_scan_entries: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     if provider not in default_provider_paths():
@@ -230,14 +253,38 @@ def import_chats(
     if not source_root.exists():
         raise FileNotFoundError(f"provider path does not exist: {source_root}")
 
-    files = discover_chat_files(source_root, limit)
+    policy = resolved_resource_policy(root)
+    resources = policy["resources"]
+    if not isinstance(resources, dict):
+        raise ValueError("resolved resource policy is invalid")
+    limit = bounded_runtime_limit(
+        limit,
+        int(resources["provider_file_limit"]),
+        "provider_file_limit",
+    )
+    max_file_bytes = bounded_runtime_limit(
+        max_file_bytes,
+        int(resources["provider_max_file_bytes"]),
+        "provider_max_file_bytes",
+    )
+    max_scan_entries = bounded_runtime_limit(
+        max_scan_entries,
+        int(resources["provider_scan_entries"]),
+        "provider_scan_entries",
+    )
+    scan = scan_chat_files(source_root, max_scan_entries=max_scan_entries)
     written: list[str] = []
     would_write: list[str] = []
     skipped: list[dict[str, str]] = []
-    for source_file in files:
+    examined = 0
+    already_imported = 0
+    for source_file in scan.files:
+        if len(written) + len(would_write) >= limit:
+            break
+        examined += 1
         try:
-            raw = source_file.read_bytes()[:max_file_bytes]
-        except OSError as exc:
+            raw = read_provider_file(source_file, source_root, max_file_bytes)
+        except (OSError, ValueError) as exc:
             skipped.append({"path": str(source_file), "reason": f"read failed: {exc}"})
             continue
         if b"\x00" in raw[:4096]:
@@ -250,6 +297,7 @@ def import_chats(
         fingerprint = import_fingerprint(source_file, text)
         existing = existing_import_candidate(root, provider, source_file, fingerprint)
         if existing is not None:
+            already_imported += 1
             skipped.append(
                 {
                     "path": str(source_file),
@@ -267,13 +315,62 @@ def import_chats(
         else:
             target = write_import_candidate(root, provider, source_file, rendered, fingerprint)
             written.append(repo_relative_path(target, root))
+    new_candidates = len(written) + len(would_write)
+    coverage_blocked = (
+        scan.truncated
+        and examined > 0
+        and already_imported == examined
+        and new_candidates == 0
+    )
+    suggested_scan_entries = (
+        min(
+            max_scan_entries * 2,
+            int(HARD_LIMITS["provider_scan_entries"]["maximum"]),
+        )
+        if scan.truncated
+        else None
+    )
+    if coverage_blocked and suggested_scan_entries == max_scan_entries:
+        next_action = (
+            "The configured hard scan ceiling was reached after revisiting only known files; "
+            "narrow or reorganize the provider source before the next import."
+        )
+    elif coverage_blocked:
+        next_action = (
+            "The bounded scan window contains only previously imported files; review a higher "
+            f"intensity or retry with --scan-limit {suggested_scan_entries}."
+        )
+    elif scan.truncated:
+        next_action = (
+            "More provider entries exist beyond this bounded scan window; later imports may "
+            f"need --scan-limit {suggested_scan_entries} after this batch is reviewed."
+        )
+    else:
+        next_action = "The configured provider source was fully enumerated within this run."
     return {
         "provider": provider,
         "source_path": str(source_root),
         "dry_run": dry_run,
         "reads_provider_files": True,
         "writes_import_candidates": not dry_run and bool(written),
-        "examined": len(files),
+        "examined": examined,
+        "already_imported": already_imported,
+        "new_candidates": new_candidates,
+        "scanned_entries": scan.scanned_entries,
+        "scan_truncated": scan.truncated,
+        "coverage_complete": not scan.truncated,
+        "coverage_blocked": coverage_blocked,
+        "suggested_scan_entries": suggested_scan_entries,
+        "remaining_estimate_lower_bound": max(
+            1 if scan.truncated else 0,
+            len(scan.files) - examined,
+        ),
+        "next_action": next_action,
+        "limits": {
+            "max_new_candidates": limit,
+            "max_file_bytes": max_file_bytes,
+            "max_scan_entries": max_scan_entries,
+        },
         "written": written,
         "would_write": would_write,
         "skipped": skipped,
@@ -300,7 +397,9 @@ def capture_source(
         items = [CaptureItem(title or f"{kind} text capture", "<text>", text)]
         source_label = "<text>"
     else:
-        source_root = source_path.expanduser().resolve()
+        source_root = Path(os.path.abspath(source_path.expanduser()))
+        if path_is_link_like(source_root):
+            raise ValueError(f"capture path must not be a symlink or junction: {source_root}")
         if not source_root.exists():
             raise FileNotFoundError(f"capture path does not exist: {source_root}")
         source_label = str(source_root)
@@ -331,18 +430,73 @@ def capture_source(
     }
 
 
-def discover_chat_files(source_root: Path, limit: int) -> list[Path]:
+def discover_chat_files(
+    source_root: Path,
+    limit: int,
+    max_scan_entries: int = MAX_SCAN_ENTRIES,
+) -> list[Path]:
+    """Return recent matching files while bounding directory enumeration."""
+    scan = scan_chat_files(source_root, max_scan_entries=max_scan_entries)
+    return scan.files[: max(1, limit)]
+
+
+def scan_chat_files(source_root: Path, max_scan_entries: int = MAX_SCAN_ENTRIES) -> ChatFileScan:
+    if max_scan_entries < 1:
+        raise ValueError("max_scan_entries must be positive")
+    if path_is_link_like(source_root):
+        raise ValueError(f"provider path must not be a symlink or junction: {source_root}")
     if source_root.is_file():
-        return [source_root]
-    files = [
-        path
-        for path in source_root.rglob("*")
-        if path.is_file()
-        and path.suffix.lower() in CHAT_SUFFIXES
-        and not any(part in SKIP_PARTS for part in path.parts)
-    ]
-    files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
-    return files[: max(1, limit)]
+        return ChatFileScan(files=[source_root], scanned_entries=1, truncated=False)
+
+    files_with_mtime: list[tuple[float, Path]] = []
+    stack = [source_root]
+    scanned_entries = 0
+    truncated = False
+    while stack:
+        directory = stack.pop()
+        try:
+            entries = os.scandir(directory)
+        except OSError:
+            continue
+        with entries:
+            for entry in entries:
+                if scanned_entries >= max_scan_entries:
+                    truncated = True
+                    break
+                scanned_entries += 1
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if entry.name not in SKIP_PARTS and not entry.is_symlink():
+                            stack.append(Path(entry.path))
+                        continue
+                    if (
+                        entry.is_file(follow_symlinks=False)
+                        and Path(entry.name).suffix.lower() in CHAT_SUFFIXES
+                        and not any(part in SKIP_PARTS for part in Path(entry.path).parts)
+                    ):
+                        files_with_mtime.append((entry.stat(follow_symlinks=False).st_mtime, Path(entry.path)))
+                except OSError:
+                    continue
+        if truncated:
+            break
+    files_with_mtime.sort(key=lambda item: (-item[0], str(item[1]).casefold()))
+    return ChatFileScan(
+        files=[path for _, path in files_with_mtime],
+        scanned_entries=scanned_entries,
+        truncated=truncated or bool(stack),
+    )
+
+
+def bounded_runtime_limit(value: int | None, default: int, limit_name: str) -> int:
+    parsed = default if value is None else value
+    if not isinstance(parsed, int) or isinstance(parsed, bool):
+        raise ValueError(f"{limit_name} must be an integer")
+    limits = HARD_LIMITS[limit_name]
+    minimum = int(limits["minimum"])
+    maximum = int(limits["maximum"])
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(f"{limit_name} must be between {minimum} and {maximum}")
+    return parsed
 
 
 def capture_items_from_path(
@@ -355,8 +509,8 @@ def capture_items_from_path(
     items: list[CaptureItem] = []
     for source_file in files:
         try:
-            raw = source_file.read_bytes()[:max_file_bytes]
-        except OSError:
+            raw = read_provider_file(source_file, source_root, max_file_bytes)
+        except (OSError, ValueError):
             continue
         if b"\x00" in raw[:4096]:
             continue
@@ -367,9 +521,7 @@ def capture_items_from_path(
 
 
 def extract_chatgpt_export(source_file: Path, limit: int = MAX_FILES) -> list[CaptureItem]:
-    raw = source_file.read_bytes()
-    if len(raw) > MAX_EXPORT_BYTES:
-        raw = raw[:MAX_EXPORT_BYTES]
+    raw = read_provider_file(source_file, source_file.parent, MAX_EXPORT_BYTES)
     data = json.loads(raw.decode("utf-8", errors="replace"))
     conversations = data if isinstance(data, list) else data.get("conversations", []) if isinstance(data, dict) else []
     if not isinstance(conversations, list):
@@ -384,6 +536,69 @@ def extract_chatgpt_export(source_file: Path, limit: int = MAX_FILES) -> list[Ca
         if body.strip():
             items.append(CaptureItem(title, f"{source_file}#{slugify(title, 'conversation')}", body))
     return items
+
+
+def read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> bytes:
+    """Read one regular provider file after handle-bound no-link checks."""
+
+    if max_bytes < 1:
+        raise ValueError("provider read limit must be positive")
+    path = Path(os.path.abspath(source_file))
+    root = Path(os.path.abspath(source_root))
+    boundary = root if root.is_dir() else root.parent
+    try:
+        relative = path.relative_to(boundary)
+    except ValueError as exc:
+        raise ValueError("provider file escaped the configured source root") from exc
+
+    def assert_safe_components() -> None:
+        current = boundary
+        if path_is_link_like(current):
+            raise ValueError("provider source root must not be a symlink or junction")
+        for part in relative.parts:
+            current = current / part
+            if path_is_link_like(current):
+                raise ValueError("provider file path must not contain symlinks or junctions")
+
+    assert_safe_components()
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("provider source must be a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        after_open = path.lstat()
+        identity = (before.st_dev, before.st_ino)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or not stat.S_ISREG(after_open.st_mode)
+            or identity != (opened.st_dev, opened.st_ino)
+            or identity != (after_open.st_dev, after_open.st_ino)
+        ):
+            raise ValueError("provider file changed before it could be read safely")
+        assert_safe_components()
+        chunks: list[bytes] = []
+        remaining = max_bytes
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        final = path.lstat()
+        if (
+            path_is_link_like(path)
+            or not stat.S_ISREG(final.st_mode)
+            or identity != (final.st_dev, final.st_ino)
+        ):
+            raise ValueError("provider file changed while it was being read")
+        assert_safe_components()
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
 
 
 def chatgpt_conversation_text(conversation: dict[str, Any]) -> str:
@@ -442,9 +657,15 @@ def render_import_candidate(
     title = title or f"{provider} import candidate {digest}"
     excerpt = text[:8000].rstrip()
     source_ref = f"{provider}:{source_file}"
+    yaml_title = json.dumps(title, ensure_ascii=False)
+    yaml_source_ref = json.dumps(source_ref, ensure_ascii=False)
+    display_title = re.sub(r"[\r\n]+", " ", title).strip() or f"{provider} import candidate {digest}"
+    source_display = str(source_file).replace("`", "'").replace("\r", " ").replace("\n", " ")
+    longest_backtick_run = max((len(match.group(0)) for match in re.finditer(r"`+", excerpt)), default=0)
+    fence = "`" * max(3, longest_backtick_run + 1)
     return f"""---
 id: import_{provider}_{now.strftime('%Y%m%d_%H%M%S')}_{digest}
-title: "{title}"
+title: {yaml_title}
 type: session
 status: proposed
 scope: session
@@ -457,26 +678,26 @@ confidence: 0.4
 sensitivity: internal
 source:
   kind: import
-  ref: "{source_ref.replace('"', "'")}"
+  ref: {yaml_source_ref}
   fingerprint: "{digest}"
 pin: false
 decay: fast
 review_after: {review_after}
 ---
 
-# {title}
+# {display_title}
 
 Provider: `{provider}`
 
-Source file: `{source_file}`
+Source file: `{source_display}`
 
 This is an imported review candidate. Promote only durable, non-secret facts after human review.
 
 ## Excerpt
 
-```text
+{fence}text
 {excerpt}
-```
+{fence}
 """
 
 
@@ -517,7 +738,7 @@ def write_import_candidate(root: Path, provider: str, source_file: Path, text: s
     path = safe_import_dir(root, provider) / import_candidate_path(root, provider, source_file, text, fingerprint).name
     if path.exists() or path.is_symlink():
         raise ValueError("import candidate path already exists")
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return path
 
 
@@ -548,7 +769,13 @@ def main(argv: list[str] | None = None) -> int:
     import_cmd = subparsers.add_parser("import", help="Import provider files into inbox/imports/.")
     import_cmd.add_argument("provider", choices=sorted(default_provider_paths()))
     import_cmd.add_argument("--path", default=None, help="Override provider path for this run.")
-    import_cmd.add_argument("--limit", type=int, default=MAX_FILES)
+    import_cmd.add_argument("--limit", type=int, default=None, help="Maximum new candidates; defaults to the intensity profile.")
+    import_cmd.add_argument(
+        "--scan-limit",
+        type=int,
+        default=None,
+        help="Maximum filesystem entries to inspect; defaults to the intensity profile.",
+    )
     import_cmd.add_argument("--dry-run", action="store_true", help="Preview import candidates without writing inbox files.")
     import_cmd.add_argument("--json", action="store_true", help="Emit JSON output.")
 
@@ -617,6 +844,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.provider,
                 source_path=Path(args.path) if args.path else None,
                 limit=args.limit,
+                max_scan_entries=args.scan_limit,
                 dry_run=args.dry_run,
             )
         except (FileNotFoundError, ValueError) as exc:

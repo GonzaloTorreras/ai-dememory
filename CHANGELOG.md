@@ -1,21 +1,71 @@
 # Changelog
 
-All notable changes to ai-dememory are documented here. Release headings are
-machine-validated and use the form `## [VERSION] - YYYY-MM-DD`.
+All notable changes to ai-dememory are documented here. In-development versions
+use `## [VERSION] - Unreleased`. An explicitly authorized release-prep change
+replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
+accepted by the release identity guard.
 
-## [2.1.0] - 2026-07-11
+## [2.1.0] - Unreleased
 
+- Canonicalize the public repository as the sole development and distribution
+  source, keep historical private work as non-pushable review input, and make
+  merge, tag, and publication authorization explicit while preserving
+  independent technical review. Keep one immutable-tag package publisher and
+  reduce the former manual publisher to a guarded read-only readiness preflight.
+  Replace ambient post-CI tagging with a manual confirmation bound to the exact
+  release tag and green current-main SHA.
+- Keep Python 3.11+ as the authoritative domain and headless runtime; reserve
+  Node/TypeScript for a future evidence-gated presentation plane with generated
+  contracts and prebuilt assets.
 - Add prompt-aware, project-aware reviewed recall hooks and a fingerprint-bound
   onboarding wizard for baseline values, preferences and recommendations.
+  Preserve each recalled item's sensitivity label in structured and rendered
+  context so public-repository egress policy remains enforceable.
+- Add `minimal`, `balanced`, and `active` resource intensities with hard recall,
+  import, scan, report, timeout, hook-queue, scheduler, and Docker ceilings.
+  Keep host-model policy separate, report zero runtime model/embedding calls,
+  and reject automatic durable promotion.
+- Make generated private-vault MCP configs vault-bound and four-tool `core` by
+  default, while the checked-in public plugin uses a server-enforced three-tool
+  public-only ceiling. Namespace scheduler jobs per vault, require
+  exact plan fingerprints, create host definitions without forced replacement,
+  persist exact root/command/projection/readback evidence with expiring host
+  verification, preserve original namespaces and definition paths after vault
+  moves, reject copied receipts while the original vault still owns the same
+  enabled namespace and plan, keep receipted cadence/intensity removable after policy changes,
+  restore exact Windows task XML, reject mutable unattended Docker images, and compensate
+  failed install/remove transactions.
+- Add MCP idle self-leases, per-response deadlines, non-interactive Git,
+  bounded child output/time, suspended-before-assignment Windows kill-on-close
+  Job Objects, and POSIX owned
+  process sessions so timeout, leader exit, or client disconnect cannot leave
+  package-owned descendants running.
+- Bound canonical discovery, secret scans, graph pages/nodes/edges, MCP input
+  frames/queues, and SQLite audit histories. Stream secret scanning and index
+  state restoration, paginate graph delivery, safely fence raw hook payloads,
+  and surface truncated provider windows that can no longer make progress.
+- Add a fail-closed public-only recall ceiling across context, search, and get:
+  filter before result limits, ignore hostile sensitivity overrides, omit
+  generated working state and rejected identifiers, and reject auto-query
+  derivation for public output.
+- Version local manual acceptance evidence and require revision 2 for
+  `testpypi-publish`, invalidating legacy passes from the former manual
+  publisher without deleting their audit history; this remains sign-off
+  evidence rather than a package-workflow gate.
 - Make path handling and the unit-test matrix portable across Linux, macOS and
   Windows while preserving symlink and vault-boundary protections.
-- Separate setup readiness into core, retrieval, maintenance, integration and
-  release dimensions, and ignore inbox documentation when parsing captures.
+- Avoid repeated canonical-root resolution while scanning repository text for
+  secret-like findings, reducing read-only maintenance status overhead without
+  weakening the scanner pattern set.
+- Separate setup readiness into core, retrieval, manual maintenance, verified
+  automation, integration, autonomy and release dimensions, and ignore inbox
+  documentation when parsing captures.
 - Introduce bounded MCP tool profiles with a small default core surface, plus
   clearer user and maintainer CLI command groups.
 - Stabilize imports from the installed wheel and extend isolated-package smoke
-  coverage. Recall quality remains evidence-gated until real misses are reviewed
-  and promoted into the evaluation corpus.
+  coverage. Modernize package-license metadata to PEP 639 with an SPDX
+  expression and declared license file. Recall quality remains evidence-gated
+  until real misses are reviewed and promoted into the evaluation corpus.
 
 ## [2.0.0] - 2026-07-10
 
