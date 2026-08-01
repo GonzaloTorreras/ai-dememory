@@ -146,6 +146,32 @@ min_relevance_score = "0.99"
         self.assertEqual([item["id"] for item in result["items"]], ["onboarding_values"])
         self.assertEqual(unrelated["decision"], "skip")
 
+    def test_short_inferred_project_token_cannot_trigger_prefix_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "p"
+            root.mkdir()
+            write_memory(
+                root,
+                "memories/durable/onboarding-values.md",
+                "onboarding_values",
+                memory_type="durable",
+                reviewed=True,
+                tags=["onboarding", "values"],
+                title="Reviewed values",
+                body="Prefer safe reviewable changes.",
+            )
+            rebuild_index(root, root / "indexes/memory.sqlite")
+
+            result = build_turn_context(
+                root,
+                "Investigate deployment regression latency",
+                cwd=root,
+            )
+
+        self.assertEqual(result["project"]["slug"], "p")
+        self.assertNotIn("p", result["keywords"])
+        self.assertEqual(result["decision"], "skip")
+
     def test_durable_baseline_requires_canonical_relevance_not_only_index_score(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
