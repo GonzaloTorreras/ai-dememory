@@ -1055,6 +1055,25 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertEqual(findings, [])
 
+    def test_secret_scanner_does_not_follow_discovered_symlink_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            outside = Path(tmp) / "outside.txt"
+            secret = "sk-" + "proj-" + ("s" * 40)
+            outside.write_text(f"OPENAI_API_KEY={secret}\n", encoding="utf-8")
+            linked = root / "linked.txt"
+            try:
+                os.symlink(outside, linked)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+
+            findings = scan_paths(root)
+            with self.assertRaisesRegex(ValueError, "stay inside the memory root"):
+                scan_paths(root, ["linked.txt"])
+
+        self.assertEqual(findings, [])
+
     def test_secret_scanner_fails_closed_on_file_and_entry_limits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

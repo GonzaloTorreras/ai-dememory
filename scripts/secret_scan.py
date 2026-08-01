@@ -176,7 +176,8 @@ def discover_files(
                     entries_seen += 1
                     enforce_entry_limit(entries_seen, max_scan_entries)
                     candidate = current / name
-                    reject_scan_link(candidate, root)
+                    if path_is_link_like(candidate):
+                        continue
                     if not should_skip_directory(candidate, root, root_resolved):
                         retained_dirs.append(name)
                 dir_names[:] = retained_dirs
@@ -184,7 +185,8 @@ def discover_files(
                     entries_seen += 1
                     enforce_entry_limit(entries_seen, max_scan_entries)
                     candidate = current / name
-                    reject_scan_link(candidate, root)
+                    if path_is_link_like(candidate):
+                        continue
                     if should_scan(candidate, root, root_resolved=root_resolved):
                         total_bytes = add_scannable_file(
                             candidate,
@@ -203,14 +205,6 @@ def enforce_entry_limit(entries_seen: int, max_scan_entries: int) -> None:
     if entries_seen > max_scan_entries:
         raise ScanLimitExceeded(
             f"secret scan exceeded the {max_scan_entries} entry limit"
-        )
-
-
-def reject_scan_link(path: Path, root: Path) -> None:
-    if path_is_link_like(path):
-        raise ValueError(
-            "secret scan path must not contain links or junctions: "
-            f"{display_path(path, root)}"
         )
 
 

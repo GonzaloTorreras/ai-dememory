@@ -162,18 +162,26 @@ def path_is_link_like(path: Path) -> bool:
 
 
 def assert_safe_write_target(path: Path, root: Path | None = None) -> Path:
-    """Validate an in-root regular-file target without following link components."""
+    """Validate an in-root regular-file target without following child links.
+
+    A configured root may itself be a deliberate platform alias (for example,
+    a symlinked vault mount).  Anchor writes to that root's resolved directory,
+    then reject every link-like component below it.
+    """
 
     target = Path(os.path.abspath(path.expanduser()))
     logical_root = Path(os.path.abspath(root.expanduser())) if root is not None else None
     if logical_root is not None:
+        resolved_root = logical_root.resolve(strict=False)
         try:
             relative = target.relative_to(logical_root)
-        except ValueError as exc:
-            raise ValueError("write target must stay inside the configured root") from exc
-        current = logical_root
-        if path_is_link_like(current):
-            raise ValueError("write root must not be a symlink or junction")
+        except ValueError:
+            try:
+                relative = target.relative_to(resolved_root)
+            except ValueError as exc:
+                raise ValueError("write target must stay inside the configured root") from exc
+        target = resolved_root / relative
+        current = resolved_root
         for part in relative.parts:
             current = current / part
             if path_is_link_like(current):
