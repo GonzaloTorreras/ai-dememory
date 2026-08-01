@@ -89,7 +89,7 @@ class PathPortabilityTests(unittest.TestCase):
                 )
 
             self.assertTrue(swapped)
-            self.assertEqual(written, first / "capture.md")
+            self.assertEqual(written.resolve(), (first / "capture.md").resolve())
             self.assertEqual((first / "capture.md").read_text(encoding="utf-8"), "anchored\n")
             self.assertFalse((second / "capture.md").exists())
 
