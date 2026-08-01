@@ -139,7 +139,9 @@ The legacy `ready` field is deprecated and is only an alias for
 `schedule plan --json` is read-only and returns host scheduler commands,
 reviewed cron export entries, Docker command shapes when requested, and
 side-effect flags before any `schedule setup` command writes config or touches
-host scheduler state.
+host scheduler state. Invalid resource overrides return
+`resource_policy_valid=false` with diagnostics and suppress every install/apply
+surface.
 `maintenance status` reports generated artifact state and freshness, generated
 packet archive cleanup counts, provider readiness, false-positive review due
 counts, stale suppression counts, conflict review counts, and hook capture

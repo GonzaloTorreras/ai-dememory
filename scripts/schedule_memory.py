@@ -625,6 +625,16 @@ def build_schedule_commands(
     return output
 
 
+def resource_policy_error_details(policy: dict[str, object]) -> str:
+    raw_errors = policy.get("validation_errors", [])
+    details = (
+        ", ".join(str(error) for error in raw_errors)
+        if isinstance(raw_errors, list)
+        else ""
+    )
+    return details or "resource policy validation failed without diagnostics"
+
+
 def schedule_plan(
     root: Path,
     action: str = "install",
@@ -648,25 +658,40 @@ def schedule_plan(
     weekly_time = normalize_time(weekly_time, "weekly_time")
     platform_value = target_platform or platform_name()
     resource_policy = resolved_resource_policy(root, intensity=intensity)
+    resource_policy_valid = resource_policy.get("valid") is True
+    raw_policy_errors = resource_policy.get("validation_errors", [])
+    policy_validation_errors = (
+        [str(error) for error in raw_policy_errors]
+        if isinstance(raw_policy_errors, list)
+        else []
+    )
+    if not resource_policy_valid and not policy_validation_errors:
+        policy_validation_errors = ["resource policy validation failed without diagnostics"]
     if daily_enabled is None:
         daily_enabled = bool(resource_policy["daily_enabled"])
     if weekly_enabled is None:
         weekly_enabled = bool(resource_policy["weekly_enabled"])
     docker_image_immutable = mode != "docker" or immutable_docker_image(image)
-    installable = action != "install" or docker_image_immutable
-    commands = build_schedule_commands(
-        root,
-        action,
-        daily_time=daily_time,
-        weekly_day=weekly_day,
-        weekly_time=weekly_time,
-        command=command,
-        mode=mode,
-        image=image,
-        target_platform=platform_value,
-        daily_enabled=daily_enabled,
-        weekly_enabled=weekly_enabled,
-        intensity=str(resource_policy["intensity"]),
+    installable = action != "install" or (
+        docker_image_immutable and resource_policy_valid
+    )
+    commands = (
+        build_schedule_commands(
+            root,
+            action,
+            daily_time=daily_time,
+            weekly_day=weekly_day,
+            weekly_time=weekly_time,
+            command=command,
+            mode=mode,
+            image=image,
+            target_platform=platform_value,
+            daily_enabled=daily_enabled,
+            weekly_enabled=weekly_enabled,
+            intensity=str(resource_policy["intensity"]),
+        )
+        if action != "install" or resource_policy_valid
+        else []
     )
     cron_entries = (
         build_cron_entries(
@@ -693,6 +718,8 @@ def schedule_plan(
         "image": image if mode == "docker" else "",
         "docker_image_immutable": docker_image_immutable,
         "installable": installable,
+        "resource_policy_valid": resource_policy_valid,
+        "validation_errors": policy_validation_errors,
         "task_namespace": schedule_namespace(root),
         "intensity": resource_policy["intensity"],
         "schedule": {
@@ -715,10 +742,16 @@ def schedule_plan(
         ],
     }
     if not installable:
-        result["next_actions"].insert(
-            0,
-            "Resolve the Docker image to repo@sha256:<digest>; mutable tags cannot be installed unattended.",
-        )
+        if not docker_image_immutable:
+            result["next_actions"].insert(
+                0,
+                "Resolve the Docker image to repo@sha256:<digest>; mutable tags cannot be installed unattended.",
+            )
+        if not resource_policy_valid:
+            result["next_actions"].insert(
+                0,
+                "Fix the invalid resource policy before installing or running autonomous work.",
+            )
     result["plan_sha256"] = schedule_plan_fingerprint(result)
     apply_command = [
         "ai-dememory",
@@ -1564,6 +1597,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"ai-dememory schedule plan ({result['platform']}, {result['mode']}, {result['action']})")
             print("mutates_system: false")
+            print(f"installable: {str(result['installable']).lower()}")
+            for error in result["validation_errors"]:
+                print(f"- invalid resource policy: {error}")
             for command_item in result["commands"]:
                 print(f"- {command_item['name']}: {command_line(command_item['command'])}")
             if result["cron_entries"]:
@@ -1584,6 +1620,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command_name == "cron":
         values = schedule_cli_values(root, args)
+        resource_policy = resolved_resource_policy(
+            root,
+            intensity=str(values["intensity"]),
+        )
+        if resource_policy.get("valid") is not True:
+            print(
+                f"resolved resource policy is invalid: {resource_policy_error_details(resource_policy)}",
+                file=sys.stderr,
+            )
+            return 2
         try:
             entries = build_cron_entries(
                 root,
@@ -1607,6 +1653,17 @@ def main(argv: list[str] | None = None) -> int:
 
     action = "install" if args.command_name == "setup" else args.command_name
     values = schedule_cli_values(root, args)
+    if action == "install":
+        initial_policy = resolved_resource_policy(
+            root,
+            intensity=str(values["intensity"]),
+        )
+        if initial_policy.get("valid") is not True:
+            print(
+                f"resolved resource policy is invalid: {resource_policy_error_details(initial_policy)}",
+                file=sys.stderr,
+            )
+            return 2
     stored_schedule = load_config(root).get("schedule", {})
     receipt_namespace = (
         str(stored_schedule.get("task_namespace") or "")
@@ -1683,7 +1740,14 @@ def main(argv: list[str] | None = None) -> int:
             weekly_enabled=bool(values["weekly_enabled"]),
             intensity=str(values["intensity"]),
         )
-        if not reviewed_plan["installable"]:
+        if not reviewed_plan["resource_policy_valid"]:
+            print(
+                "resolved resource policy is invalid: "
+                + resource_policy_error_details(reviewed_plan),
+                file=sys.stderr,
+            )
+            return 2
+        if not reviewed_plan["docker_image_immutable"]:
             print(
                 "scheduled Docker images must use an immutable repo@sha256:<digest> reference",
                 file=sys.stderr,
@@ -1702,6 +1766,17 @@ def main(argv: list[str] | None = None) -> int:
         persisted = load_config(root).get("schedule", {})
         if isinstance(persisted, dict) and persisted.get("enabled", False):
             print("an enabled schedule already exists; remove its exact receipt before reinstalling", file=sys.stderr)
+            return 2
+        current_policy = resolved_resource_policy(
+            root,
+            intensity=str(values["intensity"]),
+        )
+        if current_policy.get("valid") is not True:
+            print(
+                "resolved resource policy changed or is invalid: "
+                + resource_policy_error_details(current_policy),
+                file=sys.stderr,
+            )
             return 2
         paths = platform_schedule_paths(
             root,

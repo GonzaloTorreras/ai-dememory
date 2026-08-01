@@ -8021,6 +8021,16 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse((root / "indexes").exists())
         self.assertFalse((root / "reports").exists())
 
+    def test_maintenance_reports_invalid_resource_policy_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+
+            with self.assertRaisesRegex(ValueError, "provider_file_limit"):
+                run_maintenance(root, "daily")
+            with self.assertRaisesRegex(ValueError, "provider_file_limit"):
+                dry_run_maintenance(root, "daily")
+
     def test_daily_maintenance_writes_custom_in_root_report_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -8521,6 +8531,107 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse((root / ".ai-dememory.toml").exists())
         self.assertTrue(any(command["command"][:2] == ["systemctl", "--user"] for command in payload["commands"]))
         self.assertTrue(any(entry["command"][:2] == ["docker", "run"] for entry in payload["cron_entries"]))
+
+    def test_schedule_plan_blocks_invalid_resource_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+
+            plan = schedule_plan(root, target_platform="windows")
+
+        self.assertFalse(plan["resource_policy_valid"])
+        self.assertFalse(plan["installable"])
+        self.assertEqual(plan["commands"], [])
+        self.assertEqual(plan["cron_entries"], [])
+        self.assertEqual(plan["apply_command"], [])
+        self.assertTrue(
+            any("provider_file_limit" in error for error in plan["validation_errors"])
+        )
+        self.assertIn("Fix the invalid resource policy", plan["next_actions"][0])
+
+    def test_schedule_install_refuses_invalid_resource_policy_without_side_effects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+            plan = schedule_plan(root, target_platform="windows")
+            config_path = root / ".ai-dememory.toml"
+            config_before = config_path.read_text(encoding="utf-8")
+            error = io.StringIO()
+
+            with (
+                patch("schedule_memory.write_platform_schedule_files") as write_files,
+                patch("schedule_memory.run_install_commands") as run_install,
+                redirect_stderr(error),
+            ):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            config_after = config_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("provider_file_limit", error.getvalue())
+        self.assertEqual(config_after, config_before)
+        write_files.assert_not_called()
+        run_install.assert_not_called()
+
+    def test_schedule_cron_refuses_invalid_resource_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+            output = io.StringIO()
+            error = io.StringIO()
+
+            with redirect_stdout(output), redirect_stderr(error):
+                exit_code = schedule_main(
+                    ["--root", str(root), "cron", "--json"]
+                )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("provider_file_limit", error.getvalue())
+
+    def test_schedule_install_rechecks_policy_immediately_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            error = io.StringIO()
+
+            def invalidate_policy(expected: str, actual: str) -> bool:
+                set_section(root, "resources", {"provider_file_limit": 999})
+                return expected == actual
+
+            with (
+                patch("schedule_memory.hmac.compare_digest", side_effect=invalidate_policy),
+                patch("schedule_memory.write_platform_schedule_files") as write_files,
+                patch("schedule_memory.run_install_commands") as run_install,
+                redirect_stderr(error),
+            ):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("changed or is invalid", error.getvalue())
+        self.assertIn("provider_file_limit", error.getvalue())
+        write_files.assert_not_called()
+        run_install.assert_not_called()
 
     def test_schedule_namespaces_and_fingerprints_are_stable_per_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

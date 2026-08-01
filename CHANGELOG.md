@@ -34,7 +34,9 @@ accepted by the release identity guard.
   moves, reject copied receipts while the original vault still owns the same
   enabled namespace and plan, keep receipted cadence/intensity removable after policy changes,
   restore exact Windows task XML, reject mutable unattended Docker images, and compensate
-  failed install/remove transactions.
+  failed install/remove transactions. Fail closed before command generation and
+  again before scheduler writes when the resource policy is invalid, returning
+  its exact validation diagnostics instead of installing jobs that cannot run.
 - Add MCP idle self-leases, per-response deadlines, non-interactive Git,
   bounded child output/time, suspended-before-assignment Windows kill-on-close
   Job Objects, and POSIX owned
