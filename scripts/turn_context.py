@@ -183,14 +183,14 @@ def skip(payload: dict[str, Any], reason: str, degradation: str | None = None) -
 def extract_keywords(prompt: str, project_slug: str | None = None, max_keywords: int = MAX_KEYWORDS) -> list[str]:
     output: list[str] = []
     for token in tokenize(prompt):
-        if token in STOP_WORDS or len(token) < 3 and token not in {"ai", "ui"}:
+        if not is_semantic_keyword(token):
             continue
         if token not in output:
             output.append(token)
         if len(output) >= max_keywords:
             break
     if project_slug:
-        project_tokens = [token for token in tokenize(project_slug) if token not in STOP_WORDS]
+        project_tokens = [token for token in tokenize(project_slug) if is_semantic_keyword(token)]
         for token in reversed(project_tokens):
             if token in output:
                 output.remove(token)
@@ -198,12 +198,12 @@ def extract_keywords(prompt: str, project_slug: str | None = None, max_keywords:
     return output[:max_keywords]
 
 
+def is_semantic_keyword(token: str) -> bool:
+    return token not in STOP_WORDS and (len(token) >= 3 or token in {"ai", "ui"})
+
+
 def enough_signal(prompt: str) -> bool:
-    semantic = [
-        token
-        for token in tokenize(prompt)
-        if token not in STOP_WORDS and (len(token) >= 3 or token in {"ai", "ui"})
-    ]
+    semantic = [token for token in tokenize(prompt) if is_semantic_keyword(token)]
     return len(set(semantic)) >= 2 or bool(semantic and len(prompt.strip()) >= 24)
 
 
