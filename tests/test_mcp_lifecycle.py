@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import io
 import os
 from pathlib import Path
+import queue
 import subprocess
 import sys
 import tempfile
-import time
+import threading
 import tomllib
 import unittest
 from unittest.mock import patch
@@ -26,30 +28,80 @@ from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     normalize_mcp_idle_timeout_seconds,
 )
 from memory_mcp import MAX_MCP_FRAME_CHARS, MCP_STDIN_QUEUE_DEPTH, stdio_lines  # noqa: E402
-from mcp_runtime_smoke import SmokeError, rpc_response  # noqa: E402
+from mcp_runtime_smoke import SmokeError, response_line, rpc_response  # noqa: E402
 from process_control import run_owned_capture, run_owned_process  # noqa: E402
 
 
-class SlowEofStream:
+class ControlledBlockingEof:
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.exited = threading.Event()
+        self.reader_thread: threading.Thread | None = None
+
     def readline(self, _size: int = -1) -> str:
-        time.sleep(0.25)
+        self.reader_thread = threading.current_thread()
+        self.entered.set()
+        self.release.wait()
+        self.exited.set()
         return ""
 
 
-class BlockingOutput:
-    def readline(self) -> str:
-        time.sleep(0.25)
-        return ""
+class ObservedQueue(queue.Queue[tuple[str, object]]):
+    def __init__(self) -> None:
+        super().__init__(maxsize=MCP_STDIN_QUEUE_DEPTH)
+        self.get_timeouts: list[float | None] = []
+
+    def get(self, block: bool = True, timeout: float | None = None) -> tuple[str, object]:
+        self.get_timeouts.append(timeout)
+        return super().get(block=block, timeout=timeout)
 
 
 class UnresponsiveMcpProcess:
     def __init__(self) -> None:
         self.stdin = io.StringIO()
-        self.stdout = BlockingOutput()
+        self.stdout = ControlledBlockingEof()
         self.stderr = io.StringIO()
 
 
 class McpLifecycleTests(unittest.TestCase):
+    def bounded_blocking_call(
+        self,
+        stream: ControlledBlockingEof,
+        call: Callable[[], object],
+    ) -> tuple[str, object]:
+        outcome: list[tuple[str, object]] = []
+
+        def invoke() -> None:
+            try:
+                result = call()
+            except BaseException as exc:
+                outcome.append(("error", exc))
+            else:
+                outcome.append(("return", result))
+
+        worker = threading.Thread(target=invoke, name="ai-dememory-test-bounded-call", daemon=True)
+        worker.start()
+        try:
+            entered = stream.entered.wait(timeout=1)
+            worker.join(timeout=1)
+            completed_before_release = not worker.is_alive()
+        finally:
+            stream.release.set()
+            worker.join(timeout=1)
+            reader = stream.reader_thread
+            if reader is not None:
+                reader.join(timeout=1)
+
+        self.assertTrue(entered, "blocking reader was never entered")
+        self.assertTrue(completed_before_release, "deadline did not release the blocked caller")
+        self.assertFalse(worker.is_alive(), "bounded test worker did not terminate")
+        self.assertTrue(stream.exited.is_set(), "blocking read did not return after release")
+        self.assertIsNotNone(stream.reader_thread)
+        self.assertFalse(stream.reader_thread.is_alive(), "blocking reader thread did not terminate")
+        self.assertEqual(len(outcome), 1)
+        return outcome[0]
+
     def test_owned_capture_check_preserves_child_diagnostics(self) -> None:
         with self.assertRaises(subprocess.CalledProcessError) as caught:
             run_owned_capture(
@@ -132,30 +184,47 @@ class McpLifecycleTests(unittest.TestCase):
             list(stdio_lines(0))
 
     def test_stdio_lines_releases_abandoned_blocking_pipe(self) -> None:
-        started = time.monotonic()
+        stream = ControlledBlockingEof()
+        inbox = ObservedQueue()
         with (
-            patch("memory_mcp.sys.stdin", SlowEofStream()),
+            patch("memory_mcp.sys.stdin", stream),
+            patch("memory_mcp.queue.Queue", return_value=inbox),
             patch("memory_mcp.normalize_mcp_idle_timeout_seconds", return_value=0.02),
         ):
-            self.assertEqual(list(stdio_lines(30)), [])
-        self.assertLess(time.monotonic() - started, 0.15)
+            outcome = self.bounded_blocking_call(stream, lambda: list(stdio_lines(30)))
+        self.assertEqual(outcome, ("return", []))
+        self.assertEqual(inbox.get_timeouts, [0.02])
 
     def test_runtime_smoke_has_a_per_request_response_deadline(self) -> None:
-        started = time.monotonic()
+        process = UnresponsiveMcpProcess()
+        response_timeouts: list[float] = []
+
+        def observed_response_line(process: object, timeout_seconds: float) -> str:
+            response_timeouts.append(timeout_seconds)
+            return response_line(process, timeout_seconds)  # type: ignore[arg-type]
+
         with (
             patch("mcp_runtime_smoke.MCP_RESPONSE_TIMEOUT_SECONDS", 0.02),
-            self.assertRaisesRegex(SmokeError, "tools/call memory.search"),
+            patch("mcp_runtime_smoke.response_line", side_effect=observed_response_line),
         ):
-            rpc_response(  # type: ignore[arg-type]
-                UnresponsiveMcpProcess(),
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/call",
-                    "params": {"name": "memory.search", "arguments": {}},
-                },
+            outcome_kind, outcome_value = self.bounded_blocking_call(
+                process.stdout,
+                lambda: rpc_response(  # type: ignore[arg-type]
+                    process,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": "memory.search", "arguments": {}},
+                    },
+                ),
             )
-        self.assertLess(time.monotonic() - started, 0.15)
+        self.assertEqual(outcome_kind, "error")
+        self.assertIsInstance(outcome_value, SmokeError)
+        self.assertRegex(str(outcome_value), "tools/call memory.search")
+        self.assertEqual(len(response_timeouts), 1)
+        self.assertGreater(response_timeouts[0], 0)
+        self.assertLessEqual(response_timeouts[0], 0.020001)
 
     def test_generated_config_binds_profile_specific_idle_lease(self) -> None:
         rendered = build_mcp_config(
