@@ -146,6 +146,39 @@ min_relevance_score = "0.99"
         self.assertEqual([item["id"] for item in result["items"]], ["onboarding_values"])
         self.assertEqual(unrelated["decision"], "skip")
 
+    def test_durable_baseline_requires_canonical_relevance_not_only_index_score(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            memory_path = write_memory(
+                root,
+                "memories/durable/onboarding-values.md",
+                "onboarding_values",
+                memory_type="durable",
+                reviewed=True,
+                tags=["onboarding", "values"],
+                title="Reviewed values",
+                body="Prefer safe reviewable changes.",
+            )
+            stale_match = SearchResult(
+                score=1.0,
+                id="onboarding_values",
+                title="STALE INDEX MATCH",
+                path=memory_path.relative_to(root).as_posix(),
+                type="durable",
+                status="active",
+                confidence=1.0,
+                snippet="deployment regression latency",
+                why={"matched_terms": ["deployment", "regression", "latency"]},
+            )
+            rebuild_index(root, root / "indexes/memory.sqlite")
+
+            with patch("context_memory.search", return_value=[stale_match]):
+                result = build_turn_context(root, "Investigate deployment regression latency", cwd=root)
+
+        self.assertEqual(result["decision"], "skip")
+        self.assertIn("canonical_relevance_mismatch:onboarding_values", result["degradation"])
+        self.assertNotIn("STALE INDEX MATCH", str(result))
+
     def test_unreviewed_or_inactive_ranked_memory_is_never_auto_injected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

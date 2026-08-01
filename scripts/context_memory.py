@@ -94,8 +94,8 @@ def assemble_context(
         "filtered": False,
         "sensitivity": "internal",
     }
-    relevant_result_ids = {
-        result.id
+    relevant_results = {
+        result.id: result
         for result in results
         if min_relevance_score is None or result.score >= min_relevance_score
     }
@@ -124,18 +124,19 @@ def assemble_context(
         baseline_remaining = min(remaining, baseline_budget_tokens)
         for document in durable_documents:
             data = document.frontmatter
-            if str(data.get("id")) not in relevant_result_ids:
+            ranked_result = relevant_results.get(str(data.get("id")))
+            if ranked_result is None:
                 continue
             if public_only and data.get("sensitivity") != "public":
                 non_public_filtered_items += 1
                 continue
             excerpt = extract_summary(document.content, max_chars=650)
             path = repo_relative_path(document.path, root)
-            why = {
-                "baseline": "reviewed_durable",
-                "project_hint": project_hint,
-                "project_match": 1.0 if same_project(data.get("project"), project_hint) else 0.0,
-            }
+            why = canonical_selection_evidence(document, query, ranked_result.score, project_hint)
+            if not canonical_selection_is_relevant(why):
+                degradation.append(f"canonical_relevance_mismatch:{data['id']}")
+                continue
+            why["baseline"] = "reviewed_durable"
             sensitivity = str(data.get("sensitivity", "unknown"))
             section = render_item(
                 str(data["id"]),
@@ -198,6 +199,9 @@ def assemble_context(
         canonical_path = repo_relative_path(document.path, root)
         canonical_sensitivity = str(document.frontmatter.get("sensitivity", "unknown"))
         canonical_why = canonical_selection_evidence(document, query, result.score, project_hint)
+        if not canonical_selection_is_relevant(canonical_why):
+            degradation.append(f"canonical_relevance_mismatch:{canonical_id}")
+            continue
         excerpt = extract_summary(document.content, max_chars=900)
         section = render_item(
             canonical_id,
@@ -316,15 +320,19 @@ def canonical_selection_evidence(
     tag_terms = set(tokenize(" ".join(str(value) for value in tags)))
     alias_terms = set(tokenize(" ".join(str(value) for value in aliases)))
     canonical_terms = content_terms | title_terms | tag_terms | alias_terms
-    matched_terms = [term for term in query_terms if term in canonical_terms]
+    matched_terms = [
+        term
+        for term in query_terms
+        if any(candidate.startswith(term) for candidate in canonical_terms)
+    ]
     matched_fields: list[str] = []
-    if any(term in title_terms for term in query_terms):
+    if any(candidate.startswith(term) for term in query_terms for candidate in title_terms):
         matched_fields.append("title")
-    if any(term in content_terms for term in query_terms):
+    if any(candidate.startswith(term) for term in query_terms for candidate in content_terms):
         matched_fields.append("content")
-    if any(term in tag_terms for term in query_terms):
+    if any(candidate.startswith(term) for term in query_terms for candidate in tag_terms):
         matched_fields.append("tags")
-    if any(term in alias_terms for term in query_terms):
+    if any(candidate.startswith(term) for term in query_terms for candidate in alias_terms):
         matched_fields.append("aliases")
     return {
         "ranking_score": score,
@@ -332,9 +340,21 @@ def canonical_selection_evidence(
         "project_match": 1.0 if same_project(data.get("project"), project_hint) else 0.0,
         "matched_terms": matched_terms,
         "matched_fields": matched_fields,
-        "matched_tags": [str(value) for value in tags if set(tokenize(str(value))) & set(query_terms)],
-        "matched_aliases": [str(value) for value in aliases if set(tokenize(str(value))) & set(query_terms)],
+        "matched_tags": [
+            str(value)
+            for value in tags
+            if any(candidate.startswith(term) for term in query_terms for candidate in tokenize(str(value)))
+        ],
+        "matched_aliases": [
+            str(value)
+            for value in aliases
+            if any(candidate.startswith(term) for term in query_terms for candidate in tokenize(str(value)))
+        ],
     }
+
+
+def canonical_selection_is_relevant(why: dict[str, Any]) -> bool:
+    return bool(why.get("matched_terms")) or why.get("project_match") == 1.0
 
 
 def safe_memory_path(root: Path, relative_path: str) -> Path | None:
