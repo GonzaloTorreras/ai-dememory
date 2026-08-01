@@ -280,7 +280,7 @@ then removed rather than committed as generated evidence:
 - the focused documentation suite passed nine tests, including deliberate
   stable/source drift, profile drift, broken-link, remote-script,
   remote-`srcset`, and inline-CSS resource failures;
-- repository validation, secret scan, ADR guard, and the complete 594-test
+- repository validation, secret scan, ADR guard, and the complete 595-test
   suite passed with 51 host-specific skips;
 - home, install, architecture, and security rendered at 320, 375, 768, 864,
   and 1440 px without page-level horizontal overflow;
