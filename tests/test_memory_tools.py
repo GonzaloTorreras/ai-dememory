@@ -158,6 +158,7 @@ from mcp_inventory import build_inventory, validate_inventory_docs, validate_inv
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import (  # noqa: E402
     MemoryError,
+    content_hash,
     discover_markdown_files,
     discover_memory_files,
     load_memory,
@@ -5881,6 +5882,145 @@ class MemoryToolTests(unittest.TestCase):
 
             with self.assertRaises(PermissionError):
                 call_tool("memory.get", {"path": "docs/architecture.md"}, root)
+
+    def test_mcp_get_by_id_rejects_noncanonical_index_path(self) -> None:
+        marker = "NONCANONICAL_INDEX_MARKER_91"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = write_memory(
+                root,
+                "memories/tools/canonical.md",
+                memory_id="mem_index_target",
+            )
+            db_path, _ = rebuild_index(root, root / "indexes" / "memory.sqlite")
+            noncanonical = root / "docs" / "indexed.md"
+            noncanonical.parent.mkdir(parents=True)
+            noncanonical.write_text(
+                valid_memory_text("mem_index_target", body=marker),
+                encoding="utf-8",
+            )
+            document = load_memory(noncanonical)
+            canonical.unlink()
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "UPDATE memories SET path = ?, content_hash = ? WHERE id = ?",
+                    (
+                        "docs/indexed.md",
+                        content_hash(document.frontmatter, document.content),
+                        "mem_index_target",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with self.assertRaises(FileNotFoundError):
+                call_tool("memory.get", {"id": "mem_index_target"}, root)
+
+    def test_mcp_get_by_id_revalidates_index_identity_and_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical_a = write_memory(
+                root,
+                "memories/tools/a.md",
+                memory_id="mem_index_a",
+                body="CANONICAL_A_MARKER_52",
+            )
+            canonical_b = write_memory(
+                root,
+                "memories/tools/b.md",
+                memory_id="mem_index_b",
+                body="REDIRECTED_B_MARKER_63",
+            )
+            db_path, _ = rebuild_index(root, root / "indexes" / "memory.sqlite")
+            document_a = load_memory(canonical_a)
+            document_b = load_memory(canonical_b)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute("DELETE FROM memories WHERE id = ?", ("mem_index_b",))
+                conn.execute(
+                    "UPDATE memories SET path = ?, content_hash = ? WHERE id = ?",
+                    (
+                        repo_relative_path(canonical_b, root),
+                        content_hash(document_b.frontmatter, document_b.content),
+                        "mem_index_a",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            identity_result = call_tool("memory.get", {"id": "mem_index_a"}, root)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "UPDATE memories SET path = ?, content_hash = ? WHERE id = ?",
+                    (
+                        repo_relative_path(canonical_a, root),
+                        content_hash(document_a.frontmatter, document_a.content),
+                        "mem_index_a",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            canonical_a.write_text(
+                valid_memory_text("mem_index_a", body="FRESH_A_MARKER_74"),
+                encoding="utf-8",
+            )
+            stale_hash_result = call_tool("memory.get", {"id": "mem_index_a"}, root)
+
+        self.assertEqual(identity_result["frontmatter"]["id"], "mem_index_a")
+        self.assertIn("CANONICAL_A_MARKER_52", identity_result["content"])
+        self.assertNotIn("REDIRECTED_B_MARKER_63", identity_result["content"])
+        self.assertEqual(stale_hash_result["frontmatter"]["id"], "mem_index_a")
+        self.assertIn("FRESH_A_MARKER_74", stale_hash_result["content"])
+
+    def test_mcp_get_by_id_rejects_index_path_through_linked_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "vault"
+            canonical = write_memory(
+                root,
+                "memories/tools/canonical.md",
+                memory_id="mem_link_target",
+                body="CANONICAL_LINK_MARKER_85",
+            )
+            db_path, _ = rebuild_index(root, root / "indexes" / "memory.sqlite")
+            outside = base / "outside"
+            external = write_memory(
+                outside,
+                "linked.md",
+                memory_id="mem_link_target",
+                body="LINK_ESCAPE_MARKER_96",
+            )
+            linked_parent = root / "docs" / "linked"
+            linked_parent.parent.mkdir(parents=True)
+            try:
+                os.symlink(outside, linked_parent, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+            external_document = load_memory(external)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.execute(
+                    "UPDATE memories SET path = ?, content_hash = ? WHERE id = ?",
+                    (
+                        "docs/linked/linked.md",
+                        content_hash(external_document.frontmatter, external_document.content),
+                        "mem_link_target",
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            result = call_tool("memory.get", {"id": "mem_link_target"}, root)
+
+        self.assertEqual(result["path"], repo_relative_path(canonical, root))
+        self.assertIn("CANONICAL_LINK_MARKER_85", result["content"])
+        self.assertNotIn("LINK_ESCAPE_MARKER_96", result["content"])
 
     def test_mcp_secret_scan_rejects_paths_outside_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

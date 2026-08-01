@@ -61,11 +61,15 @@ from ai_dememory_tool.admin.manual_acceptance import (
     verify_acceptance,
 )
 from ai_dememory_tool.admin.memorylib import (
+    MemoryError,
     SOURCE_KINDS,
+    contained_relative_path,
+    content_hash,
     discover_memory_files,
     extract_summary,
     is_memory_file,
     load_memory,
+    path_is_link_like,
     repo_relative_path,
     repo_root,
     safe_write_text,
@@ -3989,6 +3993,32 @@ def prompt_response(description: str, text: str) -> dict[str, Any]:
     }
 
 
+def _canonical_memory_path(root: Path, relpath: object) -> Path | None:
+    """Return a canonical in-root memory path without following child links."""
+
+    if not isinstance(relpath, str) or not relpath.strip():
+        return None
+    relative_input = Path(relpath)
+    if relative_input.is_absolute() or relative_input.drive:
+        return None
+
+    logical_root = Path(os.path.abspath(root.expanduser()))
+    try:
+        relative = contained_relative_path(logical_root / relative_input, logical_root)
+    except (OSError, ValueError):
+        return None
+
+    candidate = logical_root / relative
+    current = logical_root
+    for part in relative.parts:
+        current = current / part
+        if path_is_link_like(current):
+            return None
+    if not is_memory_file(candidate, logical_root):
+        return None
+    return candidate
+
+
 def get_memory(
     root: Path,
     memory_id: str | None,
@@ -3997,35 +4027,59 @@ def get_memory(
     public_only: bool = False,
 ) -> dict[str, Any]:
     path: Path | None = None
+    document = None
     if relpath:
-        candidate = (root / relpath).resolve()
-        try:
-            candidate.relative_to(root.resolve())
-        except ValueError as exc:
-            raise PermissionError("path must stay inside the repository") from exc
-        if not is_memory_file(candidate, root):
+        candidate = _canonical_memory_path(root, relpath)
+        if candidate is None:
             raise PermissionError("memory.get path must point to a canonical memory file")
         path = candidate
     elif memory_id:
         db_path = default_db_path(root)
+        row = None
         if db_path.exists():
-            conn = sqlite3.connect(db_path)
-            row = conn.execute("SELECT path FROM memories WHERE id = ?", (memory_id,)).fetchone()
-            conn.close()
-            if row:
-                path = root / row[0]
+            conn = None
+            try:
+                conn = sqlite3.connect(db_path)
+                row = conn.execute(
+                    "SELECT path, content_hash FROM memories WHERE id = ?",
+                    (memory_id,),
+                ).fetchone()
+            except sqlite3.Error:
+                row = None
+            finally:
+                if conn is not None:
+                    conn.close()
+        if row:
+            candidate = _canonical_memory_path(root, row[0])
+            if candidate is not None and candidate.exists():
+                try:
+                    indexed_document = load_memory(candidate)
+                except MemoryError:
+                    indexed_document = None
+                if (
+                    indexed_document is not None
+                    and indexed_document.frontmatter.get("id") == memory_id
+                    and isinstance(row[1], str)
+                    and content_hash(indexed_document.frontmatter, indexed_document.content) == row[1]
+                ):
+                    path = candidate
+                    document = indexed_document
         if path is None:
             for candidate in discover_memory_files(root):
-                document = load_memory(candidate)
-                if document.frontmatter.get("id") == memory_id:
+                candidate_document = load_memory(candidate)
+                if candidate_document.frontmatter.get("id") == memory_id:
                     path = candidate
+                    document = candidate_document
                     break
     else:
         raise ValueError("memory.get requires id or path")
 
     if path is None or not path.exists():
         raise FileNotFoundError("memory not found")
-    document = load_memory(path)
+    if document is None:
+        document = load_memory(path)
+    if memory_id and document.frontmatter.get("id") != memory_id:
+        raise FileNotFoundError("memory not found")
     if public_only and document.frontmatter["sensitivity"] != "public":
         raise PermissionError("memory is outside the public-only sensitivity ceiling")
     if document.frontmatter["sensitivity"] in {"private", "sensitive"} and not include_sensitive:
