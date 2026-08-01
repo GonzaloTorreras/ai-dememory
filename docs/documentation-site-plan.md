@@ -1,6 +1,7 @@
 # Documentation Experience And Static Site Plan
 
-Status: approved for implementation planning; deployment remains approval-gated
+Status: D0-D2 content and working-tree validation complete on a stacked branch;
+draft handoff pending; deployment remains approval-gated
 
 Owner: Codex operational owner
 
@@ -92,11 +93,12 @@ Non-goals for the first site:
    review gate visually unavoidable.
 3. **Three separate places:** public source repository, installed executable,
    and private vault. Never show them as one folder or one sync target.
-4. **Five-minute setup:** exact install and wizard commands, followed by a
-   health check and no hidden side effects.
-5. **Choose an intensity:** explain `minimal`, `balanced`, and `active` as
-   bounded operating envelopes. State separately that model policy does not let
-   ai DeMemory call a model or embeddings.
+4. **Five-minute stable setup:** exact 2.0.0 PyPI, vault, health, setup-plan,
+   and MCP commands with no hidden side effects.
+5. **Unreleased 2.1 onboarding:** put the source install before its wizard,
+   then explain `minimal`, `balanced`, and `active` as bounded operating
+   envelopes. State separately that model policy does not let ai DeMemory call
+   a model or embeddings.
 6. **Privacy and autonomy:** proposal-only agent writes, explicit integration
    installation, generated indexes, and bounded process lifetime.
 7. **Technical doorway:** link to the full flow, contracts, and current status.
@@ -104,7 +106,8 @@ Non-goals for the first site:
 ### Guides: complete one job
 
 - Install and create a private vault.
-- Run the preview-first setup wizard.
+- Complete the stable 2.0.0 setup-plan/client path, or deliberately install the
+  2.1.0 source line before running its preview-first wizard.
 - Connect Codex, Claude, or another MCP client.
 - Search, inspect evidence, and assemble bounded context.
 - Review a proposal and apply an explicit decision.
@@ -192,7 +195,7 @@ Interpretation:
 | Hook behavior | `docs/hooks.md`, hook tests |
 | Scheduling and process lifecycle | `docs/scheduler.md`, `docs/operations.md`, lifecycle tests |
 | Security boundaries | `AGENTS.md`, `docs/architecture.md`, `docs/operations.md` |
-| Current release status | exact release evidence and package index verification, never stale prose alone |
+| Current release and capability status | `README.md`, `docs/install.md`, exact release/tag evidence and package index verification, never stale prose alone |
 
 Every implemented section receives a small source note in code comments or page
 metadata. CI should fail when a source path disappears. Version numbers should
@@ -265,6 +268,42 @@ responsive checks. This is validation tooling, not a normal documentation-build
 dependency. Keep the structural/source-map guard dependency-free in Python so
 normal repository validation does not require Node.
 
+## D1/D2 Implementation Evidence
+
+Working-tree validation on 2026-08-01 established the following reproducible
+baseline. Temporary browser screenshots and browser snapshots were inspected,
+then removed rather than committed as generated evidence:
+
+- the dependency-free guard passed structure, local link/anchor, stable/source
+  command separation, source-derived resource profiles, reporting-policy
+  status, external-resource, and asset-budget checks;
+- the focused documentation suite passed nine tests, including deliberate
+  stable/source drift, profile drift, broken-link, remote-script,
+  remote-`srcset`, and inline-CSS resource failures;
+- repository validation, secret scan, ADR guard, and the complete 594-test
+  suite passed with 51 host-specific skips;
+- home, install, architecture, and security rendered at 320, 375, 768, 864,
+  and 1440 px without page-level horizontal overflow;
+- navigation, command copying, skip-link focus transfer, and internal route
+  transitions worked with no console warning/error and no external request;
+- sampled text/action contrast ratios ranged from 5.96:1 to 17.93:1.
+
+Visual fidelity was checked against the accepted concept rather than guessed
+from the source markup:
+
+| Concept property | Implemented result |
+| --- | --- |
+| Editorial white canvas and dark serif hierarchy | Preserved with system serif/sans stacks and no font request. |
+| Blue action and connector language | Preserved in calls to action, indexes, and read paths. |
+| Green review/safety language | Preserved, with borders and labels so color is not the only signal. |
+| Open horizontal bands instead of card grids | Preserved across overview, lifecycle, separation, and setup. |
+| Layered local architecture illustration | Rebuilt as accessible inline SVG plus an adjacent text explanation. |
+| Compact mobile reading order | Reflowed vertically; navigation wraps and long code scrolls internally. |
+
+The browser evidence is a validation record, not a deployment claim. It must be
+rerun after rebasing, after any factual change, and against the deployed origin
+before D3 exits.
+
 ## GitHub Pages Rollout
 
 Split publication into two changes:
@@ -287,6 +326,9 @@ Split publication into two changes:
 - Bind deployment to the `github-pages` environment and canonical `main`.
 - Set Pages source to GitHub Actions, verify the public URL, inspect the deployed
   artifact, and record rollback steps.
+- Resolve 404 assets and routes against the verified project Pages base path;
+  document-relative links are intentionally only a local/content placeholder
+  because nested missing URLs otherwise resolve below the missing path.
 
 PR B touches `.github/workflows/` and therefore requires a fresh security review,
 formal GitHub approval from an authorized identity, explicit owner authorization,
@@ -300,7 +342,7 @@ installation, MCP, the local API, and private vaults unaffected.
 
 ## Delivery Plan
 
-### D0 - Information architecture and concept (current slice)
+### D0 - Information architecture and concept (implemented)
 
 - Check in this plan and the non-production desktop concept.
 - Link the plan from the README and modernization roadmap.
@@ -308,7 +350,7 @@ installation, MCP, the local API, and private vaults unaffected.
 
 Exit: no orphan plan, no private information, and no deployment mutation.
 
-### D1 - Accessible static prototype
+### D1 - Accessible static prototype (implemented and working-tree validated)
 
 - Implement the home page and the first three code-native diagrams.
 - Add installation and architecture pages using the existing docs as sources.
@@ -317,13 +359,19 @@ Exit: no orphan plan, no private information, and no deployment mutation.
 Exit: useful at 320 px and 1440 px, keyboard-complete, zero external requests,
 and all commands/source links verified.
 
-### D2 - Technical depth and validation
+### D2 - Technical depth and validation (content validated; policy/origin gates remain)
 
-- Add security, resource-envelope, and process-lifecycle flows.
-- Add a public vulnerability-reporting policy before presenting the site as a
-  complete security reference.
-- Add source mapping, metadata, social preview, sitemap, and 404 page.
-- Run browser, accessibility, responsive, link, secret, and asset-budget checks.
+- Security, resource-envelope, and process-lifecycle flows now exist in the
+  static source.
+- The security page states the implemented model and the current reporting-policy
+  gap. A repository-level `SECURITY.md` still requires an exact preview and
+  explicit owner approval before the site can claim a complete reporting path.
+- Source mapping, page metadata, structural guards, asset budgets, and a 404
+  page now exist. A canonical sitemap and public social-preview URL remain
+  deferred until the Pages origin is live and verified.
+- Browser, accessibility, responsive, link, secret, asset-budget, and full-suite
+  evidence was collected from the content-identical working tree. It must be
+  refreshed after any rebase or factual change.
 
 Exit: a fresh reviewer can trace every material claim to source and reproduce
 the rendered checks.
@@ -376,11 +424,15 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Review this concept and plan without changing PR #10.
-2. After PR #10 receives the required formal approval and merges, rebase this
-   branch onto canonical `main`.
-3. Implement D1 as a content-only/static-site PR with no Pages permissions.
-4. Run the full docs, browser, security, and repository validation gates.
-5. Request a fresh independent review and merge authorization for D1.
-6. Open the separately reviewed Pages workflow PR only after the static artifact
-   is accepted.
+1. Commit and push the validated content-only branch, then open its stacked draft
+   PR against `codex/documentation-site-plan` without Pages permissions.
+2. Obtain the missing formal approval for PR #10, merge it through normal branch
+   protection, then rebase the stacked documentation branch onto canonical
+   `main`.
+3. Refresh all evidence on the rebased commit and request a fresh independent
+   review for the final `main`-targeting diff.
+4. Preview a complete repository-level `SECURITY.md` diff and obtain explicit
+   owner approval before adding the reporting policy.
+5. After the content artifact and reporting path are accepted, open a separate
+   security-reviewed Pages workflow PR and verify the real public origin before
+   adding a sitemap, social-preview URL, or package metadata link.

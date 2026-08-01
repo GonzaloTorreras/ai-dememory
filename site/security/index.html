@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Security, privacy, trust boundaries, and current limitations of ai DeMemory.">
+    <meta name="color-scheme" content="light">
+    <title>Security model — ai DeMemory</title>
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../assets/site.css">
+    <script src="../assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="../">ai DeMemory</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="../#how-it-works">How it works</a>
+          <a href="../architecture/">Architecture</a>
+          <a href="../install/">Install</a>
+          <a href="./" aria-current="page">Security</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <header class="page-hero">
+        <div class="container">
+          <h1>Local-first is a boundary, not a magic shield</h1>
+          <p>ai DeMemory keeps its own storage and retrieval local by default, enforces bounded capabilities, and gates durable writes. Your host agent and chosen sync tools still have their own trust boundaries.</p>
+          <div class="page-meta">
+            <span>Private vault</span>
+            <span>Server-enforced profiles</span>
+            <span>Review-gated durability</span>
+            <span>Detailed controls: source 2.1.0, unreleased</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="container page-layout">
+        <nav class="page-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#protects">What it protects</a>
+          <a href="#trust-boundaries">Trust boundaries</a>
+          <a href="#data-flow">Data flow</a>
+          <a href="#controls">Core controls</a>
+          <a href="#limitations">Limitations</a>
+          <a href="#reporting">Reporting status</a>
+        </nav>
+
+        <div>
+          <section class="content-section" id="protects">
+            <h2>What the design protects</h2>
+            <p>The primary security goals are to keep personal memory out of the public distribution repository, constrain which local data a client can retrieve, preserve provenance, and prevent unreviewed content from silently becoming durable truth.</p>
+            <div class="callout">
+              <p>This page describes the current public source. Stable 2.0.0 has the local vault, MCP, review, and secret-scanning foundation; the wizard, resource profiles, server-enforced profile upgrades, and idle leases are unreleased 2.1.0 controls.</p>
+            </div>
+            <ul class="checklist">
+              <li>The vault root is explicit and separate from the source repository.</li>
+              <li>MCP capability profiles are enforced by the server, not only advertised to the client.</li>
+              <li>Markdown is canonical; generated SQLite indexes are replaceable.</li>
+              <li>Secret-like content blocks durable promotion and generated report writes.</li>
+              <li>Review fingerprints bind an approval to the exact plan that was inspected.</li>
+              <li>Resource and process ceilings reduce accidental runaway work.</li>
+            </ul>
+          </section>
+
+          <section class="content-section" id="trust-boundaries">
+            <h2>Know every trust boundary</h2>
+            <table class="profile-table">
+              <caption>System actors and responsibilities</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Actor</th>
+                  <th scope="col">Can see or change</th>
+                  <th scope="col">Boundary</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">ai DeMemory</th>
+                  <td data-label="Can see or change">The explicitly bound vault and generated local artifacts</td>
+                  <td data-label="Boundary">Root checks, profiles, budgets, review rules</td>
+                </tr>
+                <tr>
+                  <th scope="row">Host agent</th>
+                  <td data-label="Can see or change">Context returned to its process; proposals when allowed</td>
+                  <td data-label="Boundary">The host's provider, permissions, logging, and token policy</td>
+                </tr>
+                <tr>
+                  <th scope="row">Sync or backup</th>
+                  <td data-label="Can see or change">Whatever vault files you choose to synchronize</td>
+                  <td data-label="Boundary">Your repository visibility, encryption, and access controls</td>
+                </tr>
+                <tr>
+                  <th scope="row">Public repository</th>
+                  <td data-label="Can see or change">Source, docs, package metadata, public fixtures</td>
+                  <td data-label="Boundary">Must never be used as a personal vault</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="callout">
+              <p>“Local” does not mean recalled text can never leave the machine. If a cloud-backed host agent receives that text, its provider may process it under the host's configuration and terms.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="data-flow">
+            <h2>Default data flow</h2>
+            <ol class="diagram-outline">
+              <li>You create and bind a private local vault.</li>
+              <li>The Python runtime indexes reviewed Markdown into local SQLite FTS.</li>
+              <li>A local client asks for bounded context through stdio MCP or the loopback API.</li>
+              <li>The server filters the request through root, tool-profile, visibility, and budget rules.</li>
+              <li>Only the selected context returns to the requesting host.</li>
+              <li>Any durable candidate waits in a reviewable inbox until explicitly approved.</li>
+            </ol>
+            <p>The runtime makes zero model and embedding calls in the current profiles. Optional provider imports, hook metadata, scheduler jobs, backups, and sync are separate opt-in actions.</p>
+            <p>This documentation site has no analytics, cookies, external fonts, client-side search, or automatic external requests. Following a GitHub link is an intentional network navigation.</p>
+          </section>
+
+          <section class="content-section" id="controls">
+            <h2>Controls that carry authority</h2>
+            <h3>Capability and root enforcement</h3>
+            <p>Generated MCP configuration names the exact vault, selects a server-enforced profile, and requires a bound root. The public-repository profile is narrower than the private-vault core profile.</p>
+
+            <h3>Review and provenance</h3>
+            <p>Retrieved items include source, status, confidence, and path. Durable changes require a reviewer and exact preview fingerprint; pinned values are not automatically overwritten.</p>
+
+            <h3>Secrets and sensitive content</h3>
+            <p>Secret scanning blocks sensitive-looking content from versioned durable memory and generated reports. Treat this as defense in depth: review every candidate and never use memory as a credential store.</p>
+
+            <h3>Local transports</h3>
+            <p>Prefer stdio MCP. The optional REST API defaults to loopback. Set an API key before any non-loopback bind; remote HTTP and OAuth are outside the current release design.</p>
+
+            <h3>Process and resource containment</h3>
+            <p>Profiles cap input, scanning, output, context, and background work. MCP idle leases terminate abandoned servers, while owned external process trees are reaped on timeout or shutdown.</p>
+          </section>
+
+          <section class="content-section" id="limitations">
+            <h2>Current limitations</h2>
+            <ul>
+              <li>Secret detection can have false positives and false negatives; it does not replace human review.</li>
+              <li>Plaintext Markdown inherits operating-system, disk, editor, backup, and sync protections.</li>
+              <li>A compromised host with access to your account may read any vault files that account can read.</li>
+              <li>The package cannot clean up unrelated processes created by Codex, a browser, a plugin, or another host.</li>
+              <li>Non-loopback REST exposure needs a separate authentication and privacy design beyond the local default.</li>
+              <li>Vector search remains future work and is not part of the current security foundation.</li>
+            </ul>
+            <div class="callout callout-safe">
+              <p>For the smallest operating surface, select <strong>minimal</strong> with model policy <strong>off</strong>, keep recall manual, and do not install hooks or scheduled jobs.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="reporting">
+            <h2>Security reporting status</h2>
+            <p>This page documents the implemented security model. It does not invent a disclosure channel: the repository does not yet contain an approved <code>SECURITY.md</code> policy.</p>
+            <p>A repository-level reporting policy needs an exact owner-reviewed change covering supported versions, private contact or advisory routing, response expectations, and public-issue handling. Until that policy is approved, consult the <a href="https://github.com/GonzaloTorreras/ai-dememory">canonical repository</a> for its current published options.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <div class="footer-brand">ai DeMemory</div>
+          <p class="footer-copy">Local-first · review-first · Apache-2.0</p>
+        </div>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="../">Home</a>
+          <a href="../install/">Install</a>
+          <a href="../architecture/">Architecture</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory">Source</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

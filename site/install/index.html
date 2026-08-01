@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Install ai DeMemory, create a private vault, and choose a bounded operating profile.">
+    <meta name="color-scheme" content="light">
+    <title>Install — ai DeMemory</title>
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../assets/site.css">
+    <script src="../assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="../">ai DeMemory</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="../#how-it-works">How it works</a>
+          <a href="../architecture/">Architecture</a>
+          <a href="./" aria-current="page">Install</a>
+          <a href="../security/">Security</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <header class="page-hero">
+        <div class="container">
+          <h1>Install in five minutes</h1>
+          <p>Install the isolated Python application, create a separate private vault, then inspect the setup plan before enabling anything autonomous.</p>
+          <div class="page-meta">
+            <span>Python 3.11+</span>
+            <span>Stable package: 2.0.0</span>
+            <span>Source line: 2.1.0, unreleased</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="container page-layout">
+        <nav class="page-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#install-tool">Install stable</a>
+          <a href="#create-vault">Create a stable vault</a>
+          <a href="#source">Opt into source 2.1</a>
+          <a href="#choose-intensity">Choose 2.1 intensity</a>
+          <a href="#wizard">Review the 2.1 wizard</a>
+          <a href="#connect-client">Connect a client</a>
+        </nav>
+
+        <div>
+          <section class="content-section" id="install-tool">
+            <h2>1. Install stable 2.0.0</h2>
+            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. This command installs the stable PyPI release.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.0.0">
+              <pre tabindex="0"><code>pipx install ai-dememory</code></pre>
+            </div>
+            <p>Equivalent with uv:</p>
+            <div class="code-block" data-copy-block data-release="stable-2.0.0">
+              <pre tabindex="0"><code>uv tool install ai-dememory</code></pre>
+            </div>
+            <div class="callout callout-safe">
+              <p>Installation is passive. It does not create a vault, scan provider folders, install hooks or scheduled jobs, or start a model.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="create-vault">
+            <h2>2. Create and verify a private vault</h2>
+            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.0.0">
+              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory
+cd ~/code/my-memory
+ai-dememory doctor
+ai-dememory index
+ai-dememory graph
+ai-dememory setup plan --json
+ai-dememory setup health --json</code></pre>
+            </div>
+            <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. Run the remaining commands from inside that vault.</p>
+            <ul class="checklist">
+              <li>Markdown remains canonical and human-editable.</li>
+              <li>The SQLite full-text index is generated and rebuildable.</li>
+              <li>Public demo fixtures stay in the source repository; personal memory does not.</li>
+            </ul>
+          </section>
+
+          <section class="content-section" id="source">
+            <h2>3. Opt into source 2.1 deliberately</h2>
+            <p>PyPI currently serves stable 2.0.0. The public source declares 2.1.0 but remains unreleased until its immutable tag, release workflow, verification, and explicit authorization exist.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.0">
+              <pre tabindex="0"><code>pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git</code></pre>
+            </div>
+            <p>Use this instead of the PyPI command in a clean pipx environment when you intentionally want the development line. The following intensity, model-policy, wizard, and idle-lease behavior is 2.1 source functionality.</p>
+          </section>
+
+          <section class="content-section" id="choose-intensity">
+            <h2>4. Choose a bounded 2.1 intensity</h2>
+            <p>Intensity controls local work and context envelopes. It does not select a language model and is not a promise of fixed machine cost.</p>
+            <table class="profile-table">
+              <caption>Built-in operating profiles</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Profile</th>
+                  <th scope="col">Recall</th>
+                  <th scope="col">Cadence after explicit setup</th>
+                  <th scope="col">Candidates</th>
+                  <th scope="col">File / scan ceilings</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">minimal</th>
+                  <td data-label="Recall">Manual only</td>
+                  <td data-label="Cadence">Weekly</td>
+                  <td data-label="Candidates">5 / run</td>
+                  <td data-label="File / scan ceilings">32 KiB / 500</td>
+                </tr>
+                <tr class="recommended">
+                  <th scope="row">balanced <span class="visually-hidden">recommended</span></th>
+                  <td data-label="Recall">Up to 1,200 tokens</td>
+                  <td data-label="Cadence">Daily + weekly</td>
+                  <td data-label="Candidates">20 / run</td>
+                  <td data-label="File / scan ceilings">64 KiB / 2,500</td>
+                </tr>
+                <tr>
+                  <th scope="row">active</th>
+                  <td data-label="Recall">Up to 2,400 tokens</td>
+                  <td data-label="Cadence">Daily + weekly</td>
+                  <td data-label="Candidates">50 / run</td>
+                  <td data-label="File / scan ceilings">128 KiB / 10,000</td>
+                </tr>
+              </tbody>
+            </table>
+            <p><strong>Balanced is recommended for a first 2.1 source installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
+
+            <h3>Model policy is separate</h3>
+            <ul>
+              <li><strong>off</strong> — deterministic local tools only.</li>
+              <li><strong>advisory</strong> — an already active host agent may triage and recommend.</li>
+              <li><strong>proposals</strong> — that host agent may prepare review-first inbox proposals.</li>
+            </ul>
+            <div class="callout">
+              <p>ai DeMemory itself makes zero model and embedding calls in every profile. A host agent can still consume its normal model tokens when advisory or proposal work is enabled.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="wizard">
+            <h2>5. Preview the 2.1 setup wizard</h2>
+            <p>Start with a machine-readable plan, then use the interactive wizard. It exposes generated configuration, caps, and commands before any reviewed apply.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.0">
+              <pre tabindex="0"><code>ai-dememory setup plan \
+  --intensity balanced \
+  --model-policy off --json
+ai-dememory setup wizard
+ai-dememory setup health --json</code></pre>
+            </div>
+            <p>A durable apply requires reviewer identity and the exact preview fingerprint via <code>--expect-plan-sha256</code>. Changed answers require a fresh preview.</p>
+            <div class="callout callout-safe">
+              <p>The wizard does not install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="connect-client">
+            <h2>6. Connect an AI client</h2>
+            <p>Generate vault-bound configuration from inside your vault, inspect it, and smoke-test the installed client path.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.0.0">
+              <pre tabindex="0"><code>ai-dememory mcp-config --client codex
+ai-dememory mcp-client-smoke</code></pre>
+            </div>
+            <p>These commands exist in stable 2.0.0. The current 2.1 source additionally makes the default <code>core</code> profile a four-tool server-enforced boundary, requires the bound vault, and generates a 600-second balanced idle lease so an abandoned MCP process exits.</p>
+            <p><a href="../architecture/#process-lifecycle">See the process lifecycle</a> or read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-mcp.md">full MCP guide on GitHub</a>.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <div class="footer-brand">ai DeMemory</div>
+          <p class="footer-copy">Local-first · review-first · Apache-2.0</p>
+        </div>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="../">Home</a>
+          <a href="../architecture/">Architecture</a>
+          <a href="../security/">Security model</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/install.md">Canonical install docs</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

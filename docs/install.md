@@ -51,7 +51,7 @@ py -3 -m venv .venv
 py -3 -m pip install ai-dememory
 ```
 
-## From GitHub
+## From GitHub: Unreleased 2.1.0
 
 PyPI is the normal installation source. To test an unreleased development
 snapshot, install directly from GitHub:
@@ -59,6 +59,10 @@ snapshot, install directly from GitHub:
 ```bash
 pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
 ```
+
+Use this path, rather than the stable PyPI install, to evaluate `setup wizard`,
+resource intensity/model policy, generated MCP idle leases, and other 2.1.0
+source behavior. Stable 2.0.0 does not contain those capabilities.
 
 Or from a local checkout:
 
@@ -84,7 +88,6 @@ ai-dememory doctor
 ai-dememory index
 ai-dememory graph
 ai-dememory setup plan --json
-ai-dememory setup wizard
 ai-dememory setup health --json
 ai-dememory mcp-config --client codex
 ai-dememory mcp-client-smoke
@@ -113,6 +116,14 @@ For a reviewable first-run checklist, use:
 ai-dememory setup plan --json
 ```
 
+That command is available in stable 2.0.0 and remains passive.
+
+## Unreleased 2.1.0 Wizard And Profiles
+
+This section describes the current public source line, not the stable 2.0.0
+package. Install from GitHub or a local checkout as described above before
+running these commands.
+
 Then run `ai-dememory setup wizard` to preview a minimum baseline of values,
 preferences, recommendations, and project profiles. Durable writes require
 reviewer identity plus `--expect-plan-sha256 <preview fingerprint>` so changed
@@ -134,6 +145,8 @@ review-first inbox proposals. ai-dememory runtime model calls and embedding
 calls are zero in every option; host-agent token consumption is external and
 still applies. No option installs integrations, captures raw payloads, or
 promotes durable memory during the wizard.
+
+## Optional Integrations And Setup Planning
 
 Hook installation is separate and trust-gated. Generate a fragment with
 `ai-dememory hooks config --client codex` or `--client claude`, inspect it, and
