@@ -27,7 +27,9 @@ future vector indexes are generated from Markdown and can be rebuilt.
   scope for this release.
 
 The active modernization and selective MemPalace adoption plan is documented in
-`docs/public-modernization-roadmap.md`.
+`docs/public-modernization-roadmap.md`. The progressive documentation and static
+GitHub Pages proposal is in
+[docs/documentation-site-plan.md](docs/documentation-site-plan.md).
 
 ## Quick Start
 
