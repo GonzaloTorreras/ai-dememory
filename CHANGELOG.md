@@ -15,7 +15,8 @@ accepted by the release identity guard.
   Replace ambient post-CI tagging with a manual confirmation bound to the exact
   release tag and green current-main SHA. Keep the tagger unable to dispatch
   publication, remove ambient tag-push publication, and require a second manual
-  intent/tag/SHA confirmation before the canonical publisher can run.
+  intent/tag/SHA confirmation before the canonical publisher can run. Move
+  checkout and Python setup to immutable Node 24-native v7 action pins.
 - Keep Python 3.11+ as the authoritative domain and headless runtime; reserve
   Node/TypeScript for a future evidence-gated presentation plane with generated
   contracts and prebuilt assets.
