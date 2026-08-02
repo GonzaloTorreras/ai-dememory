@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-from memorylib import MemoryDocument, extract_summary, repo_relative_path, repo_root, validate_memories
+from memorylib import (
+    MemoryDocument,
+    extract_summary,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+    validate_memories,
+)
 from secret_scan import scan_paths
 
 
@@ -55,7 +62,7 @@ def export_context(root: Path, output_dir: Path | None = None) -> list[Path]:
     written: list[Path] = []
     for name, content in outputs.items():
         path = output_dir / name
-        path.write_text(content, encoding="utf-8")
+        safe_write_text(path, content, root=root, overwrite=True)
         written.append(path)
     return written
 

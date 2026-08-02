@@ -38,6 +38,7 @@ class HarnessHookTests(unittest.TestCase):
             client: str,
             session_id: str | None,
             budget_tokens: int,
+            public_only: bool,
         ) -> dict[str, object]:
             calls.append(
                 {
@@ -47,6 +48,7 @@ class HarnessHookTests(unittest.TestCase):
                     "client": client,
                     "session_id": session_id,
                     "budget_tokens": budget_tokens,
+                    "public_only": public_only,
                 }
             )
             return {"decision": "inject", "text": "Relevant reviewed memory", "trace_id": "ignored"}
@@ -67,7 +69,49 @@ class HarnessHookTests(unittest.TestCase):
         }
         self.assertEqual(outputs, [expected, expected, expected])
         self.assertEqual([call["client"] for call in calls], ["codex", "claude", "generic"])
-        self.assertTrue(all(call["budget_tokens"] == 1000 for call in calls))
+        self.assertTrue(all(call["budget_tokens"] == 1200 for call in calls))
+        self.assertTrue(all(call["public_only"] is True for call in calls))
+
+    def test_explicit_internal_hook_override_reaches_turn_context(self) -> None:
+        calls: list[bool] = []
+
+        def build_turn_context(*args: object, public_only: bool = True) -> dict[str, object]:
+            calls.append(public_only)
+            return {"decision": "inject", "text": "Reviewed memory"}
+
+        module = types.SimpleNamespace(build_turn_context=build_turn_context)
+        payload = json.dumps({"prompt": "Continue project work"})
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {"turn_context": module}):
+            result = dispatch_hook_event(
+                Path(tmp),
+                "UserPromptSubmit",
+                payload,
+                client="codex",
+                public_only=False,
+            )
+
+        self.assertTrue(result)
+        self.assertEqual(calls, [False])
+
+    def test_payload_budget_cannot_raise_configured_recall_ceiling(self) -> None:
+        budgets: list[int] = []
+
+        def build_turn_context(*args: object, public_only: bool = True) -> dict[str, object]:
+            budgets.append(int(args[5]))
+            return {"decision": "inject", "text": "Reviewed memory"}
+
+        module = types.SimpleNamespace(build_turn_context=build_turn_context)
+        payload = json.dumps({"prompt": "Continue project work", "budget_tokens": 8000})
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(sys.modules, {"turn_context": module}):
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[recall]\ndefault_budget_tokens = 400\n",
+                encoding="utf-8",
+            )
+            result = dispatch_hook_event(root, "UserPromptSubmit", payload, client="codex")
+
+        self.assertTrue(result)
+        self.assertEqual(budgets, [400])
 
     def test_invalid_payload_and_missing_index_fail_open(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -101,6 +145,53 @@ class HarnessHookTests(unittest.TestCase):
         self.assertIn("Use the narrow smoke test first.", text)
         self.assertNotIn("raw conversation must not be copied", text)
         self.assertIn("status: proposed", text)
+
+    def test_stop_learning_respects_configured_pending_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[learning]\nsession_proposals = true\n"
+                "[resources]\nhook_capture_max_pending = 1\n",
+                encoding="utf-8",
+            )
+            dispatch_hook_event(
+                root,
+                "Stop",
+                json.dumps({"learning_signals": ["First bounded learning."]}),
+                client="codex",
+            )
+            dispatch_hook_event(
+                root,
+                "Stop",
+                json.dumps({"learning_signals": ["Second bounded learning."]}),
+                client="codex",
+            )
+            candidates = list((root / "inbox" / "llm-captures").glob("*.md"))
+
+        self.assertEqual(len(candidates), 1)
+
+    def test_direct_hook_capture_respects_configured_pending_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[resources]\nhook_capture_max_pending = 1\n",
+                encoding="utf-8",
+            )
+            first_output = io.StringIO()
+            second_output = io.StringIO()
+            with patch("sys.stdin", _Stdin('{"prompt":"first"}')), redirect_stdout(first_output):
+                first_exit = hook_event_main(
+                    ["--root", str(root), "--provider", "codex", "--event", "UserPromptSubmit"]
+                )
+            with patch("sys.stdin", _Stdin('{"prompt":"second"}')), redirect_stdout(second_output):
+                second_exit = hook_event_main(
+                    ["--root", str(root), "--provider", "codex", "--event", "UserPromptSubmit"]
+                )
+
+        self.assertEqual(first_exit, 0)
+        self.assertEqual(second_exit, 0)
+        self.assertTrue(json.loads(first_output.getvalue())["captured"])
+        self.assertFalse(json.loads(second_output.getvalue())["captured"])
 
     def test_stop_learning_is_opt_in_and_secret_scanned(self) -> None:
         secret = "sk-proj-" + ("x" * 40)

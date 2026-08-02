@@ -5,12 +5,13 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from memorylib import contained_relative_path, repo_relative_path  # noqa: E402
+from memorylib import contained_relative_path, repo_relative_path, safe_write_text  # noqa: E402
 from hook_event import (  # noqa: E402
     archive_reviewed_hook_captures,
     capture_hook_event,
@@ -53,6 +54,69 @@ class PathPortabilityTests(unittest.TestCase):
 
             self.assertNotEqual(candidate.absolute(), candidate.resolve())
             self.assertEqual(contained_relative_path(candidate, alias), Path("review/item.md"))
+
+    def test_safe_write_anchors_root_alias_to_one_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first = base / "first"
+            second = base / "second"
+            first.mkdir()
+            second.mkdir()
+            alias = base / "alias"
+            try:
+                os.symlink(first, alias, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+
+            original_resolve = Path.resolve
+            swapped = False
+
+            def resolve_then_retarget(path: Path, *args: object, **kwargs: object) -> Path:
+                nonlocal swapped
+                resolved = original_resolve(path, *args, **kwargs)
+                if not swapped and Path(os.path.abspath(path)) == Path(os.path.abspath(alias)):
+                    alias.unlink()
+                    os.symlink(second, alias, target_is_directory=True)
+                    swapped = True
+                return resolved
+
+            with patch.object(Path, "resolve", resolve_then_retarget):
+                written = safe_write_text(
+                    alias / "capture.md",
+                    "anchored\n",
+                    root=alias,
+                    overwrite=False,
+                )
+
+            self.assertTrue(swapped)
+            self.assertEqual(written.resolve(), (first / "capture.md").resolve())
+            self.assertEqual((first / "capture.md").read_text(encoding="utf-8"), "anchored\n")
+            self.assertFalse((second / "capture.md").exists())
+
+    def test_safe_write_root_alias_still_rejects_descendant_link_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            actual = base / "actual"
+            outside = base / "outside"
+            actual.mkdir()
+            outside.mkdir()
+            alias = base / "alias"
+            linked_child = actual / "linked-child"
+            try:
+                os.symlink(actual, alias, target_is_directory=True)
+                os.symlink(outside, linked_child, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "symlinks or junctions"):
+                safe_write_text(
+                    alias / "linked-child" / "escape.md",
+                    "blocked\n",
+                    root=alias,
+                    overwrite=False,
+                )
+
+            self.assertEqual(list(outside.iterdir()), [])
 
     def test_resolved_containment_rejects_symlink_escape(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

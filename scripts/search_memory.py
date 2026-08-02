@@ -13,7 +13,24 @@ import sys
 from typing import Any
 
 from index_memory import default_db_path
-from memorylib import recency_score, repo_root, today
+from memorylib import (
+    MemoryDocument,
+    MemoryError,
+    content_hash,
+    extract_summary,
+    is_memory_file,
+    load_memory,
+    recency_score,
+    repo_relative_path,
+    repo_root,
+    today,
+)
+from resource_limits import (
+    MAX_LIFECYCLE_ROWS,
+    MAX_MEMORY_FILE_BYTES,
+    MAX_MEMORY_FILES,
+    MAX_MEMORY_TOTAL_BYTES,
+)
 
 
 TOKEN_RE = re.compile(r"[A-Za-z0-9_]+")
@@ -58,6 +75,7 @@ def search(
     include_expired: bool = False,
     include_sensitive: bool = False,
     project_hint: str | None = None,
+    public_only: bool = False,
 ) -> list[SearchResult]:
     db_path = db_path or default_db_path(root)
     if not db_path.exists():
@@ -67,8 +85,30 @@ def search(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute("SELECT rowid, * FROM memories").fetchall()
-        fts_scores = compute_fts_scores(conn, tokens)
+        validate_index_resource_bounds(conn)
+        if public_only:
+            # Read only the minimum index fields needed to revalidate canonical
+            # public Markdown. Hidden rows and FTS corpus statistics must not
+            # influence public ranking.
+            rows = conn.execute(
+                """
+                SELECT rowid, id, path, sensitivity, content_hash
+                FROM memories
+                WHERE sensitivity = 'public'
+                """
+            ).fetchmany(MAX_MEMORY_FILES + 1)
+            fts_scores: dict[int, float] = {}
+            lifecycle_strengths: dict[str, float] = {}
+        else:
+            rows = conn.execute("SELECT rowid, * FROM memories").fetchmany(
+                MAX_MEMORY_FILES + 1
+            )
+            fts_scores = compute_fts_scores(conn, tokens)
+            lifecycle_strengths = load_lifecycle_strengths(conn)
+        if len(rows) > MAX_MEMORY_FILES:
+            raise RuntimeError(
+                f"memory index exceeds the {MAX_MEMORY_FILES} row limit; rebuild the index"
+            )
     finally:
         conn.close()
 
@@ -77,31 +117,45 @@ def search(
     for row in rows:
         if row["sensitivity"] == "secret-prohibited":
             continue
-        if row["sensitivity"] in {"private", "sensitive"} and not include_sensitive:
+        if public_only and row["sensitivity"] != "public":
             continue
-        if row["status"] == "expired" and not include_expired:
+        view: sqlite3.Row | dict[str, Any] = row
+        if public_only:
+            canonical = canonical_public_view(root, row)
+            if canonical is None:
+                continue
+            view = canonical
+        if view["sensitivity"] in {"private", "sensitive"} and not include_sensitive:
+            continue
+        if view["status"] == "expired" and not include_expired:
             continue
 
-        tags = split_words(row["tags"])
-        aliases = split_aliases(row["aliases"])
+        tags = split_words(view["tags"])
+        aliases = split_aliases(view["aliases"])
         tag_match = token_overlap(tokens, tags)
         alias_match = alias_score(tokens, aliases, query_lower)
-        project_match = project_match_score(row["project"], project_hint)
-        matched_fields = matched_search_fields(row, tokens)
+        project_match = project_match_score(view["project"], project_hint)
+        matched_fields = matched_search_fields(view, tokens)
         matched_aliases = matched_alias_values(aliases, tokens, query_lower)
         matched_tags = ordered_overlap(tokens, tags)
-        fts_component = fts_scores.get(row["rowid"], 0.0)
+        fts_component = (
+            canonical_public_text_score(view, tokens)
+            if public_only
+            else fts_scores.get(row["rowid"], 0.0)
+        )
 
         if tokens and fts_component == 0 and tag_match == 0 and alias_match == 0 and project_match == 0:
             continue
 
-        recency = recency_score(row["updated_at"], row["decay"], today())
-        confidence = float(row["confidence"])
-        type_boost = TYPE_BOOST.get(row["type"], 0.0)
-        pin_boost = 1.0 if row["pin"] else 0.0
-        status = status_penalty(row["status"], row["type"])
-        sensitivity = sensitivity_penalty(row["sensitivity"])
-        strength = lifecycle_strength(root, row["id"])
+        recency = recency_score(view["updated_at"], view["decay"], today())
+        confidence = float(view["confidence"])
+        type_boost = TYPE_BOOST.get(view["type"], 0.0)
+        pin_boost = 1.0 if view["pin"] else 0.0
+        status = status_penalty(view["status"], view["type"])
+        sensitivity = sensitivity_penalty(view["sensitivity"])
+        # Lifecycle events are generated interaction state and can encode
+        # private usage patterns. Public ranking intentionally ignores them.
+        strength = 0.0 if public_only else lifecycle_strengths.get(str(view["id"]), 0.0)
         score = (
             0.40 * fts_component
             + 0.14 * tag_match
@@ -118,15 +172,16 @@ def search(
         results.append(
             SearchResult(
                 score=round(max(score, 0.0), 4),
-                id=row["id"],
-                title=row["title"],
-                path=row["path"],
-                type=row["type"],
-                status=row["status"],
+                id=view["id"],
+                title=view["title"],
+                path=view["path"],
+                type=view["type"],
+                status=view["status"],
                 confidence=confidence,
-                snippet=snippet(row["raw_content"], tokens),
+                snippet=snippet(view["raw_content"], tokens),
                 why={
                     "fts": round(fts_component, 4),
+                    "text_score_source": "canonical_public" if public_only else "sqlite_fts",
                     "tag_overlap": round(tag_match, 4),
                     "alias_match": round(alias_match, 4),
                     "project_hint": project_hint,
@@ -149,6 +204,99 @@ def search(
     return sorted(results, key=lambda result: result.score, reverse=True)[:limit]
 
 
+def validate_index_resource_bounds(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        """
+        SELECT
+          count(*) AS row_count,
+          COALESCE(max(length(CAST(raw_content AS BLOB))), 0) AS max_bytes,
+          COALESCE(sum(length(CAST(raw_content AS BLOB))), 0) AS total_bytes
+        FROM memories
+        """
+    ).fetchone()
+    row_count = int(row[0]) if row else 0
+    max_bytes = int(row[1]) if row else 0
+    total_bytes = int(row[2]) if row else 0
+    if row_count > MAX_MEMORY_FILES:
+        raise RuntimeError(
+            f"memory index exceeds the {MAX_MEMORY_FILES} row limit; rebuild the index"
+        )
+    if max_bytes > MAX_MEMORY_FILE_BYTES:
+        raise RuntimeError(
+            f"memory index contains content above the {MAX_MEMORY_FILE_BYTES} byte limit; "
+            "rebuild the index"
+        )
+    if total_bytes > MAX_MEMORY_TOTAL_BYTES:
+        raise RuntimeError(
+            f"memory index exceeds the {MAX_MEMORY_TOTAL_BYTES} total byte limit; "
+            "rebuild the index"
+        )
+
+
+def canonical_public_view(root: Path, row: sqlite3.Row) -> dict[str, Any] | None:
+    indexed_path = str(row["path"])
+    try:
+        candidate = (root / indexed_path).resolve()
+        if not candidate.is_file() or not is_memory_file(candidate, root):
+            return None
+        document: MemoryDocument = load_memory(candidate)
+        canonical_path = repo_relative_path(document.path, root)
+    except (MemoryError, OSError, UnicodeError, ValueError):
+        return None
+    data = document.frontmatter
+    if canonical_path != indexed_path.replace("\\", "/"):
+        return None
+    if data.get("id") != row["id"] or data.get("sensitivity") != "public":
+        return None
+    if content_hash(data, document.content) != row["content_hash"]:
+        return None
+    return {
+        "id": str(data["id"]),
+        "title": str(data["title"]),
+        "path": canonical_path,
+        "type": str(data["type"]),
+        "status": str(data["status"]),
+        "project": data.get("project"),
+        "tags": " ".join(str(tag) for tag in data.get("tags", [])),
+        "aliases": " || ".join(str(alias) for alias in data.get("aliases", [])),
+        "updated_at": str(data["updated_at"]),
+        "decay": str(data["decay"]),
+        "confidence": float(data["confidence"]),
+        "pin": bool(data["pin"]),
+        "sensitivity": "public",
+        "summary": extract_summary(document.content),
+        "raw_content": document.content,
+    }
+
+
+def canonical_public_text_score(view: dict[str, Any], tokens: list[str]) -> float:
+    """Score canonical public Markdown without private corpus statistics."""
+
+    terms = list(dict.fromkeys(tokens))
+    if not terms:
+        return 0.0
+    weighted_fields = (
+        ("title", 1.0),
+        ("tags", 0.9),
+        ("aliases", 0.85),
+        ("summary", 0.75),
+        ("raw_content", 0.65),
+        ("project", 0.55),
+    )
+    tokenized_fields = {
+        name: tokenize(str(view.get(name) or ""))
+        for name, _weight in weighted_fields
+    }
+    per_term: list[float] = []
+    for term in terms:
+        best = 0.0
+        for name, weight in weighted_fields:
+            if any(candidate.startswith(term) for candidate in tokenized_fields[name]):
+                best = max(best, weight)
+        per_term.append(best)
+    return sum(per_term) / len(per_term)
+
+
 def compute_fts_scores(conn: sqlite3.Connection, tokens: list[str]) -> dict[int, float]:
     if not tokens:
         return {}
@@ -163,11 +311,16 @@ def compute_fts_scores(conn: sqlite3.Connection, tokens: list[str]) -> dict[int,
             JOIN memories m ON m.rowid = memory_fts.rowid
             WHERE memory_fts MATCH ?
             ORDER BY rank
+            LIMIT ?
             """,
-            (query,),
-        ).fetchall()
+            (query, MAX_MEMORY_FILES + 1),
+        ).fetchmany(MAX_MEMORY_FILES + 1)
     except sqlite3.Error:
         return {}
+    if len(matches) > MAX_MEMORY_FILES:
+        raise RuntimeError(
+            f"memory index exceeds the {MAX_MEMORY_FILES} FTS match limit; rebuild the index"
+        )
 
     if not matches:
         return {}
@@ -335,6 +488,28 @@ def lifecycle_strength(root: Path, memory_id: str) -> float:
         return 0.0
 
 
+def load_lifecycle_strengths(conn: sqlite3.Connection) -> dict[str, float]:
+    """Load generated lifecycle state once per search instead of once per row."""
+    try:
+        rows = conn.execute(
+            "SELECT memory_id, strength FROM memory_lifecycle LIMIT ?",
+            (MAX_LIFECYCLE_ROWS + 1,),
+        ).fetchmany(MAX_LIFECYCLE_ROWS + 1)
+    except sqlite3.Error:
+        return {}
+    if len(rows) > MAX_LIFECYCLE_ROWS:
+        raise RuntimeError(
+            f"memory lifecycle exceeds the {MAX_LIFECYCLE_ROWS} row limit; rebuild the index"
+        )
+    strengths: dict[str, float] = {}
+    for row in rows:
+        try:
+            strengths[str(row[0])] = max(0.0, min(float(row[1]), 1.0))
+        except (TypeError, ValueError):
+            continue
+    return strengths
+
+
 def snippet(content: str, tokens: list[str], max_len: int = 220) -> str:
     compact = re.sub(r"\s+", " ", content).strip()
     if not compact:
@@ -366,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=10, help="Maximum results.")
     parser.add_argument("--include-expired", action="store_true", help="Include expired memories.")
     parser.add_argument("--include-sensitive", action="store_true", help="Include private/sensitive memories.")
+    parser.add_argument("--public-only", action="store_true", help="Return only public-sensitivity memories.")
     parser.add_argument("--why", action="store_true", help="Print explainable ranking components.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
     args = parser.parse_args(argv)
@@ -383,6 +559,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             include_expired=args.include_expired,
             include_sensitive=args.include_sensitive,
+            public_only=args.public_only,
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)

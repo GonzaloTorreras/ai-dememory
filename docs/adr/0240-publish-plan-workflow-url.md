@@ -2,19 +2,20 @@
 
 ## Status
 
-Accepted
+Accepted for offline URL resolution. ADR 0255 superseded the publication
+interpretation on 2026-07-26: the resolved `publish.yml` URL now identifies a
+read-only hosted preflight, not a publisher.
 
 ## Context
 
-`ai-dememory publish-plan` reports the manual GitHub Actions workflow path and
-dispatch inputs for TestPyPI and PyPI publishing. Before this change, the
+`ai-dememory publish-plan` reports the legacy hosted-preflight path and inputs
+for evaluating TestPyPI or PyPI readiness. Before this change, the
 `workflow_url` field always used `https://github.com/<owner>/<repo>/...`, even
 when the command was running inside the distribution checkout with a GitHub
 remote configured.
 
-Maintainers need a concrete workflow URL in release handoffs, but publish
-planning must remain offline and must not call GitHub APIs or dispatch the
-workflow.
+Maintainers need a concrete preflight URL in release handoffs, but planning
+must remain offline and must not call GitHub APIs or dispatch the workflow.
 
 ## Decision
 
@@ -41,7 +42,7 @@ runs, dispatch workflows, publish packages, write files, or record evidence.
 
 ## Consequences
 
-- Distribution checkouts show a directly usable Actions workflow URL.
+- Distribution checkouts show a directly usable hosted-preflight URL.
 - Plain vaults and non-GitHub forks keep deterministic fallback output.
 - MCP `memory.publish_plan` and release-evidence handoff commands benefit from
   the same resolved URL because they reuse the CLI publish-plan payload.
@@ -50,16 +51,16 @@ runs, dispatch workflows, publish packages, write files, or record evidence.
 
 - The URL is derived from local project metadata or git remote configuration
   and may be stale if either value is stale.
-- The URL does not prove the workflow exists on GitHub or that environment
-  protection and Trusted Publishing are configured.
+- The URL does not prove the workflow exists on GitHub or that canonical
+  release environments and Trusted Publisher identities are configured.
 - Only GitHub remotes are resolved; other forge URLs keep the placeholder.
 
 ## Future Work
 
 - Add connector-backed workflow existence checks only if release dashboards need
   live GitHub metadata.
-- Include latest workflow run URLs only after publish evidence is reviewed and
-  recorded.
+- Include latest workflow run URLs only after readiness evidence is reviewed
+  and recorded.
 - Add explicit remote selection only if maintainers use a non-`origin` release
   remote.
 

@@ -21,6 +21,14 @@ if str(ROOT) not in sys.path:
 from ai_dememory_tool.cli import build_mcp_config
 from install_smoke import MCP_INIT, MCP_PING
 from memorylib import repo_root
+from process_control import (
+    attach_bounded_stderr_drain,
+    bounded_stderr_tail,
+    close_stdin_and_reap,
+    join_bounded_stderr_drain,
+    run_owned_capture,
+    start_owned_process,
+)
 
 MCP_TOOLS_LIST_ID = 3
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
@@ -133,15 +141,12 @@ def run_mcp_batch(
 ) -> str:
     payload = "".join(json.dumps(request) + "\n" for request in requests)
     try:
-        completed = subprocess.run(
+        completed = run_owned_capture(
             [command, *args],
             cwd=launch_cwd,
             env=env,
-            input=payload,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30,
+            input_text=payload,
+            timeout_seconds=30,
         )
     except FileNotFoundError as exc:
         raise ClientSmokeError(f"MCP client config command not found: {command}") from exc
@@ -192,7 +197,7 @@ def start_mcp_process(
     env: dict[str, str],
 ) -> subprocess.Popen[str]:
     try:
-        return subprocess.Popen(
+        process = start_owned_process(
             [command, *args],
             cwd=launch_cwd,
             env=env,
@@ -201,23 +206,15 @@ def start_mcp_process(
             stderr=subprocess.PIPE,
             text=True,
         )
+        attach_bounded_stderr_drain(process)
+        return process
     except FileNotFoundError as exc:
         raise ClientSmokeError(f"MCP client config command not found: {command}") from exc
 
 
 def stop_mcp_process(process: subprocess.Popen[str]) -> None:
-    if process.stdin is not None:
-        try:
-            process.stdin.close()
-        except OSError:
-            pass
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+    close_stdin_and_reap(process, grace_seconds=2)
+    join_bounded_stderr_drain(process, timeout=2)
     for pipe in (process.stdout, process.stderr):
         if pipe is not None:
             try:
@@ -242,7 +239,7 @@ def read_response_line(process: subprocess.Popen[str], timeout: int = 30) -> str
         stop_mcp_process(process)
         raise ClientSmokeError("MCP client config command timed out waiting for response") from exc
     if not line:
-        stderr = process.stderr.read() if process.stderr and process.poll() is not None else ""
+        stderr = bounded_stderr_tail(process)
         raise ClientSmokeError(f"MCP client config command returned no response. stderr={stderr}")
     return line
 

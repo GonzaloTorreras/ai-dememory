@@ -16,7 +16,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
-from http_api import main as api_main, serve
+from http_api import MUTATION_INTENT_HEADER, MUTATION_INTENT_VALUE, main as api_main, serve
 from index_memory import rebuild_index
 from memorylib import repo_root
 
@@ -80,6 +80,7 @@ def request_json(
     headers = {"Accept": "application/json"}
     if body is not None:
         headers["Content-Type"] = "application/json"
+        headers[MUTATION_INTENT_HEADER] = MUTATION_INTENT_VALUE
     if api_key:
         headers["X-API-Key"] = api_key
     request = Request(url, data=data, headers=headers, method=method)

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -53,13 +54,22 @@ def build_turn_context(
     client: str | None = None,
     session_id: str | None = None,
     budget_tokens: int | None = None,
+    public_only: bool = False,
 ) -> dict[str, Any]:
     """Retrieve relevant project memory without ever blocking the caller's turn."""
     root = Path(root).resolve()
-    trace_id = make_trace_id(root, prompt, cwd, client, session_id, budget_tokens)
+    trace_id = make_trace_id(root, prompt, cwd, client, session_id, budget_tokens, public_only)
     settings, config_degradation = recall_settings(root)
-    project, inference_degradation = infer_project(root, prompt, cwd, settings.project_from_cwd)
+    project, inference_degradation = infer_project(
+        root,
+        prompt,
+        cwd,
+        settings.project_from_cwd,
+        public_only=public_only,
+    )
     base = base_payload(trace_id, project)
+    base["public_only"] = public_only
+    base["security"]["public_only"] = public_only
     base["degradation"] = unique(config_degradation + inference_degradation)
     base["degraded"] = bool(base["degradation"])
 
@@ -105,6 +115,7 @@ def build_turn_context(
             baseline_budget_tokens=settings.baseline_budget_tokens,  # bounded recall config
             require_reviewed_results=True,
             min_relevance_score=settings.min_relevance_score,
+            public_only=public_only,
         )
     except (FileNotFoundError, MemoryError, OSError, UnicodeError, ValueError):
         return skip(base, "memory_unavailable", "invalid_memory_payload")
@@ -172,14 +183,14 @@ def skip(payload: dict[str, Any], reason: str, degradation: str | None = None) -
 def extract_keywords(prompt: str, project_slug: str | None = None, max_keywords: int = MAX_KEYWORDS) -> list[str]:
     output: list[str] = []
     for token in tokenize(prompt):
-        if token in STOP_WORDS or len(token) < 3 and token not in {"ai", "ui"}:
+        if not is_semantic_keyword(token):
             continue
         if token not in output:
             output.append(token)
         if len(output) >= max_keywords:
             break
     if project_slug:
-        project_tokens = [token for token in tokenize(project_slug) if token not in STOP_WORDS]
+        project_tokens = [token for token in tokenize(project_slug) if is_semantic_keyword(token)]
         for token in reversed(project_tokens):
             if token in output:
                 output.remove(token)
@@ -187,12 +198,12 @@ def extract_keywords(prompt: str, project_slug: str | None = None, max_keywords:
     return output[:max_keywords]
 
 
+def is_semantic_keyword(token: str) -> bool:
+    return token not in STOP_WORDS and (len(token) >= 3 or token in {"ai", "ui"})
+
+
 def enough_signal(prompt: str) -> bool:
-    semantic = [
-        token
-        for token in tokenize(prompt)
-        if token not in STOP_WORDS and (len(token) >= 3 or token in {"ai", "ui"})
-    ]
+    semantic = [token for token in tokenize(prompt) if is_semantic_keyword(token)]
     return len(set(semantic)) >= 2 or bool(semantic and len(prompt.strip()) >= 24)
 
 
@@ -211,6 +222,7 @@ def infer_project(
     prompt: Any,
     cwd: str | Path | None,
     project_from_cwd: bool = True,
+    public_only: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     prompt_text = prompt if isinstance(prompt, str) else ""
     prompt_tokens = tokenize(prompt_text)
@@ -226,7 +238,7 @@ def infer_project(
         if cwd_path != root:
             return project_payload(cwd_path.name, cwd_path, "cwd"), []
 
-    known, errors = known_projects(root)
+    known, errors = known_projects(root, public_only=public_only)
     for project in sorted(known, key=lambda value: (-len(tokenize(value)), value)):
         project_tokens = tokenize(project)
         if contains_sequence(prompt_tokens, project_tokens):
@@ -321,13 +333,13 @@ def setting_float(
     except (TypeError, ValueError):
         errors.append(f"invalid_recall_setting:{key}")
         return default
-    if isinstance(value, bool) or parsed < minimum or parsed > maximum:
+    if isinstance(value, bool) or not math.isfinite(parsed) or parsed < minimum or parsed > maximum:
         errors.append(f"invalid_recall_setting:{key}")
         return default
     return parsed
 
 
-def known_projects(root: Path) -> tuple[list[str], list[str]]:
+def known_projects(root: Path, public_only: bool = False) -> tuple[list[str], list[str]]:
     projects: set[str] = set()
     errors: list[str] = []
     for path in discover_memory_files(root):
@@ -335,6 +347,8 @@ def known_projects(root: Path) -> tuple[list[str], list[str]]:
             document = load_memory(path)
         except (MemoryError, OSError, UnicodeError):
             errors.append("invalid_project_memory")
+            continue
+        if public_only and document.frontmatter.get("sensitivity") != "public":
             continue
         project = document.frontmatter.get("project")
         if isinstance(project, str) and project.strip():
@@ -364,6 +378,7 @@ def make_trace_id(
     client: str | None,
     session_id: str | None,
     budget_tokens: int | None,
+    public_only: bool = False,
 ) -> str:
     payload = json.dumps(
         {
@@ -373,6 +388,7 @@ def make_trace_id(
             "client": client,
             "session_id": session_id,
             "budget_tokens": budget_tokens,
+            "public_only": public_only,
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -392,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--client", default="generic")
     parser.add_argument("--session-id", default=None)
     parser.add_argument("--budget-tokens", type=int, default=None)
+    parser.add_argument("--public-only", action="store_true", help="Inject only canonical public memory.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -402,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             client=args.client,
             session_id=args.session_id,  # non-secret trace correlation
             budget_tokens=args.budget_tokens,  # bounded recall config
+            public_only=args.public_only,
         )
     except (OSError, TypeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

@@ -31,10 +31,10 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   drift checks.
 - [ ] `docs/adr/0011-reusable-install-smoke-runner.md` documents reusable
   package and Docker install smoke.
-- [ ] `docs/adr/0012-manual-trusted-publishing-guard.md` documents publish
-  workflow safety checks.
-- [ ] `docs/adr/0236-publish-plan.md` documents read-only manual publish
-  planning.
+- [ ] `docs/adr/0012-manual-trusted-publishing-guard.md` records the superseded
+  manual publisher and points to the current sole-publisher guard.
+- [ ] `docs/adr/0236-publish-plan.md` documents read-only release-readiness and
+  legacy-preflight planning.
 - [ ] `docs/adr/0237-mcp-publish-plan.md` documents read-only MCP publish
   planning.
 - [ ] `docs/adr/0238-mcp-publish-plan-smoke.md` documents package and Docker
@@ -235,8 +235,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   installed package smoke coverage for vault template export.
 - [ ] `docs/adr/0075-docker-smoke-vault-template-export.md` documents Docker
   smoke coverage for vault template export.
-- [ ] `docs/adr/0076-publish-workflow-preflight.md` documents manual publish
-  workflow preflight gates.
+- [ ] `docs/adr/0076-publish-workflow-preflight.md` documents the retained
+  read-only hosted-preflight gates.
 - [ ] `docs/adr/0077-package-build-smoke.md` documents temporary package build
   smoke coverage.
 - [ ] `docs/adr/0105-package-build-stale-artifact-preflight.md` documents
@@ -252,7 +252,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `docs/adr/0127-publish-workflow-smoke-gates.md` documents publish
   workflow install, package build, and Docker smoke gates.
 - [ ] `docs/adr/0128-testpypi-acceptance-publish-preflight.md` documents
-  TestPyPI manual acceptance evidence from publish workflow preflight.
+  TestPyPI manual acceptance evidence from the canonical prerelease workflow
+  and post-index install.
 - [ ] `docs/adr/0129-capture-miss-dry-run.md` documents read-only recall miss
   preview before writing inbox feedback.
 - [ ] `docs/adr/0130-recall-miss-candidate-check.md` documents read-only
@@ -466,11 +467,15 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `AGENTS.md` and `CLAUDE.md` contain current ai-dememory managed hook
   instruction blocks.
 - [ ] `LICENSE` and `pyproject.toml` both identify Apache-2.0.
-- [ ] `.github/workflows/publish.yml` is manual-only and uses PyPI Trusted
-  Publishing.
-- [ ] `.github/workflows/publish.yml` preflight runs installed package smoke,
-  package build smoke with `--check-clean`, and Docker local MCP smoke before
-  building distributions.
+- [ ] `.github/workflows/release.yml` is the only workflow with package-index
+  Trusted Publisher authority.
+- [ ] `.github/workflows/publish.yml` is manual-only, requires
+  `confirm=preflight`, has read-only permissions, disables persisted checkout
+  credentials, and contains no environment, OIDC, artifact-transfer, release,
+  tag-push, or package-upload capability.
+- [ ] The legacy publish-readiness preflight runs installed package smoke,
+  package build smoke with `--check-clean`, Docker local MCP smoke, and strict
+  planning without retaining distributions.
 - [ ] `.github/workflows/ci.yml` includes package install, recall quality, and
   Docker local MCP smoke coverage.
 - [ ] `.github/workflows/ci.yml` runs `python scripts/ai_dememory.py
@@ -497,7 +502,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   notifications.
 - [ ] `quality/recall-fixtures.json` contains representative recall fixtures.
 - [ ] Private vault setup does not stage generated artifact directories.
-- [ ] Draft PR exists from `codex/memory-mvp` to `main`.
+- [ ] Draft PR exists from the current `codex/*` release-readiness branch to
+  `main`, and the current PR URL is recorded in release evidence.
 - [ ] CI passes on the PR.
 - [ ] No generated SQLite, report, cache, or distilled output is staged.
 
@@ -620,7 +626,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py publish-guard`
 - [ ] `python3 scripts/ai_dememory.py publish-plan --repository testpypi --json`
 - [ ] `python3 scripts/ai_dememory.py publish-plan --repository pypi --json`
-  reminds maintainers to publish to TestPyPI first.
+  reminds maintainers to authorize and verify a canonical TestPyPI prerelease
+  first.
 - [ ] `python3 scripts/ai_dememory.py release-evidence --json`
 - [ ] `python3 scripts/ai_dememory.py release-evidence --json` includes
   `manual_acceptance_plan`
@@ -754,7 +761,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   mem_example --recommendation-id rec_example --reviewer you` validates
   recommendation links before writing review state.
 - [ ] `python3 -m compileall -q scripts mcp/server ai_dememory_tool`
-- [ ] `python3 -m unittest discover -s tests`
+- [ ] `python3 -m unittest discover -s tests -t .`
 
 ## Package Install Smoke
 
@@ -833,7 +840,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   returns `available=false` from a fresh vault and explains that release
   evidence requires a distribution checkout.
 - [ ] Installed `ai-dememory mcp --call memory.publish_plan --args "{}"`
-  returns TestPyPI dispatch inputs, preflight commands, and false publish
+  returns TestPyPI readiness-preflight inputs, commands, and false publish
   side-effect flags from a fresh vault.
 - [ ] `ai-dememory mcp-config --mode docker --client codex` emits a Docker
   stdio command with the vault bind-mounted at `/memory`.
@@ -896,11 +903,11 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] Installed `ai-dememory schedule plan --json` validates scheduler
   commands, cron entries, and side-effect flags in package install smoke.
 - [ ] `ai-dememory schedule plan --json --mode docker --image
-  ai-dememory:local` previews Docker maintenance commands without writing
+  sha256:<64-hex-image-id>` previews immutable Docker maintenance commands without writing
   scheduler state.
 - [ ] `ai-dememory schedule setup --dry-run` does not write scheduler state.
 - [ ] `ai-dememory schedule setup --dry-run --mode docker --image
-  ai-dememory:local` previews Docker maintenance without writing scheduler
+  sha256:<64-hex-image-id>` previews Docker maintenance without writing scheduler
   state.
 - [ ] `ai-dememory schedule cron --json` exports cron lines without writing
   scheduler state.
@@ -953,8 +960,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] Docker smoke verifies `memory.release_evidence` returns
   `available=false` from the mounted vault and explains that release evidence
   requires a distribution checkout.
-- [ ] Docker smoke verifies `memory.publish_plan` returns TestPyPI dispatch
-  inputs, preflight commands, and false publish side-effect flags from the
+- [ ] Docker smoke verifies `memory.publish_plan` returns TestPyPI readiness-
+  preflight inputs, commands, and false publish side-effect flags from the
   mounted vault.
 - [ ] Docker smoke verifies `maintenance status` returns generated artifact
   state for index, graph, weights, lifecycle scores, lifecycle report, and
@@ -980,19 +987,26 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 
 ## Publishing
 
-- [ ] TestPyPI trusted publisher is configured for
-  `.github/workflows/publish.yml` and environment `testpypi`.
-- [ ] PyPI trusted publisher is configured for `.github/workflows/publish.yml`
-  and environment `pypi`.
-- [ ] `ai-dememory publish-guard` confirms the workflow is manual-only,
-  confirmation-gated, and token-free.
-- [ ] Publish workflow preflight runs `publish-guard`, `artifact-guard`,
+- [ ] TestPyPI trusted publisher is configured only for
+  `.github/workflows/release.yml` and environment `testpypi`.
+- [ ] PyPI trusted publisher is configured only for
+  `.github/workflows/release.yml` and environment `pypi`.
+- [ ] The active `v*` ruleset rejects tag creation except for the GitHub Actions
+  integration used by `tag-release.yml`, and rejects deletion and rewrite.
+- [ ] `ai-dememory publish-guard` confirms the canonical publisher is
+  `workflow_dispatch`-only, exact-tag/commit-bound, and separate from the
+  read-only-Actions tagger, and
+  proves the legacy preflight is manual, `confirm=preflight`, read-only,
+  token-free, environment-free, and non-publishing; it also finds no publishing
+  marker in any other checked-in workflow.
+- [ ] Legacy readiness preflight runs `publish-guard`, `artifact-guard`,
   `validate`, `secret-scan`, `verify-mcp`, `release-check`, installed package
   smoke, package build smoke with `--check-clean`, and Docker local MCP smoke
-  before building distributions.
-- [ ] First publish attempt targets `testpypi`, with workflow input
-  `confirm=publish`.
-- [ ] PyPI publish is run only after TestPyPI install verification.
+  without exporting or publishing distributions.
+- [ ] First canonical publication uses an authorized immutable prerelease tag,
+  then a separate exact-tuple publisher dispatch, and targets TestPyPI.
+- [ ] Stable PyPI publication is authorized only after TestPyPI install
+  verification.
 
 ## Generated Artifacts
 
@@ -1004,6 +1018,13 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py context ai-dememory --budget 2000`
 - [ ] `python3 scripts/ai_dememory.py context --auto --budget 2000` returns
   `query_source: working_memory` when generated working memory exists.
+- [ ] `python3 scripts/ai_dememory.py context "public recall" --public-only
+  --no-working-memory --json` returns only public items and no working state or
+  rejected memory identifiers.
+- [ ] `python3 scripts/ai_dememory.py context --public-only --auto --json`
+  fails before reading or returning generated working state.
+- [ ] `python3 scripts/ai_dememory.py search "public recall" --public-only
+  --limit 1 --json` filters non-public rows before applying the limit.
 - [ ] `python3 scripts/ai_dememory.py eval-recall`
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures status --strict --max-age-days 14`
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures review-plan`
@@ -1025,10 +1046,10 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   `deletes_files=false`.
 - [ ] `python3 scripts/ai_dememory.py schedule plan --json`
 - [ ] `python3 scripts/ai_dememory.py schedule plan --json --mode docker
-  --image ai-dememory:local`
+  --image sha256:<64-hex-image-id>`
 - [ ] `python3 scripts/ai_dememory.py schedule setup --dry-run`
 - [ ] `python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker
-  --image ai-dememory:local`
+  --image sha256:<64-hex-image-id>`
 - [ ] `python3 scripts/ai_dememory.py schedule cron --json`
 - [ ] Package install smoke runs `ai-dememory schedule doctor --json`.
 - [ ] `python3 scripts/ai_dememory.py schedule doctor --json` reports
@@ -1082,11 +1103,15 @@ Run only after the PR exists, preserving the requested workflow order.
 - [ ] `tools/call memory.context` returns token-budgeted structured context.
 - [ ] `memory.context` accepts `auto: true` and returns
   `query_source: working_memory` when generated working memory exists.
+- [ ] `memory.context`, `memory.search`, and `memory.get` expose
+  `public_only`; context rejects `public_only` with `auto`, and all three
+  prevent internal content from reaching public-repository output.
 - [ ] `memory.doctor` returns local readiness checks without writing files.
 - [ ] `resources/read` refuses private/sensitive memory by default.
 - [ ] `memory.write_proposal` writes only to `inbox/llm-captures/`.
 - [ ] `memory.secret_scan` rejects out-of-repo paths.
-- [ ] `memory.graph` returns public/internal graph nodes and excludes sensitive memories by default.
+- [x] `memory.graph` is review/admin-only, excludes sensitive memories by
+  default, and returns bounded `limit`/`offset` pages with next-page metadata.
 - [ ] `memory.capture_miss` writes only to `inbox/recall-feedback/`.
 - [ ] `memory.recall_miss_candidate` checks expected memory rank without
   writing recall feedback, fixtures, reports, indexes, or canonical memory.
@@ -1196,9 +1221,10 @@ Run only after the PR exists, preserving the requested workflow order.
 - [ ] `memory.release_evidence` and `memory.release_evidence_report` accept
   optional `reviewer` and `pr_url` metadata for embedded acceptance handoff
   commands without recording evidence or writing reports.
-- [ ] `memory.publish_plan` reports TestPyPI/PyPI workflow dispatch inputs,
-  preflight commands, release blockers, and false publish side-effect flags
-  without writing files, running commands, or uploading packages.
+- [ ] `memory.publish_plan` reports TestPyPI/PyPI legacy-preflight inputs,
+  inspection commands, canonical release blockers, and false publish
+  side-effect flags without writing files, running commands, or uploading
+  packages.
 - [ ] `memory.roadmap_status` reports v2 roadmap phase status without writing
   files or mutating canonical memory.
 - [ ] `memory.hook_events` and `memory.hook_config` return hook metadata and
@@ -1284,7 +1310,12 @@ Run only after the PR exists, preserving the requested workflow order.
 - [ ] `git-lesson`: Capture one git lesson candidate and review its inbox file.
 - [ ] `daily-maintenance`: Run one daily maintenance pass and inspect index, graph, weights, and report artifacts.
 - [ ] `review-reports`: Generate false-positive and conflict reports, then review one intentional case or the empty-report evidence.
-- [ ] `testpypi-publish`: Publish to TestPyPI only after package and Docker smoke pass in CI and publish workflow preflight.
+- [ ] `testpypi-publish`: Create an authorized immutable prerelease tag with the
+  tagger, separately dispatch the exact-tuple canonical publisher only after
+  package and Docker smoke pass, then verify the exact version installs from
+  TestPyPI.
+  Acceptance revision 3 is required for complete local sign-off; unversioned
+  or earlier passes remain audit history and are not package-workflow gates.
 - [ ] Promote or reject the proposal manually; do not auto-modify durable
   memory.
 - [ ] Record reviewed manual proof with `ai-dememory acceptance record --item

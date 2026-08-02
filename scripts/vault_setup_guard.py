@@ -34,6 +34,16 @@ REQUIRED_DOC_SNIPPETS = (
     "ai-dememory vault-template export",
     "does not create a GitHub repository",
 )
+UNSAFE_GIT_ADD_OPTIONS = {
+    "-a",
+    "-A",
+    "-f",
+    "--all",
+    "--force",
+    "--intent-to-add",
+    "--pathspec-file-nul",
+}
+ALLOWED_GENERATED_PATHS = set(REQUIRED_PLACEHOLDERS)
 
 
 @dataclass(frozen=True)
@@ -47,14 +57,26 @@ def normalize_token(token: str) -> str:
 
 
 def git_add_lines(text: str) -> list[str]:
-    return [line.strip() for line in text.splitlines() if line.strip().startswith("git add ")]
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if re.search(r"(?i)(?:^|\s)git(?:\.exe)?\b.*\badd\b", line.strip())
+        and not line.lstrip().startswith("#")
+    ]
 
 
 def split_git_add(line: str) -> list[str]:
     try:
-        return [normalize_token(token) for token in shlex.split(line)]
+        tokens = [normalize_token(token) for token in shlex.split(line)]
     except ValueError:
-        return [normalize_token(token) for token in line.split()]
+        tokens = [normalize_token(token) for token in line.split()]
+    lowered = [token.casefold() for token in tokens]
+    try:
+        git_index = next(index for index, token in enumerate(lowered) if token in {"git", "git.exe"})
+        add_index = lowered.index("add", git_index + 1)
+    except (StopIteration, ValueError):
+        return tokens
+    return ["git", "add", *tokens[add_index + 1 :]]
 
 
 def validate_create_memory_repo_text(text: str) -> list[VaultSetupIssue]:
@@ -66,6 +88,28 @@ def validate_create_memory_repo_text(text: str) -> list[VaultSetupIssue]:
 
     for line in add_lines:
         tokens = split_git_add(line)
+        add_args = tokens[2:] if tokens[:2] == ["git", "add"] else tokens
+        unsafe_options = [
+            token
+            for token in add_args
+            if token in UNSAFE_GIT_ADD_OPTIONS or token.startswith("--pathspec-from-file=")
+        ]
+        if unsafe_options:
+            issues.append(
+                VaultSetupIssue(
+                    str(DOC_PATH),
+                    f"`git add` must not use force, broad, or external pathspec options: {unsafe_options[0]}",
+                )
+            )
+        paths = [token for token in add_args if token != "--" and not token.startswith("-")]
+        for token in paths:
+            if token in {".", "./"} or any(character in token for character in "*?[") or token.startswith(":"):
+                issues.append(
+                    VaultSetupIssue(
+                        str(DOC_PATH),
+                        f"`git add` must use explicit reviewed paths, not broad pathspec `{token}`",
+                    )
+                )
         for directory in GENERATED_DIRS:
             forbidden = {directory, f"{directory}/", f"./{directory}", f"./{directory}/"}
             if any(token in forbidden for token in tokens):
@@ -75,6 +119,15 @@ def validate_create_memory_repo_text(text: str) -> list[VaultSetupIssue]:
                         f"`git add` must not stage whole generated directory `{directory}/`",
                     )
                 )
+            for token in paths:
+                normalized = token.removeprefix("./")
+                if normalized.startswith(f"{directory}/") and normalized not in ALLOWED_GENERATED_PATHS:
+                    issues.append(
+                        VaultSetupIssue(
+                            str(DOC_PATH),
+                            f"`git add` may stage only the reviewed placeholder in `{directory}/`",
+                        )
+                    )
 
     for placeholder in REQUIRED_PLACEHOLDERS:
         if placeholder not in text:
@@ -94,10 +147,20 @@ def validate_create_memory_repo_text(text: str) -> list[VaultSetupIssue]:
 
 def validate_gitignore_text(relpath: str, text: str) -> list[VaultSetupIssue]:
     issues: list[VaultSetupIssue] = []
-    lines = {line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")}
+    ordered_lines = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    lines = set(ordered_lines)
     for pattern in REQUIRED_IGNORES:
         if pattern not in lines:
             issues.append(VaultSetupIssue(relpath, f"missing gitignore pattern `{pattern}`"))
+    allowed_negations = {"!distilled/README.md", "!reports/README.md"}
+    for pattern in ordered_lines:
+        if pattern.startswith("!") and pattern not in allowed_negations:
+            issues.append(VaultSetupIssue(relpath, f"unsafe gitignore negation `{pattern}`"))
+    for exception in allowed_negations:
+        ignore = exception[1:].rsplit("/", 1)[0] + "/*.md"
+        if exception in ordered_lines and ignore in ordered_lines:
+            if ordered_lines.index(exception) < ordered_lines.index(ignore):
+                issues.append(VaultSetupIssue(relpath, f"gitignore exception `{exception}` must follow `{ignore}`"))
     return issues
 
 

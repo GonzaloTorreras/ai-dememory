@@ -19,8 +19,11 @@ from memorylib import (
     discover_memory_files,
     load_memory,
     parse_frontmatter_text,
+    path_is_link_like,
     repo_relative_path,
     repo_root,
+    resolve_reports_path,
+    safe_write_text,
     slugify,
 )
 from secret_scan import scan_text
@@ -737,16 +740,13 @@ def write_recall_review_report(
     plan: RecallReviewPlan,
     report_path: str | Path = DEFAULT_REVIEW_REPORT,
 ) -> Path:
-    target = resolve_repo_path(root, report_path)
-    try:
-        target.relative_to(root.resolve())
-    except ValueError as exc:
-        raise ValueError("report path must stay inside the memory root") from exc
+    target = resolve_reports_path(root, report_path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    target = resolve_reports_path(root, report_path)
     text = render_recall_review_report(plan)
     if scan_text(text, "<recall-review-report>"):
         raise ValueError("recall review report rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 
@@ -888,7 +888,7 @@ def write_recall_review_packet(
     text = render_recall_review_packet(plan)
     if scan_text(text, "<recall-review-packet>"):
         raise ValueError("recall review packet rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 
@@ -915,7 +915,7 @@ def reject_recall_review_packet_symlink_components(root_abs: Path, target: Path,
     current = root_abs
     for part in target.relative_to(root_abs).parts:
         current = current / part
-        if current.is_symlink():
+        if path_is_link_like(current):
             raise ValueError(f"{label} must not contain symlinks")
 
 
@@ -969,7 +969,7 @@ def write_recall_review_packet_archive(
     text = render_recall_review_packet(plan)
     if scan_text(text, "<recall-review-packet-archive>"):
         raise ValueError("recall review packet archive rejected by secret scan")
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=False)
     return target
 
 
@@ -1097,7 +1097,11 @@ def render_frontmatter_scalar(value: Any) -> str:
     return json.dumps(" ".join(str(value).splitlines()).strip())
 
 
-def update_frontmatter_fields(path: Path, updates: dict[str, Any]) -> None:
+def update_frontmatter_fields(
+    root: Path,
+    path: Path,
+    updates: dict[str, Any],
+) -> None:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -1126,11 +1130,23 @@ def update_frontmatter_fields(path: Path, updates: dict[str, Any]) -> None:
         if key not in seen:
             new_lines.insert(insert_at, line)
             insert_at += 1
-    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    safe_write_text(
+        path,
+        "\n".join(new_lines) + "\n",
+        root=root,
+        overwrite=True,
+    )
 
 
-def mark_recall_miss_promoted(path: Path, fixture_id: str, reviewed_by: str, reviewed_at: str) -> None:
+def mark_recall_miss_promoted(
+    root: Path,
+    path: Path,
+    fixture_id: str,
+    reviewed_by: str,
+    reviewed_at: str,
+) -> None:
     update_frontmatter_fields(
+        root,
         path,
         {
             "status": "promoted",
@@ -1178,6 +1194,7 @@ def review_recall_miss(
 
     reviewed_at = reviewed_today()
     update_frontmatter_fields(
+        root,
         miss_file,
         {
             "status": status,
@@ -1263,7 +1280,12 @@ def promote_miss_to_fixture(
     previous_text = target.read_text(encoding="utf-8") if target.exists() else None
     fixtures.append(fixture)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(fixtures, indent=2) + "\n", encoding="utf-8")
+    safe_write_text(
+        target,
+        json.dumps(fixtures, indent=2) + "\n",
+        root=root,
+        overwrite=True,
+    )
     try:
         load_fixtures(target)
         assert_promoted_fixture_passes(root, target, str(fixture["id"]))
@@ -1271,9 +1293,15 @@ def promote_miss_to_fixture(
         if previous_text is None:
             target.unlink(missing_ok=True)
         else:
-            target.write_text(previous_text, encoding="utf-8")
+            safe_write_text(target, previous_text, root=root, overwrite=True)
         raise
-    mark_recall_miss_promoted(miss_file, str(fixture["id"]), reviewed_by, review_date)
+    mark_recall_miss_promoted(
+        root,
+        miss_file,
+        str(fixture["id"]),
+        reviewed_by,
+        review_date,
+    )
     return PromotedFixture(fixture=fixture, fixtures_path=repo_relative_path(target, root))
 
 

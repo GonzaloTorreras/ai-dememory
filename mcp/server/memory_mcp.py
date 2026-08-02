@@ -4,23 +4,33 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import queue
 import sqlite3
 import subprocess
 import sys
+import threading
 from typing import Any
 from urllib.parse import quote, unquote
 
+from ai_dememory_tool.mcp_profiles import (
+    DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
+    MCP_PROFILE_NAMES,
+    enabled_tools_for_profile,
+    normalize_mcp_idle_timeout_seconds,
+)
 from ai_dememory_tool.admin.consolidate_memory import build_report
 from ai_dememory_tool.admin.context_memory import assemble_context, context_defaults, resolve_context_query
 from ai_dememory_tool.admin.capture_miss import capture_miss
 from ai_dememory_tool.admin.doctor import doctor_profile, run_checks as run_doctor_checks, summarize_checks
 from ai_dememory_tool.admin.durable_provenance import audit_durable_provenance
 from ai_dememory_tool.admin.graph_memory import build_graph
-from ai_dememory_tool.admin.git_lessons import learn_git
+from ai_dememory_tool.admin.git_lessons import MAX_REPOSITORIES, learn_git
 from ai_dememory_tool.admin.hook_event import (
     HOOK_CAPTURE_REVIEW_STATUSES,
     hook_config,
@@ -28,7 +38,13 @@ from ai_dememory_tool.admin.hook_event import (
     hook_status_summary,
     review_hook_capture,
 )
-from ai_dememory_tool.admin.index_memory import default_db_path, rebuild_index
+from ai_dememory_tool.admin.index_memory import (
+    MAX_LOG_IDENTIFIER_CHARS,
+    MAX_RETRIEVAL_QUERY_CHARS,
+    default_db_path,
+    prune_generated_logs,
+    rebuild_index,
+)
 from ai_dememory_tool.admin.lifecycle import lifecycle_scores, record_outcome
 from ai_dememory_tool.admin.maintenance import dry_run_maintenance, maintenance_status, run_maintenance
 from ai_dememory_tool.admin.manual_acceptance import (
@@ -45,17 +61,24 @@ from ai_dememory_tool.admin.manual_acceptance import (
     verify_acceptance,
 )
 from ai_dememory_tool.admin.memorylib import (
+    MemoryError,
     SOURCE_KINDS,
+    contained_relative_path,
+    content_hash,
     discover_memory_files,
     extract_summary,
     is_memory_file,
     load_memory,
+    path_is_link_like,
     repo_relative_path,
     repo_root,
+    safe_write_text,
     slugify,
 )
 from ai_dememory_tool.admin.search_memory import result_to_dict, search
 from ai_dememory_tool.admin.provider_import import CAPTURE_KINDS, capture_source, detect_providers, import_chats, provider_setup_plan, providers_status
+from ai_dememory_tool.admin.process_control import noninteractive_git_environment, run_owned_capture
+from ai_dememory_tool.admin.resource_policy import HARD_LIMITS, model_policy_names, profile_names
 from ai_dememory_tool.admin.publish_plan import REPOSITORIES, publish_plan
 from ai_dememory_tool.admin.recall_fixtures import (
     annotate_recall_review_packet_plan,
@@ -118,6 +141,8 @@ SAFE_CONTEXT_SENSITIVITIES = {"public", "internal"}
 MAX_TOOL_LIMIT = 50
 MAX_PROPOSAL_CHARS = 20000
 MAX_WORKING_CHARS = 12000
+MAX_MCP_FRAME_CHARS = 256 * 1024
+MCP_STDIN_QUEUE_DEPTH = 8
 DEFAULT_PAGE_SIZE = 100
 RESOURCE_URI_PREFIX = "memory://"
 
@@ -188,6 +213,11 @@ TOOLS: list[dict[str, Any]] = [
                 "query": {"type": "string"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_TOOL_LIMIT, "default": 10},
                 "include_sensitive": {"type": "boolean", "default": False},
+                "public_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Return only public-sensitivity memories.",
+                },
             },
             ["query"],
         ),
@@ -212,6 +242,11 @@ TOOLS: list[dict[str, Any]] = [
                 "id": {"type": "string"},
                 "path": {"type": "string"},
                 "include_sensitive": {"type": "boolean", "default": False},
+                "public_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Reject any memory whose sensitivity is not public.",
+                },
             },
         ),
         "outputSchema": object_schema(
@@ -247,7 +282,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "memory.context",
         "title": "Assemble Memory Context",
-        "description": "Return token-budgeted memory context for an explicit query or generated working context.",
+        "description": (
+            "Return token-budgeted memory context for an explicit query or generated working context. "
+            "Public-only context requires an explicit query and excludes generated working state."
+        ),
         "inputSchema": object_schema(
             {
                 "query": {"type": ["string", "null"]},
@@ -256,6 +294,11 @@ TOOLS: list[dict[str, Any]] = [
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_TOOL_LIMIT, "default": 20},
                 "include_sensitive": {"type": "boolean", "default": False},
                 "include_working_memory": {"type": "boolean", "default": True},
+                "public_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enforce public sensitivity and filter generated working memory.",
+                },
                 "explain_results": {"type": "boolean", "default": False},
             },
         ),
@@ -267,10 +310,31 @@ TOOLS: list[dict[str, Any]] = [
                 "estimated_tokens": {"type": "integer"},
                 "remaining_tokens": {"type": "integer"},
                 "explain_results": {"type": "boolean"},
+                "public_only": {"type": "boolean"},
+                "working_memory": {"type": "object"},
+                "project_hint": {"type": ["string", "null"]},
+                "degradation": {"type": "array", "items": {"type": "string"}},
+                "security_filtered_items": {"type": "integer"},
+                "non_public_filtered_items": {"type": "integer"},
                 "items": {"type": "array", "items": {"type": "object"}},
                 "text": {"type": "string"},
             },
-            ["query", "query_source", "budget_tokens", "estimated_tokens", "remaining_tokens", "explain_results", "items", "text"],
+            [
+                "query",
+                "query_source",
+                "budget_tokens",
+                "estimated_tokens",
+                "remaining_tokens",
+                "explain_results",
+                "public_only",
+                "working_memory",
+                "project_hint",
+                "degradation",
+                "security_filtered_items",
+                "non_public_filtered_items",
+                "items",
+                "text",
+            ],
         ),
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
         "execution": {"taskSupport": "forbidden"},
@@ -339,14 +403,32 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": object_schema(
             {
                 "include_sensitive": {"type": "boolean", "default": False},
+                "public_only": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Return only revalidated public-sensitivity memories.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 50,
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000,
+                    "default": 0,
+                },
             },
         ),
         "outputSchema": object_schema(
             {
                 "nodes": {"type": "array", "items": {"type": "object"}},
                 "edges": {"type": "array", "items": {"type": "object"}},
+                "page": {"type": "object"},
             },
-            ["nodes", "edges"],
+            ["nodes", "edges", "page"],
         ),
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
         "execution": {"taskSupport": "forbidden"},
@@ -956,6 +1038,7 @@ TOOLS: list[dict[str, Any]] = [
                 "artifacts": {"type": "object"},
                 "artifact_freshness": {"type": "object"},
                 "lock_exists": {"type": "boolean"},
+                "resource_policy": {"type": "object"},
             },
             [
                 "schedule",
@@ -970,6 +1053,7 @@ TOOLS: list[dict[str, Any]] = [
                 "artifacts",
                 "artifact_freshness",
                 "lock_exists",
+                "resource_policy",
             ],
         ),
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
@@ -982,7 +1066,18 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": object_schema(
             {
                 "provider": {"type": "string", "enum": ["claude", "codex", "cursor", "windsurf"]},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Optional override; otherwise the configured intensity profile applies.",
+                },
+                "scan_limit": {
+                    "type": "integer",
+                    "minimum": int(HARD_LIMITS["provider_scan_entries"]["minimum"]),
+                    "maximum": int(HARD_LIMITS["provider_scan_entries"]["maximum"]),
+                    "description": "Optional override; otherwise the configured intensity profile applies.",
+                },
                 "dry_run": {"type": "boolean", "default": False},
             },
             ["provider"],
@@ -1016,7 +1111,11 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": object_schema(
             {
                 "repo": {"type": ["string", "null"]},
-                "repos": {"type": "array", "items": {"type": "string"}},
+                "repos": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": MAX_REPOSITORIES,
+                },
                 "days": {"type": "integer", "minimum": 1, "maximum": 365, "default": 7},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 50},
                 "dry_run": {"type": "boolean", "default": True},
@@ -1051,6 +1150,11 @@ TOOLS: list[dict[str, Any]] = [
                 "platform": {"type": "string", "enum": ["windows", "linux", "macos"]},
                 "mode": {"type": "string", "enum": ["installed", "docker"], "default": "installed"},
                 "image": {"type": "string", "default": "ai-dememory:local"},
+                "intensity": {
+                    "type": "string",
+                    "enum": list(profile_names()),
+                    "description": "Optional override; otherwise the persisted profile applies.",
+                },
             },
         ),
         "outputSchema": object_schema(
@@ -1060,6 +1164,13 @@ TOOLS: list[dict[str, Any]] = [
                 "platform": {"type": "string"},
                 "mode": {"type": "string"},
                 "image": {"type": "string"},
+                "command": {"type": "string"},
+                "docker_image_immutable": {"type": "boolean"},
+                "installable": {"type": "boolean"},
+                "resource_policy_valid": {"type": "boolean"},
+                "validation_errors": {"type": "array", "items": {"type": "string"}},
+                "task_namespace": {"type": "string"},
+                "intensity": {"type": "string"},
                 "schedule": {"type": "object"},
                 "commands": {"type": "array", "items": {"type": "object"}},
                 "cron_entries": {"type": "array", "items": {"type": "object"}},
@@ -1068,6 +1179,8 @@ TOOLS: list[dict[str, Any]] = [
                 "writes_files": {"type": "boolean"},
                 "installs_schedules": {"type": "boolean"},
                 "next_actions": {"type": "array", "items": {"type": "string"}},
+                "plan_sha256": {"type": "string"},
+                "apply_command": {"type": "array", "items": {"type": "string"}},
             },
             [
                 "root",
@@ -1075,6 +1188,13 @@ TOOLS: list[dict[str, Any]] = [
                 "platform",
                 "mode",
                 "image",
+                "command",
+                "docker_image_immutable",
+                "installable",
+                "resource_policy_valid",
+                "validation_errors",
+                "task_namespace",
+                "intensity",
                 "schedule",
                 "commands",
                 "cron_entries",
@@ -1083,6 +1203,8 @@ TOOLS: list[dict[str, Any]] = [
                 "writes_files",
                 "installs_schedules",
                 "next_actions",
+                "plan_sha256",
+                "apply_command",
             ],
         ),
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
@@ -1100,6 +1222,8 @@ TOOLS: list[dict[str, Any]] = [
         "outputSchema": object_schema(
             {
                 "configured": {"type": "boolean"},
+                "install_receipt_valid": {"type": "boolean"},
+                "host_state_verified": {"type": "boolean"},
                 "valid": {"type": "boolean"},
                 "validation_errors": {"type": "array", "items": {"type": "string"}},
                 "platform": {"type": "string"},
@@ -1112,10 +1236,13 @@ TOOLS: list[dict[str, Any]] = [
             },
             [
                 "configured",
+                "install_receipt_valid",
+                "host_state_verified",
                 "valid",
                 "validation_errors",
                 "platform",
                 "mode",
+                "image",
                 "schedule",
                 "review_due",
                 "status_commands",
@@ -1442,8 +1569,8 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "memory.publish_plan",
-        "title": "Publish Plan",
-        "description": "Plan manual TestPyPI or PyPI publishing without uploading packages.",
+        "title": "Release Readiness Plan",
+        "description": "Plan TestPyPI or PyPI readiness and the legacy read-only preflight without publishing.",
         "inputSchema": object_schema(
             {
                 "repository": {"type": "string", "enum": list(REPOSITORIES), "default": "testpypi"},
@@ -1722,29 +1849,51 @@ TOOLS: list[dict[str, Any]] = [
                 "mode": {"type": "string", "enum": ["installed", "docker", "both"], "default": "installed"},
                 "command": {"type": "string", "default": "ai-dememory"},
                 "image": {"type": "string", "default": "ai-dememory:local"},
+                "intensity": {"type": "string", "enum": list(profile_names()), "default": "balanced"},
+                "model_policy": {"type": "string", "enum": list(model_policy_names()), "default": "off"},
             },
         ),
         "outputSchema": object_schema(
             {
                 "root": {"type": "string"},
+                "client": {"type": "string"},
+                "mode": {"type": "string"},
+                "intensity": {"type": "string"},
+                "model_policy": {"type": "string"},
+                "resource_policy": {"type": "object"},
+                "resource_profiles": {"type": "array", "items": {"type": "object"}},
+                "model_policies": {"type": "array", "items": {"type": "object"}},
                 "mutates_system": {"type": "boolean"},
                 "writes_files": {"type": "boolean"},
                 "reads_provider_files": {"type": "boolean"},
                 "writes_import_candidates": {"type": "boolean"},
                 "installs_schedules": {"type": "boolean"},
                 "installs_hooks": {"type": "boolean"},
+                "suggests_generated_reports": {"type": "boolean"},
+                "suggests_generated_archive_status": {"type": "boolean"},
+                "suggests_generated_archive_retention": {"type": "boolean"},
                 "commands": {"type": "object"},
                 "provider_plan": {"type": "object"},
                 "next_actions": {"type": "array", "items": {"type": "string"}},
             },
             [
                 "root",
+                "client",
+                "mode",
+                "intensity",
+                "model_policy",
+                "resource_policy",
+                "resource_profiles",
+                "model_policies",
                 "mutates_system",
                 "writes_files",
                 "reads_provider_files",
                 "writes_import_candidates",
                 "installs_schedules",
                 "installs_hooks",
+                "suggests_generated_reports",
+                "suggests_generated_archive_status",
+                "suggests_generated_archive_retention",
                 "commands",
                 "provider_plan",
                 "next_actions",
@@ -1769,6 +1918,18 @@ TOOLS: list[dict[str, Any]] = [
                 "platform": {"type": "string"},
                 "mode": {"type": "string"},
                 "ready": {"type": "boolean"},
+                "ready_deprecated": {"type": "boolean"},
+                "ready_scope": {"type": "string"},
+                "core_ready": {"type": "boolean"},
+                "retrieval_evaluated": {"type": "boolean"},
+                "maintenance_ready": {"type": "boolean"},
+                "manual_maintenance_ready": {"type": "boolean"},
+                "automation_ready": {"type": "boolean"},
+                "autonomy_ready": {"type": "boolean"},
+                "autonomy_requested": {"type": "boolean"},
+                "integrations_ready": {"type": "boolean"},
+                "release_ready": {"type": "boolean"},
+                "readiness": {"type": "object"},
                 "mutates_system": {"type": "boolean"},
                 "runs_commands": {"type": "boolean"},
                 "writes_files": {"type": "boolean"},
@@ -1777,6 +1938,7 @@ TOOLS: list[dict[str, Any]] = [
                 "context_config": {"type": "object"},
                 "manual_acceptance": {"type": "object"},
                 "vector_readiness": {"type": "object"},
+                "resource_policy": {"type": "object"},
                 "schedule_environment": {"type": "object"},
                 "schedule_status": {"type": "object"},
                 "hook_status": {"type": "object"},
@@ -1796,6 +1958,18 @@ TOOLS: list[dict[str, Any]] = [
                 "platform",
                 "mode",
                 "ready",
+                "ready_deprecated",
+                "ready_scope",
+                "core_ready",
+                "retrieval_evaluated",
+                "maintenance_ready",
+                "manual_maintenance_ready",
+                "automation_ready",
+                "autonomy_ready",
+                "autonomy_requested",
+                "integrations_ready",
+                "release_ready",
+                "readiness",
                 "mutates_system",
                 "runs_commands",
                 "writes_files",
@@ -1804,6 +1978,7 @@ TOOLS: list[dict[str, Any]] = [
                 "context_config",
                 "manual_acceptance",
                 "vector_readiness",
+                "resource_policy",
                 "schedule_environment",
                 "schedule_status",
                 "hook_status",
@@ -2572,9 +2747,21 @@ def false_positive_review_state_receipt(root: Path, path: Path, fp_id: str, revi
     }
 
 
-def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | None = None) -> Any:
+def call_tool(
+    name: str,
+    arguments: dict[str, Any] | None = None,
+    root: Path | None = None,
+    *,
+    public_ceiling: bool = False,
+) -> Any:
     arguments = arguments or {}
     root = root or REPO_ROOT
+    public_only = public_ceiling or bool(arguments.get("public_only", False))
+    include_sensitive = (
+        False
+        if public_ceiling
+        else bool(arguments.get("include_sensitive", False))
+    )
 
     if name == "memory.doctor":
         check_rows = run_doctor_checks(root)
@@ -2589,7 +2776,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
             str(arguments["query"]),
             root,
             limit=normalize_limit(arguments.get("limit", 10)),
-            include_sensitive=bool(arguments.get("include_sensitive", False)),
+            include_sensitive=include_sensitive,
+            public_only=public_only,
         )
         return [result_to_dict(result) for result in results]
 
@@ -2598,12 +2786,13 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
             root,
             arguments.get("id"),
             arguments.get("path"),
-            include_sensitive=bool(arguments.get("include_sensitive", False)),
+            include_sensitive=include_sensitive,
+            public_only=public_only,
         )
 
     if name == "memory.context":
         defaults = context_defaults(root)
-        include_working_memory = (
+        include_working_memory = False if public_ceiling else (
             defaults.include_working_memory
             if arguments.get("include_working_memory") is None
             else bool(arguments.get("include_working_memory"))
@@ -2617,16 +2806,18 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
             root,
             str(arguments.get("query") or ""),
             auto=bool(arguments.get("auto", False)),
+            public_only=public_only,
         )
         return assemble_context(
             root,
             query,
             normalize_int(arguments.get("budget_tokens"), 200, 20000, defaults.budget_tokens),
             limit=normalize_limit(arguments.get("limit", 20), default=20),
-            include_sensitive=bool(arguments.get("include_sensitive", False)),
+            include_sensitive=include_sensitive,
             include_working_memory=include_working_memory,
             explain_results=explain_results,
             query_source=query_source,
+            public_only=public_only,
         )
 
     if name == "memory.write_proposal":
@@ -2711,7 +2902,13 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
         return {"findings": [finding.__dict__ for finding in findings]}
 
     if name == "memory.graph":
-        return build_graph(root, include_sensitive=bool(arguments.get("include_sensitive", False)))
+        return build_graph(
+            root,
+            include_sensitive=include_sensitive,
+            public_only=public_only,
+            limit=normalize_int(arguments.get("limit"), 1, 100, 50),
+            offset=normalize_int(arguments.get("offset"), 0, 10000, 0),
+        )
 
     if name == "memory.capture_miss":
         path = capture_miss(
@@ -2869,11 +3066,27 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
         return maintenance_status(root)
 
     if name == "memory.import_chats":
+        import_limit = arguments.get("limit")
+        scan_limit = arguments.get("scan_limit")
         return {
             "result": import_chats(
                 root,
                 str(arguments["provider"]),
-                limit=normalize_limit(arguments.get("limit", 20), default=20),
+                limit=(
+                    None
+                    if import_limit is None
+                    else normalize_int(import_limit, 1, 100, 20)
+                ),
+                max_scan_entries=(
+                    None
+                    if scan_limit is None
+                    else normalize_int(
+                        scan_limit,
+                        int(HARD_LIMITS["provider_scan_entries"]["minimum"]),
+                        int(HARD_LIMITS["provider_scan_entries"]["maximum"]),
+                        2500,
+                    )
+                ),
                 dry_run=bool(arguments.get("dry_run", False)),
             )
         }
@@ -2928,6 +3141,11 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
             target_platform=arguments.get("platform"),
             mode=str(arguments.get("mode") or "installed"),
             image=str(arguments.get("image") or "ai-dememory:local"),
+            intensity=(
+                str(arguments["intensity"])
+                if arguments.get("intensity") is not None
+                else None
+            ),
         )
 
     if name == "memory.schedule_status":
@@ -3151,6 +3369,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None, root: Path | N
             mode=str(arguments.get("mode") or "installed"),
             command=str(arguments.get("command") or "ai-dememory"),
             image=str(arguments.get("image") or "ai-dememory:local"),
+            intensity=str(arguments.get("intensity") or "balanced"),
+            model_policy=str(arguments.get("model_policy") or "off"),
         )
 
     if name == "memory.setup_health":
@@ -3546,6 +3766,8 @@ def normalize_git_lesson_repos(repo: Any, repos: Any, root: Path) -> list[Path]:
         values.append(repo.strip())
     if isinstance(repos, list):
         values.extend(str(item).strip() for item in repos if str(item).strip())
+    if len(values) > MAX_REPOSITORIES:
+        raise ValueError(f"memory.git_lessons accepts at most {MAX_REPOSITORIES} repositories")
     return [Path(value).expanduser() for value in values] or [root]
 
 
@@ -3598,14 +3820,13 @@ def working_optional_text_arg(value: Any, label: str) -> str | None:
 
 def is_git_checkout(root: Path) -> bool:
     try:
-        completed = subprocess.run(
+        completed = run_owned_capture(
             ["git", "rev-parse", "--show-toplevel"],
             cwd=root,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            timeout_seconds=10,
+            env=noninteractive_git_environment(),
         )
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     return completed.returncode == 0
 
@@ -3776,42 +3997,95 @@ def prompt_response(description: str, text: str) -> dict[str, Any]:
     }
 
 
+def _canonical_memory_path(root: Path, relpath: object) -> Path | None:
+    """Return a canonical in-root memory path without following child links."""
+
+    if not isinstance(relpath, str) or not relpath.strip():
+        return None
+    relative_input = Path(relpath)
+    if relative_input.is_absolute() or relative_input.drive:
+        return None
+
+    logical_root = Path(os.path.abspath(root.expanduser()))
+    try:
+        relative = contained_relative_path(logical_root / relative_input, logical_root)
+    except (OSError, ValueError):
+        return None
+
+    candidate = logical_root / relative
+    current = logical_root
+    for part in relative.parts:
+        current = current / part
+        if path_is_link_like(current):
+            return None
+    if not is_memory_file(candidate, logical_root):
+        return None
+    return candidate
+
+
 def get_memory(
     root: Path,
     memory_id: str | None,
     relpath: str | None,
     include_sensitive: bool = False,
+    public_only: bool = False,
 ) -> dict[str, Any]:
     path: Path | None = None
+    document = None
     if relpath:
-        candidate = (root / relpath).resolve()
-        try:
-            candidate.relative_to(root.resolve())
-        except ValueError as exc:
-            raise PermissionError("path must stay inside the repository") from exc
-        if not is_memory_file(candidate, root):
+        candidate = _canonical_memory_path(root, relpath)
+        if candidate is None:
             raise PermissionError("memory.get path must point to a canonical memory file")
         path = candidate
     elif memory_id:
         db_path = default_db_path(root)
+        row = None
         if db_path.exists():
-            conn = sqlite3.connect(db_path)
-            row = conn.execute("SELECT path FROM memories WHERE id = ?", (memory_id,)).fetchone()
-            conn.close()
-            if row:
-                path = root / row[0]
+            conn = None
+            try:
+                conn = sqlite3.connect(db_path)
+                row = conn.execute(
+                    "SELECT path, content_hash FROM memories WHERE id = ?",
+                    (memory_id,),
+                ).fetchone()
+            except sqlite3.Error:
+                row = None
+            finally:
+                if conn is not None:
+                    conn.close()
+        if row:
+            candidate = _canonical_memory_path(root, row[0])
+            if candidate is not None and candidate.exists():
+                try:
+                    indexed_document = load_memory(candidate)
+                except MemoryError:
+                    indexed_document = None
+                if (
+                    indexed_document is not None
+                    and indexed_document.frontmatter.get("id") == memory_id
+                    and isinstance(row[1], str)
+                    and content_hash(indexed_document.frontmatter, indexed_document.content) == row[1]
+                ):
+                    path = candidate
+                    document = indexed_document
         if path is None:
             for candidate in discover_memory_files(root):
-                document = load_memory(candidate)
-                if document.frontmatter.get("id") == memory_id:
+                candidate_document = load_memory(candidate)
+                if candidate_document.frontmatter.get("id") == memory_id:
                     path = candidate
+                    document = candidate_document
                     break
     else:
         raise ValueError("memory.get requires id or path")
 
     if path is None or not path.exists():
         raise FileNotFoundError("memory not found")
-    document = load_memory(path)
+    if document is None:
+        document = load_memory(path)
+    if memory_id and document.frontmatter.get("id") != memory_id:
+        raise FileNotFoundError("memory not found")
+    if public_only and document.frontmatter["sensitivity"] != "public":
+        raise PermissionError("memory is outside the public-only sensitivity ceiling")
     if document.frontmatter["sensitivity"] in {"private", "sensitive"} and not include_sensitive:
         raise PermissionError("memory requires include_sensitive=true")
     return {
@@ -3882,7 +4156,7 @@ review_after: {review_after}
     findings = scan_text(text, "<memory.write_proposal>")
     if findings:
         raise ValueError("proposal rejected by secret scan")
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return {"path": repo_relative_path(path, root)}
 
 
@@ -3900,6 +4174,13 @@ def mark_seen(
     score: float | None,
     used_by: str | None,
 ) -> dict[str, Any]:
+    for label, value, maximum in (
+        ("query", query, MAX_RETRIEVAL_QUERY_CHARS),
+        ("selected_memory_id", selected_memory_id or "", MAX_LOG_IDENTIFIER_CHARS),
+        ("used_by", used_by or "", MAX_LOG_IDENTIFIER_CHARS),
+    ):
+        if len(value) > maximum:
+            raise ValueError(f"memory.mark_seen {label} exceeds the {maximum} character limit")
     for label, value in (("query", query), ("selected_memory_id", selected_memory_id or ""), ("used_by", used_by or "")):
         if value:
             findings = scan_text(value, f"<memory.mark_seen.{label}>")
@@ -3910,42 +4191,45 @@ def mark_seen(
         raise FileNotFoundError(f"{db_path} does not exist. Run memory.reindex first.")
     conn = sqlite3.connect(db_path)
     created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    conn.execute(
-        """
-        INSERT INTO retrieval_log (query, selected_memory_id, score, used_by, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (query, selected_memory_id, score, used_by, created_at),
-    )
-    if selected_memory_id:
+    try:
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS memory_lifecycle (
-              memory_id TEXT PRIMARY KEY,
-              retrieval_count INTEGER NOT NULL DEFAULT 0,
-              last_retrieved_at TEXT,
-              strength REAL NOT NULL DEFAULT 0.0,
-              positive_outcomes INTEGER NOT NULL DEFAULT 0,
-              negative_outcomes INTEGER NOT NULL DEFAULT 0,
-              reward_factor REAL NOT NULL DEFAULT 1.0,
-              updated_at TEXT NOT NULL
-            )
-            """
-        )
-        conn.execute(
-            """
-            INSERT INTO memory_lifecycle (memory_id, retrieval_count, last_retrieved_at, strength, updated_at)
-            VALUES (?, 1, ?, 0.1, ?)
-            ON CONFLICT(memory_id) DO UPDATE SET
-              retrieval_count = retrieval_count + 1,
-              last_retrieved_at = excluded.last_retrieved_at,
-              strength = min(1.0, strength + 0.03),
-              updated_at = excluded.updated_at
+            INSERT INTO retrieval_log (query, selected_memory_id, score, used_by, created_at)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (selected_memory_id, created_at, created_at),
+            (query, selected_memory_id, score, used_by, created_at),
         )
-    conn.commit()
-    conn.close()
+        if selected_memory_id:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_lifecycle (
+                  memory_id TEXT PRIMARY KEY,
+                  retrieval_count INTEGER NOT NULL DEFAULT 0,
+                  last_retrieved_at TEXT,
+                  strength REAL NOT NULL DEFAULT 0.0,
+                  positive_outcomes INTEGER NOT NULL DEFAULT 0,
+                  negative_outcomes INTEGER NOT NULL DEFAULT 0,
+                  reward_factor REAL NOT NULL DEFAULT 1.0,
+                  updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO memory_lifecycle (memory_id, retrieval_count, last_retrieved_at, strength, updated_at)
+                VALUES (?, 1, ?, 0.1, ?)
+                ON CONFLICT(memory_id) DO UPDATE SET
+                  retrieval_count = retrieval_count + 1,
+                  last_retrieved_at = excluded.last_retrieved_at,
+                  strength = min(1.0, strength + 0.03),
+                  updated_at = excluded.updated_at
+                """,
+                (selected_memory_id, created_at, created_at),
+            )
+        prune_generated_logs(conn)
+        conn.commit()
+    finally:
+        conn.close()
     return {
         "query": query,
         "selected_memory_id": selected_memory_id,
@@ -3988,8 +4272,24 @@ def tool_error_result(error: Exception) -> dict[str, Any]:
     }
 
 
-def list_tools(cursor: Any = None) -> dict[str, Any]:
-    page, next_cursor = paginate(TOOLS, cursor)
+def tools_for_profile(profile: str) -> list[dict[str, Any]]:
+    names = enabled_tools_for_profile(profile, (tool["name"] for tool in TOOLS))
+    if names is None:
+        return list(TOOLS)
+    allowed = set(names)
+    return [tool for tool in TOOLS if tool["name"] in allowed]
+
+
+def ensure_tool_allowed(name: Any, profile: str) -> None:
+    if not isinstance(name, str):
+        raise ValueError("tool name must be a string")
+    allowed = {tool["name"] for tool in tools_for_profile(profile)}
+    if name not in allowed:
+        raise PermissionError(f"tool {name!r} is not enabled by MCP profile {profile!r}")
+
+
+def list_tools(cursor: Any = None, profile: str = "admin") -> dict[str, Any]:
+    page, next_cursor = paginate(tools_for_profile(profile), cursor)
     result: dict[str, Any] = {"tools": page}
     if next_cursor is not None:
         result["nextCursor"] = next_cursor
@@ -4003,13 +4303,17 @@ def negotiate_protocol_version(message: dict[str, Any]) -> str:
     return SUPPORTED_PROTOCOL_VERSIONS[0]
 
 
-def handle_rpc(message: dict[str, Any], root: Path) -> dict[str, Any] | None:
+def handle_rpc(message: dict[str, Any], root: Path, profile: str = "admin") -> dict[str, Any] | None:
     method = message.get("method")
     if method == "initialize":
         return {
             "protocolVersion": negotiate_protocol_version(message),
-            "capabilities": SERVER_CAPABILITIES,
-            "serverInfo": {"name": "ai-dememory", "version": "2.1.0"},
+            "capabilities": (
+                SERVER_CAPABILITIES
+                if profile == "admin"
+                else {"tools": {"listChanged": False}}
+            ),
+            "serverInfo": {"name": "ai-dememory", "version": "2.1.0", "profile": profile},
         }
     if method == "ping":
         return {}
@@ -4020,38 +4324,109 @@ def handle_rpc(message: dict[str, Any], root: Path) -> dict[str, Any] | None:
     }:
         return None
     if method == "tools/list":
-        return list_tools((message.get("params") or {}).get("cursor"))
+        return list_tools((message.get("params") or {}).get("cursor"), profile=profile)
     if method == "tools/call":
         params = message.get("params", {})
         name = params.get("name")
         arguments = params.get("arguments") or {}
         try:
-            result = call_tool(name, arguments, root)
+            ensure_tool_allowed(name, profile)
+            result = call_tool(
+                name,
+                arguments,
+                root,
+                public_ceiling=profile == "public",
+            )
             return tool_result(result)
         except Exception as exc:
             return tool_error_result(exc)
     if method == "resources/list":
+        if profile != "admin":
+            raise PermissionError("MCP resources require the explicit admin profile")
         return list_resources(root, (message.get("params") or {}).get("cursor"))
     if method == "resources/templates/list":
+        if profile != "admin":
+            raise PermissionError("MCP resource templates require the explicit admin profile")
         return list_resource_templates()
     if method == "resources/read":
+        if profile != "admin":
+            raise PermissionError("MCP resources require the explicit admin profile")
         params = message.get("params") or {}
         return read_resource(root, str(params.get("uri") or ""))
     if method == "prompts/list":
+        if profile != "admin":
+            raise PermissionError("MCP prompts require the explicit admin profile")
         return list_prompts((message.get("params") or {}).get("cursor"))
     if method == "prompts/get":
+        if profile != "admin":
+            raise PermissionError("MCP prompts require the explicit admin profile")
         params = message.get("params") or {}
         return get_prompt(str(params.get("name") or ""), params.get("arguments") or {})
     raise ValueError(f"Unsupported method: {method}")
 
 
-def run_stdio(root: Path) -> int:
-    for line in sys.stdin:
+def stdio_lines(idle_timeout_seconds: int) -> Iterator[str]:
+    """Yield stdin lines and stop after a bounded idle interval.
+
+    The daemon reader allows Windows named pipes to remain blocking while the
+    main thread retains control of the process lifetime. A timeout therefore
+    terminates an abandoned MCP process even when its host keeps the pipe open.
+    """
+
+    idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(idle_timeout_seconds)
+    inbox: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=MCP_STDIN_QUEUE_DEPTH)
+
+    def read_stdin() -> None:
+        try:
+            while True:
+                line = sys.stdin.readline(MAX_MCP_FRAME_CHARS + 1)
+                if line == "":
+                    break
+                if len(line) > MAX_MCP_FRAME_CHARS:
+                    while line and not line.endswith("\n"):
+                        line = sys.stdin.readline(MAX_MCP_FRAME_CHARS + 1)
+                    inbox.put(
+                        (
+                            "error",
+                            ValueError(
+                                f"MCP request frame exceeds {MAX_MCP_FRAME_CHARS} characters"
+                            ),
+                        )
+                    )
+                    return
+                inbox.put(("line", line))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            inbox.put(("error", exc))
+        finally:
+            inbox.put(("eof", ""))
+
+    threading.Thread(target=read_stdin, name="ai-dememory-mcp-stdin", daemon=True).start()
+    while True:
+        try:
+            kind, payload = inbox.get(
+                timeout=idle_timeout_seconds if idle_timeout_seconds else None
+            )
+        except queue.Empty:
+            return
+        if kind == "line":
+            yield str(payload)
+            continue
+        if kind == "error":
+            raise OSError("MCP stdin reader failed") from payload
+        return
+
+
+def run_stdio(
+    root: Path,
+    profile: str = "core",
+    idle_timeout_seconds: int = DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
+) -> int:
+    for line in stdio_lines(idle_timeout_seconds):
         if not line.strip():
             continue
         try:
             message = json.loads(line)
-            result = handle_rpc(message, root)
+            result = handle_rpc(message, root, profile=profile)
             if "id" in message and result is not None:
                 print(respond(message.get("id"), result), flush=True)
         except Exception as exc:
@@ -4065,19 +4440,55 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     parser.add_argument("--stdio", action="store_true", help="Run JSON-RPC stdio server.")
+    parser.add_argument(
+        "--profile",
+        choices=MCP_PROFILE_NAMES,
+        default=None,
+        help=(
+            "Server-enforced tool profile. Unspecified stdio servers use core; "
+            "direct local inspection commands retain the admin surface."
+        ),
+    )
+    parser.add_argument(
+        "--idle-timeout-seconds",
+        type=int,
+        default=DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
+        help=(
+            "Exit after this many seconds without an MCP message. "
+            f"Default: {DEFAULT_MCP_IDLE_TIMEOUT_SECONDS}; 0 disables the idle lease."
+        ),
+    )
+    parser.add_argument(
+        "--require-bound-root",
+        action="store_true",
+        help="Fail unless --root or AI_DEMEMORY_ROOT explicitly binds the vault.",
+    )
     parser.add_argument("--list-tools", action="store_true", help="Print tool definitions.")
     parser.add_argument("--call", help="Call one tool directly by name.")
     parser.add_argument("--args", default="{}", help="JSON arguments for --call.")
     args = parser.parse_args(argv)
 
+    if args.require_bound_root and not (args.root or os.environ.get("AI_DEMEMORY_ROOT")):
+        parser.error("--require-bound-root needs --root or AI_DEMEMORY_ROOT")
+    try:
+        idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(args.idle_timeout_seconds)
+    except ValueError as exc:
+        parser.error(str(exc))
     root = repo_root(args.root)
+    selected_profile = args.profile or ("core" if args.stdio else "admin")
     if args.stdio:
-        return run_stdio(root)
+        return run_stdio(root, profile=selected_profile, idle_timeout_seconds=idle_timeout_seconds)
     if args.list_tools:
-        print(json.dumps({"tools": TOOLS}, indent=2))
+        print(json.dumps({"tools": tools_for_profile(selected_profile)}, indent=2))
         return 0
     if args.call:
-        result = call_tool(args.call, json.loads(args.args), root)
+        ensure_tool_allowed(args.call, selected_profile)
+        result = call_tool(
+            args.call,
+            json.loads(args.args),
+            root,
+            public_ceiling=selected_profile == "public",
+        )
         print(json.dumps(result, indent=2))
         return 0
     parser.print_help()

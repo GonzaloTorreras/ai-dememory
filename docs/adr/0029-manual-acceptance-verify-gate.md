@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for v2 draft.
+Accepted as a local sign-off verifier. ADRs 0247 and 0252 clarify that it is not
+a package-workflow or authorization gate.
 
 ## Context
 
@@ -13,7 +14,8 @@ ADR, there was no direct command that returned a failing exit code until every
 manual acceptance item had reviewed passing evidence.
 
 Reviewers need a final local gate for the moment when a draft PR is ready to
-move from automated readiness into human acceptance completion.
+move from automated readiness into human acceptance completion. The package
+publisher cannot read the private-vault evidence behind this signal.
 
 ## Decision
 
@@ -29,6 +31,8 @@ and exits:
 
 `--json` emits a structured summary for release handoffs and scripts. Blocked
 items remain incomplete until a later `passed` record exists.
+Release handoffs disclose that state to the owner; the command neither
+authorizes nor dispatches publication.
 
 ## Benefits
 

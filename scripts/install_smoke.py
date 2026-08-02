@@ -14,6 +14,8 @@ import sys
 import tempfile
 from typing import Any
 
+from process_control import run_owned_capture
+
 from build_artifacts import cleanup_created_build_paths, snapshot_generated_build_paths
 from memorylib import repo_root
 
@@ -21,6 +23,7 @@ from memorylib import repo_root
 MCP_INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25"}}
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 MCP_PING = {"jsonrpc": "2.0", "id": 2, "method": "ping"}
+PINNED_SMOKE_IMAGE = "sha256:" + ("a" * 64)
 INSTALL_SMOKE_MEMORY = """---
 id: mem_install_smoke_policy
 title: Install Smoke Policy
@@ -43,6 +46,32 @@ review_after: 2026-09-19
 ---
 
 Install smoke policy memory verifies packaged recall fixture promotion.
+"""
+INSTALL_SMOKE_PUBLIC_MEMORY = """---
+id: mem_install_smoke_public
+title: Install Smoke Public Ceiling
+type: tool
+reviewed: true
+reviewed_by: Install Smoke
+reviewed_at: 2026-07-26
+status: active
+scope: tool
+project: null
+tags: [install-smoke, public-ceiling]
+aliases: [public package recall]
+created_at: 2026-07-26
+updated_at: 2026-07-26
+confidence: 0.9
+sensitivity: public
+source:
+  kind: manual
+  ref: install-smoke
+pin: false
+decay: normal
+review_after: 2026-10-26
+---
+
+Public ceiling package recall verifies public-only behavior from the installed artifact.
 """
 
 
@@ -77,15 +106,12 @@ def run_step(
     allowed_returncodes: set[int] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     ok_returncodes = allowed_returncodes or {0}
-    completed = subprocess.run(
+    completed = run_owned_capture(
         command,
         cwd=cwd,
         env=env,
-        input=input_text,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
+        input_text=input_text,
+        timeout_seconds=timeout,
     )
     steps.append(SmokeStep(name, command, str(cwd) if cwd else None, completed.returncode))
     if completed.returncode not in ok_returncodes:
@@ -319,6 +345,13 @@ def assert_maintenance_status_artifacts(stdout: str) -> None:
         raise InstallSmokeError("maintenance status generated packet archive summary missing prunable_count")
     if packet_archives.get("deletes_files") is not False:
         raise InstallSmokeError("maintenance status generated packet archive summary must not delete files")
+    resource_policy = data.get("resource_policy")
+    if not isinstance(resource_policy, dict) or resource_policy.get("valid") is not True:
+        raise InstallSmokeError("maintenance status missing a valid resource policy")
+    if resource_policy.get("runtime_model_calls_per_maintenance_run") != 0:
+        raise InstallSmokeError("maintenance status must report zero runtime model calls")
+    if resource_policy.get("runtime_embedding_calls_per_maintenance_run") != 0:
+        raise InstallSmokeError("maintenance status must report zero runtime embedding calls")
 
 
 def command_has_profile(command: Any, profile: str) -> bool:
@@ -365,8 +398,19 @@ def assert_schedule_plan(
         raise InstallSmokeError("schedule plan missing scheduler commands")
     if not all(isinstance(command, dict) for command in commands):
         raise InstallSmokeError("schedule plan commands must be objects")
+    namespace = data.get("task_namespace")
+    if not isinstance(namespace, str) or not namespace.startswith("ai-dememory-"):
+        raise InstallSmokeError("schedule plan missing per-vault task namespace")
+    if data.get("intensity") != "balanced":
+        raise InstallSmokeError("schedule plan did not report the balanced default intensity")
+    fingerprint = data.get("plan_sha256")
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+        raise InstallSmokeError("schedule plan missing review fingerprint")
+    apply_command = data.get("apply_command")
+    if not isinstance(apply_command, list) or fingerprint not in apply_command:
+        raise InstallSmokeError("schedule plan missing fingerprint-bound apply command")
     for profile in ("daily", "weekly"):
-        expected_name = f"ai-dememory-{profile}"
+        expected_name = f"{namespace}-{profile}"
         matching_commands = [command for command in commands if command.get("name") == expected_name]
         if not matching_commands:
             raise InstallSmokeError(f"schedule plan missing {profile} scheduler command")
@@ -438,10 +482,12 @@ def assert_publish_plan(stdout: str) -> None:
         raise InstallSmokeError("publish plan must require explicit confirmation")
     if data.get("requires_pr_url") is not True:
         raise InstallSmokeError("publish plan must require a PR URL")
+    if data.get("uses_trusted_publishing") is not False:
+        raise InstallSmokeError("legacy publish preflight must not use trusted publishing")
     dispatch_inputs = data.get("dispatch_inputs")
     if (
         not isinstance(dispatch_inputs, dict)
-        or dispatch_inputs.get("confirm") != "publish"
+        or dispatch_inputs.get("confirm") != "preflight"
         or "pr_url" not in dispatch_inputs
     ):
         raise InstallSmokeError("publish plan missing workflow dispatch confirmation")
@@ -491,6 +537,18 @@ def assert_onboarding(stdout: str, *, applied: bool) -> None:
         raise InstallSmokeError("onboarding did not return a reviewable plan fingerprint")
     if applied and not data.get("changed"):
         raise InstallSmokeError("onboarding apply did not write the reviewed baseline")
+    policy = data.get("resource_policy")
+    if not isinstance(policy, dict) or policy.get("intensity") != "balanced":
+        raise InstallSmokeError("onboarding did not expose the balanced resource policy")
+    if policy.get("runtime_model_calls_per_maintenance_run") != 0:
+        raise InstallSmokeError("onboarding must report zero runtime model calls")
+    if policy.get("runtime_embedding_calls_per_maintenance_run") != 0:
+        raise InstallSmokeError("onboarding must report zero runtime embedding calls")
+    integrations = data.get("integrations")
+    if not isinstance(integrations, dict) or integrations.get("vault_bound") is not True:
+        raise InstallSmokeError("onboarding did not return vault-bound integration configs")
+    if integrations.get("installs_hooks") is not False or integrations.get("installs_schedules") is not False:
+        raise InstallSmokeError("onboarding integration preview crossed an apply boundary")
 
 
 def assert_turn_context(stdout: str) -> None:
@@ -504,6 +562,37 @@ def assert_turn_context(stdout: str) -> None:
         raise InstallSmokeError("turn context did not return bounded memory items")
 
 
+def assert_public_context(stdout: str) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"public context did not return JSON: {exc}") from exc
+    if data.get("public_only") is not True:
+        raise InstallSmokeError("public context did not report the public-only ceiling")
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        raise InstallSmokeError("public context did not return the public fixture")
+    if any(item.get("sensitivity") != "public" for item in items if isinstance(item, dict)):
+        raise InstallSmokeError("public context returned a non-public item")
+    working = data.get("working_memory")
+    if not isinstance(working, dict) or working.get("included") is not False:
+        raise InstallSmokeError("public context included generated working memory")
+    serialized = json.dumps(data)
+    if "mem_install_smoke_policy" in serialized or "Install Smoke Working State" in serialized:
+        raise InstallSmokeError("public context exposed internal memory or working state")
+
+
+def assert_public_search(stdout: str) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"public search did not return JSON: {exc}") from exc
+    if not isinstance(data, list) or [item.get("id") for item in data] != ["mem_install_smoke_public"]:
+        raise InstallSmokeError("public search did not return only the public fixture")
+    if any(item.get("sensitivity") not in {None, "public"} for item in data):
+        raise InstallSmokeError("public search returned a non-public sensitivity")
+
+
 def assert_hook_dispatch(stdout: str) -> None:
     try:
         data = json.loads(stdout)
@@ -512,8 +601,13 @@ def assert_hook_dispatch(stdout: str) -> None:
     output = data.get("hookSpecificOutput")
     if not isinstance(output, dict) or output.get("hookEventName") != "UserPromptSubmit":
         raise InstallSmokeError("hook dispatch did not return UserPromptSubmit context")
-    if not str(output.get("additionalContext", "")).strip():
+    context = str(output.get("additionalContext", "")).strip()
+    if not context:
         raise InstallSmokeError("hook dispatch additionalContext was empty")
+    if "Install Smoke Public Ceiling" not in context:
+        raise InstallSmokeError("hook dispatch did not return the public-only fixture")
+    if "mem_install_smoke_policy" in context or "Install Smoke Policy" in context:
+        raise InstallSmokeError("hook dispatch exposed the internal install-smoke fixture")
 
 
 def package_smoke_commands() -> list[tuple[str, list[str]]]:
@@ -560,6 +654,27 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
             ],
         ),
         ("context auto", ["context", "--auto", "--budget", "700", "--json"]),
+        (
+            "context public only",
+            [
+                "context",
+                "public",
+                "ceiling",
+                "package",
+                "recall",
+                "--public-only",
+                "--no-working-memory",
+                "--limit",
+                "1",
+                "--budget",
+                "700",
+                "--json",
+            ],
+        ),
+        (
+            "search public only",
+            ["search", "public", "ceiling", "package", "recall", "--public-only", "--limit", "1", "--json"],
+        ),
         (
             "mark seen receipt",
             ["mark-seen", "--id", "mem_install_smoke_policy", "--query", "install smoke package policy", "--json"],
@@ -630,6 +745,16 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
             "mcp publish plan",
             ["mcp", "--call", "memory.publish_plan", "--args", "{}"],
         ),
+        (
+            "mcp public context",
+            [
+                "mcp",
+                "--call",
+                "memory.context",
+                "--args",
+                '{"query":"public ceiling package recall","public_only":true,"include_working_memory":true,"limit":1}',
+            ],
+        ),
         ("api smoke", ["api-smoke"]),
         ("vault template export", ["vault-template", "export", "{template_export}", "--json"]),
         ("mcp config", ["mcp-config", "--client", "codex"]),
@@ -655,7 +780,7 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
         ("schedule doctor", ["schedule", "doctor", "--json"]),
         ("schedule plan", ["schedule", "plan", "--json"]),
         ("schedule dry run", ["schedule", "setup", "--dry-run"]),
-        ("docker schedule dry run", ["schedule", "setup", "--dry-run", "--mode", "docker", "--image", "ai-dememory:local"]),
+        ("docker schedule dry run", ["schedule", "setup", "--dry-run", "--mode", "docker", "--image", PINNED_SMOKE_IMAGE]),
         ("cron schedule export", ["schedule", "cron", "--json"]),
         ("review modes", ["review", "modes"]),
         ("review false positives due only", ["review", "false-positives", "--due-only", "--json"]),
@@ -830,6 +955,8 @@ def write_install_smoke_memory(vault: Path) -> Path:
     path = vault / "memories" / "tools" / "install-smoke-policy.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(INSTALL_SMOKE_MEMORY, encoding="utf-8")
+    public_path = vault / "memories" / "tools" / "install-smoke-public.md"
+    public_path.write_text(INSTALL_SMOKE_PUBLIC_MEMORY, encoding="utf-8")
     return path
 
 
@@ -918,7 +1045,7 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             if name == "hook prompt dispatch":
                 input_text = json.dumps(
                     {
-                        "prompt": "continue install smoke package policy",
+                        "prompt": "continue public ceiling package recall",
                         "cwd": str(vault),
                         "session_id": "install-smoke",
                     }
@@ -939,6 +1066,10 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
                 assert_onboarding(completed.stdout, applied=True)
             if name == "turn context":
                 assert_turn_context(completed.stdout)
+            if name in {"context public only", "mcp public context"}:
+                assert_public_context(completed.stdout)
+            if name == "search public only":
+                assert_public_search(completed.stdout)
             if name == "hook prompt dispatch":
                 assert_hook_dispatch(completed.stdout)
             if name == "mcp release evidence unavailable":

@@ -26,8 +26,10 @@ trusted default-branch workflow records the formal approval as
    re-reads the PR and latest canonical CI run. It approves only when author,
    repository, branch, PR number, base SHA, head SHA, draft state, receipt and
    CI association all match.
-6. Codex rechecks mergeability and required checks, then merges according to
-   the repository's AI-operated release policy.
+6. Codex rechecks mergeability and required checks, then stops until the user
+   explicitly authorizes the exact merge. A release PR also requires explicit
+   authorization for the later manual tag/SHA-bound dispatch and package
+   publication.
 
 Any new head commit or movement of `main` makes the tuple stale. Codex must
 bring the branch current and repeat CI, review and receipt generation. The
@@ -40,6 +42,10 @@ The receipt is an owner-attested policy signal: GitHub verifies who posted it,
 while the repository workflow trusts the stated reviewer and evidence. The
 fresh subagent review is enforced by Codex policy and audit history, not by a
 cryptographic subagent identity.
+
+The bot review is only a technical branch-protection signal. It never replaces
+explicit user authorization for merge, tag creation, trusted-publishing
+dispatch, package publication, visibility changes, secrets, or destructive work.
 
 ## Repository setting
 

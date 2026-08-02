@@ -1,25 +1,43 @@
-"""Named MCP tool allowlists for client configuration.
-
-The server keeps the complete tool surface for backwards compatibility.  These
-profiles only control what a supporting client advertises to a model.
-"""
+"""Named MCP tool allowlists enforced by generated clients and the server."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
 
-CORE_MCP_TOOLS = (
+MIN_MCP_IDLE_TIMEOUT_SECONDS = 30
+MAX_MCP_IDLE_TIMEOUT_SECONDS = 3600
+DEFAULT_MCP_IDLE_TIMEOUT_SECONDS = 600
+
+
+def normalize_mcp_idle_timeout_seconds(value: int) -> int:
+    """Validate an MCP idle timeout; zero explicitly disables self-termination."""
+
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("MCP idle timeout must be an integer number of seconds")
+    if value == 0:
+        return value
+    if value < MIN_MCP_IDLE_TIMEOUT_SECONDS or value > MAX_MCP_IDLE_TIMEOUT_SECONDS:
+        raise ValueError(
+            "MCP idle timeout must be 0 (disabled) or between "
+            f"{MIN_MCP_IDLE_TIMEOUT_SECONDS} and {MAX_MCP_IDLE_TIMEOUT_SECONDS} seconds"
+        )
+    return value
+
+
+PUBLIC_MCP_TOOLS = (
     "memory.search",
     "memory.get",
     "memory.context",
-    "memory.graph",
+)
+
+CORE_MCP_TOOLS = PUBLIC_MCP_TOOLS + (
     "memory.doctor",
-    "memory.working_current",
-    "memory.working_status",
 )
 
 WORKING_MCP_TOOLS = CORE_MCP_TOOLS + (
+    "memory.working_current",
+    "memory.working_status",
     "memory.working_snapshot",
     "memory.working_handoff",
     "memory.mark_seen",
@@ -28,6 +46,7 @@ WORKING_MCP_TOOLS = CORE_MCP_TOOLS + (
 )
 
 REVIEW_MCP_TOOLS = WORKING_MCP_TOOLS + (
+    "memory.graph",
     "memory.write_proposal",
     "memory.validate_status",
     "memory.recall_miss_candidate",
@@ -62,8 +81,9 @@ REVIEW_MCP_TOOLS = WORKING_MCP_TOOLS + (
     "memory.review_recommendation_outcome",
 )
 
-MCP_PROFILE_NAMES = ("core", "working", "review", "admin")
+MCP_PROFILE_NAMES = ("public", "core", "working", "review", "admin")
 MCP_TOOL_PROFILES = {
+    "public": PUBLIC_MCP_TOOLS,
     "core": CORE_MCP_TOOLS,
     "working": WORKING_MCP_TOOLS,
     "review": REVIEW_MCP_TOOLS,
@@ -71,7 +91,7 @@ MCP_TOOL_PROFILES = {
 
 
 def enabled_tools_for_profile(profile: str, all_tools: Iterable[str] | None = None) -> tuple[str, ...] | None:
-    """Return a profile allowlist; ``admin`` deliberately means no filter.
+    """Return a profile allowlist; ``admin`` deliberately means the full surface.
 
     Supplying ``all_tools`` makes the admin profile explicit for inventory and
     metrics without making generated client configs repeat the complete schema.

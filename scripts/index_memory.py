@@ -20,6 +20,16 @@ from memorylib import (
     validate_memories,
 )
 from secret_scan import scan_paths
+from resource_limits import (
+    MAX_CONSOLIDATION_DETAILS_CHARS,
+    MAX_CONSOLIDATION_LOG_ROWS,
+    MAX_LIFECYCLE_ROWS,
+    MAX_LOG_IDENTIFIER_CHARS,
+    MAX_OUTCOME_LOG_ROWS,
+    MAX_OUTCOME_NOTE_CHARS,
+    MAX_RETRIEVAL_LOG_ROWS,
+    MAX_RETRIEVAL_QUERY_CHARS,
+)
 
 
 DEFAULT_DB = Path("indexes/memory.sqlite")
@@ -153,6 +163,7 @@ def rebuild_index(root: Path, db_path: Path | None = None) -> tuple[Path, int]:
         for document in documents:
             insert_document(conn, root, document)
         restore_generated_state(conn, generated_state)
+        prune_generated_logs(conn)
         conn.commit()
     except Exception:
         conn.close()
@@ -182,21 +193,67 @@ def dump_generated_state(db_path: Path, current_ids: set[str]) -> dict[str, list
                 "retrieval_log",
                 "selected_memory_id",
                 current_ids,
+                max_rows=MAX_RETRIEVAL_LOG_ROWS,
+                where=(
+                    f"length(query) <= {MAX_RETRIEVAL_QUERY_CHARS} "
+                    f"AND length(COALESCE(selected_memory_id, '')) <= {MAX_LOG_IDENTIFIER_CHARS} "
+                    f"AND length(COALESCE(used_by, '')) <= {MAX_LOG_IDENTIFIER_CHARS}"
+                ),
             ),
-            "memory_lifecycle": filtered_rows(conn, "memory_lifecycle", "memory_id", current_ids),
-            "memory_outcomes": filtered_rows(conn, "memory_outcomes", "memory_id", current_ids),
-            "consolidation_log": read_rows(conn, "consolidation_log"),
+            "memory_lifecycle": filtered_rows(
+                conn,
+                "memory_lifecycle",
+                "memory_id",
+                current_ids,
+                max_rows=MAX_LIFECYCLE_ROWS,
+                order_column="memory_id",
+                where=f"length(memory_id) <= {MAX_LOG_IDENTIFIER_CHARS}",
+            ),
+            "memory_outcomes": filtered_rows(
+                conn,
+                "memory_outcomes",
+                "memory_id",
+                current_ids,
+                max_rows=MAX_OUTCOME_LOG_ROWS,
+                where=(
+                    f"length(memory_id) <= {MAX_LOG_IDENTIFIER_CHARS} "
+                    f"AND length(COALESCE(note, '')) <= {MAX_OUTCOME_NOTE_CHARS}"
+                ),
+            ),
+            "consolidation_log": read_rows(
+                conn,
+                "consolidation_log",
+                max_rows=MAX_CONSOLIDATION_LOG_ROWS,
+                where=(
+                    f"length(action) <= {MAX_LOG_IDENTIFIER_CHARS} "
+                    f"AND length(COALESCE(memory_id, '')) <= {MAX_LOG_IDENTIFIER_CHARS} "
+                    f"AND length(COALESCE(details, '')) <= {MAX_CONSOLIDATION_DETAILS_CHARS}"
+                ),
+            ),
         }
     finally:
         conn.close()
 
 
-def read_rows(conn: sqlite3.Connection, table: str) -> list[dict[str, object]]:
+def read_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    max_rows: int,
+    order_column: str = "id",
+    where: str = "1 = 1",
+) -> list[dict[str, object]]:
     try:
-        rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+        cursor = conn.execute(
+            f"SELECT * FROM {table} WHERE {where} "
+            f"ORDER BY {order_column} DESC LIMIT ?",
+            (max_rows,),
+        )
     except sqlite3.Error:
         return []
-    return [dict(row) for row in rows]
+    rows = [dict(row) for row in cursor]
+    rows.reverse()
+    return rows
 
 
 def filtered_rows(
@@ -204,8 +261,18 @@ def filtered_rows(
     table: str,
     memory_column: str,
     current_ids: set[str],
+    *,
+    max_rows: int,
+    order_column: str = "id",
+    where: str = "1 = 1",
 ) -> list[dict[str, object]]:
-    rows = read_rows(conn, table)
+    rows = read_rows(
+        conn,
+        table,
+        max_rows=max_rows,
+        order_column=order_column,
+        where=where,
+    )
     output: list[dict[str, object]] = []
     for row in rows:
         memory_id = row.get(memory_column)
@@ -218,6 +285,22 @@ def restore_generated_state(conn: sqlite3.Connection, state: dict[str, list[dict
     for table in ("retrieval_log", "consolidation_log", "memory_lifecycle", "memory_outcomes"):
         for row in state.get(table, []):
             insert_row(conn, table, row)
+
+
+def prune_generated_logs(conn: sqlite3.Connection) -> None:
+    for table, max_rows in (
+        ("retrieval_log", MAX_RETRIEVAL_LOG_ROWS),
+        ("memory_outcomes", MAX_OUTCOME_LOG_ROWS),
+        ("consolidation_log", MAX_CONSOLIDATION_LOG_ROWS),
+    ):
+        try:
+            conn.execute(
+                f"DELETE FROM {table} WHERE id NOT IN "
+                f"(SELECT id FROM {table} ORDER BY id DESC LIMIT ?)",
+                (max_rows,),
+            )
+        except sqlite3.Error:
+            continue
 
 
 def insert_row(conn: sqlite3.Connection, table: str, row: dict[str, object]) -> None:

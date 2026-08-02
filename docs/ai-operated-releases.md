@@ -1,19 +1,25 @@
-# AI-Operated Releases
+# Agent-Operated, Approval-Gated Releases
 
 ## Ownership model
 
-ai-dememory is **AI-operated and human-account-owned**. Codex has standing
-operational authority to maintain the repository, create and merge release
-changes, update versions and changelog entries, create immutable tags, publish
-packages and perform fix-forward recovery when automated gates pass. Gonzalo's
-account or a future organization remains the legal GitHub and PyPI owner and
-the destructive break-glass authority.
+ai-dememory is operationally maintained by Codex and human-account-owned. Codex
+has standing authority to implement, test, prepare release PRs, update proposed
+versions and changelog entries, collect exact-artifact evidence, coordinate
+independent review and prepare fix-forward recovery.
 
-Routine release publication has no human approval step. This deliberately
-differs from the Python Packaging Guide's conservative recommendation to place
-manual approval on the `pypi` environment. Equivalent release safety is moved
-to protected source control, immutable identity, exact-artifact verification,
-OIDC scoping, provenance and post-publish checks.
+Merge, immutable tag creation, trusted-publishing dispatch and package
+publication remain important actions that require explicit user authorization.
+Automated gates establish technical readiness; they do not grant that
+authorization. Gonzalo's account or a future organization remains the legal
+GitHub and PyPI owner and the destructive break-glass authority.
+
+`release_ready`, `publish_ready`, and manual acceptance are local
+product-quality/sign-off evidence. The release handoff must disclose their
+remaining blockers, but `.github/workflows/release.yml` cannot read
+private-vault receipts and does not enforce those fields. Explicit owner
+authorization decides whether any disclosed residual gap is acceptable; the
+workflow's hard gates are immutable identity, ancestry, exact artifacts,
+tests, attestations, OIDC and post-index installation.
 
 ## Canonical flow
 
@@ -21,43 +27,72 @@ OIDC scoping, provenance and post-publish checks.
    `CHANGELOG.md` section. Product acceptance reports may accompany the PR but
    do not gate package integrity.
 2. CI runs compile, schema, secret, MCP, release, unit, install, package and
-   Docker smokes. A fresh read-only reviewer checks the PR before Codex merges.
-3. After successful CI on `main`, `tag-release.yml` derives `v<version>` and
-   creates the annotated tag only when it does not already exist.
-4. `release.yml` validates repository identity, tag syntax, tag-version-
-   changelog alignment and ancestry from `origin/main`.
-5. The workflow builds wheel and sdist once, runs `twine check`, installs and
+   Docker smokes. A fresh read-only reviewer checks the exact PR tuple.
+3. Codex presents the exact PR, head/base SHAs, CI and release evidence. The
+   user must explicitly authorize its merge and, for a release PR, the
+   consequent tag and publication. Without that authorization the PR remains
+   unmerged, regardless of technical readiness.
+4. After an authorized merge and successful CI on `main`, the user explicitly
+   dispatches `tag-release.yml` with the exact `v<version>`, the exact
+   40-character current-main commit, and
+   `confirm=release-<tag>@<approved_sha>`. The workflow rechecks current
+   `main`, a successful push-CI run for that SHA, version/changelog identity,
+   and immutable-tag collisions before creating the annotated tag.
+5. The tagger stops. It keeps Actions read-only and does not dispatch the
+   publisher. The user separately dispatches `release.yml` with `intent`, the
+   same exact tag and commit, and
+   `confirm=<intent>-<tag>@<approved_sha>`. This is the explicit publication
+   authorization and avoids relying on a tag `push` event that GitHub suppresses
+   when the tag was created with `GITHUB_TOKEN`.
+6. `release.yml` validates repository identity, the exact tag/commit tuple,
+   tag syntax, tag-version-changelog alignment and ancestry from `origin/main`.
+7. The workflow builds wheel and sdist once, runs `twine check`, installs and
    executes both exact artifacts in isolated environments, generates SHA-256
    checksums and records GitHub artifact attestations.
-6. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
+8. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
    Publishing uses the tag, workflow filename and GitHub environment as the
    Trusted Publisher OIDC identity. No static package token is stored.
-7. The workflow installs the exact version from its target index, checks the
+9. The workflow installs the exact version from its target index, checks the
    CLI and then creates the GitHub Release with artifacts and checksums.
 
-## Migration switch
+## Release authorization
 
-The `AI_RELEASE_ENABLED` repository variable is intentionally absent or false
-during setup. Enable it only after all of these are true:
+There is no repository variable that can convert every future green merge into
+a release. Before dispatching the manual tag workflow, all of these must be
+true:
 
-- `main` and `v*` rulesets are active;
-- GitHub environments `testpypi` and `pypi` exist without ordinary reviewers;
+- `main` protection is active and the `v*` ruleset rejects tag creation except
+  for the GitHub Actions integration used by the approved tagger, while also
+  rejecting deletion and non-fast-forward updates;
+- GitHub environments `testpypi` and `pypi` exist with the intended approval
+  policy and no alternate publisher identity;
 - PyPI and TestPyPI Trusted Publishers point exactly to
   `GonzaloTorreras/ai-dememory`, `.github/workflows/release.yml`, and their
   matching environment;
 - an RC tag has completed the TestPyPI and post-install path;
-- the recovery runbook has been exercised without uploading a duplicate.
+- the recovery runbook has been exercised without uploading a duplicate;
+- the owner has approved the exact tag and commit tuple shown in the dispatch.
 
-Once enabled, a green CI run on `main` with a new version is sufficient to
-complete the release without a human-in-the-loop.
+A green CI run with a new version is never authorization by itself. Creating
+the approved tag does not trigger publication. Tag authorization and
+publication authorization are two separate manual dispatches, each bound to
+the same immutable tuple. `release.yml` is intentionally
+`workflow_dispatch`-only, so a direct `v*` push is not a publisher path.
+
+`.github/workflows/publish.yml` is not a recovery publisher. It is a retained
+manual, read-only readiness preflight with `confirm=preflight`. It has no OIDC,
+package environment, artifact-transfer, tag-push, release-creation, or upload
+capability. Both package-index Trusted Publisher identities must reference only
+`.github/workflows/release.yml`.
 
 ## Recovery and rollback
 
-`release.yml` also accepts a manual recovery dispatch for an existing tag and
-requires the exact confirmation `recover-<tag>`. It checks out and republishes
-only that immutable identity. PyPI versions and tags are never overwritten or
-reused. If an artifact is already present, compare index hashes with
-`SHA256SUMS`; mismatch is an incident, not a reason to use `skip-existing`.
+`release.yml` accepts `intent=recover` for an existing tag and requires the
+exact confirmation `recover-<tag>@<approved_sha>`. The dispatch itself requires
+explicit user approval. It checks out and republishes only that exact immutable
+identity. PyPI versions and tags are never overwritten or reused. If an
+artifact is already present, compare index hashes with `SHA256SUMS`; mismatch
+is an incident, not a reason to use `skip-existing`.
 
 For a bad release:
 
@@ -67,8 +102,8 @@ For a bad release:
 4. fix forward with a new patch version and changelog entry;
 5. never delete the release as a substitute for provenance.
 
-Human action is reserved for account recovery, legal or billing changes,
-trusted-publisher ownership changes, compromise and destructive break-glass.
+Account recovery, legal or billing changes, trusted-publisher ownership changes,
+compromise and destructive break-glass remain separately human-controlled.
 
 ## Lessons incorporated from Clawpatch
 

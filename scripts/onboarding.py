@@ -8,6 +8,7 @@ from datetime import date, timedelta
 import hashlib
 import hmac
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,23 @@ import sys
 import tempfile
 from typing import Any
 
-from memorylib import repo_root, slugify
+from ai_dememory_tool.cli import build_mcp_config
+from config_file import load_config_path
+from hook_event import hook_config
+from memorylib import path_is_link_like, repo_root, slugify
+from resource_policy import (
+    DEFAULT_INTENSITY,
+    DEFAULT_MODEL_POLICY,
+    HARD_LIMITS,
+    get_model_policy,
+    get_resource_profile,
+    model_policy_catalog,
+    model_policy_names,
+    profile_catalog,
+    profile_names,
+)
+from review_memory import review_mode_config_values
+from schedule_memory import immutable_docker_image
 from secret_scan import scan_text
 
 
@@ -24,7 +41,12 @@ ALLOWED_SENSITIVITY = {"public", "internal"}
 DEFAULT_CLIENTS = ["codex", "claude"]
 
 
-def onboarding_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
+def onboarding_plan(
+    root: Path,
+    answers: dict[str, Any],
+    *,
+    _include_payloads: bool = False,
+) -> dict[str, Any]:
     """Build a side-effect-free onboarding plan."""
     root = Path(root).resolve()
     normalized = normalize_answers(answers)
@@ -36,16 +58,39 @@ def onboarding_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
 
     config_path = safe_target(root, ".ai-dememory.toml")
     current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    updated_config = merge_onboarding_config(current_config, normalized)
+    existing_schedule = (
+        load_config_path(config_path).get("schedule", {})
+        if config_path.exists()
+        else {}
+    )
+    schedule_preserved = bool(
+        isinstance(existing_schedule, dict)
+        and existing_schedule.get("enabled", False)
+    )
+    updated_config = merge_onboarding_config(
+        current_config,
+        normalized,
+        preserve_schedule=schedule_preserved,
+    )
     writes.append(planned_write(root, config_path, updated_config, kind="config", allow_update=True))
 
     conflicts = [item["path"] for item in writes if item["status"] == "conflict"]
+    if schedule_preserved:
+        conflicts.append(".ai-dememory.toml:[enabled-schedule]")
     plan = {
         "root": str(root),
         "reviewed_by": normalized["reviewed_by"],
         "clients": normalized["clients"],
+        "automation": normalized["automation"],
+        "resource_policy": onboarding_resource_policy(normalized),
+        "resource_profiles": profile_catalog(),
+        "model_policies": model_policy_catalog(),
+        "context": normalized["context"],
         "recall": normalized["recall"],
         "learning": normalized["learning"],
+        "schedule": normalized["schedule"],
+        "schedule_preserved": schedule_preserved,
+        "integrations": integration_plan(root, normalized),
         "writes": writes,
         "created_count": sum(item["status"] == "create" for item in writes),
         "updated_count": sum(item["status"] == "update" for item in writes),
@@ -57,15 +102,22 @@ def onboarding_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
         "writes_files": False,
         "durable_memory_reviewed": True,
         "auto_promotes": False,
+        "installs_hooks": False,
+        "installs_schedules": False,
     }
     plan["plan_sha256"] = plan_fingerprint(plan)
+    if _include_payloads:
+        plan["_payloads"] = {**documents, ".ai-dememory.toml": updated_config}
     return plan
 
 
 def apply_onboarding(root: Path, answers: dict[str, Any], expected_plan_sha256: str | None = None) -> dict[str, Any]:
     """Apply exactly one reviewed onboarding plan, refusing memory overwrites."""
     root = Path(root).resolve()
-    plan = onboarding_plan(root, answers)
+    plan = onboarding_plan(root, answers, _include_payloads=True)
+    payloads = plan.pop("_payloads")
+    if not isinstance(payloads, dict):
+        raise ValueError("onboarding plan payloads are unavailable")
     if not expected_plan_sha256:
         raise ValueError("--expect-plan-sha256 is required; preview and review the onboarding plan first")
     if not hmac.compare_digest(expected_plan_sha256, str(plan["plan_sha256"])):
@@ -73,21 +125,22 @@ def apply_onboarding(root: Path, answers: dict[str, Any], expected_plan_sha256: 
     if plan["conflicts"]:
         raise ValueError("onboarding conflicts must be reviewed before apply: " + ", ".join(plan["conflicts"]))
 
-    normalized = normalize_answers(answers)
-    documents = render_documents(normalized)
-    payloads: dict[str, str] = dict(documents)
-    config_path = safe_target(root, ".ai-dememory.toml")
-    current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    payloads[".ai-dememory.toml"] = merge_onboarding_config(current_config, normalized)
-
     changed: list[str] = []
-    batch: list[tuple[Path, str, bool]] = []
+    batch: list[tuple[Path, str, bool, str | None]] = []
     for item in plan["writes"]:
-        if item["status"] == "unchanged":
-            continue
         relative_path = str(item["path"])
         target = safe_target(root, relative_path)
-        batch.append((target, payloads[relative_path], item["kind"] == "config"))
+        assert_write_precondition(target, item.get("current_sha256"))
+        if item["status"] == "unchanged":
+            continue
+        batch.append(
+            (
+                target,
+                str(payloads[relative_path]),
+                item["kind"] == "config",
+                item.get("current_sha256"),
+            )
+        )
         changed.append(relative_path)
     atomic_batch_write(batch)
 
@@ -108,10 +161,19 @@ def plan_fingerprint(plan: dict[str, Any]) -> str:
         "root": plan["root"],
         "reviewed_by": plan["reviewed_by"],
         "clients": plan["clients"],
+        "automation": plan["automation"],
+        "resource_policy": plan["resource_policy"],
+        "context": plan["context"],
         "recall": plan["recall"],
         "learning": plan["learning"],
+        "schedule": plan["schedule"],
+        "schedule_preserved": plan["schedule_preserved"],
+        "integrations": plan["integrations"],
         "writes": [
-            {key: item[key] for key in ("path", "kind", "status", "sha256")}
+            {
+                key: item[key]
+                for key in ("path", "kind", "status", "sha256", "current_sha256")
+            }
             for item in plan["writes"]
         ],
     }
@@ -141,28 +203,128 @@ def normalize_answers(answers: dict[str, Any]) -> dict[str, Any]:
     if not clients:
         raise ValueError("at least one client is required")
 
+    automation_input = answers.get("automation") if isinstance(answers.get("automation"), dict) else {}
+    intensity = clean_scalar(automation_input.get("intensity") or answers.get("intensity")) or DEFAULT_INTENSITY
+    model_policy_name = (
+        clean_scalar(automation_input.get("model_policy") or answers.get("model_policy"))
+        or DEFAULT_MODEL_POLICY
+    )
+    profile = get_resource_profile(intensity)
+    host_policy = get_model_policy(model_policy_name)
+    automation = {
+        "profile_version": 1,
+        "intensity": profile.name,
+        "model_policy": host_policy.name,
+    }
+
+    context_input = answers.get("context") if isinstance(answers.get("context"), dict) else {}
     recall_input = answers.get("recall") if isinstance(answers.get("recall"), dict) else {}
     learning_input = answers.get("learning") if isinstance(answers.get("learning"), dict) else {}
-    default_budget = bounded_int(recall_input.get("default_budget_tokens"), 1200, 200, 8000)
+    resources_input = answers.get("resources") if isinstance(answers.get("resources"), dict) else {}
+    schedule_input = answers.get("schedule") if isinstance(answers.get("schedule"), dict) else {}
+
+    context = {
+        "default_budget_tokens": bounded_from_limit(
+            context_input.get("default_budget_tokens"),
+            profile.context_budget_tokens,
+            "context_budget_tokens",
+        ),
+        "include_working_memory": clean_bool(context_input.get("include_working_memory"), True),
+        "explain_results": clean_bool(context_input.get("explain_results"), False),
+    }
+    default_budget = bounded_from_limit(
+        recall_input.get("default_budget_tokens"),
+        profile.recall_budget_tokens,
+        "recall_budget_tokens",
+    )
     baseline_budget = bounded_int(
         recall_input.get("baseline_budget_tokens"),
-        min(480, default_budget),
-        0,
-        default_budget,
+        min(profile.baseline_budget_tokens, default_budget),
+        int(HARD_LIMITS["baseline_budget_tokens"]["minimum"]),
+        min(default_budget, int(HARD_LIMITS["baseline_budget_tokens"]["maximum"])),
     )
     recall = {
-        "enabled": clean_bool(recall_input.get("enabled"), True),
-        "per_turn": clean_bool(recall_input.get("per_turn"), True),
+        "enabled": clean_bool(recall_input.get("enabled"), profile.recall_enabled),
+        "per_turn": clean_bool(recall_input.get("per_turn"), profile.recall_per_turn),
         "default_budget_tokens": default_budget,
         "baseline_budget_tokens": baseline_budget,
-        "max_keywords": bounded_int(recall_input.get("max_keywords"), 12, 3, 30),
+        "max_keywords": bounded_from_limit(
+            recall_input.get("max_keywords"),
+            profile.max_keywords,
+            "max_keywords",
+        ),
         "project_from_cwd": clean_bool(recall_input.get("project_from_cwd"), True),
-        "min_relevance_score": bounded_float(recall_input.get("min_relevance_score"), 0.18, 0.0, 1.0),
+        "min_relevance_score": bounded_float(
+            recall_input.get("min_relevance_score"),
+            profile.min_relevance_score,
+            0.0,
+            1.0,
+        ),
+        "hook_public_only": clean_bool(recall_input.get("hook_public_only"), True),
     }
+    requested_learning_proposals = clean_bool(
+        learning_input.get("session_proposals"),
+        host_policy.session_proposals,
+    )
+    if requested_learning_proposals and not host_policy.session_proposals:
+        raise ValueError("learning.session_proposals requires model_policy=proposals")
     learning = {
-        "hook_metadata": clean_bool(learning_input.get("hook_metadata"), True),
-        "session_proposals": clean_bool(learning_input.get("session_proposals"), False),
+        "hook_metadata": clean_bool(learning_input.get("hook_metadata"), profile.hook_metadata),
+        "session_proposals": requested_learning_proposals,
+        "clients": clients,
     }
+    resources = {
+        "provider_file_limit": bounded_from_limit(
+            resources_input.get("provider_file_limit"),
+            profile.provider_file_limit,
+            "provider_file_limit",
+        ),
+        "provider_max_file_bytes": bounded_from_limit(
+            resources_input.get("provider_max_file_bytes"),
+            profile.provider_max_file_bytes,
+            "provider_max_file_bytes",
+        ),
+        "provider_scan_entries": bounded_from_limit(
+            resources_input.get("provider_scan_entries"),
+            profile.provider_scan_entries,
+            "provider_scan_entries",
+        ),
+        "maintenance_report_retention": bounded_from_limit(
+            resources_input.get("maintenance_report_retention"),
+            profile.maintenance_report_retention,
+            "maintenance_report_retention",
+        ),
+        "maintenance_timeout_seconds": bounded_from_limit(
+            resources_input.get("maintenance_timeout_seconds"),
+            profile.maintenance_timeout_seconds,
+            "maintenance_timeout_seconds",
+        ),
+        "mcp_idle_timeout_seconds": bounded_from_limit(
+            resources_input.get("mcp_idle_timeout_seconds"),
+            profile.mcp_idle_timeout_seconds,
+            "mcp_idle_timeout_seconds",
+        ),
+        "hook_capture_max_pending": bounded_from_limit(
+            resources_input.get("hook_capture_max_pending"),
+            profile.hook_capture_max_pending,
+            "hook_capture_max_pending",
+        ),
+    }
+    schedule_mode = normalize_schedule_mode(clean_scalar(schedule_input.get("mode")) or "installed")
+    schedule_image = clean_scalar(schedule_input.get("image")) or "ai-dememory:local"
+    if schedule_mode == "docker" and not immutable_docker_image(schedule_image):
+        raise ValueError("onboarding Docker schedules require an immutable repo@sha256:<digest> image")
+    schedule = {
+        "enabled": False,
+        "daily_enabled": clean_bool(schedule_input.get("daily_enabled"), profile.daily_enabled),
+        "weekly_enabled": clean_bool(schedule_input.get("weekly_enabled"), profile.weekly_enabled),
+        "daily_time": normalize_time(clean_scalar(schedule_input.get("daily_time")) or "03:00", "daily_time"),
+        "weekly_day": normalize_weekday(clean_scalar(schedule_input.get("weekly_day")) or "SUN"),
+        "weekly_time": normalize_time(clean_scalar(schedule_input.get("weekly_time")) or "04:00", "weekly_time"),
+        "mode": schedule_mode,
+        "image": schedule_image,
+    }
+    review = review_mode_config_values(host_policy.review_mode, reviewed_by)
     projects = normalize_projects(answers.get("projects"))
     return {
         "reviewed_by": reviewed_by,
@@ -170,8 +332,105 @@ def normalize_answers(answers: dict[str, Any]) -> dict[str, Any]:
         "projects": projects,
         "sensitivity": sensitivity,
         "clients": clients,
+        "automation": automation,
+        "context": context,
         "recall": recall,
         "learning": learning,
+        "resources": resources,
+        "schedule": schedule,
+        "review": review,
+    }
+
+
+def onboarding_resource_policy(answers: dict[str, Any]) -> dict[str, Any]:
+    profile = get_resource_profile(str(answers["automation"]["intensity"]))
+    host_policy = get_model_policy(str(answers["automation"]["model_policy"]))
+    recall = answers["recall"]
+    schedule = answers["schedule"]
+    return {
+        "profile_version": answers["automation"]["profile_version"],
+        "intensity": profile.name,
+        "model_policy": host_policy.name,
+        "summary": profile.summary,
+        "recommended_for": profile.recommended_for,
+        "mcp_profile": profile.mcp_profile,
+        "automatic_recall_max_tokens_per_eligible_turn": (
+            recall["default_budget_tokens"]
+            if recall["enabled"] and recall["per_turn"]
+            else 0
+        ),
+        "manual_context_default_tokens": answers["context"]["default_budget_tokens"],
+        "estimated_local_runs_per_week": (
+            int(schedule["daily_enabled"]) * 7 + int(schedule["weekly_enabled"])
+        ),
+        "scheduler_image_immutable": (
+            schedule["mode"] != "docker" or immutable_docker_image(str(schedule["image"]))
+        ),
+        "runtime_model_calls_per_maintenance_run": 0,
+        "runtime_embedding_calls_per_maintenance_run": 0,
+        "resources": answers["resources"],
+        "host_model": {
+            "review_mode": host_policy.review_mode,
+            "session_proposals": answers["learning"]["session_proposals"],
+            "runtime_model_calls": 0,
+            "runtime_embedding_calls": 0,
+            "durable_auto_promotion": False,
+        },
+        "hard_limits": HARD_LIMITS,
+    }
+
+
+def integration_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
+    profile = get_resource_profile(str(answers["automation"]["intensity"]))
+    mcp_configs: dict[str, object] = {}
+    hook_configs: dict[str, object] = {}
+    skipped_clients: list[str] = []
+    for client in answers["clients"]:
+        if client in {"codex", "claude", "generic"}:
+            mcp_configs[client] = build_mcp_config(
+                client,
+                "installed",
+                root,
+                profile=profile.mcp_profile,
+                idle_timeout_seconds=int(answers["resources"]["mcp_idle_timeout_seconds"]),
+            )
+        else:
+            skipped_clients.append(client)
+        if client in {"codex", "claude"}:
+            hook_configs[client] = hook_config(client, root=root)
+    schedule = answers["schedule"]
+    schedule_plan_command = [
+        "ai-dememory",
+        "schedule",
+        "plan",
+        "--intensity",
+        profile.name,
+        "--mode",
+        str(schedule["mode"]),
+    ]
+    if schedule["mode"] == "docker":
+        schedule_plan_command.extend(["--image", str(schedule["image"])])
+    schedule_plan_command.append("--json")
+    return {
+        "vault_bound": True,
+        "binding_source": "absolute_onboarding_root",
+        "cross_repo_ready": True,
+        "mcp_profile": profile.mcp_profile,
+        "mcp_configs": mcp_configs,
+        "hook_configs": hook_configs,
+        "skipped_clients": skipped_clients,
+        "installs_client_config": False,
+        "installs_hooks": False,
+        "installs_schedules": False,
+        "schedule_plan_command": schedule_plan_command,
+        "scheduler_image_immutable": (
+            schedule["mode"] != "docker" or immutable_docker_image(str(schedule["image"]))
+        ),
+        "next_actions": [
+            "Copy only the generated MCP config for the client you use.",
+            "Preview the vault-bound hook config before installing hooks.",
+            "Review the schedule plan and fingerprint before an explicit scheduler apply.",
+        ],
     }
 
 
@@ -305,11 +564,22 @@ def normalize_projects(value: Any) -> list[dict[str, Any]]:
     return output
 
 
-def merge_onboarding_config(text: str, answers: dict[str, Any]) -> str:
+def merge_onboarding_config(
+    text: str,
+    answers: dict[str, Any],
+    *,
+    preserve_schedule: bool = False,
+) -> str:
     sections = {
+        "automation": answers["automation"],
+        "review": answers["review"],
+        "context": answers["context"],
         "recall": {**answers["recall"], "clients": answers["clients"]},
-        "learning": {**answers["learning"], "clients": answers["clients"]},
+        "learning": answers["learning"],
+        "resources": answers["resources"],
     }
+    if not preserve_schedule:
+        sections["schedule"] = answers["schedule"]
     updated = text.rstrip() + ("\n" if text.strip() else "")
     for name, values in sections.items():
         updated = merge_toml_section(updated, name, values)
@@ -346,15 +616,19 @@ def merge_toml_section(text: str, section: str, values: dict[str, Any]) -> str:
 
 def planned_write(root: Path, path: Path, content: str, *, kind: str, allow_update: bool) -> dict[str, Any]:
     if path.exists():
-        current = path.read_text(encoding="utf-8")
+        current_bytes = path.read_bytes()
+        current = current_bytes.decode("utf-8")
         status = "unchanged" if current == content else ("update" if allow_update else "conflict")
+        current_sha256: str | None = hashlib.sha256(current_bytes).hexdigest()
     else:
         status = "create"
+        current_sha256 = None
     return {
         "path": path.relative_to(root).as_posix(),
         "kind": kind,
         "status": status,
         "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "current_sha256": current_sha256,
     }
 
 
@@ -367,18 +641,39 @@ def safe_target(root: Path, relative_path: str) -> Path:
     current = root
     for part in relative.parts:
         current = current / part
-        if current.is_symlink():
-            raise ValueError(f"onboarding path must not contain symlinks: {relative_path}")
+        if path_is_link_like(current):
+            raise ValueError(f"onboarding path must not contain symlinks or junctions: {relative_path}")
     return target
 
 
-def atomic_batch_write(batch: list[tuple[Path, str, bool]]) -> None:
+def current_file_sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    if not path.is_file() or path_is_link_like(path):
+        raise ValueError(f"onboarding target is not a safe regular file: {path}")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def assert_write_precondition(path: Path, expected_sha256: object) -> None:
+    expected = str(expected_sha256) if isinstance(expected_sha256, str) else None
+    if current_file_sha256(path) != expected:
+        raise ValueError(f"onboarding target changed after review: {path}")
+
+
+def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None]]) -> None:
     """Stage every file first, then commit with best-effort rollback on failure."""
-    staged: list[tuple[Path, Path, bool]] = []
+    staged: list[tuple[Path, Path, bool, str | None]] = []
     states: list[dict[str, Any]] = []
     committed = False
     try:
-        for path, content, allow_update in batch:
+        # Validate the complete reviewed snapshot before creating directories or
+        # temporary files. Per-target checks below still close races that occur
+        # after this batch-wide preflight.
+        for path, _, _, expected_sha256 in batch:
+            assert_write_precondition(path, expected_sha256)
+
+        for path, content, allow_update, expected_sha256 in batch:
+            assert_write_precondition(path, expected_sha256)
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.exists() and not allow_update and path.read_text(encoding="utf-8") != content:
                 raise FileExistsError(f"refusing to overwrite canonical memory: {path}")
@@ -386,11 +681,12 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool]]) -> None:
             temp_path = Path(temp_name)
             with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
                 stream.write(content)
-            staged.append((path, temp_path, allow_update))
+            staged.append((path, temp_path, allow_update, expected_sha256))
 
-        for path, temp_path, allow_update in staged:
+        for path, temp_path, allow_update, expected_sha256 in staged:
             state: dict[str, Any] = {"path": path, "backup": None, "installed": False}
             states.append(state)
+            assert_write_precondition(path, expected_sha256)
             if path.exists():
                 if not allow_update:
                     if path.read_text(encoding="utf-8") == temp_path.read_text(encoding="utf-8"):
@@ -402,6 +698,10 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool]]) -> None:
                     raise FileExistsError(f"onboarding backup path already exists: {backup}")
                 os.replace(path, backup)
                 state["backup"] = backup
+                if current_file_sha256(backup) != expected_sha256:
+                    os.replace(backup, path)
+                    state["backup"] = None
+                    raise ValueError(f"onboarding target changed during apply: {path}")
             os.replace(temp_path, path)
             state["installed"] = True
         committed = True
@@ -424,7 +724,7 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool]]) -> None:
             ) from original_error
         raise
     finally:
-        for _, temp_path, _ in staged:
+        for _, temp_path, _, _ in staged:
             if temp_path.exists():
                 temp_path.unlink()
         if committed:
@@ -457,11 +757,23 @@ def load_answers(args: argparse.Namespace) -> dict[str, Any]:
             "clients": args.client,
             "recall": {"default_budget_tokens": args.budget_tokens} if args.budget_tokens else {},
             "learning": {"session_proposals": args.enable_auto_learning},
+            "automation": {
+                "intensity": args.intensity or DEFAULT_INTENSITY,
+                "model_policy": args.model_policy or DEFAULT_MODEL_POLICY,
+            },
         }
     else:
         data = interactive_answers()
     if not isinstance(data, dict):
         raise ValueError("onboarding input must be a JSON object")
+    if args.intensity or args.model_policy:
+        automation = data.get("automation")
+        automation = dict(automation) if isinstance(automation, dict) else {}
+        if args.intensity:
+            automation["intensity"] = args.intensity
+        if args.model_policy:
+            automation["model_policy"] = args.model_policy
+        data["automation"] = automation
     return data
 
 
@@ -473,6 +785,10 @@ def interactive_answers() -> dict[str, Any]:
     preferences = prompt_list("Working preferences (semicolon-separated): ")
     recommendations = prompt_list("Recommendations for agents (semicolon-separated): ")
     project_name = input("Primary project name (optional): ").strip()
+    print("Intensity: minimal (weekly/manual), balanced (recommended), active (larger bounded budgets).")
+    intensity = input("Intensity [balanced]: ").strip().lower() or DEFAULT_INTENSITY
+    print("Host model policy: off (zero advisory work), advisory, proposals (review-first only).")
+    model_policy = input("Host model policy [off]: ").strip().lower() or DEFAULT_MODEL_POLICY
     enable_learning = input("Create review-first Stop learning proposals? [y/N]: ").strip().lower() in {"y", "yes"}
     return {
         "reviewed_by": reviewed_by,
@@ -481,6 +797,7 @@ def interactive_answers() -> dict[str, Any]:
         "recommendations": recommendations,
         "projects": [{"name": project_name}] if project_name else [],
         "clients": list(DEFAULT_CLIENTS),
+        "automation": {"intensity": intensity, "model_policy": model_policy},
         "learning": {"session_proposals": enable_learning},
     }
 
@@ -527,13 +844,42 @@ def bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     return parsed
 
 
+def bounded_from_limit(value: Any, default: int, limit_name: str) -> int:
+    limits = HARD_LIMITS[limit_name]
+    return bounded_int(value, default, int(limits["minimum"]), int(limits["maximum"]))
+
+
 def bounded_float(value: Any, default: float, minimum: float, maximum: float) -> float:
     if value is None:
         return default
     parsed = float(value)
-    if parsed < minimum or parsed > maximum:
+    if isinstance(value, bool) or not math.isfinite(parsed) or parsed < minimum or parsed > maximum:
         raise ValueError(f"number must be between {minimum} and {maximum}")
     return parsed
+
+
+def normalize_time(value: str, field: str) -> str:
+    parts = value.split(":")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise ValueError(f"{field} must use HH:MM 24-hour time")
+    hour, minute = (int(part) for part in parts)
+    if hour > 23 or minute > 59:
+        raise ValueError(f"{field} must use HH:MM 24-hour time")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def normalize_weekday(value: str) -> str:
+    weekday = value.strip().upper()
+    if weekday not in {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"}:
+        raise ValueError("weekly_day must be one of SUN, MON, TUE, WED, THU, FRI, SAT")
+    return weekday
+
+
+def normalize_schedule_mode(value: str) -> str:
+    mode = value.strip().lower()
+    if mode not in {"installed", "docker"}:
+        raise ValueError("schedule mode must be installed or docker")
+    return mode
 
 
 def unique(values: Any) -> list[Any]:
@@ -571,6 +917,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project", action="append", default=[], help="name|path|alias1,alias2")
     parser.add_argument("--client", action="append", default=[])
     parser.add_argument("--budget-tokens", type=int, default=None)
+    parser.add_argument("--intensity", choices=profile_names(), default=None)
+    parser.add_argument("--model-policy", choices=model_policy_names(), default=None)
     parser.add_argument("--enable-auto-learning", action="store_true")
     parser.add_argument("--apply", action="store_true", help="Apply a plan whose preview fingerprint was reviewed.")
     parser.add_argument("--expect-plan-sha256", default=None, help="Fingerprint returned by the reviewed preview.")
@@ -605,6 +953,28 @@ def main(argv: list[str] | None = None) -> int:
         action = "Applied" if result["applied"] else "Preview"
         print(f"{action}: {result['created_count']} create, {result['updated_count']} update, "
               f"{result['unchanged_count']} unchanged, {result['conflict_count']} conflict")
+        policy = result["resource_policy"]
+        print(
+            f"Intensity: {policy['intensity']}; model policy: {policy['model_policy']}; "
+            f"automatic recall ceiling: {policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+        )
+        print(
+            "ai-dememory runtime model/embedding calls per maintenance run: 0/0; "
+            f"estimated local jobs/week after explicit install: {policy['estimated_local_runs_per_week']}"
+        )
+        resources = policy["resources"]
+        print(
+            f"MCP profile/idle lease: {policy['mcp_profile']}/"
+            f"{resources['mcp_idle_timeout_seconds']}s; context/recall ceilings: "
+            f"{policy['manual_context_default_tokens']}/"
+            f"{policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+        )
+        print(
+            f"Provider/maintenance ceilings: {resources['provider_file_limit']} files, "
+            f"{resources['provider_max_file_bytes']} bytes/file, "
+            f"{resources['provider_scan_entries']} scanned entries, "
+            f"{resources['maintenance_timeout_seconds']}s per maintenance run"
+        )
         for item in result["writes"]:
             print(f"- {item['status']}: {item['path']}")
         if not result["applied"] and result.get("can_apply"):

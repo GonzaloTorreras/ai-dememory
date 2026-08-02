@@ -11,6 +11,8 @@ import tempfile
 import venv
 import zipfile
 
+from process_control import run_owned_capture
+
 
 EXPECTED_WHEEL_PACKAGES = {"ai_dememory_tool"}
 
@@ -45,25 +47,35 @@ def executable(venv_root: Path, name: str) -> Path:
     return venv_root / directory / f"{name}{suffix}"
 
 
+def run_checked(command: list[str], timeout_seconds: int = 180) -> subprocess.CompletedProcess[str]:
+    completed = run_owned_capture(command, timeout_seconds=timeout_seconds)
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(
+            completed.returncode,
+            command,
+            output=completed.stdout,
+            stderr=completed.stderr,
+        )
+    return completed
+
+
 def smoke(artifact: Path, expected_version: str) -> None:
     with tempfile.TemporaryDirectory(prefix="ai-dememory-release-smoke-") as tmp:
         root = Path(tmp)
         environment = root / "venv"
         venv.EnvBuilder(with_pip=True).create(environment)
         python = executable(environment, "python")
-        subprocess.run([str(python), "-m", "pip", "install", "--no-deps", str(artifact)], check=True)
-        subprocess.run([str(executable(environment, "ai-dememory")), "--help"], check=True)
+        run_checked([str(python), "-m", "pip", "install", "--no-deps", str(artifact)])
+        run_checked([str(executable(environment, "ai-dememory")), "--help"])
         vault = root / "vault"
-        subprocess.run([str(executable(environment, "ai-dememory")), "init", str(vault)], check=True)
-        subprocess.run([str(executable(environment, "ai-dememory")), "--root", str(vault), "doctor"], check=True)
-        subprocess.run(
+        run_checked([str(executable(environment, "ai-dememory")), "init", str(vault)])
+        run_checked([str(executable(environment, "ai-dememory")), "--root", str(vault), "doctor"])
+        run_checked(
             [str(executable(environment, "ai-dememory")), "--root", str(vault), "mcp", "--help"],
-            check=True,
         )
-        observed = subprocess.check_output(
+        observed = run_checked(
             [str(python), "-c", "from importlib.metadata import version; print(version('ai-dememory'))"],
-            text=True,
-        ).strip()
+        ).stdout.strip()
         if observed != expected_version:
             raise RuntimeError(f"{artifact.name}: installed {observed}, expected {expected_version}")
 

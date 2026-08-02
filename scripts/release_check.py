@@ -25,11 +25,12 @@ from mcp_inventory import build_inventory, validate_inventory_docs
 from pr_draft_guard import validate_pr_draft
 from pr_template_guard import validate_pr_template
 from publish_guard import validate_publish_workflow
+from process_control import noninteractive_git_environment, run_owned_capture
 from release_checklist_guard import validate_release_checklist
 from roadmap_status import roadmap_status
 from vault_setup_guard import validate_vault_setup
 from verify_mcp_contract import validate_contract
-from ai_dememory_tool.mcp_profiles import CORE_MCP_TOOLS
+from ai_dememory_tool.mcp_profiles import PUBLIC_MCP_TOOLS
 
 
 EXPECTED_VERSION = "2.1.0"
@@ -113,9 +114,9 @@ EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS = (
 )
 
 # The complete historical classification remains a drift guard for the 74-tool
-# server, while the plugin now exposes the intentionally small core profile.
+# server, while the checked-in public plugin exposes the public-only profile.
 ALL_CLASSIFIED_MCP_TOOLS = LEGACY_DEFAULT_PLUGIN_MCP_TOOLS + EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS
-EXPECTED_PLUGIN_MCP_TOOLS = CORE_MCP_TOOLS
+EXPECTED_PLUGIN_MCP_TOOLS = PUBLIC_MCP_TOOLS
 EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS = tuple(
     tool for tool in ALL_CLASSIFIED_MCP_TOOLS if tool not in EXPECTED_PLUGIN_MCP_TOOLS
 )
@@ -479,12 +480,26 @@ def check_required_docs(root: Path) -> ReleaseCheck:
 
 def check_license(root: Path) -> ReleaseCheck:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    license_text = (pyproject["project"].get("license") or {}).get("text", "")
+    project = pyproject["project"]
+    license_value = project.get("license", "")
+    if isinstance(license_value, str):
+        license_text = license_value
+    elif isinstance(license_value, dict):
+        license_text = str(license_value.get("text", ""))
+    else:
+        license_text = ""
     license_file = (root / "LICENSE").read_text(encoding="utf-8") if (root / "LICENSE").exists() else ""
     if "Private" in license_text:
         return fail("license", "pyproject still marks the package private")
     if "Apache-2.0" not in license_text:
         return fail("license", f"unexpected pyproject license: {license_text}")
+    if "LICENSE" not in project.get("license-files", []):
+        return fail("license", "pyproject must declare LICENSE through project.license-files")
+    if any(str(classifier).startswith("License ::") for classifier in project.get("classifiers", [])):
+        return fail("license", "deprecated license classifiers must not duplicate the SPDX expression")
+    setuptools_config = pyproject.get("tool", {}).get("setuptools", {})
+    if "license-files" in setuptools_config:
+        return fail("license", "tool.setuptools.license-files is deprecated; use project.license-files")
     if "Apache License" not in license_file or "Version 2.0" not in license_file:
         return fail("license", "LICENSE does not describe Apache-2.0")
     return ok("license", license_text)
@@ -559,7 +574,10 @@ def check_publish_workflow(root: Path) -> ReleaseCheck:
     issues = validate_publish_workflow(root)
     if issues:
         return fail("publish_workflow", f"{len(issues)} issue(s)")
-    return ok("publish_workflow", "manual Trusted Publishing workflow")
+    return ok(
+        "publish_workflow",
+        "canonical exact-tuple publisher plus legacy read-only preflight",
+    )
 
 
 def check_ci_workflow(root: Path) -> ReleaseCheck:
@@ -636,6 +654,30 @@ def check_roadmap_status(root: Path) -> ReleaseCheck:
     return ok("roadmap_status", f"{implemented} implemented phase(s), {gated} gated phase(s)")
 
 
+PLUGIN_SKILL_SAFETY_MARKERS: dict[str, tuple[str, ...]] = {
+    "memory-recall": (
+        "`public_only=true`",
+        "`include_working_memory=false`",
+        "Never combine",
+        "do not call `memory.working_status`",
+        "`memory.get`",
+    ),
+    "memory-working-session": (
+        "do not read or inject generated working state",
+        "`memory.context(public_only=true, include_working_memory=false)`",
+        "Never read working-memory tools into public-repository output",
+    ),
+}
+
+
+def plugin_skill_safety_issues(skill: str, text: str) -> list[str]:
+    return [
+        f"plugin skill {skill} missing public-repository safety marker {marker}"
+        for marker in PLUGIN_SKILL_SAFETY_MARKERS.get(skill, ())
+        if marker not in text
+    ]
+
+
 def check_codex_plugin(root: Path) -> ReleaseCheck:
     plugin_root = root / "plugins" / "ai-dememory"
     errors: list[str] = []
@@ -667,8 +709,8 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
                 + ", ".join(profile["missing_tools"][:5])
             )
     core_count = inventory["profiles"]["core"]["tool_count"]
-    if not 5 <= core_count <= 8:
-        errors.append(f"MCP core profile must contain 5-8 tools, found {core_count}")
+    if not 4 <= core_count <= 8:
+        errors.append(f"MCP core profile must contain 4-8 tools, found {core_count}")
     plugin_tools = set(EXPECTED_PLUGIN_MCP_TOOLS)
     server_only_tools = set(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)
     overlapping_classification = sorted(plugin_tools & server_only_tools)
@@ -750,6 +792,7 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
             continue
         if "name:" not in frontmatter or "description:" not in frontmatter:
             errors.append(f"plugin skill {skill} must include name and description")
+        errors.extend(plugin_skill_safety_issues(skill, path.read_text(encoding="utf-8")))
 
     if errors:
         return fail("codex_plugin", f"{len(errors)} issue(s): " + "; ".join(errors[:3]))
@@ -757,7 +800,7 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
         "codex_plugin",
         f"manifest, MCP config with {len(EXPECTED_PLUGIN_MCP_TOOLS)} tools, "
         f"{len(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)} server-only tools classified, "
-        f"core schema {inventory['profiles']['core']['schema_bytes']} bytes, "
+        f"public schema {inventory['profiles']['public']['schema_bytes']} bytes, "
         f"hooks, marketplace, and {len(expected_skills)} skills",
     )
 
@@ -826,13 +869,13 @@ def owner_repo_from_project_metadata(root: Path) -> str | None:
 
 def owner_repo_from_git_remote(root: Path) -> str | None:
     try:
-        completed = subprocess.run(
+        completed = run_owned_capture(
             ["git", "-C", str(root), "remote", "get-url", "origin"],
+            timeout_seconds=30,
+            env=noninteractive_git_environment(),
             check=True,
-            capture_output=True,
-            text=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
         return None
     return github_owner_repo_from_remote(completed.stdout.strip())
 

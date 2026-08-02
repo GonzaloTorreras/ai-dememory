@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,8 @@ version = "2.1.0"
 description = "Local-first personal multi-LLM memory toolchain and MCP server."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "Gonzalo Torreras" }]
 dependencies = []
 classifiers = [
@@ -16,7 +17,6 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Environment :: Console",
   "Topic :: Utilities",
-  "License :: OSI Approved :: Apache Software License",
 ]
 
 [project.urls]
@@ -30,7 +30,6 @@ ai-dememory = "ai_dememory_tool.cli:main"
 
 [tool.setuptools]
 include-package-data = true
-license-files = ["LICENSE"]
 packages = ["ai_dememory_tool", "ai_dememory_tool.admin", "ai_dememory_tool.mcp_server"]
 package-dir = { "ai_dememory_tool.admin" = "scripts", "ai_dememory_tool.mcp_server" = "mcp/server" }
 

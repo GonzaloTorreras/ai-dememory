@@ -15,10 +15,14 @@ from typing import Any
 from consolidate_memory import report_summary
 from lifecycle import lifecycle_scores
 from memorylib import (
+    MemoryError,
+    discover_markdown_files,
     extract_summary,
     parse_date,
+    read_bounded_text,
     repo_relative_path,
     repo_root,
+    safe_write_text,
     slugify,
     today,
     validate_memories,
@@ -68,13 +72,9 @@ def build_sleep_plan(root: Path) -> SleepPlan:
     if errors:
         raise SleepError("memory validation failed:\n" + "\n".join(errors))
 
+    pending_inbox = inbox_files(root)
     scan_targets = [repo_relative_path(document.path, root) for document in documents]
-    if (root / "inbox").exists():
-        scan_targets.extend(
-            repo_relative_path(path, root)
-            for path in sorted((root / "inbox").rglob("*.md"))
-            if path.name != "README.md"
-        )
+    scan_targets.extend(repo_relative_path(path, root) for path in pending_inbox)
     findings = scan_paths(root, scan_targets)
     if findings:
         formatted = "\n".join(
@@ -113,9 +113,9 @@ def build_sleep_plan(root: Path) -> SleepPlan:
                 )
             )
 
-    for path in inbox_files(root):
+    for path in pending_inbox:
         relpath = repo_relative_path(path, root)
-        text = path.read_text(encoding="utf-8")
+        text = read_bounded_text(path)
         candidates.append(
             candidate(
                 "inbox_candidate",
@@ -206,20 +206,10 @@ def candidate(
 
 
 def inbox_files(root: Path) -> list[Path]:
-    inbox = root / "inbox"
-    if not inbox.exists():
-        return []
-    packets = root / PACKET_DIR
-    files = []
-    for path in sorted(inbox.rglob("*.md")):
-        if path.name == "README.md":
-            continue
-        try:
-            path.relative_to(packets)
-            continue
-        except ValueError:
-            files.append(path)
-    return files
+    try:
+        return discover_markdown_files(root, "inbox", excluded_dirs=(PACKET_DIR,))
+    except MemoryError as exc:
+        raise SleepError(f"inbox scan failed before sleep consolidation: {exc}") from exc
 
 
 def resolve_repo_path(root: Path, path: str | Path) -> Path:
@@ -245,7 +235,7 @@ def write_sleep_report(root: Path, output: Path = DEFAULT_REPORT) -> tuple[Path,
     if scan_text(text, "<sleep-plan-report>"):
         raise SleepError("sleep report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target, plan
 
 
@@ -256,7 +246,7 @@ def write_sleep_json(root: Path, output: Path = DEFAULT_JSON) -> tuple[Path, Sle
     if scan_text(text, "<sleep-plan-json>"):
         raise SleepError("sleep JSON report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target, plan
 
 
@@ -279,7 +269,7 @@ def apply_review_packets(root: Path, ids: list[str] | None = None) -> list[Path]
             raise SleepError(f"sleep packet rejected by secret scan: {item.id}")
         if path.exists() or path.is_symlink():
             raise SleepError("sleep packet path already exists")
-        path.write_text(text, encoding="utf-8")
+        safe_write_text(path, text, root=root, overwrite=False)
         written.append(path)
     return written
 

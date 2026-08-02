@@ -8,10 +8,12 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
 from typing import Iterator
+import uuid
 
 from config_file import load_config
 from consolidate_memory import write_report as write_consolidation_report
@@ -21,9 +23,24 @@ from hook_event import hook_capture_files, hook_capture_summary, write_hook_capt
 from index_memory import default_db_path, rebuild_index
 from lifecycle import lifecycle_scores, write_lifecycle_report, write_lifecycle_scores
 from manual_acceptance import acceptance_packet_archive_retention_plan, acceptance_packet_archive_status
-from memorylib import discover_memory_files, load_memories, recency_score, repo_relative_path, repo_root
+from memorylib import (
+    discover_memory_files,
+    load_memories,
+    recency_score,
+    repo_relative_path,
+    repo_root,
+    safe_write_text,
+)
 from provider_import import import_chats, provider_config, providers_status
+from process_control import (
+    process_is_running,
+    process_matches_identity,
+    process_start_identity,
+    run_owned_process,
+)
 from recall_fixtures import recall_review_packet_archive_retention_plan, recall_review_packet_archive_status
+from resource_limits import MAX_RETRIEVAL_LOG_ROWS
+from resource_policy import HARD_LIMITS, resolved_resource_policy
 from review_memory import (
     ReviewError,
     conflict_reviews,
@@ -37,6 +54,7 @@ from sleep_consolidation import write_sleep_report
 
 
 DEFAULT_MAINTENANCE_REPORT_DIR = Path("reports/maintenance")
+TIMEOUT_EXIT_CODE = 124
 
 GENERATED_ARTIFACTS: dict[str, Path] = {
     "index": Path("indexes/memory.sqlite"),
@@ -75,6 +93,7 @@ class MaintenanceResult:
     artifact_freshness: dict[str, object]
     generated_packet_archives: dict[str, object]
     cleanup_removed: int
+    resource_policy: dict[str, object]
 
 
 def maintenance_artifact_targets(
@@ -97,22 +116,109 @@ def maintenance_artifact_targets(
     return targets
 
 
+def read_lock_record(lock_path: Path) -> dict[str, object]:
+    try:
+        text = lock_path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return {}
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        # Backward compatibility with the former timestamp-only lock format.
+        return {"created_at": text}
+    return value if isinstance(value, dict) else {}
+
+
+def lock_age_seconds(lock_path: Path, record: dict[str, object]) -> float:
+    created_at = str(record.get("created_at") or "")
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - created.astimezone(timezone.utc)).total_seconds())
+    except ValueError:
+        try:
+            return max(0.0, datetime.now(timezone.utc).timestamp() - lock_path.stat().st_mtime)
+        except OSError:
+            return 0.0
+
+
+def recover_stale_maintenance_lock(lock_path: Path, stale_after_seconds: int) -> bool:
+    if not lock_path.exists():
+        return True
+    record = read_lock_record(lock_path)
+    pid_value = record.get("pid")
+    pid = int(pid_value) if isinstance(pid_value, int) and not isinstance(pid_value, bool) else 0
+    start_identity_value = record.get("process_start_identity")
+    start_identity = (
+        str(start_identity_value)
+        if isinstance(start_identity_value, str) and start_identity_value
+        else None
+    )
+    owner_running = process_matches_identity(pid, start_identity) if pid else False
+    stale = (pid > 0 and not owner_running) or (
+        pid == 0 and lock_age_seconds(lock_path, record) > stale_after_seconds
+    )
+    if not stale:
+        return False
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        pass
+    return True
+
+
+def remove_owned_maintenance_lock(root: Path, pid: int) -> bool:
+    lock_path = root / "indexes" / ".maintenance.lock"
+    if not lock_path.exists():
+        return False
+    record = read_lock_record(lock_path)
+    start_identity_value = record.get("process_start_identity")
+    start_identity = (
+        str(start_identity_value)
+        if isinstance(start_identity_value, str) and start_identity_value
+        else None
+    )
+    if record.get("pid") != pid or process_matches_identity(pid, start_identity):
+        return False
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 @contextmanager
-def maintenance_lock(root: Path) -> Iterator[None]:
+def maintenance_lock(root: Path, stale_after_seconds: int = 1800) -> Iterator[None]:
     lock_path = root / "indexes" / ".maintenance.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_nonce = uuid.uuid4().hex
+    pid = os.getpid()
+    record = {
+        "pid": pid,
+        "process_start_identity": process_start_identity(pid),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "nonce": lock_nonce,
+    }
     try:
         fd = lock_path.open("x", encoding="utf-8")
     except FileExistsError as exc:
-        raise RuntimeError(f"maintenance already running: {repo_relative_path(lock_path, root)}") from exc
+        if not recover_stale_maintenance_lock(lock_path, stale_after_seconds):
+            raise RuntimeError(f"maintenance already running: {repo_relative_path(lock_path, root)}") from exc
+        try:
+            fd = lock_path.open("x", encoding="utf-8")
+        except FileExistsError as retry_error:
+            raise RuntimeError(f"maintenance already running: {repo_relative_path(lock_path, root)}") from retry_error
     try:
-        fd.write(datetime.now(timezone.utc).isoformat())
+        fd.write(json.dumps(record, sort_keys=True))
         fd.close()
         yield
     finally:
         try:
-            lock_path.unlink()
-        except FileNotFoundError:
+            current = read_lock_record(lock_path)
+            if current.get("nonce") == lock_nonce:
+                lock_path.unlink()
+        except (FileNotFoundError, OSError):
             pass
 
 
@@ -124,6 +230,16 @@ def enabled_providers(root: Path) -> list[str]:
     ]
 
 
+def resource_policy_error_details(policy: dict[str, object]) -> str:
+    validation_errors = policy.get("validation_errors", [])
+    details = (
+        ", ".join(str(error) for error in validation_errors)
+        if isinstance(validation_errors, list)
+        else ""
+    )
+    return details or "resource policy validation failed without diagnostics"
+
+
 def run_maintenance(
     root: Path,
     profile: str,
@@ -132,13 +248,33 @@ def run_maintenance(
     if profile not in {"daily", "weekly"}:
         raise ValueError("profile must be daily or weekly")
     target_report_dir = resolve_report_dir(root, report_dir)
+    resource_policy = resolved_resource_policy(root)
+    if resource_policy.get("valid") is not True:
+        raise ValueError(
+            "resolved resource policy is invalid: "
+            + resource_policy_error_details(resource_policy)
+        )
+    resources = resource_policy["resources"]
+    if not isinstance(resources, dict):
+        raise ValueError("resolved resource policy is invalid")
 
-    with maintenance_lock(root):
+    with maintenance_lock(
+        root,
+        stale_after_seconds=int(resources["maintenance_timeout_seconds"]) + 60,
+    ):
         started_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         imports: list[dict[str, object]] = []
         for provider in enabled_providers(root):
             try:
-                imports.append(import_chats(root, provider))
+                imports.append(
+                    import_chats(
+                        root,
+                        provider,
+                        limit=int(resources["provider_file_limit"]),
+                        max_file_bytes=int(resources["provider_max_file_bytes"]),
+                        max_scan_entries=int(resources["provider_scan_entries"]),
+                    )
+                )
             except Exception as exc:
                 imports.append({"provider": provider, "error": str(exc)})
 
@@ -153,7 +289,12 @@ def run_maintenance(
         _, index_count = rebuild_index(root)
         graph = build_graph(root)
         graph_path = root / "indexes" / "memory-graph.json"
-        graph_path.write_text(json.dumps(graph, indent=2), encoding="utf-8")
+        safe_write_text(
+            graph_path,
+            json.dumps(graph, indent=2),
+            root=root,
+            overwrite=True,
+        )
         weights_path = write_weights(root)
         lifecycle_scores_path, lifecycle_rows = write_lifecycle_scores(root)
         lifecycle_report_path, _ = write_lifecycle_report(root)
@@ -175,7 +316,10 @@ def run_maintenance(
                 recall_results = evaluate(root, fixtures)
                 recall_summary = summary(recall_results)
             hook_capture_report_path, hook_captures = write_hook_capture_report(root)
-            cleanup_removed = cleanup_reports(root)
+            cleanup_removed = cleanup_reports(
+                root,
+                keep=int(resources["maintenance_report_retention"]),
+            )
 
         artifact_freshness = generated_artifact_freshness(root, profile=profile)
         finished_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -226,6 +370,7 @@ def run_maintenance(
             artifact_freshness=artifact_freshness,
             generated_packet_archives=packet_archive_summary,
             cleanup_removed=cleanup_removed,
+            resource_policy=resource_policy,
         )
 
 
@@ -237,10 +382,28 @@ def dry_run_maintenance(
     if profile not in {"daily", "weekly"}:
         raise ValueError("profile must be daily or weekly")
     target_report_dir = resolve_report_dir(root, report_dir)
+    resource_policy = resolved_resource_policy(root)
+    if resource_policy.get("valid") is not True:
+        raise ValueError(
+            "resolved resource policy is invalid: "
+            + resource_policy_error_details(resource_policy)
+        )
+    resources = resource_policy["resources"]
+    if not isinstance(resources, dict):
+        raise ValueError("resolved resource policy is invalid")
     imports: list[dict[str, object]] = []
     for provider in enabled_providers(root):
         try:
-            imports.append(import_chats(root, provider, dry_run=True))
+            imports.append(
+                import_chats(
+                    root,
+                    provider,
+                    limit=int(resources["provider_file_limit"]),
+                    max_file_bytes=int(resources["provider_max_file_bytes"]),
+                    max_scan_entries=int(resources["provider_scan_entries"]),
+                    dry_run=True,
+                )
+            )
         except Exception as exc:
             imports.append({"provider": provider, "error": str(exc), "dry_run": True})
     return {
@@ -266,6 +429,9 @@ def dry_run_maintenance(
         "would_delete_generated_packet_archives": False,
         "artifact_freshness": generated_artifact_freshness(root, profile=profile),
         "lock_exists": (root / "indexes" / ".maintenance.lock").exists(),
+        "resource_policy": resource_policy,
+        "runtime_model_calls": 0,
+        "runtime_embedding_calls": 0,
     }
 
 
@@ -301,7 +467,7 @@ def write_weights(root: Path) -> Path:
     rows.sort(key=lambda item: (-float(item["weight"]), str(item["id"])))
     path = root / "indexes" / "memory-weights.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    safe_write_text(path, json.dumps(rows, indent=2), root=root, overwrite=True)
     return path
 
 
@@ -317,8 +483,14 @@ def load_retrieval_counts(root: Path) -> dict[str, int]:
             FROM retrieval_log
             WHERE selected_memory_id IS NOT NULL
             GROUP BY selected_memory_id
-            """
-        ).fetchall()
+            LIMIT ?
+            """,
+            (MAX_RETRIEVAL_LOG_ROWS + 1,),
+        ).fetchmany(MAX_RETRIEVAL_LOG_ROWS + 1)
+        if len(rows) > MAX_RETRIEVAL_LOG_ROWS:
+            raise RuntimeError(
+                f"retrieval aggregates exceed the {MAX_RETRIEVAL_LOG_ROWS} row limit"
+            )
     except sqlite3.Error:
         return {}
     finally:
@@ -740,7 +912,7 @@ def write_maintenance_report(
     text = "\n".join(lines)
     if scan_text(text, "<maintenance-report>"):
         raise RuntimeError("maintenance report rejected by secret scan")
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path
 
 
@@ -765,7 +937,45 @@ def maintenance_status(root: Path) -> dict[str, object]:
         "artifacts": artifacts,
         "artifact_freshness": generated_artifact_freshness(root, artifacts),
         "lock_exists": (root / "indexes" / ".maintenance.lock").exists(),
+        "resource_policy": resolved_resource_policy(root),
     }
+
+
+def run_supervised_process(command: list[str], timeout_seconds: float) -> tuple[int, bool, int]:
+    return run_owned_process(command, timeout_seconds)
+
+
+def run_supervised_maintenance(
+    root: Path,
+    profile: str,
+    report_dir: Path,
+    timeout_seconds: int,
+    *,
+    json_output: bool,
+) -> int:
+    command = [
+        sys.executable,
+        "-m",
+        "ai_dememory_tool.cli",
+        "--root",
+        str(root),
+        "maintenance",
+        "run",
+        "--profile",
+        profile,
+        "--report-dir",
+        str(report_dir),
+    ]
+    if json_output:
+        command.append("--json")
+    exit_code, timed_out, pid = run_supervised_process(command, timeout_seconds)
+    if timed_out and exit_code == TIMEOUT_EXIT_CODE:
+        remove_owned_maintenance_lock(root, pid)
+        print(
+            f"maintenance exceeded the configured {timeout_seconds}-second runtime ceiling",
+            file=sys.stderr,
+        )
+    return exit_code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -776,6 +986,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--profile", choices=("daily", "weekly"), default="daily")
     run.add_argument("--report-dir", default=str(DEFAULT_MAINTENANCE_REPORT_DIR), help="Report directory inside the memory root.")
     run.add_argument("--dry-run", action="store_true", help="Preview maintenance work without writing files.")
+    run.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=None,
+        help="Supervise the maintenance process and terminate its process tree at this wall-clock ceiling.",
+    )
     run.add_argument("--json", action="store_true")
     status = subparsers.add_parser("status", help="Show maintenance configuration and reports.")
     status.add_argument("--json", action="store_true")
@@ -802,6 +1018,21 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"- {item}")
                 print(f"Provider previews: {len(preview['would_imports'])}")
             return 0
+        if args.timeout_seconds is not None:
+            limits = HARD_LIMITS["maintenance_timeout_seconds"]
+            minimum = int(limits["minimum"])
+            maximum = int(limits["maximum"])
+            if args.timeout_seconds < minimum or args.timeout_seconds > maximum:
+                raise ValueError(
+                    f"timeout-seconds must be between {minimum} and {maximum}"
+                )
+            return run_supervised_maintenance(
+                root,
+                args.profile,
+                Path(args.report_dir),
+                args.timeout_seconds,
+                json_output=args.json,
+            )
         result = run_maintenance(root, args.profile, Path(args.report_dir))
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)

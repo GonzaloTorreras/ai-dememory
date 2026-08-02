@@ -15,6 +15,8 @@ from memorylib import repo_root
 
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
 AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+WORKFLOW_DIR = Path(".github/workflows")
+PINNED_ACTION_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
 
 REQUIRED_COMMANDS = {
     "compile": "python -m compileall -q scripts mcp/server ai_dememory_tool",
@@ -33,7 +35,7 @@ REQUIRED_COMMANDS = {
     "strict_pr_release_check": "python scripts/ai_dememory.py release-check --strict",
     "mcp_smoke": "python scripts/ai_dememory.py mcp-smoke",
     "api_smoke": "python scripts/ai_dememory.py api-smoke",
-    "unit_tests": "python -m unittest discover -s tests",
+    "unit_tests": "python -m unittest discover -s tests -t .",
     "index": "python scripts/ai_dememory.py index",
     "search": "python scripts/ai_dememory.py search codex --limit 1",
     "eval_recall": "python scripts/ai_dememory.py eval-recall",
@@ -88,6 +90,46 @@ def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
         issues.append(CiGuardIssue(str(AUTO_APPROVE_WORKFLOW_PATH), "auto-approval workflow is missing"))
     else:
         issues.extend(validate_auto_approve_workflow_text(auto_approve_text))
+    issues.extend(validate_workflow_supply_chain(root))
+    return issues
+
+
+def validate_workflow_supply_chain(root: Path) -> list[CiGuardIssue]:
+    """Require immutable third-party actions and non-persisted checkout tokens."""
+
+    issues: list[CiGuardIssue] = []
+    workflow_root = root / WORKFLOW_DIR
+    for path in sorted(workflow_root.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        display = path.relative_to(root).as_posix()
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            match = re.search(r"\buses:\s*([^\s#]+)", line)
+            if not match:
+                continue
+            action = match.group(1)
+            if action.startswith("./"):
+                continue
+            if not PINNED_ACTION_RE.fullmatch(action):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:{line_number}",
+                        f"third-party action must be pinned to a full commit SHA: {action}",
+                    )
+                )
+        for match in re.finditer(
+            r"(?ms)^\s*-\s+name:[^\n]*\n(?:(?!^\s*-\s+name:).)*?"
+            r"^\s*uses:\s*actions/checkout@[0-9a-f]{40}[^\n]*\n"
+            r"(?P<body>(?:(?!^\s*-\s+name:).)*)",
+            text,
+        ):
+            if not re.search(r"(?m)^\s*persist-credentials:\s*false\s*$", match.group("body")):
+                line_number = text[: match.start()].count("\n") + 1
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:{line_number}",
+                        "actions/checkout must set persist-credentials: false",
+                    )
+                )
     return issues
 
 

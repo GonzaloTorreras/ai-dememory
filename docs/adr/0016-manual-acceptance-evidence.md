@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted for v2 draft.
+Accepted as a local product-quality evidence subsystem. ADRs 0247 and 0252
+supersede any interpretation of these records as package-workflow authority.
 
 ## Context
 
@@ -12,9 +13,12 @@ not record that proof in a structured, reviewable way. That made release
 readiness depend on PR comments or memory outside the vault, and it made manual
 items look permanently incomplete even after a reviewer had run them.
 
-Manual acceptance is still required for real MCP client usage, Obsidian vault
-inspection, provider import review, daily maintenance inspection, and TestPyPI
-publication. These checks cannot be honestly replaced by local unit tests.
+Manual acceptance is still required to claim complete local sign-off for real
+MCP client usage, Obsidian vault inspection, provider import review, daily
+maintenance inspection, and TestPyPI verification. These checks cannot be
+honestly replaced by local unit tests. The canonical package workflow does not
+read these private-vault records; remaining evidence is disclosed separately
+when the owner authorizes a release.
 
 ## Decision
 
@@ -35,12 +39,13 @@ frontmatter fields for `type`, `status`, `acceptance_item`, `reviewed_by`,
 `ai-dememory release-evidence` reads valid `passed` and `blocked` acceptance
 records, separates completed manual acceptance from remaining manual acceptance,
 and reports blocked attempts without marking them complete.
-`ai-dememory acceptance verify` is the final read-only gate: it exits zero only
-when every canonical manual acceptance item has reviewed passing evidence.
+`ai-dememory acceptance verify` is the final read-only local sign-off gate: it
+exits zero only when every canonical manual acceptance item has reviewed
+passing evidence. It does not grant, dispatch, or block package publication.
 
 ## Benefits
 
-- Keeps manual release proof inside the reviewable vault workflow.
+- Keeps manual product-quality proof inside the reviewable vault workflow.
 - Makes release evidence durable across PR comments and local sessions.
 - Preserves the distinction between automated gates and human acceptance.
 - Applies the existing secret scanner before writing evidence files.

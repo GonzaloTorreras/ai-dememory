@@ -1,27 +1,42 @@
 # Obsidian Support
 
-Open this repository root as an Obsidian vault.
+Use a separately initialized private vault as the Obsidian vault. Do not open
+the ai-dememory source or package-distribution checkout as a personal memory
+vault; its checked-in `memories/**` files are public demo and validation
+fixtures.
 
 Recommended conventions:
 
-- Use `memories/` for canonical reviewed memory.
-- Use `inbox/` for raw notes and LLM proposals.
-- Use `templates/` as the Obsidian template folder.
-- Do not edit generated files in `indexes/`, `distilled/`, or `reports/`.
+- Install `ai-dememory`, initialize a dedicated vault directory, and open that
+  directory in Obsidian.
+- In the private vault, use `memories/` for canonical reviewed memory and
+  `inbox/` for raw notes and LLM proposals.
+- Use the private vault's `templates/` directory as the Obsidian template
+  folder.
+- Do not edit generated files in the vault's `indexes/`, `distilled/`, or
+  `reports/` directories.
 - Run validation and secret scanning before promoting notes.
 
 Suggested workflow:
 
-1. Capture rough notes in `inbox/`.
-2. Convert reviewed notes with one of the templates in `templates/`.
-3. Place durable facts in `memories/durable/`, project facts in
-   `memories/projects/`, and short-lived context in `memories/active/`.
-4. Run:
+1. Create the private vault:
 
 ```bash
-python3 scripts/validate_memory.py
-python3 scripts/secret_scan.py
-python3 scripts/index_memory.py
+ai-dememory init /path/to/private-memory-vault
 ```
 
-Durable memories should be short, evidence-backed, and conservative.
+2. Open `/path/to/private-memory-vault` in Obsidian.
+3. Capture rough notes in `inbox/` and convert reviewed notes with the vault
+   templates.
+4. Place durable facts in `memories/durable/`, project facts in
+   `memories/projects/`, and short-lived context in `memories/active/`.
+5. Validate the explicit vault before indexing:
+
+```bash
+ai-dememory --root /path/to/private-memory-vault validate
+ai-dememory --root /path/to/private-memory-vault secret-scan
+ai-dememory --root /path/to/private-memory-vault index
+```
+
+Durable memories should be short, evidence-backed, conservative, and never
+copied into the public source repository merely because both are open locally.

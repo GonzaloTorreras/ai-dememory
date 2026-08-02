@@ -5,11 +5,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+import json
 import math
 import os
 from pathlib import Path
 import re
+import secrets
+import stat
 from typing import Any, Iterable
+
+from resource_limits import (
+    MAX_MEMORY_FILE_BYTES,
+    MAX_MEMORY_FILES,
+    MAX_MEMORY_SCAN_ENTRIES,
+    MAX_MEMORY_TOTAL_BYTES,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -135,6 +145,149 @@ def repo_relative_path(path: Path, root: Path) -> str:
     return contained_relative_path(path, root).as_posix()
 
 
+def path_is_link_like(path: Path) -> bool:
+    """Return True for symlinks, Windows junctions, and other reparse points."""
+
+    try:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            return True
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except (FileNotFoundError, OSError):
+        return False
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(reparse_flag and attributes & reparse_flag)
+
+
+def assert_safe_write_target(path: Path, root: Path | None = None) -> Path:
+    """Validate an in-root regular-file target without following child links.
+
+    A configured root may itself be a deliberate platform alias (for example,
+    a symlinked vault mount).  Anchor writes to that root's resolved directory,
+    then reject every link-like component below it.
+    """
+
+    target = Path(os.path.abspath(path.expanduser()))
+    logical_root = Path(os.path.abspath(root.expanduser())) if root is not None else None
+    if logical_root is not None:
+        resolved_root = logical_root.resolve(strict=False)
+        try:
+            relative = target.relative_to(logical_root)
+        except ValueError:
+            try:
+                relative = target.relative_to(resolved_root)
+            except ValueError as exc:
+                raise ValueError("write target must stay inside the configured root") from exc
+        target = resolved_root / relative
+        current = resolved_root
+        for part in relative.parts:
+            current = current / part
+            if path_is_link_like(current):
+                raise ValueError("write target must not contain symlinks or junctions")
+    else:
+        current = target.parent
+        while True:
+            if current.exists() and path_is_link_like(current):
+                raise ValueError("write target parent must not be a symlink or junction")
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+        if path_is_link_like(target):
+            raise ValueError("write target must not be a symlink or junction")
+
+    if target.exists() and not target.is_file():
+        raise ValueError("write target must be a regular file")
+    if not target.parent.is_dir():
+        raise FileNotFoundError(f"write target parent does not exist: {target.parent}")
+    return target
+
+
+def safe_write_text(
+    path: Path,
+    text: str,
+    *,
+    root: Path | None = None,
+    overwrite: bool,
+    encoding: str = "utf-8",
+) -> Path:
+    """Write text without following links; replace existing files atomically."""
+
+    target = assert_safe_write_target(path, root)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= int(getattr(os, "O_NOFOLLOW", 0))
+    flags |= int(getattr(os, "O_BINARY", 0))
+    payload = text.encode(encoding)
+
+    if not overwrite or not target.exists():
+        fd = os.open(target, flags, 0o600)
+        try:
+            with os.fdopen(fd, "wb", closefd=True) as stream:
+                fd = -1
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            if fd >= 0:
+                os.close(fd)
+        return target
+
+    temp_path = target.with_name(
+        f".{target.name}.ai-dememory-{secrets.token_hex(8)}.tmp"
+    )
+    fd = -1
+    try:
+        fd = os.open(temp_path, flags, 0o600)
+        with os.fdopen(fd, "wb", closefd=True) as stream:
+            fd = -1
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        target = assert_safe_write_target(target, root)
+        os.replace(temp_path, target)
+        return target
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def resolve_reports_path(
+    root: Path,
+    path: str | Path,
+    *,
+    label: str = "report path",
+) -> Path:
+    """Resolve one generated report below ``reports/`` without link traversal."""
+
+    logical_root = Path(os.path.abspath(root.expanduser()))
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = logical_root / candidate
+    target = Path(os.path.abspath(candidate))
+    reports_root = logical_root / "reports"
+    try:
+        relative = target.relative_to(logical_root)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay inside the memory root") from exc
+    try:
+        target.relative_to(reports_root)
+    except ValueError as exc:
+        raise ValueError(f"{label} must stay under reports/") from exc
+
+    current = logical_root
+    for part in relative.parts:
+        current = current / part
+        if path_is_link_like(current):
+            raise ValueError(f"{label} must not contain symlinks or junctions")
+    return target
+
+
 def is_memory_file(path: Path, root: Path) -> bool:
     if path.name == "README.md" or path.suffix.lower() != ".md":
         return False
@@ -145,13 +298,178 @@ def is_memory_file(path: Path, root: Path) -> bool:
     return any(rel == d or d in rel.parents for d in MEMORY_DIRS)
 
 
-def discover_memory_files(root: Path) -> list[Path]:
+def discover_memory_files(
+    root: Path,
+    *,
+    max_scan_entries: int = MAX_MEMORY_SCAN_ENTRIES,
+    max_files: int = MAX_MEMORY_FILES,
+    max_file_bytes: int = MAX_MEMORY_FILE_BYTES,
+    max_total_bytes: int = MAX_MEMORY_TOTAL_BYTES,
+) -> list[Path]:
+    """Discover canonical Markdown memories within explicit resource budgets."""
+
     files: list[Path] = []
+    entries_seen = 0
+    total_bytes = 0
     for memory_dir in MEMORY_DIRS:
         base = root / memory_dir
         if not base.exists():
             continue
-        files.extend(p for p in base.rglob("*.md") if is_memory_file(p, root))
+        if path_is_link_like(base):
+            raise MemoryError(
+                f"memory scan path must not be a symlink or junction: {memory_dir.as_posix()}"
+            )
+        for current_raw, dir_names, file_names in os.walk(base, topdown=True, followlinks=False):
+            current = Path(current_raw)
+            dir_names.sort()
+            file_names.sort()
+
+            retained_dirs: list[str] = []
+            for name in dir_names:
+                entries_seen += 1
+                if entries_seen > max_scan_entries:
+                    raise MemoryError(
+                        f"memory scan exceeded the {max_scan_entries} entry limit"
+                    )
+                candidate = current / name
+                if path_is_link_like(candidate):
+                    raise MemoryError(
+                        "memory scan path must not contain symlinks or junctions: "
+                        f"{logical_relative_path(candidate, root).as_posix()}"
+                    )
+                retained_dirs.append(name)
+            dir_names[:] = retained_dirs
+
+            for name in file_names:
+                entries_seen += 1
+                if entries_seen > max_scan_entries:
+                    raise MemoryError(
+                        f"memory scan exceeded the {max_scan_entries} entry limit"
+                    )
+                candidate = current / name
+                if path_is_link_like(candidate):
+                    raise MemoryError(
+                        "memory scan path must not contain symlinks or junctions: "
+                        f"{logical_relative_path(candidate, root).as_posix()}"
+                    )
+                if not is_memory_file(candidate, root):
+                    continue
+                try:
+                    size = candidate.stat(follow_symlinks=False).st_size
+                except OSError as exc:
+                    raise MemoryError(f"memory file could not be inspected: {candidate}") from exc
+                if size > max_file_bytes:
+                    raise MemoryError(
+                        f"memory file exceeds the {max_file_bytes} byte limit: "
+                        f"{repo_relative_path(candidate, root)}"
+                    )
+                total_bytes += size
+                if total_bytes > max_total_bytes:
+                    raise MemoryError(
+                        f"memory scan exceeded the {max_total_bytes} total byte limit"
+                    )
+                files.append(candidate)
+                if len(files) > max_files:
+                    raise MemoryError(
+                        f"memory scan exceeded the {max_files} file limit"
+                    )
+    return sorted(files)
+
+
+def discover_markdown_files(
+    root: Path,
+    relative_dir: str | Path,
+    *,
+    excluded_dirs: Iterable[str | Path] = (),
+    max_scan_entries: int = MAX_MEMORY_SCAN_ENTRIES,
+    max_files: int = MAX_MEMORY_FILES,
+    max_file_bytes: int = MAX_MEMORY_FILE_BYTES,
+    max_total_bytes: int = MAX_MEMORY_TOTAL_BYTES,
+) -> list[Path]:
+    """Discover Markdown below one in-root directory within fixed budgets."""
+
+    base_relative = contained_relative_path(Path(root) / relative_dir, root)
+    base = Path(root) / base_relative
+    if not base.exists():
+        return []
+    if not base.is_dir():
+        raise MemoryError(f"Markdown scan path must be a directory: {base_relative.as_posix()}")
+    if path_is_link_like(base):
+        raise MemoryError(
+            f"Markdown scan path must not be a symlink or junction: {base_relative.as_posix()}"
+        )
+
+    excluded: set[Path] = set()
+    for candidate in excluded_dirs:
+        excluded_relative = contained_relative_path(Path(root) / candidate, root)
+        try:
+            excluded_relative.relative_to(base_relative)
+        except ValueError as exc:
+            raise MemoryError(
+                "excluded Markdown scan directories must stay below the scan path"
+            ) from exc
+        excluded.add(excluded_relative)
+
+    files: list[Path] = []
+    entries_seen = 0
+    total_bytes = 0
+    for current_raw, dir_names, file_names in os.walk(base, topdown=True, followlinks=False):
+        current = Path(current_raw)
+        dir_names.sort()
+        file_names.sort()
+
+        retained_dirs: list[str] = []
+        for name in dir_names:
+            entries_seen += 1
+            if entries_seen > max_scan_entries:
+                raise MemoryError(
+                    f"Markdown scan exceeded the {max_scan_entries} entry limit"
+                )
+            candidate = current / name
+            candidate_relative = contained_relative_path(candidate, root)
+            if path_is_link_like(candidate):
+                raise MemoryError(
+                    "Markdown scan path must not contain symlinks or junctions: "
+                    f"{candidate_relative.as_posix()}"
+                )
+            if candidate_relative not in excluded:
+                retained_dirs.append(name)
+        dir_names[:] = retained_dirs
+
+        for name in file_names:
+            entries_seen += 1
+            if entries_seen > max_scan_entries:
+                raise MemoryError(
+                    f"Markdown scan exceeded the {max_scan_entries} entry limit"
+                )
+            candidate = current / name
+            candidate_relative = contained_relative_path(candidate, root)
+            if path_is_link_like(candidate):
+                raise MemoryError(
+                    "Markdown scan path must not contain symlinks or junctions: "
+                    f"{candidate_relative.as_posix()}"
+                )
+            if candidate.suffix.lower() != ".md" or candidate.name == "README.md":
+                continue
+            try:
+                size = candidate.stat(follow_symlinks=False).st_size
+            except OSError as exc:
+                raise MemoryError(f"Markdown file could not be inspected: {candidate}") from exc
+            if size > max_file_bytes:
+                raise MemoryError(
+                    f"Markdown file exceeds the {max_file_bytes} byte limit: "
+                    f"{candidate_relative.as_posix()}"
+                )
+            total_bytes += size
+            if total_bytes > max_total_bytes:
+                raise MemoryError(
+                    f"Markdown scan exceeded the {max_total_bytes} total byte limit"
+                )
+            files.append(candidate)
+            if len(files) > max_files:
+                raise MemoryError(
+                    f"Markdown scan exceeded the {max_files} file limit"
+                )
     return sorted(files)
 
 
@@ -164,8 +482,13 @@ def parse_value(raw: str) -> Any:
         if not inner:
             return []
         return [parse_value(item) for item in split_inline_list(inner)]
-    if (raw.startswith('"') and raw.endswith('"')) or (raw.startswith("'") and raw.endswith("'")):
-        return raw[1:-1]
+    if raw.startswith('"') and raw.endswith('"'):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return raw[1:-1]
+    if raw.startswith("'") and raw.endswith("'"):
+        return raw[1:-1].replace("''", "'")
     lowered = raw.lower()
     if lowered == "true":
         return True
@@ -270,8 +593,38 @@ def split_key_value(line: str, label: str, line_no: int) -> tuple[str, str]:
     return key, value.strip()
 
 
-def load_memory(path: Path) -> MemoryDocument:
-    text = path.read_text(encoding="utf-8")
+def read_bounded_text(
+    path: Path,
+    *,
+    max_file_bytes: int = MAX_MEMORY_FILE_BYTES,
+) -> str:
+    if path_is_link_like(path):
+        raise MemoryError(f"memory file must not be a symlink or junction: {path}")
+    try:
+        size = path.stat(follow_symlinks=False).st_size
+    except OSError as exc:
+        raise MemoryError(f"memory file could not be inspected: {path}") from exc
+    if size > max_file_bytes:
+        raise MemoryError(f"memory file exceeds the {max_file_bytes} byte limit: {path}")
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(max_file_bytes + 1)
+    except OSError as exc:
+        raise MemoryError(f"memory file could not be read: {path}") from exc
+    if len(raw) > max_file_bytes:
+        raise MemoryError(f"memory file exceeds the {max_file_bytes} byte limit: {path}")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise MemoryError(f"memory file must be valid UTF-8: {path}") from exc
+
+
+def load_memory(
+    path: Path,
+    *,
+    max_file_bytes: int = MAX_MEMORY_FILE_BYTES,
+) -> MemoryDocument:
+    text = read_bounded_text(path, max_file_bytes=max_file_bytes)
     frontmatter, content = parse_frontmatter_text(text, path)
     return MemoryDocument(path=path, frontmatter=frontmatter, content=content)
 

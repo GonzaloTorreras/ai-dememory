@@ -1,6 +1,7 @@
 # ADR 0182: Setup Health Manual Acceptance
 
-Status: Accepted
+Status: Accepted as local setup/sign-off status; it is not a package-workflow
+gate.
 
 ## Context
 
@@ -41,8 +42,8 @@ items exist.
 
 - Setup and plugin flows can show release-readiness gaps without calling a
   separate acceptance tool first.
-- Reviewers see that manual acceptance is still required even when automated
-  setup health is otherwise clean.
+- Reviewers see that manual acceptance is still required for complete local
+  sign-off even when automated setup health is otherwise clean.
 - The payload stays compact enough for routine setup diagnostics.
 - Evidence recording remains explicit and human-reviewed.
 
@@ -51,8 +52,9 @@ items exist.
 - Setup health does not list every acceptance item or suggested artifact; callers
   should use `ai-dememory acceptance plan --json` or MCP
   `memory.acceptance_plan` for full detail.
-- A clean automated setup health response does not mean release-ready unless
-  `manual_acceptance.complete` is also true.
+- A clean automated setup health response does not make local
+  `release_ready=true` unless `manual_acceptance.complete` is also true. The
+  canonical package workflow does not consume this field.
 - This does not run a GUI MCP client, publish to TestPyPI, or record proof.
 
 ## Future Work

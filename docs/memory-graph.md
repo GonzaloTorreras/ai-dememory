@@ -4,8 +4,9 @@
 Markdown memory files.
 
 The graph is generated, not canonical. Markdown remains the source of truth.
-When `indexes/memory.sqlite` exists, graph generation reads the SQLite index for
-faster responses. If the index is missing, it falls back to parsing Markdown.
+When `indexes/memory.sqlite` exists, graph generation uses it to order bounded
+candidates, then revalidates each selected row against canonical Markdown. If
+the index is missing, it falls back to bounded Markdown discovery.
 
 ## What It Contains
 
@@ -35,6 +36,7 @@ Private and sensitive memories are excluded unless the caller explicitly passes
 ai-dememory index
 ai-dememory graph
 ai-dememory graph --json
+ai-dememory graph --json --limit 100 --offset 100
 ```
 
 ## MCP
@@ -45,17 +47,23 @@ The MCP server exposes the graph through the read-only `memory.graph` tool:
 {
   "name": "memory.graph",
   "arguments": {
-    "include_sensitive": false
+    "include_sensitive": false,
+    "limit": 50,
+    "offset": 0
   }
 }
 ```
+
+`memory.graph` belongs to the opt-in `review`/`admin` profiles, not the public
+or core profiles. It returns `page.has_more` and `page.next_offset`. References
+are edges between memories present in the current page.
 
 ## REST API
 
 When the local API is running:
 
 ```bash
-curl "http://127.0.0.1:8765/graph"
+curl "http://127.0.0.1:8765/graph?limit=50&offset=0"
 ```
 
 ## Use Cases
@@ -67,6 +75,7 @@ curl "http://127.0.0.1:8765/graph"
 
 ## Performance
 
-Run `ai-dememory index` before using graph-heavy workflows. The indexed path
-avoids reparsing every Markdown file for each graph request and keeps `/graph`
-fast for local dashboards.
+Run `ai-dememory index` before graph-heavy workflows. Pages are bounded; the
+MCP/API limit is 100 memories, while the internal CLI/maintenance ceiling is
+2,000. Construction fails closed above 10,000 nodes, 25,000 edges, or 20,000
+examined index rows rather than allocating an unbounded response.

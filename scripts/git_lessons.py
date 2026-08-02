@@ -13,7 +13,11 @@ import re
 import subprocess
 import sys
 
-from memorylib import repo_relative_path, repo_root, slugify
+from memorylib import path_is_link_like, repo_relative_path, repo_root, safe_write_text, slugify
+from process_control import (
+    noninteractive_git_environment,
+    run_owned_capture,
+)
 from secret_scan import scan_text
 
 
@@ -31,6 +35,11 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 DEFAULT_CATEGORIES = ("fix", "bug", "revert", "hotfix", "migration", "ci", "build", "auth", "deploy", "regression")
 MAX_COMMITS = 50
+MAX_REPOSITORIES = 10
+MAX_GIT_OUTPUT_BYTES = 1024 * 1024
+GIT_TIMEOUT_SECONDS = 30
+MAX_SUBJECT_CHARS = 1000
+MAX_BODY_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,10 @@ def learn_git(
 ) -> dict[str, object]:
     if days < 1:
         raise ValueError("days must be at least 1")
+    if limit < 1 or limit > MAX_COMMITS:
+        raise ValueError(f"limit must be between 1 and {MAX_COMMITS}")
+    if len(repos) > MAX_REPOSITORIES:
+        raise ValueError(f"at most {MAX_REPOSITORIES} repositories may be inspected per run")
     lessons: list[GitCommitLesson] = []
     skipped: list[dict[str, str]] = []
     for repo in repos:
@@ -131,6 +144,8 @@ def lesson_candidates_from_repo(repo: Path, days: int, limit: int = MAX_COMMITS)
         if len(parts) != 4:
             continue
         sha, date, subject, body = (part.strip() for part in parts)
+        subject = subject[:MAX_SUBJECT_CHARS]
+        body = body[:MAX_BODY_CHARS]
         categories = classify_commit(subject, body)
         if not categories:
             continue
@@ -156,14 +171,26 @@ def is_git_repo(repo: Path) -> bool:
 
 
 def run_git(repo: Path, args: list[str]) -> str:
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=repo,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    command = ["git", *args]
+    try:
+        completed = run_owned_capture(
+            command,
+            cwd=repo,
+            env=noninteractive_git_environment(),
+            timeout_seconds=GIT_TIMEOUT_SECONDS,
+            max_output_bytes=MAX_GIT_OUTPUT_BYTES,
+            check=True,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(
+            f"git command exceeded the {GIT_TIMEOUT_SECONDS}-second timeout"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        if "combined child output exceeded" in str(exc.stderr or ""):
+            raise ValueError(
+                f"git command output exceeded {MAX_GIT_OUTPUT_BYTES} bytes"
+            ) from exc
+        raise
     return completed.stdout
 
 
@@ -204,7 +231,7 @@ def safe_git_lessons_dir(root: Path) -> Path:
     inbox = root / "inbox"
     capture_dir = inbox / "git-lessons"
     for component in (inbox, capture_dir):
-        if component.is_symlink():
+        if path_is_link_like(component):
             raise ValueError("git lesson path must not contain symlinks")
         if component.exists():
             try:
@@ -214,7 +241,7 @@ def safe_git_lessons_dir(root: Path) -> Path:
 
     capture_dir.mkdir(parents=True, exist_ok=True)
     for component in (inbox, capture_dir):
-        if component.is_symlink():
+        if path_is_link_like(component):
             raise ValueError("git lesson path must not contain symlinks")
         try:
             component.resolve().relative_to(root)
@@ -279,7 +306,7 @@ def write_lesson_candidate(root: Path, lesson: GitCommitLesson, text: str, finge
     path = inbox / f"{timestamp}_{slug}_{digest}.md"
     if path.exists() or path.is_symlink():
         raise ValueError("git lesson candidate path already exists")
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=False)
     return path
 
 

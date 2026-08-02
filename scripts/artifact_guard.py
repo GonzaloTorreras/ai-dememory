@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 
 from memorylib import repo_root
+from process_control import noninteractive_git_environment, run_owned_capture
 
 
 ROOT_GENERATED_DIRS = {
@@ -34,6 +35,11 @@ GENERATED_SUFFIXES = {
     ".db": "generated database",
     ".pyc": "Python bytecode cache",
     ".pyo": "Python bytecode cache",
+}
+ALLOWED_TRACKED_PLACEHOLDERS = {
+    "distilled/README.md",
+    "indexes/README.md",
+    "reports/README.md",
 }
 
 
@@ -83,22 +89,36 @@ def validate_artifact_paths(paths: list[str]) -> list[ArtifactIssue]:
 
 
 def staged_paths(root: Path) -> list[str]:
-    completed = subprocess.run(
+    completed = run_owned_capture(
         ["git", "diff", "--cached", "--name-only"],
         cwd=root,
+        timeout_seconds=30,
+        env=noninteractive_git_environment(),
         check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
+def tracked_paths(root: Path) -> list[str]:
+    completed = run_owned_capture(
+        ["git", "ls-files"],
+        cwd=root,
+        timeout_seconds=30,
+        env=noninteractive_git_environment(),
+        check=True,
+    )
+    return [
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip() and normalize_git_path(line.strip()) not in ALLOWED_TRACKED_PLACEHOLDERS
+    ]
+
+
 def validate_staged_artifacts(root: Path) -> list[ArtifactIssue]:
     try:
-        paths = staged_paths(root)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        return [ArtifactIssue("<git>", f"could not inspect staged files: {exc}")]
+        paths = sorted(set(staged_paths(root)) | set(tracked_paths(root)))
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return [ArtifactIssue("<git>", f"could not inspect tracked and staged files: {exc}")]
     return validate_artifact_paths(paths)
 
 
@@ -114,11 +134,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps([asdict(issue) for issue in issues], indent=2))
     elif issues:
-        print("Generated artifacts are staged and must be unstaged before release:")
+        print("Generated artifacts are tracked or staged and must be removed before release:")
         for issue in issues:
             print(f"- {issue.path}: {issue.reason}")
     else:
-        print("No generated artifacts are staged.")
+        print("No generated artifacts are tracked or staged.")
     return 1 if issues else 0
 
 

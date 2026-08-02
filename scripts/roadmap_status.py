@@ -211,7 +211,10 @@ def next_actions(phases: list[RoadmapPhaseStatus]) -> list[str]:
     gated = [phase for phase in phases if phase.status == "gated"]
     if gated:
         actions.append("Keep gated phases disabled until their review evidence explicitly approves activation.")
-    actions.append("Keep manual acceptance and recall fixture freshness as release blockers until reviewed evidence exists.")
+    actions.append(
+        "Keep manual acceptance and recall fixture freshness as local release-readiness blockers "
+        "until reviewed evidence exists."
+    )
     return actions
 
 

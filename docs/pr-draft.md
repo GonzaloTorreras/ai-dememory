@@ -32,7 +32,7 @@ review state.
 - `python3 scripts/ai_dememory.py validate`
 - `python3 scripts/ai_dememory.py secret-scan`
 - `python3 scripts/ai_dememory.py eval-recall`
-- `python3 -m unittest discover -s tests`
+- `python3 -m unittest discover -s tests -t .`
 - `python3 -m compileall -q scripts mcp/server ai_dememory_tool`
 
 ## Notes
@@ -40,9 +40,8 @@ review state.
 - Stacked on: `<parent PR or branch>`.
 - Draft PR: keep this PR in draft until CI and any required manual evidence are
   reviewed.
-- Routine release PRs may be merged and published by the AI release owner after
-  required checks pass; destructive or ownership-changing actions remain
-  human break-glass operations.
+- Codex prepares release evidence and independent review. Merge, tag, and
+  publication require explicit user authorization even after all checks pass.
 ```
 
 ## Validation Commands
@@ -65,8 +64,9 @@ py -3 scripts\ai_dememory.py mcp-smoke
 
 ## Safety Notes
 
-- Keep the pull request as a draft until the user explicitly asks to publish it
-  as ready for review.
+- Keep the pull request as a draft until required checks and a fresh independent
+  read-only review pass. Codex may then mark it ready and present the exact
+  tuple for approval.
 - Do not merge, publish packages, deploy, rotate secrets, or force-push without
   explicit user approval.
 - Do not stage generated SQLite indexes, reports, caches, distilled context

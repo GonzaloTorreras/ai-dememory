@@ -7,7 +7,10 @@ See `docs/mcp-v2.md` for the production-readiness target and hardening plan.
 See `docs/mcp-v2-gap-analysis.md` for implemented, deferred, and out-of-scope
 protocol features.
 
-The current inventory is 74 MCP tools:
+The current inventory is 74 MCP tools. The checked-in public plugin exposes
+only `memory.search`, `memory.get`, and `memory.context`; generated
+private-vault clients default to four-tool `core`. The complete inventory below
+is available only through broader opt-in profiles:
 
 - `memory.acceptance_status`: returns reviewed manual release acceptance
   evidence status.
@@ -36,11 +39,11 @@ The current inventory is 74 MCP tools:
   report, including next actions plus setup and maintenance summaries, without
   writing report files or recording evidence. It accepts the same optional
   `reviewer` and `pr_url` metadata.
-- `memory.publish_plan`: returns manual TestPyPI or PyPI publish workflow
-  dispatch inputs, preflight commands, blockers, and false side-effect flags
-  without uploading packages, writing files, or running publish/preflight
-  commands. It may run local read-only inspection commands for release evidence
-  and workflow URL resolution.
+- `memory.publish_plan`: returns TestPyPI or PyPI readiness, legacy
+  read-only-preflight inputs, inspection commands, canonical release blockers,
+  and false side-effect flags without uploading packages, writing files, or
+  running hosted commands. It may run local read-only inspection commands for
+  release evidence and preflight URL resolution.
 - `memory.roadmap_status`: returns read-only v2 operational roadmap phase
   status, including implemented, gated, and missing-evidence counts.
 - `memory.capture_import`: captures explicit text or a repository-local file into
@@ -62,7 +65,9 @@ The current inventory is 74 MCP tools:
   `recommendation_id` links to an advisory recommendation artifact.
 - `memory.context`: assembles token-budgeted context from safe search results
   using an explicit query or `auto: true` working-memory query, with optional
-  vault-configured defaults and explanation rendering.
+  vault-configured defaults and explanation rendering. `public_only: true`
+  filters non-public results before limiting, excludes working memory, and
+  requires an explicit query.
 - `memory.doctor`: returns local readiness checks, selected profile, and status
   summary.
 - `memory.validate_status`: returns structured validation and conflict scan
@@ -78,7 +83,9 @@ The current inventory is 74 MCP tools:
 - `memory.git_lessons`: inspects local git history and previews review-first
   lesson candidates by default; set `dry_run=false` to write candidates to
   `inbox/git-lessons/`, with repeated candidates skipped as `already captured`.
-- `memory.graph`: returns generated memory graph nodes and edges.
+- `memory.graph`: returns a bounded, paginated graph plus
+  `page.has_more`/`page.next_offset`; it is available in `review`/`admin`, not
+  public/core.
 - `memory.hook_config`: returns Codex or Claude hook configuration fragments.
 - `memory.hook_events`: returns supported provider hook metadata.
 - `memory.hook_status`: returns managed hook instruction status and bounded
@@ -90,7 +97,9 @@ The current inventory is 74 MCP tools:
   `inbox/session-events/` capture without promoting canonical memory.
 - `memory.import_chats`: imports configured provider chats into review inboxes;
   accepts `dry_run=true` to return `would_write` without writing candidates, and
-  skips repeated provider candidates with reason `already imported`.
+  skips repeated provider candidates with reason `already imported`. Truncated
+  windows report `coverage_blocked` and a bounded scan-intensity suggestion
+  when only known files were revisited.
 - `memory.lifecycle_scores`: returns generated lifecycle scoring data.
 - `memory.maintenance_run`: runs an opt-in daily or weekly maintenance profile;
   pass `dry_run=true` to preview provider imports and generated artifacts
@@ -185,7 +194,8 @@ The current inventory is 74 MCP tools:
   command availability without running those commands.
 - `memory.search`: reads the SQLite index and returns ranked results with path,
   source, confidence, status, snippets, numeric `why` components, and matched
-  evidence fields such as `matched_terms` and `matched_fields`.
+  evidence fields such as `matched_terms` and `matched_fields`. Set
+  `public_only: true` when results may influence a public repository.
 - `memory.secret_scan`: scans selected paths or all repo text artifacts.
 - `memory.setup_plan`: returns review-first vault, MCP, provider, hook, and
   scheduler setup command arrays without mutating files.

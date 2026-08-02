@@ -15,10 +15,11 @@ import subprocess
 import sys
 from typing import Any
 
-from memorylib import repo_relative_path, repo_root
+from memorylib import repo_relative_path, repo_root, resolve_reports_path, safe_write_text
 from manual_acceptance import acceptance_plan, acceptance_status
 from mcp_inventory import build_inventory, validate_inventory_docs
 from maintenance import maintenance_status
+from process_control import noninteractive_git_environment, run_owned_capture
 from publish_guard import validate_publish_workflow
 from recall_fixtures import recall_fixture_review_plan
 from release_check import run_release_checks
@@ -72,13 +73,12 @@ class ReleaseEvidence:
 
 
 def git_output(root: Path, *args: str) -> str:
-    completed = subprocess.run(
+    completed = run_owned_capture(
         ["git", *args],
         cwd=root,
+        timeout_seconds=30,
+        env=noninteractive_git_environment(),
         check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
     return completed.stdout.strip()
 
@@ -904,20 +904,7 @@ def resolve_repo_path(root: Path, path: str | Path) -> Path:
 
 
 def resolve_report_path(root: Path, report_path: str | Path) -> Path:
-    root_abs = root.resolve()
-    target = resolve_repo_path(root_abs, report_path)
-    try:
-        target.relative_to(root_abs / "reports")
-    except ValueError as exc:
-        raise ValueError("report path must stay under reports/") from exc
-    current = root_abs
-    for part in target.relative_to(root_abs).parts[:-1]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError("report path must not contain symlinks")
-    if target.is_symlink():
-        raise ValueError("report path must not be a symlink")
-    return target
+    return resolve_reports_path(root, report_path)
 
 
 def write_report(
@@ -930,7 +917,8 @@ def write_report(
     if scan_text(text, "<release-evidence-report>"):
         raise ValueError("release evidence report rejected by secret scan")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    target = resolve_report_path(root, report_path)
+    safe_write_text(target, text, root=root, overwrite=True)
     return target
 
 
@@ -956,7 +944,7 @@ def main(argv: list[str] | None = None) -> int:
             pr_url=args.pr_url or os.environ.get("AI_DEMEMORY_PR_URL") or None,
             reviewer=args.reviewer or os.environ.get("AI_DEMEMORY_REVIEWER") or None,
         )
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         print(f"git command failed: {exc}", file=sys.stderr)
         return 1
 

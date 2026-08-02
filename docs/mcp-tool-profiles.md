@@ -1,29 +1,34 @@
 # MCP Tool Profiles
 
-The MCP server retains all 74 tools for compatibility, embedding, and advanced
-administration. Clients should not advertise that entire surface to a model by
-default. `ai-dememory mcp-config --client codex` and the bundled Codex plugin
-therefore use `core`.
+The MCP server retains all 74 tools under explicit `admin` for compatibility,
+embedding, and advanced administration. Generated clients should not advertise
+or be able to call that entire surface by default. Every
+`ai-dememory mcp-config` private-vault client therefore launches the server
+with `--profile core`; the checked-in public Codex plugin uses the stricter
+`public` profile. Codex also receives a matching `enabled_tools` allowlist as
+defense in depth.
 
 Profiles are additive:
 
 | Profile | Tools | Schema bytes | Est. tokens | Intended use |
 | --- | ---: | ---: | ---: | --- |
-| `core` | 7 | 5,084 | 1,271 | Recall, bounded context, relationship lookup, basic health, and current task state. |
-| `working` | 12 | 8,871 | 2,218 | `core` plus snapshots, handoffs, retrieval telemetry, misses, and usefulness feedback. |
-| `review` | 44 | 48,691 | 12,173 | `working` plus review-first proposals, recall-miss, provenance, hook-capture, import, conflict, and recommendation review. |
-| `admin` | 74 | 77,483 | 19,371 | Explicit unfiltered server surface, including maintenance, imports, indexing, release, and acceptance tooling. |
+| `public` | 3 | 3,347 | 837 | Public-only search/get/context with sensitive and working state forcibly excluded. |
+| `core` | 4 | 3,904 | 976 | Private-vault recall, bounded context, and basic health. |
+| `working` | 11 | 9,062 | 2,266 | `core` plus snapshots, handoffs, retrieval telemetry, misses, and usefulness feedback. |
+| `review` | 44 | 49,798 | 12,450 | `working` plus graph and review-first proposal, provenance, hook, import, conflict, and recommendation workflows. |
+| `admin` | 74 | 81,084 | 20,271 | Explicit unfiltered server surface, including maintenance, imports, indexing, release, and acceptance tooling. |
 
 These measurements come from the 2.1.0 server definitions and are guarded by
 the reproducible inventory command below; rerun it whenever a schema changes.
 
-`admin` intentionally omits `enabled_tools` from generated Codex TOML. This is
-the backwards-compatible escape hatch and must be selected explicitly.
+`admin` intentionally omits `enabled_tools` from generated Codex TOML. It is
+still passed to the server explicitly as the backwards-compatible escape hatch.
 
 Generate configuration:
 
 ```bash
 ai-dememory mcp-config --client codex                  # core
+ai-dememory mcp-config --client codex --profile public
 ai-dememory mcp-config --client codex --profile working
 ai-dememory mcp-config --client codex --profile review
 ai-dememory mcp-config --client codex --profile admin
@@ -34,6 +39,7 @@ the current server source:
 
 ```bash
 ai-dememory dev mcp-inventory --profile core --json
+ai-dememory dev mcp-inventory --profile public --json
 ai-dememory dev mcp-inventory --profile working --json
 ai-dememory dev mcp-inventory --profile review --json
 ai-dememory dev mcp-inventory --profile admin --json
@@ -42,11 +48,14 @@ ai-dememory dev mcp-inventory --profile admin --json
 The reported `schema_bytes` is compact UTF-8 JSON for the selected MCP tool
 definitions. `estimated_schema_tokens` is a transparent bytes/4 estimate, not
 a tokenizer-specific promise. Inventory and release guards fail if a named
-profile references a tool the server no longer exposes or if the plugin
-allowlist drifts from `core`.
+profile references a tool the server no longer exposes or if the public plugin
+allowlist drifts from `public`.
 
 The profile definitions live in `ai_dememory_tool/mcp_profiles.py`. The server
-does not enforce them: a client without allowlist support can still see all 74
-tools. Generated generic and Claude configs therefore default to `admin` and
-reject narrower profiles; use Codex or another client-specific allowlist when
-prompt cost matters.
+enforces them by filtering `tools/list`, rejecting out-of-profile `tools/call`,
+and withholding MCP resources and prompts outside explicit `admin`. Generated
+generic, Claude, and generated Codex private-vault configs default to `core`,
+pass the selected profile on the server command line, and add
+`--require-bound-root`. The bundled public plugin passes `public`. A client
+without native allowlist support therefore receives the same server-enforced
+surface.

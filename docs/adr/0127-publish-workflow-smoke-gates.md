@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted for hosted readiness smoke. Its publication and artifact-handoff
+clauses were superseded by ADR 0255 on 2026-07-26; the legacy workflow is
+read-only and discards smoke artifacts.
 
 ## Context
 
@@ -17,50 +19,52 @@ or from a ref that was not the exact checked release candidate.
 
 ## Decision
 
-Add the following publish preflight gates before the build job:
+Historical decision, superseded as described in Status: the original publisher
+added the following preflight gates before its build job:
 
 - `python scripts/ai_dememory.py install-smoke`
 - `python scripts/ai_dememory.py package-build-smoke --check-clean`
 - `python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:publish`
 
-Keep the build job as a separate job with its own checkout. The smoke gates run
-in the preflight workspace; the distribution build still starts from a fresh
-workspace and uploads only the `dist/` artifact produced by the build job.
+The original design kept the build job separate and uploaded only its `dist/`
+artifact.
 
-`publish-guard` now requires these smoke commands in addition to the existing
-manual dispatch, confirmation, Trusted Publishing, and fast preflight checks.
+ADR 0255 removed both the build and publisher from this workflow. The smoke
+commands remain as readiness diagnostics, and `publish-guard` now requires
+manual `confirm=preflight`, read-only permissions, and no release capability.
 
 ## Benefits
 
-- Prevents manual publishing from bypassing fresh install and Docker smoke.
-- Ties TestPyPI/PyPI uploads to the exact ref selected in the publish workflow.
-- Keeps the release checklist, publish workflow, and publish guard aligned.
-- Leaves the distribution build workspace clean and isolated from smoke output.
+- Prevents hosted readiness claims from bypassing fresh install and Docker
+  smoke.
+- Keeps the release checklist, compatibility workflow, and publish guard
+  aligned.
+- Discards smoke output instead of handing it to a publisher.
 
 ## Limitations
 
 - The publish workflow now depends on Docker availability in GitHub-hosted
   runners.
-- The smoke checks increase manual publish runtime.
+- The smoke checks increase hosted preflight runtime.
 - This does not record manual acceptance evidence or prove a real MCP client was
   used.
-- Trusted Publishing environment configuration still has to be verified in
-  GitHub.
+- Trusted Publisher configuration for the canonical `release.yml` workflow
+  still has to be verified externally.
 
 ## Future Risks
 
 - If Docker availability changes on GitHub-hosted runners, the Docker smoke gate
   may need a documented fallback or a self-hosted runner.
-- If publish workflows later run from signed tags, these gates should remain on
-  the selected tag ref.
-- If package smoke starts producing checkout-local build artifacts, the build job
-  must stay isolated from preflight.
+- Canonical signed-tag validation belongs to `release.yml`; this preflight must
+  not claim equivalent provenance.
+- If package smoke starts producing checkout-local build artifacts, the
+  workflow must continue to discard them.
 
 ## Dependencies
 
 - ADR 0011 defines reusable install and Docker smoke.
-- ADR 0012 defines the manual Trusted Publishing guard.
+- ADR 0255 defines the current sole-publisher boundary.
 - ADR 0076 defines the publish preflight job.
 - ADR 0077 defines package build smoke.
-- `.github/workflows/publish.yml` owns the manual package upload flow.
+- `.github/workflows/publish.yml` owns only the hosted read-only preflight.
 - `scripts/publish_guard.py` enforces the workflow contract.

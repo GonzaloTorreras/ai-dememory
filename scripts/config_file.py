@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from memorylib import path_is_link_like, safe_write_text
+
 
 CONFIG_NAME = ".ai-dememory.toml"
 
@@ -105,7 +107,12 @@ def set_section_path(path: Path, section: str, values: dict[str, Any], root: Pat
             output.append("")
         output.extend(render_section(section, values))
 
-    path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+    safe_write_text(
+        path,
+        "\n".join(output).rstrip() + "\n",
+        root=root,
+        overwrite=True,
+    )
     return path
 
 
@@ -117,13 +124,13 @@ def ensure_safe_write_path(path: Path, root: Path | None = None) -> None:
         except ValueError as exc:
             raise ValueError("config path must stay inside the memory root") from exc
 
-    if path.is_symlink():
+    if path_is_link_like(path):
         raise ValueError("config path must not be a symlink")
 
     parent = path.parent
     stop_at = root if root is not None else None
     while True:
-        if parent.exists() and parent.is_symlink():
+        if parent.exists() and path_is_link_like(parent):
             raise ValueError("config path parent must not be a symlink")
         if stop_at is not None and parent.resolve(strict=False) == stop_at:
             break

@@ -12,8 +12,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from index_memory import default_db_path
-from memorylib import parse_date, recency_score, repo_relative_path, repo_root, today
+from index_memory import (
+    MAX_LOG_IDENTIFIER_CHARS,
+    MAX_OUTCOME_NOTE_CHARS,
+    MAX_RETRIEVAL_QUERY_CHARS,
+    default_db_path,
+    prune_generated_logs,
+)
+from memorylib import parse_date, recency_score, repo_relative_path, repo_root, safe_write_text, today
+from resource_limits import MAX_LIFECYCLE_ROWS
 from secret_scan import scan_text
 
 
@@ -77,6 +84,9 @@ def connect(root: Path) -> sqlite3.Connection:
 
 
 def mark_seen(root: Path, memory_id: str, query: str = "", score: float | None = None, used_by: str | None = None) -> dict[str, Any]:
+    enforce_text_limit("memory_id", memory_id, MAX_LOG_IDENTIFIER_CHARS)
+    enforce_text_limit("query", query, MAX_RETRIEVAL_QUERY_CHARS)
+    enforce_text_limit("used_by", used_by or "", MAX_LOG_IDENTIFIER_CHARS)
     for label, value in (("memory_id", memory_id), ("query", query), ("used_by", used_by or "")):
         if value and scan_text(value, f"<lifecycle.mark_seen.{label}>"):
             raise ValueError(f"mark-seen rejected secret-like {label}")
@@ -102,6 +112,7 @@ def mark_seen(root: Path, memory_id: str, query: str = "", score: float | None =
             """,
             (memory_id, timestamp, timestamp),
         )
+        prune_generated_logs(conn)
         conn.commit()
     finally:
         conn.close()
@@ -118,6 +129,7 @@ def mark_seen(root: Path, memory_id: str, query: str = "", score: float | None =
 def record_outcome(root: Path, memory_id: str | None, outcome: str, note: str | None = None) -> dict[str, Any]:
     if outcome not in {"good", "bad"}:
         raise ValueError("outcome must be good or bad")
+    enforce_text_limit("note", note or "", MAX_OUTCOME_NOTE_CHARS)
     if note and scan_text(note, "<lifecycle.outcome.note>"):
         raise ValueError("outcome note rejected by secret scan")
     target_source = "last_seen" if memory_id is None else "explicit"
@@ -126,6 +138,7 @@ def record_outcome(root: Path, memory_id: str | None, outcome: str, note: str | 
         target_id = memory_id or last_seen_id(conn)
         if not target_id:
             raise ValueError("no memory id provided and retrieval log is empty")
+        enforce_text_limit("memory_id", target_id, MAX_LOG_IDENTIFIER_CHARS)
         if scan_text(target_id, "<lifecycle.outcome.memory_id>"):
             raise ValueError("outcome memory id rejected by secret scan")
         timestamp = now_iso()
@@ -167,6 +180,7 @@ def record_outcome(root: Path, memory_id: str | None, outcome: str, note: str | 
             """,
             (target_id,),
         ).fetchone()
+        prune_generated_logs(conn)
         conn.commit()
     finally:
         conn.close()
@@ -183,6 +197,11 @@ def record_outcome(root: Path, memory_id: str | None, outcome: str, note: str | 
         "lifecycle_updated": True,
         "created_at": timestamp,
     }
+
+
+def enforce_text_limit(label: str, value: str, maximum: int) -> None:
+    if len(value) > maximum:
+        raise ValueError(f"{label} exceeds the {maximum} character limit")
 
 
 def last_seen_id(conn: sqlite3.Connection) -> str | None:
@@ -225,9 +244,14 @@ def lifecycle_scores(root: Path, include_sensitive: bool = False) -> list[Lifecy
             LEFT JOIN memory_lifecycle l ON l.memory_id = m.id
             WHERE m.sensitivity != 'secret-prohibited'
               AND (? OR COALESCE(m.sensitivity, '') NOT IN ('private', 'sensitive'))
+            LIMIT ?
             """,
-            (1 if include_sensitive else 0,),
-        ).fetchall()
+            (1 if include_sensitive else 0, MAX_LIFECYCLE_ROWS + 1),
+        ).fetchmany(MAX_LIFECYCLE_ROWS + 1)
+        if len(rows) > MAX_LIFECYCLE_ROWS:
+            raise RuntimeError(
+                f"memory lifecycle exceeds the {MAX_LIFECYCLE_ROWS} row limit; rebuild the index"
+            )
     finally:
         conn.close()
 
@@ -313,7 +337,7 @@ def write_lifecycle_scores(root: Path, output: Path = LIFECYCLE_JSON, include_se
     if scan_text(text, "<lifecycle-scores-json>"):
         raise ValueError("lifecycle scores JSON rejected by secret scan")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    safe_write_text(path, text, root=root, overwrite=True)
     return path, scores
 
 
@@ -337,7 +361,7 @@ def write_lifecycle_report(root: Path, output: Path = LIFECYCLE_REPORT) -> tuple
         raise ValueError("lifecycle report rejected by secret scan")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
+    safe_write_text(target, text, root=root, overwrite=True)
     return target, scores
 
 

@@ -1,31 +1,25 @@
-.git
-.github
-__pycache__/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-.venv/
-venv/
-build/
-dist/
-*.egg-info/
-indexes/*.sqlite
-indexes/*.sqlite-shm
-indexes/*.sqlite-wal
-indexes/*.sqlite.tmp
-indexes/*.db
-indexes/*.db-shm
-indexes/*.db-wal
-indexes/*.db.tmp
-distilled/*.md
-!distilled/README.md
-reports/*.json
-reports/*.md
-!reports/README.md
-.env
-.env.*
-*.pem
-*.key
-*.p12
-*.pfx
-*service-account*.json
+# Deny the entire checkout, then admit only package build inputs. This keeps
+# ignored private vault/runtime directories out of the Docker build context.
+**
+!pyproject.toml
+!README.md
+!LICENSE
+!ai_dememory_tool/
+!ai_dememory_tool/**
+!scripts/
+!scripts/**
+!mcp/
+!mcp/**
+
+# These remain denied even if accidentally created below an admitted source
+# directory.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*service-account*.json

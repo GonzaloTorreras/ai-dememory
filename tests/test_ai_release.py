@@ -10,13 +10,25 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from scripts.ai_release_guard import changelog_heading, project_version, validate_identity  # noqa: E402
+from scripts.ai_release_guard import project_version, validate_identity  # noqa: E402
 from scripts.published_artifact_guard import compare, local_digests  # noqa: E402
 from scripts.eval_recall import summary  # noqa: E402
 from scripts.release_artifact_smoke import validate_wheel_namespaces  # noqa: E402
 
 
 class AiReleaseGuardTests(unittest.TestCase):
+    def test_docker_build_context_is_source_allowlisted(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+        self.assertNotRegex(dockerfile, r"(?m)^\s*COPY\s+\.\s")
+        for source in ("ai_dememory_tool", "scripts", "mcp"):
+            self.assertIn(f"COPY {source} ./{source}", dockerfile)
+        self.assertTrue(dockerignore.lstrip().startswith("# Deny"))
+        self.assertIn("\n**\n", dockerignore)
+        for private_root in ("memories", "inbox", "working", "archive"):
+            self.assertNotIn(f"!{private_root}/", dockerignore)
+
     def test_wheel_namespace_guard_rejects_public_package_collisions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             wheel = Path(tmp) / "example.whl"
@@ -60,13 +72,28 @@ class AiReleaseGuardTests(unittest.TestCase):
         self.assertEqual(stats["status"], "insufficient_evidence")
         self.assertIsNone(stats["recall"])
 
-    def test_current_version_has_matching_release_identity(self) -> None:
+    def test_current_version_stays_unreleased_until_release_prep(self) -> None:
         version = project_version(ROOT)
-        identity = validate_identity(ROOT, f"v{version}", version_only=True)
+        with self.assertRaisesRegex(ValueError, "no dated"):
+            validate_identity(ROOT, f"v{version}", version_only=True)
 
-        self.assertEqual(identity.version, version)
-        self.assertEqual(identity.tag, f"v{version}")
-        self.assertEqual(identity.changelog_heading, changelog_heading(ROOT, version))
+    def test_dated_version_has_matching_release_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "ai-dememory"\nversion = "2.1.0"\n',
+                encoding="utf-8",
+            )
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n## [2.1.0] - 2026-07-26\n",
+                encoding="utf-8",
+            )
+
+            identity = validate_identity(root, "v2.1.0", version_only=True)
+
+        self.assertEqual(identity.version, "2.1.0")
+        self.assertEqual(identity.tag, "v2.1.0")
+        self.assertEqual(identity.changelog_heading, "## [2.1.0] - 2026-07-26")
 
     def test_mismatched_and_unversioned_tags_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "does not match project version"):
