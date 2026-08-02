@@ -72,7 +72,7 @@ available on PyPI.
 
 ## Dependencies
 
-- ADR 0247 defines the public tag-driven release mechanism.
+- ADRs 0247 and 0258 define the public exact-tuple release mechanism.
 - ADR 0248 defines the public package namespace and Python baseline.
 - ADR 0252 defines agent authority and owner approval boundaries.
 - `AGENTS.md` defines the canonical remote and archive handling policy.

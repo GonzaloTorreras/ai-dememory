@@ -1,4 +1,4 @@
-# ADR 0258: Explicit Release Tag Authorization
+# ADR 0258: Explicit Release Tag And Publication Authorization
 
 ## Status
 
@@ -29,12 +29,15 @@ immutable inputs:
 - `ai_release_guard.py` must prove tag/version/changelog identity before any
   write;
 - an existing tag is accepted only if it resolves to the approved SHA;
-- a new annotated tag is created through the GitHub API and only then triggers
-  the sole publisher in `release.yml`.
+- a new annotated tag is created through the GitHub API;
+- the tagger keeps Actions read-only and never dispatches the publisher;
+- `release.yml` is `workflow_dispatch`-only and requires a second explicit
+  `intent`, tag, commit and
+  `confirm=<intent>-<tag>@<approved_sha>` authorization before publishing.
 
 Remove `workflow_run` and `AI_RELEASE_ENABLED` from the tagger. Recovery remains
 a separate manual `release.yml` dispatch for an existing immutable tag with
-`confirm=recover-<tag>`.
+`intent=recover` and `confirm=recover-<tag>@<approved_sha>`.
 
 This ADR supersedes the automatic-tagger and migration-switch clauses in ADRs
 0247, 0252, and 0255. Their protected-main, immutable artifact, single
@@ -44,22 +47,27 @@ publisher, OIDC, provenance, and explicit-authorization requirements remain.
 
 A green merge no longer publishes by ambient repository configuration. Release
 authorization is inspectable, replay-resistant at the tuple level, and
-separate from merge authorization. The operator performs one additional manual
-dispatch after green `main`; publication remains automated after the approved
-tag is created.
+separate from merge authorization. The operator performs two manual dispatches
+after green `main`: one creates the exact tag and the other authorizes the
+publisher for that same tuple. Artifact build, publication and verification
+remain automated after the second dispatch.
 
 ## Limitations
 
 Repository maintainers can still create tags through other GitHub surfaces, so
-branch/ruleset and account security remain part of the trust boundary. Workflow
-text guards are defense in depth, not a substitute for GitHub environment and
-Trusted Publisher configuration. The CI API check proves a successful recorded
-run, not the absence of a compromised action.
+the `v*` creation ruleset and account security remain part of the trust
+boundary. A direct tag no longer triggers the current publisher, but tagging an
+older commit could select its historical workflow unless tag creation is
+restricted to the GitHub Actions integration. Workflow text guards are defense
+in depth, not a substitute for ruleset, environment and Trusted Publisher
+configuration. The CI API check proves a successful recorded run, not the
+absence of a compromised action.
 
 ## Future Risks
 
-A later workflow could reintroduce an automatic tag trigger, weaken the
-confirmation tuple, accept a stale main SHA, or add another package publisher.
+A later workflow could reintroduce an automatic tag trigger or tagger-driven
+publisher dispatch, weaken either confirmation tuple, accept a stale main SHA,
+or add another package publisher.
 Workflow supply-chain and publisher-inventory guards must remain release gates.
 
 ## Dependencies
@@ -72,7 +80,8 @@ Workflow supply-chain and publisher-inventory guards must remain release gates.
 
 ## Rollback
 
-Fail closed by leaving the tag workflow undispatched. Recover an interrupted
-publication only from the existing immutable tag through the guarded
-`release.yml` recovery dispatch. Reintroducing ambient or automatic tag
-creation requires a new owner-accepted ADR and matching threat review.
+Fail closed by leaving either workflow undispatched. Recover an interrupted
+publication only from the existing immutable tag through the guarded exact
+tuple `release.yml` recovery dispatch. Reintroducing ambient tag publication or
+automatic publisher dispatch requires a new owner-accepted ADR and matching
+threat review.

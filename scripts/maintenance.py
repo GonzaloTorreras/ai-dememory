@@ -230,6 +230,16 @@ def enabled_providers(root: Path) -> list[str]:
     ]
 
 
+def resource_policy_error_details(policy: dict[str, object]) -> str:
+    validation_errors = policy.get("validation_errors", [])
+    details = (
+        ", ".join(str(error) for error in validation_errors)
+        if isinstance(validation_errors, list)
+        else ""
+    )
+    return details or "resource policy validation failed without diagnostics"
+
+
 def run_maintenance(
     root: Path,
     profile: str,
@@ -242,7 +252,7 @@ def run_maintenance(
     if resource_policy.get("valid") is not True:
         raise ValueError(
             "resolved resource policy is invalid: "
-            + ", ".join(str(error) for error in resource_policy.get("errors", []))
+            + resource_policy_error_details(resource_policy)
         )
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):
@@ -376,7 +386,7 @@ def dry_run_maintenance(
     if resource_policy.get("valid") is not True:
         raise ValueError(
             "resolved resource policy is invalid: "
-            + ", ".join(str(error) for error in resource_policy.get("errors", []))
+            + resource_policy_error_details(resource_policy)
         )
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):

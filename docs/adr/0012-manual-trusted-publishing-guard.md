@@ -40,7 +40,7 @@ The original guard validated that the manual publisher:
 `release-check` fails if the guard reports issues.
 
 ADR 0255 retained the command but inverted the legacy-workflow contract. The
-current guard validates `release.yml` as the sole immutable-tag publisher and
+current guard validates `release.yml` as the sole exact-tuple publisher and
 rejects OIDC, environments, artifacts, pushes, releases, or uploads in
 `publish.yml`.
 

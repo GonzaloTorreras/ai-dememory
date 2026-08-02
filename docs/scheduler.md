@@ -92,6 +92,11 @@ Unattended Docker schedules accept only immutable
 `sha256:<64-hex-image-id>` or `repository@sha256:<64-hex-digest>` references.
 The plan reports `docker_image_immutable` and `installable`; a mutable tag has
 no `apply_command` or cron export and cannot be installed.
+It also reports `resource_policy_valid` and `validation_errors`. An invalid or
+out-of-range resource override makes the plan non-installable, suppresses
+install commands, cron entries, and `apply_command`, and must be fixed before
+autonomous work can be installed. Apply resolves the policy again before
+command generation and immediately before any scheduler definition is written.
 
 Install the exact reviewed plan:
 
@@ -151,7 +156,9 @@ reviewed cron export entries for minimal hosts, and reports
 `installs_schedules=false`. It also returns `task_namespace`, `intensity`,
 `plan_sha256`, and an exact `apply_command`. Use it in plugin or scripted setup
 before asking a user to run the mutating command. Docker plans additionally
-return `docker_image_immutable` and `installable`.
+return `docker_image_immutable` and `installable`. CLI and MCP plans also return
+`resource_policy_valid` plus `validation_errors`, so an invalid local policy is
+diagnosable without attempting installation.
 
 MCP clients can inspect schedule setup with `memory.schedule_status`. The tool
 returns persisted schedule settings, receipt validity, host verification state,

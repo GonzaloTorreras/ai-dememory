@@ -326,7 +326,8 @@ def publish_plan_next_actions(
     if repository == "pypi":
         actions.append("Use a canonical prerelease tag for TestPyPI and verify install evidence before a PyPI release.")
     actions.append(
-        "The legacy hosted preflight cannot publish; use the canonical tag-driven release only after explicit owner authorization."
+        "The legacy hosted preflight cannot publish; use the canonical "
+        "exact-tag release dispatch only after explicit owner authorization."
     )
     return actions
 

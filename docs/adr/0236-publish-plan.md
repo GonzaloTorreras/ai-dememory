@@ -8,10 +8,10 @@ Accepted as a read-only compatibility API. Publication and
 ## Context
 
 The original publish plan described a manual Trusted Publishing workflow.
-ADR 0255 made the immutable-tag-driven `release.yml` workflow the sole
-publisher and reduced `publish.yml` to a manual, read-only hosted readiness
-preflight. Release evidence still reports whether manual acceptance, recall
-review, and automated checks block the canonical release.
+ADRs 0255 and 0258 made the exact-tag/commit manually dispatched `release.yml`
+workflow the sole publisher and reduced `publish.yml` to a manual, read-only
+hosted readiness preflight. Release evidence still reports whether manual
+acceptance, recall review, and automated checks block the canonical release.
 
 Maintainers still need one read-only local command that combines those signals:
 which target index is being evaluated, which legacy preflight inputs are
@@ -70,7 +70,8 @@ non-git checkout, it returns
 
 ## Dependencies
 
-- ADR 0255 defines the sole tag-driven publisher and legacy preflight boundary.
+- ADRs 0255 and 0258 define the sole exact-tuple publisher and legacy preflight
+  boundary.
 - ADR 0076 and ADR 0127 retain the historical preflight and smoke rationale.
 - ADR 0128 defines TestPyPI manual acceptance evidence requirements.
 - ADR 0235 defines release evidence handoff commands.
