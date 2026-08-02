@@ -4,9 +4,10 @@ Status: approved for implementation planning; deployment remains approval-gated
 
 Owner: Codex operational owner
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 
-Depends on: PR #10 (`codex/public-canonicalization`)
+Foundation: PR #10 merged into canonical `main` at
+`2e900acc021411193c5298addfece4c82fda69b4`
 
 ## Decision
 
@@ -376,11 +377,10 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Review this concept and plan without changing PR #10.
-2. After PR #10 receives the required formal approval and merges, rebase this
-   branch onto canonical `main`.
-3. Implement D1 as a content-only/static-site PR with no Pages permissions.
-4. Run the full docs, browser, security, and repository validation gates.
-5. Request a fresh independent review and merge authorization for D1.
-6. Open the separately reviewed Pages workflow PR only after the static artifact
+1. Treat this D0 plan as reviewed against the merged canonical `main` baseline.
+2. Complete D1 as a content-only/static-site PR with no Pages permissions.
+3. Run the full docs, browser, security, and repository validation gates on the
+   exact D1 head.
+4. Request a fresh independent review and merge authorization for D1.
+5. Open the separately reviewed Pages workflow PR only after the static artifact
    is accepted.
