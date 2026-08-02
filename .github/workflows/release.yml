@@ -1,17 +1,25 @@
 name: AI-operated package release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
+      intent:
+        description: "Authorize initial publication or an explicit recovery."
+        required: true
+        type: choice
+        options:
+          - publish
+          - recover
       tag:
-        description: "Existing immutable release tag to recover."
+        description: "Existing immutable release tag."
+        required: true
+        type: string
+      approved_sha:
+        description: "Exact commit resolved by the immutable tag."
         required: true
         type: string
       confirm:
-        description: "Type recover-<tag> to retry the canonical release."
+        description: "Type <intent>-<tag>@<approved_sha>."
         required: true
         type: string
 
@@ -19,11 +27,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ai-release-${{ inputs.tag || github.ref_name }}
+  group: ai-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   validate:
@@ -33,11 +41,16 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     steps:
-      - name: Validate recovery confirmation
-        if: github.event_name == 'workflow_dispatch'
+      - name: Validate explicit publication authorization
         env:
-          RECOVERY_CONFIRM: ${{ inputs.confirm }}
-        run: test "$RECOVERY_CONFIRM" = "recover-$RELEASE_TAG"
+          RELEASE_INTENT: ${{ inputs.intent }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+          RELEASE_CONFIRM: ${{ inputs.confirm }}
+        shell: bash
+        run: |
+          [[ "$RELEASE_INTENT" =~ ^(publish|recover)$ ]]
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RELEASE_CONFIRM" = "$RELEASE_INTENT-$RELEASE_TAG@$APPROVED_SHA"
 
       - name: Check out immutable tag
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -45,6 +58,12 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Require the immutable tag to resolve to the approved commit
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        shell: bash
+        run: test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5

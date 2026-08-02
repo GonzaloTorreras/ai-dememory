@@ -11,8 +11,9 @@ reports, manual acceptance, recall review, strict release evidence, and
 `publish-guard`. ADR 0236 later added `ai-dememory publish-plan` as the
 read-only command that combines readiness-preflight metadata, local inspection
 commands, release blockers, and explicit non-publishing side-effect flags.
-ADR 0255 retained that compatibility surface while moving all publication
-authority to the immutable-tag-driven `release.yml` workflow.
+ADRs 0255 and 0258 retained that compatibility surface while moving all
+publication authority to the exact-tag/commit manually dispatched `release.yml`
+workflow.
 
 That left release evidence slightly behind the current readiness contract: the
 handoff pointed maintainers at the guard, but not at the richer TestPyPI and

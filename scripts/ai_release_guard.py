@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate deterministic tag-driven ai-dememory releases."""
+"""Validate deterministic exact-tag ai-dememory releases."""
 
 from __future__ import annotations
 

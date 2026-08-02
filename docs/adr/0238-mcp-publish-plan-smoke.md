@@ -47,7 +47,8 @@ dispatch and confirmation inputs, non-empty inspection commands and next actions
 - Release checklists and guards now name the package and Docker smoke commands.
 - Distribution smoke remains local-only and does not publish packages or mutate
   host scheduler or repository state.
-- No smoke in this ADR is evidence that the canonical tag-driven publisher ran.
+- No smoke in this ADR is evidence that the canonical exact-tuple publisher
+  ran.
 
 ## Limitations
 

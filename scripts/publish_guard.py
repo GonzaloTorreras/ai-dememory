@@ -39,14 +39,28 @@ class PublishGuardIssue:
     message: str
 
 
+def workflow_events(text: str) -> set[str]:
+    """Return direct children of a conventional top-level workflow ``on`` block."""
+    match = re.search(r"(?m)^on:\s*(?:#.*)?$", text)
+    if match is None:
+        return set()
+    remainder = text[match.end() :]
+    next_top_level = re.search(r"(?m)^[A-Za-z0-9_.-]+:\s*", remainder)
+    block = remainder[: next_top_level.start()] if next_top_level else remainder
+    return set(re.findall(r"(?m)^ {2}([A-Za-z0-9_-]+):", block))
+
+
 def validate_legacy_preflight_workflow_text(text: str) -> list[PublishGuardIssue]:
     """Require the legacy workflow to remain manual, read-only, and non-publishing."""
     issues: list[PublishGuardIssue] = []
     lowered = text.casefold()
-    if "workflow_dispatch:" not in text:
-        issues.append(PublishGuardIssue("publish.yml:on", "legacy preflight must be manually dispatched"))
-    if re.search(r"(?m)^\s+(push|pull_request|pull_request_target|schedule):\s*$", text):
-        issues.append(PublishGuardIssue("publish.yml:on", "legacy preflight must not run automatically"))
+    if workflow_events(text) != {"workflow_dispatch"}:
+        issues.append(
+            PublishGuardIssue(
+                "publish.yml:on",
+                "legacy preflight must be workflow_dispatch-only",
+            )
+        )
     if "inputs.confirm != 'preflight'" not in text:
         issues.append(PublishGuardIssue("publish.yml:confirmation", "legacy preflight must require confirm=preflight"))
     if "contents: read" not in text or "persist-credentials: false" not in text:
@@ -144,13 +158,13 @@ def validate_publish_workflow(root: Path) -> list[PublishGuardIssue]:
     except FileNotFoundError:
         issues.append(PublishGuardIssue(str(TAGGER_WORKFLOW_PATH), "explicit release tagger workflow is missing"))
     else:
-        if "workflow_dispatch:" not in tagger_text:
-            issues.append(PublishGuardIssue("tag-release.yml:on", "tagger must require manual workflow dispatch"))
-        if "workflow_run:" in tagger_text or re.search(
-            r"(?m)^\s+(push|schedule|pull_request_target):\s*$",
-            tagger_text,
-        ):
-            issues.append(PublishGuardIssue("tag-release.yml:on", "tagger must not run automatically"))
+        if workflow_events(tagger_text) != {"workflow_dispatch"}:
+            issues.append(
+                PublishGuardIssue(
+                    "tag-release.yml:on",
+                    "tagger must be workflow_dispatch-only",
+                )
+            )
         if 'test "$RELEASE_CONFIRM" = "release-$RELEASE_TAG@$APPROVED_SHA"' not in tagger_text:
             issues.append(
                 PublishGuardIssue(
@@ -186,6 +200,20 @@ def validate_publish_workflow(root: Path) -> list[PublishGuardIssue]:
             )
         if 'test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"' not in tagger_text:
             issues.append(PublishGuardIssue("tag-release.yml:collision", "an existing tag must resolve to the verified commit"))
+        if "actions: read" not in tagger_text or "actions: write" in tagger_text:
+            issues.append(
+                PublishGuardIssue(
+                    "tag-release.yml:permissions",
+                    "tagger must keep Actions read-only so publication requires a separate owner dispatch",
+                )
+            )
+        if "gh workflow run release.yml" in tagger_text:
+            issues.append(
+                PublishGuardIssue(
+                    "tag-release.yml:dispatch",
+                    "tagger must not dispatch the publisher automatically",
+                )
+            )
 
     try:
         legacy_text = (root / WORKFLOW_PATH).read_text(encoding="utf-8")
@@ -209,7 +237,7 @@ def validate_publish_workflow_text(text: str) -> list[PublishGuardIssue]:
     issues: list[PublishGuardIssue] = []
     lowered = text.casefold()
     required_fragments = {
-        "release.yml:on": ("tags:", '"v*"'),
+        "release.yml:on": ("workflow_dispatch:", "intent:", "approved_sha:"),
         "release.yml:concurrency": ("concurrency:", "cancel-in-progress: false"),
         "release.yml:identity": ("python scripts/ai_release_guard.py --tag", "fetch-depth: 0"),
         "release.yml:tests": ("python -m unittest discover -s tests -t .", "release_artifact_smoke.py"),
@@ -233,10 +261,25 @@ def validate_publish_workflow_text(text: str) -> list[PublishGuardIssue]:
         for fragment in fragments:
             if fragment not in text:
                 issues.append(PublishGuardIssue(target, f"canonical release workflow is missing: {fragment}"))
-    if "workflow_dispatch:" not in text or "recover-$RELEASE_TAG" not in text:
-        issues.append(PublishGuardIssue("release.yml:recovery", "recovery must require confirm=recover-<immutable-tag>"))
-    if "pull_request_target:" in text or re.search(r"(?m)^\s+schedule:\s*$", text):
-        issues.append(PublishGuardIssue("release.yml:on", "release workflow must not use pull_request_target or schedule"))
+    if (
+        'test "$RELEASE_CONFIRM" = "$RELEASE_INTENT-$RELEASE_TAG@$APPROVED_SHA"'
+        not in text
+        or 'test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"'
+        not in text
+    ):
+        issues.append(
+            PublishGuardIssue(
+                "release.yml:authorization",
+                "publication and recovery must require an exact intent, tag, and commit confirmation",
+            )
+        )
+    if workflow_events(text) != {"workflow_dispatch"}:
+        issues.append(
+            PublishGuardIssue(
+                "release.yml:on",
+                "canonical release must be workflow_dispatch-only",
+            )
+        )
     if re.search(r"(?im)^\s*(password|api[_-]?token|pypi[_-]?token)\s*:", text):
         issues.append(PublishGuardIssue("release.yml:secrets", "release workflow must not configure stored PyPI tokens"))
     if "${{ secrets." in lowered or "${{ secrets[" in lowered:

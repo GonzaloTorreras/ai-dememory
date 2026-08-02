@@ -36,14 +36,15 @@ ACCEPTANCE_ITEMS: dict[str, str] = {
     "daily-maintenance": "Run one daily maintenance pass and inspect index, graph, weights, and report artifacts.",
     "review-reports": "Generate false-positive and conflict reports, then review one intentional case or the empty-report evidence.",
     "testpypi-publish": (
-        "Publish an immutable prerelease tag through the canonical release workflow only after package and Docker "
-        "smoke pass, then verify the exact version installs from TestPyPI."
+        "Create an authorized immutable prerelease tag with the tagger, separately dispatch the exact-tuple canonical "
+        "publisher only after package and Docker smoke pass, then verify the exact version installs from TestPyPI."
     ),
 }
 ACCEPTANCE_REVISIONS: dict[str, int] = {item: 1 for item in ACCEPTANCE_ITEMS}
-# Revision 2 invalidates legacy passes produced against the former publish.yml
-# publisher. A current pass must prove the immutable-tag release.yml path.
-ACCEPTANCE_REVISIONS["testpypi-publish"] = 2
+# Revision 3 invalidates passes produced against either the former publish.yml
+# publisher or the retired tag-push topology. A current pass must prove both
+# exact-tuple dispatches and the immutable-tag release.yml path.
+ACCEPTANCE_REVISIONS["testpypi-publish"] = 3
 
 SUGGESTED_ACCEPTANCE_ARTIFACTS: dict[str, list[str]] = {
     "obsidian-vault": [
@@ -80,7 +81,8 @@ SUGGESTED_ACCEPTANCE_ARTIFACTS: dict[str, list[str]] = {
         "review notes for one intentional finding, conflict, or empty-report state",
     ],
     "testpypi-publish": [
-        "canonical `.github/workflows/release.yml` run URL for the immutable prerelease tag",
+        "authorized `.github/workflows/tag-release.yml` run URL for the exact prerelease tag and commit",
+        "canonical `.github/workflows/release.yml` run URL for the same immutable tag and commit",
         "release workflow validation, exact-artifact build, TestPyPI publish, and post-index install logs",
         "TestPyPI project/version URL and fresh exact-version install smoke log",
     ],

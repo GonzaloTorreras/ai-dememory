@@ -58,7 +58,7 @@ failing the MCP call.
 - It does not prove a real TestPyPI publish happened.
 - It does not replace manual acceptance evidence or explicit human approval to
   publish.
-- It does not dispatch the canonical immutable-tag publisher; the legacy
+- It does not dispatch the canonical exact-tuple publisher; the legacy
   workflow metadata describes readiness-only preflight.
 
 ## Future Work
@@ -72,8 +72,9 @@ failing the MCP call.
 
 ## Dependencies
 
-- ADR 0255 supersedes the original manual-publisher interpretation and defines
-  the sole tag-driven publisher plus legacy read-only readiness preflight.
+- ADRs 0255 and 0258 supersede the original manual-publisher interpretation and
+  define the sole exact-tuple publisher plus legacy read-only readiness
+  preflight.
 - ADR 0194 defines MCP release evidence report rendering.
 - ADR 0233 defines MCP roadmap status.
 - ADR 0236 defines the CLI publish plan.

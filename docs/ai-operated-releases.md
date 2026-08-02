@@ -38,15 +38,21 @@ tests, attestations, OIDC and post-index installation.
    `confirm=release-<tag>@<approved_sha>`. The workflow rechecks current
    `main`, a successful push-CI run for that SHA, version/changelog identity,
    and immutable-tag collisions before creating the annotated tag.
-5. `release.yml` validates repository identity, tag syntax, tag-version-
-   changelog alignment and ancestry from `origin/main`.
-6. The workflow builds wheel and sdist once, runs `twine check`, installs and
+5. The tagger stops. It keeps Actions read-only and does not dispatch the
+   publisher. The user separately dispatches `release.yml` with `intent`, the
+   same exact tag and commit, and
+   `confirm=<intent>-<tag>@<approved_sha>`. This is the explicit publication
+   authorization and avoids relying on a tag `push` event that GitHub suppresses
+   when the tag was created with `GITHUB_TOKEN`.
+6. `release.yml` validates repository identity, the exact tag/commit tuple,
+   tag syntax, tag-version-changelog alignment and ancestry from `origin/main`.
+7. The workflow builds wheel and sdist once, runs `twine check`, installs and
    executes both exact artifacts in isolated environments, generates SHA-256
    checksums and records GitHub artifact attestations.
-7. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
+8. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
    Publishing uses the tag, workflow filename and GitHub environment as the
    Trusted Publisher OIDC identity. No static package token is stored.
-8. The workflow installs the exact version from its target index, checks the
+9. The workflow installs the exact version from its target index, checks the
    CLI and then creates the GitHub Release with artifacts and checksums.
 
 ## Release authorization
@@ -55,7 +61,9 @@ There is no repository variable that can convert every future green merge into
 a release. Before dispatching the manual tag workflow, all of these must be
 true:
 
-- `main` and `v*` rulesets are active;
+- `main` protection is active and the `v*` ruleset rejects tag creation except
+  for the GitHub Actions integration used by the approved tagger, while also
+  rejecting deletion and non-fast-forward updates;
 - GitHub environments `testpypi` and `pypi` exist with the intended approval
   policy and no alternate publisher identity;
 - PyPI and TestPyPI Trusted Publishers point exactly to
@@ -66,8 +74,10 @@ true:
 - the owner has approved the exact tag and commit tuple shown in the dispatch.
 
 A green CI run with a new version is never authorization by itself. Creating
-the approved tag triggers the canonical release workflow and consequent
-package publication, so the manual dispatch is the production boundary.
+the approved tag does not trigger publication. Tag authorization and
+publication authorization are two separate manual dispatches, each bound to
+the same immutable tuple. `release.yml` is intentionally
+`workflow_dispatch`-only, so a direct `v*` push is not a publisher path.
 
 `.github/workflows/publish.yml` is not a recovery publisher. It is a retained
 manual, read-only readiness preflight with `confirm=preflight`. It has no OIDC,
@@ -77,9 +87,9 @@ capability. Both package-index Trusted Publisher identities must reference only
 
 ## Recovery and rollback
 
-`release.yml` also accepts a manual recovery dispatch for an existing tag and
-requires the exact confirmation `recover-<tag>`. The dispatch itself requires
-explicit user approval. It checks out and republishes only that immutable
+`release.yml` accepts `intent=recover` for an existing tag and requires the
+exact confirmation `recover-<tag>@<approved_sha>`. The dispatch itself requires
+explicit user approval. It checks out and republishes only that exact immutable
 identity. PyPI versions and tags are never overwritten or reused. If an
 artifact is already present, compare index hashes with `SHA256SUMS`; mismatch
 is an incident, not a reason to use `skip-existing`.
