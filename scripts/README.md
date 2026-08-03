@@ -268,8 +268,8 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `ci_guard.py`: validates required v2 verification gates plus the isolated,
   manual-only GitHub Pages workflow boundary.
 - `pages_artifact_guard.py`: requires the Pages `site/` tree to match clean
-  stage-zero regular Git files exactly, with no generated, linked, or untracked
-  content.
+  stage-zero regular Git files and blob IDs exactly, with no special index
+  flags, generated, linked, or untracked content.
 - `artifact_guard.py`: fails when generated indexes, reports, context exports,
   build outputs, or caches are staged.
 - `pr_template_guard.py`: validates that the PR template lists current v2

@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
 import sys
+from typing import Callable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -56,8 +58,37 @@ def parse_git_manifest(raw: bytes) -> tuple[dict[str, str], list[str]]:
             errors.append(f"tracked artifact entry has an invalid object id: {path}")
         if relative in entries:
             errors.append(f"tracked artifact entry is duplicated: {path}")
-        entries[relative] = mode
+        entries[relative] = object_id
     return entries, errors
+
+
+def parse_index_flags(raw: bytes, tracked: set[str]) -> list[str]:
+    """Reject assume-unchanged, skip-worktree, and incomplete index entries."""
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        if len(record) < 3 or record[1:2] != b" ":
+            errors.append("git index flag listing contains an invalid record")
+            continue
+        tag = chr(record[0])
+        path = record[2:].decode("utf-8", "surrogateescape").replace("\\", "/")
+        if not path.startswith("site/"):
+            errors.append(f"git index flag entry escapes site/: {path!r}")
+            continue
+        relative = path.removeprefix("site/")
+        seen.add(relative)
+        if tag != "H":
+            errors.append(
+                f"site/{relative}: index flag {tag!r} is forbidden; expected ordinary tracked entry 'H'"
+            )
+    for relative in sorted(tracked - seen):
+        errors.append(f"site/{relative}: tracked file is missing from index flag listing")
+    for relative in sorted(seen - tracked):
+        errors.append(f"site/{relative}: index flag listing contains an unexpected file")
+    return errors
 
 
 def _git_bytes(root: Path, *arguments: str) -> bytes:
@@ -74,7 +105,24 @@ def _git_bytes(root: Path, *arguments: str) -> bytes:
     return completed.stdout
 
 
-def audit_artifact_tree(site_root: Path, tracked: dict[str, str]) -> list[str]:
+def git_blob_object_id(path: Path) -> str:
+    """Return the SHA-1 Git blob identity for the exact bytes at ``path``."""
+
+    size = path.stat(follow_symlinks=False).st_size
+    digest = hashlib.sha1(usedforsecurity=False)
+    digest.update(f"blob {size}\0".encode("ascii"))
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def audit_artifact_tree(
+    site_root: Path,
+    tracked: dict[str, str],
+    *,
+    canonical_object_id: Callable[[str], str] | None = None,
+) -> list[str]:
     """Compare the filesystem tree with the tracked regular-file manifest."""
 
     errors: list[str] = []
@@ -110,6 +158,18 @@ def audit_artifact_tree(site_root: Path, tracked: dict[str, str]) -> list[str]:
                 if metadata.st_nlink > 1:
                     errors.append(f"site/{relative}: hard-linked files are forbidden")
                 actual_files.add(relative)
+                expected_object_id = tracked.get(relative)
+                if expected_object_id and git_blob_object_id(path) != expected_object_id:
+                    try:
+                        canonical_id = canonical_object_id(relative) if canonical_object_id else ""
+                    except RuntimeError as exc:
+                        errors.append(f"site/{relative}: cannot compute canonical Git blob: {exc}")
+                    else:
+                        if canonical_id != expected_object_id:
+                            errors.append(
+                                f"site/{relative}: content does not canonicalize to tracked Git blob "
+                                f"{expected_object_id}"
+                            )
 
     walk(site_root)
     tracked_files = set(tracked)
@@ -147,6 +207,19 @@ def audit_pages_artifact(
     errors.extend(manifest_errors)
     if not tracked:
         errors.append("site/: tracked artifact manifest is empty")
+    try:
+        index_flags = _git_bytes(
+            root,
+            "ls-files",
+            "-v",
+            "-z",
+            "--",
+            SITE_PATH.as_posix(),
+        )
+    except RuntimeError as exc:
+        errors.append(f"site/: cannot inspect index flags: {exc}")
+    else:
+        errors.extend(parse_index_flags(index_flags, set(tracked)))
 
     if require_clean:
         try:
@@ -165,7 +238,23 @@ def audit_pages_artifact(
             if dirty:
                 errors.append("site/: artifact has modified, staged, or untracked content")
 
-    errors.extend(audit_artifact_tree(root / SITE_PATH, tracked))
+    def canonical_object_id(relative: str) -> str:
+        artifact_path = (SITE_PATH / relative).as_posix()
+        return _git_bytes(
+            root,
+            "hash-object",
+            f"--path={artifact_path}",
+            "--",
+            artifact_path,
+        ).decode("ascii").strip()
+
+    errors.extend(
+        audit_artifact_tree(
+            root / SITE_PATH,
+            tracked,
+            canonical_object_id=canonical_object_id,
+        )
+    )
     return sorted(set(errors))
 
 
@@ -183,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
     else:
-        print("Pages artifact guard passed: site/ is clean, tracked, and link-free.")
+        print("Pages artifact guard passed: site/ is clean, blob-matched, tracked, and link-free.")
     return 1 if errors else 0
 
 

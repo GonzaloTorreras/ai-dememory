@@ -95,6 +95,7 @@ def validate_pages_validation_workflow_text(text: str) -> list[CiGuardIssue]:
         "focused_tests": "python -m unittest tests.test_docs_site tests.test_pages_delivery",
         "deploy_workflow_path": '".github/workflows/pages.yml"',
         "validation_workflow_path": '".github/workflows/pages-validate.yml"',
+        "gitattributes_path": '".gitattributes"',
         "site_path": '"site/**"',
         "docs_path": '"docs/**"',
         "readme_path": '"README.md"',
@@ -185,6 +186,19 @@ def validate_pages_deploy_workflow_text(text: str) -> list[CiGuardIssue]:
         "retention": "retention-days: 1",
         "hidden_nojekyll": "include-hidden-files: true",
         "dependency": "needs: prepare",
+        "deploy_revalidation": (
+            "      - name: Revalidate current main after environment gate\n"
+            "        env:\n"
+            "          APPROVED_SHA: ${{ inputs.approved_sha }}\n"
+            "          GH_TOKEN: ${{ github.token }}\n"
+            "        shell: bash\n"
+            "        run: |\n"
+            "          set -euo pipefail\n"
+            "          test \"$GITHUB_REF\" = \"refs/heads/main\"\n"
+            "          test \"$GITHUB_SHA\" = \"$APPROVED_SHA\"\n"
+            "          live_main_sha=\"$(gh api \"repos/$GITHUB_REPOSITORY/commits/main\" --jq .sha)\"\n"
+            "          test \"$live_main_sha\" = \"$APPROVED_SHA\""
+        ),
         "pages_permission": "pages: write",
         "oidc_permission": "id-token: write",
         "environment": "name: github-pages",
@@ -231,7 +245,7 @@ def validate_pages_deploy_workflow_text(text: str) -> list[CiGuardIssue]:
                 )
             )
 
-    for permission, expected in (("contents: read", 1), ("pages: write", 1), ("id-token: write", 1)):
+    for permission, expected in (("contents: read", 2), ("pages: write", 1), ("id-token: write", 1)):
         if text.count(permission) != expected:
             issues.append(
                 CiGuardIssue(
@@ -262,11 +276,17 @@ def validate_pages_deploy_workflow_text(text: str) -> list[CiGuardIssue]:
                     "deploy job may invoke only the pinned deploy-pages action",
                 )
             )
-        if "run:" in deploy_block or CHECKOUT_ACTION in deploy_block or SETUP_PYTHON_ACTION in deploy_block:
+        if (
+            deploy_block.count("run:") != 1
+            or deploy_block.count("shell: bash") != 1
+            or CHECKOUT_ACTION in deploy_block
+            or SETUP_PYTHON_ACTION in deploy_block
+            or UPLOAD_PAGES_ACTION in deploy_block
+        ):
             issues.append(
                 CiGuardIssue(
                     "pages.yml:deploy_steps",
-                    "deploy job must not execute shell, checkout, or setup steps",
+                    "deploy job may run only the exact current-main revalidation before deploy-pages",
                 )
             )
     return issues

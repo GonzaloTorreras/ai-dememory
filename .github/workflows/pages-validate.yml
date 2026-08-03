@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/pages.yml"
       - ".github/workflows/pages-validate.yml"
+      - ".gitattributes"
       - "README.md"
       - "SECURITY.md"
       - "pyproject.toml"

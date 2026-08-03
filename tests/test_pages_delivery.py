@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,8 @@ from ci_guard import (  # noqa: E402
 from pages_artifact_guard import (  # noqa: E402
     audit_artifact_tree,
     audit_pages_artifact,
+    git_blob_object_id,
+    parse_index_flags,
     parse_git_manifest,
 )
 
@@ -102,6 +105,17 @@ class PagesWorkflowGuardTests(unittest.TestCase):
 
         self.assertIn("pages.yml:guard_upload_adjacency", {issue.target for issue in issues})
 
+    def test_deploy_workflow_revalidates_after_environment_gate(self) -> None:
+        weakened = self.deployment.replace(
+            "      - name: Revalidate current main after environment gate",
+            "      - name: Trust stale preparation result",
+            1,
+        )
+
+        issues = validate_pages_deploy_workflow_text(weakened)
+
+        self.assertIn("pages.yml:deploy_revalidation", {issue.target for issue in issues})
+
 
 class PagesArtifactGuardTests(unittest.TestCase):
     def test_checked_in_site_matches_tracked_manifest(self) -> None:
@@ -122,6 +136,16 @@ class PagesArtifactGuardTests(unittest.TestCase):
         self.assertIn("found 160000", combined)
         self.assertIn("unmerged at stage 2", combined)
 
+    def test_index_flags_reject_assume_unchanged_and_skip_worktree(self) -> None:
+        errors = parse_index_flags(
+            b"h site/index.html\0S site/install/index.html\0",
+            {"index.html", "install/index.html"},
+        )
+        combined = "\n".join(errors)
+
+        self.assertIn("index flag 'h' is forbidden", combined)
+        self.assertIn("index flag 'S' is forbidden", combined)
+
     def test_tree_rejects_untracked_files_and_unexpected_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary) / "site"
@@ -130,7 +154,7 @@ class PagesArtifactGuardTests(unittest.TestCase):
             (site / "extra.txt").write_text("unexpected", encoding="utf-8")
             (site / "empty").mkdir()
 
-            errors = audit_artifact_tree(site, {"index.html": "100644"})
+            errors = audit_artifact_tree(site, {"index.html": git_blob_object_id(site / "index.html")})
             combined = "\n".join(errors)
 
             self.assertIn("site/extra.txt: artifact file is not tracked by Git", combined)
@@ -148,12 +172,61 @@ class PagesArtifactGuardTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"hard links are unavailable: {exc}")
 
-            errors = audit_artifact_tree(
-                site,
-                {"index.html": "100644", "copy.html": "100644"},
-            )
+            object_id = git_blob_object_id(first)
+            errors = audit_artifact_tree(site, {"index.html": object_id, "copy.html": object_id})
 
             self.assertTrue(any("hard-linked files are forbidden" in error for error in errors))
+
+    def test_tree_rejects_content_that_does_not_match_tracked_blob(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            site = Path(temporary) / "site"
+            site.mkdir()
+            page = site / "index.html"
+            page.write_text("approved", encoding="utf-8")
+            approved_object_id = git_blob_object_id(page)
+            page.write_text("mutated", encoding="utf-8")
+
+            errors = audit_artifact_tree(site, {"index.html": approved_object_id})
+
+            self.assertTrue(any("content does not canonicalize to tracked Git blob" in error for error in errors))
+
+    def test_guard_rejects_assume_unchanged_content_bypass(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            site = root / "site"
+            site.mkdir()
+            page = site / "index.html"
+            page.write_text("approved", encoding="utf-8")
+
+            def git(*arguments: str) -> None:
+                subprocess.run(
+                    ["git", *arguments],
+                    cwd=root,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+
+            git("init", "--quiet")
+            git("add", "site/index.html")
+            git(
+                "-c",
+                "user.name=Pages Guard Test",
+                "-c",
+                "user.email=pages-guard@example.invalid",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            )
+            git("update-index", "--assume-unchanged", "site/index.html")
+            page.write_text("hidden mutation", encoding="utf-8")
+
+            errors = audit_pages_artifact(root)
+            combined = "\n".join(errors)
+
+            self.assertIn("index flag 'h' is forbidden", combined)
+            self.assertIn("content does not canonicalize to tracked Git blob", combined)
 
 
 if __name__ == "__main__":

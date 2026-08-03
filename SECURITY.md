@@ -100,8 +100,10 @@ The following properties must hold:
 - Pull-request documentation validation has no Pages, OIDC, environment, secret,
   or artifact-upload capability. Pages delivery is a separate manual workflow
   stored on trusted `main`; it requires an exact current-main SHA, a live API
-  readback, a protected environment, and a clean tracked `site/` artifact with
-  no links, gitlinks, hard links, modified files, or untracked files.
+  readback both before preparation and after the protected environment gate,
+  and a clean tracked `site/` artifact whose canonical content matches Git blob IDs,
+  with no special index flags, links, gitlinks, hard links, modified files, or
+  untracked files.
 
 ## Reportable Findings And Severity Context
 

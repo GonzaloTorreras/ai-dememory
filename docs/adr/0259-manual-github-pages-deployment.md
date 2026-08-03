@@ -31,16 +31,20 @@ Use two independent workflows:
   `deploy-pages@<approved_sha>` confirmation, equality with the event SHA, and a
   live GitHub API readback proving that the same SHA is still current `main`;
 - validation and deployment use separate jobs. The preparation job has only
-  `contents: read`; the deployment job has only `pages: write` and
-  `id-token: write`, enters `github-pages`, and invokes only the pinned
-  `deploy-pages` action;
+  `contents: read`; after the `github-pages` environment gate, the deployment
+  job uses `contents: read`, `pages: write`, and `id-token: write` to repeat the
+  live-main check and then invoke the pinned `deploy-pages` action. Its guard
+  permits no other shell or action;
 - every third-party action is pinned to a full commit SHA, checkout never
   persists credentials, deployments serialize without cancelling an active
   run, and no repository secret is read;
 - `scripts/pages_artifact_guard.py` runs immediately before upload. It requires
   a clean `site/`, stage-zero Git entries with regular-file mode `100644`, an
   exact tracked-file/directory set, and no symlink, junction, gitlink, hard link,
-  modified file, or untracked file;
+  modified file, untracked file, assume-unchanged flag, or skip-worktree flag.
+  Every file is rehashed with the Git blob format and compared to the object ID
+  in the approved commit; Git's path-aware canonical hash permits only declared
+  checkout normalization such as Windows line endings;
 - the artifact name is fixed to `github-pages`, retention is one day, and hidden
   tracked files are included so `.nojekyll` reaches the public artifact; and
 - `configure-pages` is not used. Repository Pages enablement, environment

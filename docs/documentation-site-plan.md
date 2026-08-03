@@ -329,8 +329,8 @@ Split publication into two changes:
 - Pin every GitHub Action to a full commit SHA.
 - Use only `contents: read`, `pages: write`, and `id-token: write` where the
   official Pages deployment requires them.
-- Upload only a clean, tracked, link-free `site/`; do not build or package the
-  private vault or repository reports.
+- Upload only a clean, tracked, blob-matched, link-free `site/`; do not build or
+  package the private vault or repository reports.
 - Bind deployment to the `github-pages` environment and an explicit SHA that a
   live API readback proves is still canonical `main`.
 - Keep deployment `workflow_dispatch`-only. A merge or push must never publish
