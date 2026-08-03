@@ -392,11 +392,24 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             if marker not in source_text:
                 errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
 
-    policy_exists = (repo_root / "SECURITY.md").exists()
+    policy_path = repo_root / "SECURITY.md"
+    policy_exists = policy_path.exists()
     pending_claim = "does not yet contain an approved <code>SECURITY.md</code> policy"
     security = (site_root / "security/index.html").read_text(encoding="utf-8")
     if policy_exists and pending_claim in security:
         errors.append("security/index.html: reporting status is stale because SECURITY.md now exists")
+    if policy_exists:
+        policy = policy_path.read_text(encoding="utf-8")
+        reporting_url = "https://github.com/GonzaloTorreras/ai-dememory/security/advisories/new"
+        policy_url = "https://github.com/GonzaloTorreras/ai-dememory/blob/main/SECURITY.md"
+        for label, marker in (
+            ("SECURITY.md", reporting_url),
+            ("security/index.html", reporting_url),
+            ("security/index.html", policy_url),
+        ):
+            content = policy if label == "SECURITY.md" else security
+            if marker not in content:
+                errors.append(f"{label}: approved security reporting route is missing {marker!r}")
     if not policy_exists and pending_claim not in security:
         errors.append("security/index.html: must state that no approved SECURITY.md exists")
 

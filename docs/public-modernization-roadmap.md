@@ -418,8 +418,9 @@ turns this architecture into a progressive public explanation. It keeps the
 site static and Node-free, treats every factual claim as source-mapped content,
 and isolates any future GitHub Pages workflow in its own security-reviewed
 change. The content artifact now lives under [`site/`](../site/README.md): its
-home, installation, architecture, and security-model routes are dependency-free,
-while deployment and the repository-level vulnerability-reporting policy remain
-separate approval-gated changes. The documentation also treats published 2.0.0
+home, installation, architecture, and security-model routes are dependency-free.
+The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting now
+provide the reviewed reporting path, while Pages deployment remains a separate
+approval-gated change. The documentation also treats published 2.0.0
 and unreleased 2.1.0 as different capability contracts, so a stable PyPI install
 is never followed by source-only wizard, profile, or idle-lease instructions.

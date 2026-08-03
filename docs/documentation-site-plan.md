@@ -364,13 +364,14 @@ Exit: no orphan plan, no private information, and no deployment mutation.
 Exit: useful at 320 px and 1440 px, keyboard-complete, zero external requests,
 and all commands/source links verified.
 
-### D2 - Technical depth and validation (content validated; policy/origin gates remain)
+### D2 - Technical depth and validation (content and reporting policy validated)
 
 - Security, resource-envelope, and process-lifecycle flows now exist in the
   static source.
-- The security page states the implemented model and the current reporting-policy
-  gap. A repository-level `SECURITY.md` still requires an exact preview and
-  explicit owner approval before the site can claim a complete reporting path.
+- The security page states the implemented model and links the approved
+  repository-level `SECURITY.md` plus GitHub Private Vulnerability Reporting.
+  Public issues and real secret/private-memory evidence are explicitly rejected
+  for undisclosed vulnerability reports.
 - Source mapping, page metadata, structural guards, asset budgets, and a 404
   page now exist. A canonical sitemap and public social-preview URL remain
   deferred until the Pages origin is live and verified.
@@ -429,14 +430,12 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Prepare and review a complete repository-level `SECURITY.md` separately before
-   adding the reporting policy.
-2. Open a separate security-reviewed PR for a pinned, least-privilege GitHub Pages
+1. Open a separate security-reviewed PR for a pinned, least-privilege GitHub Pages
    workflow after the content artifact and reporting path are accepted.
-3. Enable Pages only after that workflow passes its own exact-head gates, then
+2. Enable Pages only after that workflow passes its own exact-head gates, then
    verify the deployed `main` commit and rollback path from clean desktop and
    mobile sessions.
-4. Add a sitemap, social-preview URL, or package metadata link only after the real
+3. Add a sitemap, social-preview URL, or package metadata link only after the real
    public origin is live and verified.
-5. Use install friction and support questions to prioritize D4 improvements;
+4. Use install friction and support questions to prioritize D4 improvements;
    introduce Spanish pages only with an explicit source-parity check.
