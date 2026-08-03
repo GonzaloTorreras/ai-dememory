@@ -411,3 +411,10 @@ Before a release:
 
 The default decision remains: improve the verified Python product, preserve
 Markdown and review authority, and earn every expansion with product evidence.
+
+The separate
+[documentation experience and static site plan](documentation-site-plan.md)
+turns this architecture into a progressive public explanation. It keeps the
+site static and Node-free, treats every factual claim as source-mapped content,
+and isolates any future GitHub Pages workflow in its own security-reviewed
+change.
