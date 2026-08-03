@@ -22,7 +22,26 @@ for (const block of document.querySelectorAll("[data-copy-block]")) {
         button.setAttribute("aria-label", "Copy commands to clipboard");
       }, 1600);
     } catch {
-      button.textContent = "Select text";
+      let selected = false;
+      try {
+        const selection = window.getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          selected = true;
+        }
+      } catch {
+        // The commands remain visible and keyboard-focusable without selection APIs.
+      }
+      button.textContent = selected ? "Selected" : "Select text";
+      button.setAttribute(
+        "aria-label",
+        selected
+          ? "Clipboard unavailable; commands selected"
+          : "Clipboard unavailable; select commands manually",
+      );
       code.parentElement?.focus();
     }
   });

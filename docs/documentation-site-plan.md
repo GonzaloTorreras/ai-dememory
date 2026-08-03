@@ -1,7 +1,7 @@
 # Documentation Experience And Static Site Plan
 
-Status: D0-D2 content and local validation complete on a branch refreshed from
-canonical `main`; PR handoff pending; deployment remains separately gated
+Status: D0-D2 implementation and validation complete; D3 deployment remains
+separately gated
 
 Owner: Codex operational owner
 
@@ -272,22 +272,25 @@ normal repository validation does not require Node.
 
 ## D1/D2 Implementation Evidence
 
-Working-tree validation on 2026-08-01 established the following reproducible
-baseline. Temporary browser screenshots and browser snapshots were inspected,
-then removed rather than committed as generated evidence:
+Local validation was established on 2026-08-01 and refreshed on 2026-08-03
+after integration with canonical `main`. Temporary browser screenshots and
+browser snapshots were inspected, then removed rather than committed as
+generated evidence:
 
 - the dependency-free guard passed structure, local link/anchor, stable/source
   command separation, source-derived resource profiles, reporting-policy
   status, external-resource, and asset-budget checks;
-- the focused documentation suite passed nine tests, including deliberate
+- the focused documentation suite passed eleven tests, including deliberate
   stable/source drift, profile drift, broken-link, remote-script,
-  remote-`srcset`, and inline-CSS resource failures;
-- repository validation, secret scan, ADR guard, and the complete 595-test
+  remote-`srcset`, SVG `href`, inline-CSS resource, and clipboard-fallback
+  failures;
+- repository validation, secret scan, ADR guard, and the complete 605-test
   suite passed with 51 host-specific skips;
-- home, install, architecture, and security rendered at 320, 375, 768, 864,
+- home, install, architecture, security, and 404 routes rendered at 320, 375,
   and 1440 px without page-level horizontal overflow;
-- navigation, command copying, skip-link focus transfer, and internal route
-  transitions worked with no console warning/error and no external request;
+- navigation, successful command copying, the semantic skip-link destination,
+  and internal route transitions were verified with no console warning/error
+  and no external request;
 - sampled text/action contrast ratios ranged from 5.96:1 to 17.93:1.
 
 Visual fidelity was checked against the accepted concept rather than guessed
@@ -302,9 +305,9 @@ from the source markup:
 | Layered local architecture illustration | Rebuilt as accessible inline SVG plus an adjacent text explanation. |
 | Compact mobile reading order | Reflowed vertically; navigation wraps and long code scrolls internally. |
 
-The browser evidence is a validation record, not a deployment claim. It must be
-rerun after rebasing, after any factual change, and against the deployed origin
-before D3 exits.
+The browser evidence is a validation record, not a deployment claim. It was
+refreshed after the `main` integration and must be rerun after any further
+factual change and against the deployed origin before D3 exits.
 
 ## GitHub Pages Rollout
 

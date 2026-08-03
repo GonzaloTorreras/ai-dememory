@@ -56,6 +56,23 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             errors = audit_site(REPO_ROOT, copied)
             self.assertTrue(any("automatic external resource is forbidden" in error for error in errors))
 
+    def test_guard_rejects_external_svg_href_resources(self) -> None:
+        for element in ("image", "use"):
+            with self.subTest(element=element), tempfile.TemporaryDirectory() as temporary:
+                copied = Path(temporary) / "site"
+                shutil.copytree(SITE_ROOT, copied)
+                home = copied / "index.html"
+                home.write_text(
+                    home.read_text(encoding="utf-8").replace(
+                        "</main>",
+                        f'<svg><{element} href="https://github.com/external.svg"></{element}></svg>\n</main>',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                errors = audit_site(REPO_ROOT, copied)
+                self.assertTrue(any("automatic external resource is forbidden" in error for error in errors))
+
     def test_guard_rejects_inline_css_resource(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
@@ -106,6 +123,13 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         self.assertIn("ai-dememory setup wizard", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
+
+    def test_clipboard_fallback_selects_commands_and_updates_accessible_status(self) -> None:
+        javascript = (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8")
+        self.assertIn("document.createRange()", javascript)
+        self.assertIn("range.selectNodeContents(code)", javascript)
+        self.assertIn("Clipboard unavailable; commands selected", javascript)
+        self.assertIn("Clipboard unavailable; select commands manually", javascript)
 
     def test_home_payload_stays_below_documented_budget(self) -> None:
         total = sum(

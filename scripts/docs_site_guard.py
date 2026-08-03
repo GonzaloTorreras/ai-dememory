@@ -155,7 +155,7 @@ class DocumentParser(HTMLParser):
         if values.get("style"):
             self.inline_styles.append(values["style"])
 
-        for attribute in ("href", "src", "poster", "data"):
+        for attribute in ("href", "xlink:href", "src", "poster", "data"):
             value = values.get(attribute)
             if value:
                 self.references.append((tag, attribute, value.strip()))
@@ -195,7 +195,11 @@ def _parse_page(path: Path) -> DocumentParser:
 
 
 def _is_automatic_reference(tag: str, attribute: str) -> bool:
-    return attribute in {"src", "srcset", "poster", "data"} or (tag == "link" and attribute == "href")
+    return (
+        attribute in {"src", "srcset", "poster", "data"}
+        or (tag == "link" and attribute == "href")
+        or (tag in {"image", "use"} and attribute in {"href", "xlink:href"})
+    )
 
 
 def _resolve_local_reference(site_root: Path, page: Path, value: str) -> tuple[Path, str]:
