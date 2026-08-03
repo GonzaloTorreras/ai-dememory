@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Technical architecture, request flow, runtime boundary, and process lifecycle for ai DeMemory.">
+    <meta name="color-scheme" content="light">
+    <title>Architecture — ai DeMemory</title>
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../assets/site.css">
+    <script src="../assets/site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="../">ai DeMemory</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+          <a href="../#how-it-works">How it works</a>
+          <a href="./" aria-current="page">Architecture</a>
+          <a href="../install/">Install</a>
+          <a href="../security/">Security</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <header class="page-hero">
+        <div class="container">
+          <h1>One source of truth, bounded delivery</h1>
+          <p>Python owns memory policy and durable writes. Markdown remains portable. SQLite makes retrieval fast. MCP and a loopback API deliver reviewed context to clients.</p>
+          <div class="page-meta">
+            <span>Canonical: Markdown</span>
+            <span>Generated: SQLite FTS</span>
+            <span>Runtime: Python 3.11+</span>
+            <span>Detailed controls: source 2.1.0, unreleased</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="container page-layout">
+        <nav class="page-toc" aria-label="On this page">
+          <strong>On this page</strong>
+          <a href="#system">System map</a>
+          <a href="#request-flow">Request flow</a>
+          <a href="#read-write">Read and write paths</a>
+          <a href="#python-node">Python and Node</a>
+          <a href="#process-lifecycle">Process lifecycle</a>
+          <a href="#failure-model">Failure model</a>
+        </nav>
+
+        <div>
+          <section class="content-section" id="system">
+            <h2>The system boundary</h2>
+            <p>The public repository distributes code and fixtures. An isolated installed tool operates against one explicitly bound private vault. No generated index is authoritative.</p>
+            <div class="callout">
+              <p><strong>Release lens:</strong> canonical Markdown, local MCP, setup planning, and client configuration exist in stable 2.0.0. Server-enforced resource profiles, the wizard, and generated idle leases below describe the unreleased 2.1.0 source line.</p>
+            </div>
+            <ol class="diagram-outline">
+              <li><strong>AI client:</strong> Codex, Claude, or another local MCP-capable host requests context.</li>
+              <li><strong>Delivery boundary:</strong> local stdio MCP is preferred; loopback REST exists for local scripts and dashboards.</li>
+              <li><strong>Python policy engine:</strong> validates roots, capabilities, inputs, budgets, provenance, and review state.</li>
+              <li><strong>Private vault:</strong> reviewed Markdown is canonical; inbox candidates are not durable facts.</li>
+              <li><strong>Disposable projections:</strong> SQLite FTS, reports, and exports can be rebuilt from Markdown.</li>
+            </ol>
+            <div class="callout callout-safe">
+              <p>Repository ≠ installed executable ≠ private vault. Collapsing these locations breaks the privacy and release model.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="request-flow">
+            <h2>A memory-bearing request</h2>
+            <p>The following component flow shows responsibility, not measured latency. Its numbered outline is the canonical text fallback.</p>
+            <div class="tech-flow" role="img" aria-label="AI client sends a local request through a bounded transport and policy engine to the Python service, which reads Markdown and SQLite and returns provenance-bearing context.">
+              <div class="tech-node"><strong>AI client</strong><span>prompt + working directory</span></div>
+              <div class="tech-node"><strong>Local delivery</strong><span>MCP stdio or loopback REST</span></div>
+              <div class="tech-node tech-node-policy"><strong>Policy gate</strong><span>root · profile · budgets</span></div>
+              <div class="tech-node"><strong>Python service</strong><span>retrieval + review rules</span></div>
+              <div class="tech-node tech-node-canonical"><strong>Vault + FTS</strong><span>Markdown + disposable index</span></div>
+              <div class="tech-node"><strong>Context response</strong><span>source · status · confidence · path</span></div>
+            </div>
+            <ol class="diagram-outline">
+              <li>The host decides when a task merits recall and submits a bounded local request.</li>
+              <li>The transport binds the request to an explicit root and server-enforced tool profile.</li>
+              <li>Policy checks capability, path, input size, context budget, and hard ceilings.</li>
+              <li>Python queries a rebuildable index and revalidates results against canonical Markdown.</li>
+              <li>The client receives context with provenance fields instead of an opaque generated answer.</li>
+            </ol>
+          </section>
+
+          <section class="content-section" id="read-write">
+            <h2>Recall is not durable writing</h2>
+            <p>The system deliberately separates a low-friction read path from a review-gated durable path.</p>
+            <div class="split-paths">
+              <section class="path-block">
+                <h3>Read path</h3>
+                <p>Search the index, open the canonical Markdown source, enforce visibility and budget, then return provenance-bearing context.</p>
+              </section>
+              <section class="path-block path-block-write">
+                <h3>Proposal path</h3>
+                <p>Place a bounded candidate in a review queue. Scan it, resolve conflicts, record reviewer identity, then promote approved Markdown.</p>
+              </section>
+            </div>
+            <p>Durable values are pinned. Automation may prepare review material and consolidation candidates, but it does not silently overwrite durable memory.</p>
+          </section>
+
+          <section class="content-section" id="python-node">
+            <h2>Why Python remains authoritative</h2>
+            <p>The current product is filesystem-heavy, headless, cross-platform, and already mature in Python. Rewriting the domain runtime in Node would duplicate recovery, policy, packaging, and security behavior before delivering a distinct capability.</p>
+            <table class="profile-table">
+              <caption>Runtime responsibility boundary</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Concern</th>
+                  <th scope="col">Python owns now</th>
+                  <th scope="col">A future Node plane may own</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Canonical data</th>
+                  <td data-label="Python owns now">Markdown identity, policy, reviews, writers, recovery</td>
+                  <td data-label="Future Node plane">Never canonical authority</td>
+                </tr>
+                <tr>
+                  <th scope="row">Headless operation</th>
+                  <td data-label="Python owns now">CLI, MCP, local API, hooks, maintenance, backup</td>
+                  <td data-label="Future Node plane">Not required for installation or operation</td>
+                </tr>
+                <tr>
+                  <th scope="row">Visual experience</th>
+                  <td data-label="Python owns now">Versioned language-neutral contracts</td>
+                  <td data-label="Future Node plane">TypeScript client, React dashboard, build tooling</td>
+                </tr>
+              </tbody>
+            </table>
+            <p>A TypeScript/React dashboard can still add real value if it consumes generated contracts and remains removable. Reconsider the runtime split only with measured product evidence: contract parity, safer packaging, lower operating cost, and a rollback that preserves Markdown bytes, IDs, and review receipts.</p>
+            <p class="source-note">Decision source: <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/adr/0254-python-node-runtime-boundary.md">ADR 0254 — Python/Node runtime boundary</a>.</p>
+          </section>
+
+          <section class="content-section" id="process-lifecycle">
+            <h2>Processes have an owner and an exit</h2>
+            <p>In the current 2.1.0 source line, generated MCP servers self-expire and package-owned descendants run inside an independently reaped process group or tree.</p>
+            <div class="process-flow" aria-label="MCP process lifecycle from client launch to complete process-tree cleanup">
+              <div class="process-state"><strong>Client launches</strong><span>explicit vault + server profile</span></div>
+              <div class="process-state"><strong>Server binds</strong><span>root validation before tools</span></div>
+              <div class="process-state"><strong>Requests run</strong><span>bounded frames, output, and time</span></div>
+              <div class="process-state"><strong>Exit triggers</strong><span>EOF, idle lease, deadline, shutdown</span></div>
+              <div class="process-state"><strong>Tree is reaped</strong><span>owned descendants terminate too</span></div>
+            </div>
+            <ul class="checklist">
+              <li>Idle leases are 120 / 600 / 1,800 seconds for minimal / balanced / active.</li>
+              <li>Git and maintenance children receive closed stdin, bounded output, and a deadline.</li>
+              <li>Windows uses a kill-on-close Job Object; POSIX uses an owned session/process group.</li>
+              <li>A client can reconnect on its next request after an idle exit.</li>
+            </ul>
+            <div class="callout">
+              <p>These guarantees cover ai DeMemory and its owned children. The host application still owns unrelated browser, Node, Python, plugin, and agent processes.</p>
+            </div>
+          </section>
+
+          <section class="content-section" id="failure-model">
+            <h2>Fail closed where authority changes</h2>
+            <p>Invalid roots, out-of-range resource overrides, unauthorized MCP tools, stale scheduler receipts, secret-like durable content, and changed review fingerprints block the corresponding operation.</p>
+            <p>Generated indexes remain disposable. If retrieval infrastructure is absent or stale, rebuild it from Markdown; never reverse the authority direction. Hook injection can fail open with no recalled context, but it must not manufacture durable knowledge.</p>
+            <p><a href="../security/">Read the security and privacy boundary</a>.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <div>
+          <div class="footer-brand">ai DeMemory</div>
+          <p class="footer-copy">Local-first · review-first · Apache-2.0</p>
+        </div>
+        <nav class="footer-links" aria-label="Footer navigation">
+          <a href="../">Home</a>
+          <a href="../install/">Install</a>
+          <a href="../security/">Security model</a>
+          <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/architecture.md">Canonical architecture</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

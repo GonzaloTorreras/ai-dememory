@@ -8,13 +8,17 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-The plugin does not replace the Python package. Install the package first:
+The checked-in plugin configuration targets the unreleased 2.1.0 source line;
+its server profile, required-root flag, and idle lease are not compatible with
+stable 2.0.0. Install the matching source package in a clean pipx environment:
 
 ```bash
-pipx install ai-dememory
-# or
-uv tool install ai-dememory
+pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
 ```
+
+Stable 2.0.0 users can still generate and install its simpler client config with
+`ai-dememory mcp-config --client codex`, but should not copy the checked-in 2.1
+plugin MCP fragment.
 
 Then initialize or select a vault:
 

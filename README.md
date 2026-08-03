@@ -27,24 +27,62 @@ future vector indexes are generated from Markdown and can be rebuilt.
   scope for this release.
 
 The active modernization and selective MemPalace adoption plan is documented in
-`docs/public-modernization-roadmap.md`. The progressive documentation and static
-GitHub Pages proposal is in
-[docs/documentation-site-plan.md](docs/documentation-site-plan.md).
+`docs/public-modernization-roadmap.md`. The progressive documentation source is
+in [`site/`](site/README.md), governed by the
+[documentation-site plan](docs/documentation-site-plan.md). Hosting remains a
+separate, security-reviewed GitHub Pages change; the source tree does not deploy
+or grant Pages permissions.
 
 ## Quick Start
 
-Install the tool, then create a private memory vault:
+### Stable 2.0.0 from PyPI
+
+Install the published tool, create a private vault, inspect its passive setup
+plan, and generate local client configuration:
 
 ```bash
 pipx install ai-dememory
 ai-dememory init ~/code/my-memory
 cd ~/code/my-memory
 ai-dememory doctor
-ai-dememory setup plan --intensity balanced --model-policy off --json
-ai-dememory setup wizard
+ai-dememory index
+ai-dememory setup plan --json
+ai-dememory setup health --json
+ai-dememory mcp-config --client codex
+ai-dememory mcp-client-smoke
 ```
 
 `uv` users can install the same tool with `uv tool install ai-dememory`.
+
+Stable 2.0.0 does not include `setup wizard`, resource-intensity/model-policy
+selection, or generated MCP idle leases. Those capabilities belong to the
+unreleased 2.1.0 source line below and must not be presented as PyPI behavior.
+
+If you want a reusable private GitHub vault template repo instead of creating a
+single local vault, export the packaged vault template:
+
+```bash
+ai-dememory vault-template export ~/code/ai-dememory-vault-template
+```
+
+Review the exported files, push them to a separate private repository, then mark
+that repository as a GitHub template. Keep the tool distribution repo separate
+from private memory vault repos.
+
+### Unreleased 2.1.0 source onboarding
+
+To evaluate the current development line instead of stable PyPI, install it
+directly from GitHub in a clean pipx environment, then use its preview-first
+wizard:
+
+```bash
+pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
+ai-dememory init ~/code/my-memory
+cd ~/code/my-memory
+ai-dememory doctor
+ai-dememory setup plan --intensity balanced --model-policy off --json
+ai-dememory setup wizard
+```
 
 The initial wizard is preview-first. It asks for reviewed baseline values and
 one bounded operating envelope, then prints an exact fingerprint before any
@@ -62,23 +100,6 @@ calls in all profiles; `advisory` and `proposals` only authorize bounded work by
 an already active host agent, whose normal token usage still applies. No policy
 automatically promotes durable memory. Installation and the wizard do not
 install hooks or scheduler jobs.
-
-If you want a reusable private GitHub vault template repo instead of creating a
-single local vault, export the packaged vault template:
-
-```bash
-ai-dememory vault-template export ~/code/ai-dememory-vault-template
-```
-
-Review the exported files, push them to a separate private repository, then mark
-that repository as a GitHub template. Keep the tool distribution repo separate
-from private memory vault repos.
-
-For an unreleased development snapshot, install from GitHub or a local checkout:
-
-```bash
-pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
-```
 
 Run from the repository root. On Windows PowerShell, use `py -3` if `python3`
 is not available.
@@ -703,7 +724,9 @@ Run as a stdio MCP server:
 python3 scripts/ai_dememory.py mcp --stdio
 ```
 
-The stdio server exits after 600 seconds without an MCP message by default.
+The following lifecycle behavior describes the unreleased 2.1.0 source line,
+not stable 2.0.0. The stdio server exits after 600 seconds without an MCP
+message by default.
 Generated onboarding configs use 120/600/1800 seconds for the
 `minimal`/`balanced`/`active` intensity profiles. This prevents completed agent
 sessions from retaining idle MCP processes indefinitely. Pass

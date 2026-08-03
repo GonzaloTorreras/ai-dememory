@@ -5,6 +5,11 @@ installed command against an explicit private vault. A source checkout may be
 the command working directory for development only; it must not also be the
 vault.
 
+Release boundary: `mcp-config` exists in stable 2.0.0, but the server-enforced
+profiles, required-root flag, enabled-tool allowlist, and generated idle leases
+shown below describe the unreleased 2.1.0 source line. See
+[Local MCP server setup](local-mcp.md) for the simpler stable output shape.
+
 ## Preferred Command
 
 Generate config from inside a memory vault:

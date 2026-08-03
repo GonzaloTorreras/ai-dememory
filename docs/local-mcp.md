@@ -3,7 +3,7 @@
 `ai-dememory` is local-first. The MCP server uses stdio and reads a private
 memory vault through `AI_DEMEMORY_ROOT`.
 
-## Installed CLI
+## Stable 2.0.0 Installed CLI
 
 Install the tool, create a vault, then generate client config:
 
@@ -23,13 +23,6 @@ stdio:
 ai-dememory mcp-client-smoke
 ```
 
-To test the current unreleased source branch instead of stable PyPI 2.0.0,
-install from GitHub:
-
-```bash
-pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
-```
-
 PowerShell:
 
 ```powershell
@@ -39,7 +32,30 @@ Set-Location D:\Github\my-memory
 ai-dememory mcp-config --client codex
 ```
 
-The generated Codex config uses TOML:
+Stable 2.0.0 generates the following Codex TOML shape:
+
+```toml
+[mcp_servers.ai-dememory]
+command = "ai-dememory"
+args = ["mcp", "--stdio"]
+
+[mcp_servers.ai-dememory.env]
+AI_DEMEMORY_ROOT = "<vault path>"
+```
+
+It does not generate a server profile, required-root flag, enabled-tool
+allowlist, or idle lease.
+
+## Unreleased 2.1.0 Generated Config
+
+To test the current source branch instead of stable PyPI 2.0.0, install from
+GitHub in a clean pipx environment:
+
+```bash
+pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
+```
+
+The 2.1.0 source generates this hardened Codex TOML shape:
 
 ```toml
 [mcp_servers.ai-dememory]
