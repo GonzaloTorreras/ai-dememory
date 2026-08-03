@@ -1,14 +1,15 @@
 # Documentation Experience And Static Site Plan
 
-Status: D0-D2 content and working-tree validation complete on a stacked branch;
-draft handoff pending; deployment remains approval-gated
+Status: D0-D2 content and local validation complete on a branch refreshed from
+canonical `main`; PR handoff pending; deployment remains separately gated
 
 Owner: Codex operational owner
 
-Updated: 2026-08-02
+Updated: 2026-08-03
 
-Foundation: PR #10 merged into canonical `main` at
-`2e900acc021411193c5298addfece4c82fda69b4`
+Product foundation: PR #10 merged into canonical `main` at
+`2e900acc021411193c5298addfece4c82fda69b4`. Documentation-plan baseline: PR
+#12 merged at `c284dc9136abe933dc2635e2d5bb59dce9811a2e`.
 
 ## Decision
 
@@ -351,7 +352,7 @@ installation, MCP, the local API, and private vaults unaffected.
 
 Exit: no orphan plan, no private information, and no deployment mutation.
 
-### D1 - Accessible static prototype (implemented and working-tree validated)
+### D1 - Accessible static prototype (implemented and locally validated)
 
 - Implement the home page and the first three code-native diagrams.
 - Add installation and architecture pages using the existing docs as sources.
@@ -425,13 +426,14 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Run the full documentation, browser, security, and repository validation gates
-   on the exact D1 head targeting canonical `main`.
-2. Obtain a fresh independent final review and merge D1 through normal branch
-   protection.
-3. Prepare and review a complete repository-level `SECURITY.md` separately before
+1. Prepare and review a complete repository-level `SECURITY.md` separately before
    adding the reporting policy.
-4. After the content artifact and reporting path are accepted, open a separate
-   security-reviewed Pages workflow PR.
-5. Verify the real public origin before adding a sitemap, social-preview URL, or
-   package metadata link.
+2. Open a separate security-reviewed PR for a pinned, least-privilege GitHub Pages
+   workflow after the content artifact and reporting path are accepted.
+3. Enable Pages only after that workflow passes its own exact-head gates, then
+   verify the deployed `main` commit and rollback path from clean desktop and
+   mobile sessions.
+4. Add a sitemap, social-preview URL, or package metadata link only after the real
+   public origin is live and verified.
+5. Use install friction and support questions to prioritize D4 improvements;
+   introduce Spanish pages only with an explicit source-parity check.
