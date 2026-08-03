@@ -1,0 +1,48 @@
+name: Validate GitHub Pages artifact
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/pages-validate.yml"
+      - "README.md"
+      - "SECURITY.md"
+      - "pyproject.toml"
+      - "docs/**"
+      - "scripts/ci_guard.py"
+      - "scripts/docs_site_guard.py"
+      - "scripts/pages_artifact_guard.py"
+      - "scripts/resource_policy.py"
+      - "site/**"
+      - "tests/test_docs_site.py"
+      - "tests/test_pages_delivery.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate workflow security boundaries
+        run: python scripts/ci_guard.py
+
+      - name: Validate static documentation
+        run: python scripts/docs_site_guard.py
+
+      - name: Validate exact Pages artifact
+        run: python scripts/pages_artifact_guard.py
+
+      - name: Run focused Pages tests
+        run: python -m unittest tests.test_docs_site tests.test_pages_delivery

@@ -15,8 +15,15 @@ from memorylib import repo_root
 
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
 AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+PAGES_VALIDATE_WORKFLOW_PATH = Path(".github/workflows/pages-validate.yml")
+PAGES_DEPLOY_WORKFLOW_PATH = Path(".github/workflows/pages.yml")
 WORKFLOW_DIR = Path(".github/workflows")
 PINNED_ACTION_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
+
+CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+SETUP_PYTHON_ACTION = "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+UPLOAD_PAGES_ACTION = "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9"
+DEPLOY_PAGES_ACTION = "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128"
 
 REQUIRED_COMMANDS = {
     "compile": "python -m compileall -q scripts mcp/server ai_dememory_tool",
@@ -71,6 +78,200 @@ def find_step_block(text: str, step_name: str) -> str | None:
     return text[start:next_step]
 
 
+def validate_pages_validation_workflow_text(text: str) -> list[CiGuardIssue]:
+    """Keep pull-request validation separate from every Pages write capability."""
+
+    issues: list[CiGuardIssue] = []
+    required_fragments = {
+        "pull_request": "pull_request:",
+        "permissions": "permissions:\n  contents: read",
+        "checkout": CHECKOUT_ACTION,
+        "setup_python": SETUP_PYTHON_ACTION,
+        "checkout_credentials": "persist-credentials: false",
+        "python": 'python-version: "3.12"',
+        "workflow_guard": "python scripts/ci_guard.py",
+        "docs_guard": "python scripts/docs_site_guard.py",
+        "artifact_guard": "python scripts/pages_artifact_guard.py",
+        "focused_tests": "python -m unittest tests.test_docs_site tests.test_pages_delivery",
+        "deploy_workflow_path": '".github/workflows/pages.yml"',
+        "validation_workflow_path": '".github/workflows/pages-validate.yml"',
+        "site_path": '"site/**"',
+        "docs_path": '"docs/**"',
+        "readme_path": '"README.md"',
+        "security_path": '"SECURITY.md"',
+        "metadata_path": '"pyproject.toml"',
+        "artifact_guard_path": '"scripts/pages_artifact_guard.py"',
+        "docs_guard_path": '"scripts/docs_site_guard.py"',
+        "resource_policy_path": '"scripts/resource_policy.py"',
+        "workflow_guard_path": '"scripts/ci_guard.py"',
+        "docs_tests_path": '"tests/test_docs_site.py"',
+        "tests_path": '"tests/test_pages_delivery.py"',
+    }
+    for name, fragment in required_fragments.items():
+        if fragment not in text:
+            issues.append(
+                CiGuardIssue(
+                    f"pages-validate.yml:{name}",
+                    f"Pages validation workflow is missing required guard: {fragment}",
+                )
+            )
+
+    forbidden_triggers = re.findall(
+        r"(?m)^  (push|pull_request_target|workflow_dispatch|workflow_run|schedule):\s*$",
+        text,
+    )
+    for trigger in forbidden_triggers:
+        issues.append(
+            CiGuardIssue(
+                f"pages-validate.yml:{trigger}",
+                f"Pages validation workflow must not use privileged or non-PR trigger: {trigger}",
+            )
+        )
+    forbidden_fragments = {
+        "pages_write": "pages: write",
+        "oidc": "id-token: write",
+        "environment": "environment:",
+        "upload": "actions/upload-pages-artifact@",
+        "deploy": "actions/deploy-pages@",
+        "configure": "actions/configure-pages@",
+        "secrets": "secrets.",
+        "contents_write": "contents: write",
+    }
+    for name, fragment in forbidden_fragments.items():
+        if fragment in text:
+            issues.append(
+                CiGuardIssue(
+                    f"pages-validate.yml:{name}",
+                    f"Pages validation workflow must not contain privileged capability: {fragment}",
+                )
+            )
+    return issues
+
+
+def validate_pages_deploy_workflow_text(text: str) -> list[CiGuardIssue]:
+    """Require a manual, exact-main, least-privilege Pages deployment workflow."""
+
+    issues: list[CiGuardIssue] = []
+    required_fragments = {
+        "manual_trigger": "workflow_dispatch:",
+        "approved_sha_input": "approved_sha:",
+        "confirm_input": "confirm:",
+        "default_permissions": "permissions: {}",
+        "concurrency": "group: ai-dememory-pages",
+        "no_cancel": "cancel-in-progress: false",
+        "prepare_contents": "contents: read",
+        "main_ref": 'test "$GITHUB_REF" = "refs/heads/main"',
+        "event_sha": 'test "$GITHUB_SHA" = "$APPROVED_SHA"',
+        "confirmation": 'test "$DEPLOY_CONFIRM" = "deploy-pages@$APPROVED_SHA"',
+        "live_main_query": 'gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha',
+        "live_main_match": 'test "$live_main_sha" = "$APPROVED_SHA"',
+        "checkout": CHECKOUT_ACTION,
+        "approved_checkout": "ref: ${{ inputs.approved_sha }}",
+        "checkout_credentials": "persist-credentials: false",
+        "setup_python": SETUP_PYTHON_ACTION,
+        "workflow_guard": "python scripts/ci_guard.py",
+        "docs_guard": "python scripts/docs_site_guard.py",
+        "focused_tests": "python -m unittest tests.test_docs_site tests.test_pages_delivery",
+        "artifact_guard": "python scripts/pages_artifact_guard.py",
+        "guard_upload_adjacency": (
+            "      - name: Guard exact Pages artifact\n"
+            "        run: python scripts/pages_artifact_guard.py\n\n"
+            "      - name: Upload exact GitHub Pages artifact\n"
+            f"        uses: {UPLOAD_PAGES_ACTION}"
+        ),
+        "upload": UPLOAD_PAGES_ACTION,
+        "artifact_name": "name: github-pages",
+        "artifact_path": "path: site",
+        "retention": "retention-days: 1",
+        "hidden_nojekyll": "include-hidden-files: true",
+        "dependency": "needs: prepare",
+        "pages_permission": "pages: write",
+        "oidc_permission": "id-token: write",
+        "environment": "name: github-pages",
+        "environment_url": "url: ${{ steps.deployment.outputs.page_url }}",
+        "deployment_id": "id: deployment",
+        "deploy": DEPLOY_PAGES_ACTION,
+        "deployed_artifact": "artifact_name: github-pages",
+    }
+    for name, fragment in required_fragments.items():
+        if fragment not in text:
+            issues.append(
+                CiGuardIssue(
+                    f"pages.yml:{name}",
+                    f"Pages deployment workflow is missing required guard: {fragment}",
+                )
+            )
+
+    forbidden_triggers = re.findall(
+        r"(?m)^  (push|pull_request|pull_request_target|workflow_run|schedule):\s*$",
+        text,
+    )
+    for trigger in forbidden_triggers:
+        issues.append(
+            CiGuardIssue(
+                f"pages.yml:{trigger}",
+                f"Pages deployment workflow must remain manual-only; forbidden trigger: {trigger}",
+            )
+        )
+    forbidden_fragments = {
+        "secrets": "secrets.",
+        "contents_write": "contents: write",
+        "actions_write": "actions: write",
+        "packages": "packages:",
+        "configure": "actions/configure-pages@",
+        "artifact_download": "actions/download-artifact@",
+        "cache": "actions/cache@",
+    }
+    for name, fragment in forbidden_fragments.items():
+        if fragment in text:
+            issues.append(
+                CiGuardIssue(
+                    f"pages.yml:{name}",
+                    f"Pages deployment workflow must not contain: {fragment}",
+                )
+            )
+
+    for permission, expected in (("contents: read", 1), ("pages: write", 1), ("id-token: write", 1)):
+        if text.count(permission) != expected:
+            issues.append(
+                CiGuardIssue(
+                    "pages.yml:permissions",
+                    f"Pages deployment workflow must contain {permission!r} exactly {expected} time(s)",
+                )
+            )
+
+    prepare_end = text.find("\n  deploy:\n")
+    artifact_guard_index = text.find("python scripts/pages_artifact_guard.py")
+    upload_index = text.find(UPLOAD_PAGES_ACTION)
+    if prepare_end == -1:
+        issues.append(CiGuardIssue("pages.yml:deploy_job", "Pages deployment job is missing"))
+    else:
+        if not (0 <= artifact_guard_index < upload_index < prepare_end):
+            issues.append(
+                CiGuardIssue(
+                    "pages.yml:artifact_order",
+                    "exact artifact guard must run immediately before the Pages upload boundary",
+                )
+            )
+        deploy_block = text[prepare_end:]
+        deploy_actions = re.findall(r"\buses:\s*([^\s#]+)", deploy_block)
+        if deploy_actions != [DEPLOY_PAGES_ACTION]:
+            issues.append(
+                CiGuardIssue(
+                    "pages.yml:deploy_actions",
+                    "deploy job may invoke only the pinned deploy-pages action",
+                )
+            )
+        if "run:" in deploy_block or CHECKOUT_ACTION in deploy_block or SETUP_PYTHON_ACTION in deploy_block:
+            issues.append(
+                CiGuardIssue(
+                    "pages.yml:deploy_steps",
+                    "deploy job must not execute shell, checkout, or setup steps",
+                )
+            )
+    return issues
+
+
 def step_has_pr_gate_and_url(step: str) -> bool:
     has_pr_gate = "github.event_name == 'pull_request'" in step or 'github.event_name == "pull_request"' in step
     return has_pr_gate and "AI_DEMEMORY_PR_URL" in step and "github.event.pull_request.html_url" in step
@@ -90,6 +291,17 @@ def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
         issues.append(CiGuardIssue(str(AUTO_APPROVE_WORKFLOW_PATH), "auto-approval workflow is missing"))
     else:
         issues.extend(validate_auto_approve_workflow_text(auto_approve_text))
+    for workflow_path, validator in (
+        (PAGES_VALIDATE_WORKFLOW_PATH, validate_pages_validation_workflow_text),
+        (PAGES_DEPLOY_WORKFLOW_PATH, validate_pages_deploy_workflow_text),
+    ):
+        path = root / workflow_path
+        try:
+            workflow_text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            issues.append(CiGuardIssue(str(workflow_path), "required Pages workflow is missing"))
+        else:
+            issues.extend(validator(workflow_text))
     issues.extend(validate_workflow_supply_chain(root))
     return issues
 

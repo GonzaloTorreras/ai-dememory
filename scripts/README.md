@@ -203,6 +203,7 @@ python3 scripts/install_smoke.py --skip-package --docker
 python3 scripts/publish_guard.py
 python3 scripts/roadmap_status.py status --json
 python3 scripts/ci_guard.py
+python3 scripts/pages_artifact_guard.py
 python3 scripts/artifact_guard.py
 python3 scripts/pr_template_guard.py
 python3 scripts/pr_draft_guard.py
@@ -264,7 +265,11 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `publish_guard.py`: validates the exact tag/SHA-confirmed manual tagger,
   single OIDC publisher, exact-artifact smoke, attestation, and
   confirmation-gated token-free recovery contracts.
-- `ci_guard.py`: validates that CI keeps required v2 verification gates.
+- `ci_guard.py`: validates required v2 verification gates plus the isolated,
+  manual-only GitHub Pages workflow boundary.
+- `pages_artifact_guard.py`: requires the Pages `site/` tree to match clean
+  stage-zero regular Git files exactly, with no generated, linked, or untracked
+  content.
 - `artifact_guard.py`: fails when generated indexes, reports, context exports,
   build outputs, or caches are staged.
 - `pr_template_guard.py`: validates that the PR template lists current v2

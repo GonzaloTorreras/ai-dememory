@@ -11,6 +11,7 @@ import re
 import sys
 
 from memorylib import repo_root
+from ci_guard import PAGES_DEPLOY_WORKFLOW_PATH, validate_pages_deploy_workflow_text
 
 
 # Kept for the compatibility publish-plan API. This workflow must never publish.
@@ -119,9 +120,15 @@ def validate_publisher_inventory(workflows: dict[Path, str]) -> list[PublishGuar
         normalized = Path(path).as_posix()
         if normalized == RELEASE_WORKFLOW_PATH.as_posix():
             continue
+        guarded_pages_oidc = (
+            normalized == PAGES_DEPLOY_WORKFLOW_PATH.as_posix()
+            and not validate_pages_deploy_workflow_text(text)
+        )
         lowered = text.casefold()
         for label, marker in exclusive_markers.items():
             if marker.casefold() in lowered:
+                if label == "OIDC write permission" and guarded_pages_oidc:
+                    continue
                 issues.append(
                     PublishGuardIssue(
                         f"{normalized}:publisher",

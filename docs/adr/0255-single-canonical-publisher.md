@@ -23,9 +23,14 @@ recovery semantics ambiguous.
 
 Use `.github/workflows/release.yml` as the sole package publisher:
 
-- only the canonical workflow may request `id-token: write`, target the
-  `testpypi` or `pypi` environment, transfer release artifacts to a publishing
-  job, invoke the PyPI publisher action, or create the GitHub Release;
+- only the canonical workflow may request `id-token: write` for package
+  publication, target the `testpypi` or `pypi` environment, transfer release
+  artifacts to a publishing job, invoke the PyPI publisher action, or create the
+  GitHub Release;
+- the manual GitHub Pages workflow defined by ADR 0259 may request OIDC only in
+  its isolated `pages: write` deployment job. That exception has no package,
+  registry, release, stored-secret, or pull-request execution capability and is
+  accepted only while its dedicated workflow guard passes;
 - PyPI and TestPyPI Trusted Publisher identities must reference only
   `.github/workflows/release.yml` and the matching environment;
 - normal publication requires both an explicitly authorized immutable tag and
