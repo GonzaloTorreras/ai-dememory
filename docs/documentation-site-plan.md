@@ -5,9 +5,10 @@ draft handoff pending; deployment remains approval-gated
 
 Owner: Codex operational owner
 
-Updated: 2026-08-01
+Updated: 2026-08-02
 
-Depends on: PR #10 (`codex/public-canonicalization`)
+Foundation: PR #10 merged into canonical `main` at
+`2e900acc021411193c5298addfece4c82fda69b4`
 
 ## Decision
 
@@ -424,15 +425,13 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Commit and push the validated content-only branch, then open its stacked draft
-   PR against `codex/documentation-site-plan` without Pages permissions.
-2. Obtain the missing formal approval for PR #10, merge it through normal branch
-   protection, then rebase the stacked documentation branch onto canonical
-   `main`.
-3. Refresh all evidence on the rebased commit and request a fresh independent
-   review for the final `main`-targeting diff.
-4. Preview a complete repository-level `SECURITY.md` diff and obtain explicit
-   owner approval before adding the reporting policy.
-5. After the content artifact and reporting path are accepted, open a separate
-   security-reviewed Pages workflow PR and verify the real public origin before
-   adding a sitemap, social-preview URL, or package metadata link.
+1. Run the full documentation, browser, security, and repository validation gates
+   on the exact D1 head targeting canonical `main`.
+2. Obtain a fresh independent final review and merge D1 through normal branch
+   protection.
+3. Prepare and review a complete repository-level `SECURITY.md` separately before
+   adding the reporting policy.
+4. After the content artifact and reporting path are accepted, open a separate
+   security-reviewed Pages workflow PR.
+5. Verify the real public origin before adding a sitemap, social-preview URL, or
+   package metadata link.

@@ -116,10 +116,11 @@ ai-dememory eval-recall
 
 ## Publishing Workflow
 
-The canonical release path is `.github/workflows/release.yml`, triggered by an
-immutable version tag. Prerelease tags publish only to TestPyPI; stable tags
-publish only to PyPI. The workflow creates the matching GitHub Release after
-the package can be installed back from its target index.
+The canonical publisher is `.github/workflows/release.yml`, dispatched manually
+for an already created immutable version tag and its exact commit. A tag push
+alone never invokes the current publisher. Prerelease tags publish only to
+TestPyPI; stable tags publish only to PyPI. The workflow creates the matching
+GitHub Release after the package can be installed back from its target index.
 
 `.github/workflows/publish.yml` is retained only as a legacy hosted readiness
 preflight. It has read-only repository permission, disables persisted checkout
@@ -147,14 +148,15 @@ ai-dememory artifact-guard
 ai-dememory package-build-smoke
 ```
 
-The canonical package path is the tag-driven flow documented in
+The canonical package path is the exact-tuple dispatch flow documented in
 [AI-operated releases](ai-operated-releases.md). Codex prepares and verifies
 the release, but must not merge a release PR, create or push its tag, or publish
-without explicit user authorization. Once authorized, a green `main` build may
-create the immutable version tag; `.github/workflows/release.yml` validates
-tag/version/changelog identity, builds once, smokes the exact wheel and sdist,
-attests them, publishes through OIDC, verifies the index install, and creates
-the GitHub Release.
+without explicit user authorization. Once tag creation is authorized, the
+manual tagger may create the immutable version tag and stop. A second explicit
+dispatch of `.github/workflows/release.yml`, bound to the same tag and commit,
+authorizes publication. The publisher validates tag/version/changelog identity,
+builds once, smokes the exact wheel and sdist, attests them, publishes through
+OIDC, verifies the index install, and creates the GitHub Release.
 
 The older `publish.yml` and `publish-plan` interfaces are retained as a
 read-only compatibility and diagnostic surface during migration. PyPI Trusted
@@ -183,10 +185,11 @@ stale generated `build/`, `dist/`, or `ai_dememory.egg-info/` paths already
 exist in the checkout. Remove those generated artifacts before release
 validation so stale local build state cannot mask package build failures.
 
-The guard checks that canonical package publishing is tag-driven, concurrency
-controlled, build-once, exact-artifact tested, checksummed, attested and bound
-to the `testpypi` and `pypi` OIDC environments. It also checks the green-CI
-tagger and ensures the compatibility workflow remains manual and token-free.
+The guard checks that canonical package publishing is exact-tag-bound,
+workflow-dispatch-only, concurrency controlled, build-once, exact-artifact
+tested, checksummed, attested and bound to the `testpypi` and `pypi` OIDC
+environments. It also checks the green-CI tagger cannot dispatch the publisher
+and ensures the compatibility workflow remains manual and token-free.
 The artifact guard checks staged
 Git paths so generated SQLite, report, context export, build, and cache files do
 not ship with the release branch.

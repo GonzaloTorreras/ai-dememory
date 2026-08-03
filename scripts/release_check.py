@@ -574,7 +574,10 @@ def check_publish_workflow(root: Path) -> ReleaseCheck:
     issues = validate_publish_workflow(root)
     if issues:
         return fail("publish_workflow", f"{len(issues)} issue(s)")
-    return ok("publish_workflow", "canonical tag publisher plus legacy read-only preflight")
+    return ok(
+        "publish_workflow",
+        "canonical exact-tuple publisher plus legacy read-only preflight",
+    )
 
 
 def check_ci_workflow(root: Path) -> ReleaseCheck:

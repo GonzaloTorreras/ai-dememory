@@ -22,10 +22,11 @@ historical and no longer applies.
 Adopt an AI-operated, human-account-owned model. After explicit authorization
 of a release PR and its publication consequence, successful CI on `main` is
 necessary but insufficient. ADR 0258's manual tuple-bound dispatch creates the
-new immutable version tag. A canonical tag-triggered workflow validates
-tag, version, changelog and ancestry, builds once, smokes the exact wheel and
-sdist, records checksums and attestations, publishes through environment-bound
-OIDC, verifies the index installation and creates the GitHub Release.
+new immutable version tag. A second manual tuple-bound dispatch of the
+canonical publisher validates tag, version, changelog and ancestry, builds
+once, smokes the exact wheel and sdist, records checksums and attestations,
+publishes through environment-bound OIDC, verifies the index installation and
+creates the GitHub Release.
 
 Manual acceptance remains a product-quality subsystem and is not a package
 publication gate. The legacy `publish.yml` and `publish-plan` remain a
@@ -51,8 +52,9 @@ This supersedes the ordinary approval and manual-dispatch decisions in ADRs
 Repository rules, GitHub environments and both package-index Trusted Publishers
 must be configured before release. A TestPyPI RC is required as migration
 evidence. Each release requires explicit owner
-authorization covering merge, tag, and publication consequence; account
-recovery and compromise response remain separately human-controlled.
+authorization covering merge, the exact tagger tuple, and the exact publisher
+tuple; account recovery and compromise response remain separately
+human-controlled.
 
 ## Dependencies
 

@@ -353,13 +353,17 @@ Before publishing a package:
   `.github/workflows/tag-release.yml` with `tag=v<version>`,
   `approved_sha=<40-character-main-sha>`, and
   `confirm=release-<tag>@<approved_sha>`. The workflow refuses a stale main
-  commit, missing successful push CI, identity drift, or a conflicting tag.
-  `.github/workflows/release.yml` is the canonical AI-operated Trusted
-  Publishing path: prerelease tags publish to TestPyPI, stable tags to PyPI,
-  followed by post-index installation and GitHub Release verification.
+  commit, missing successful push CI, identity drift, or a conflicting tag,
+  then stops after tag creation. Separately dispatch
+  `.github/workflows/release.yml` with `intent=publish`, the same `tag` and
+  `approved_sha`, and `confirm=publish-<tag>@<approved_sha>`. This second exact
+  tuple is the publication authorization. Prerelease tags publish to TestPyPI,
+  stable tags to PyPI, followed by post-index installation and GitHub Release
+  verification.
 - Never reuse or rewrite a published tag. Recovery uses the guarded
-  `workflow_dispatch` path for the same immutable tag; package rollback is yank
-  plus fix-forward with a new version.
+  `workflow_dispatch` path with `intent=recover` and
+  `confirm=recover-<tag>@<approved_sha>` for the same immutable tuple; package
+  rollback is yank plus fix-forward with a new version.
 
 References:
 

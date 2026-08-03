@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted with its evidence source replaced by ADR 0255 on 2026-07-26. TestPyPI
-acceptance now comes from the canonical immutable-tag release and post-index
-install, never from the legacy readiness preflight.
+Accepted with its evidence source replaced by ADRs 0255 and 0258 on 2026-08-02.
+TestPyPI acceptance now comes from the separate exact-tuple tag and publisher
+dispatches plus post-index install, never from the legacy readiness preflight.
 
 ## Context
 
@@ -25,22 +25,22 @@ mark the item complete without a reviewed record.
 
 The canonical `testpypi-publish` acceptance item is:
 
-`Publish an immutable prerelease tag through the canonical release workflow
-only after package and Docker smoke pass, then verify the exact version installs
-from TestPyPI.`
+`Create an authorized immutable prerelease tag with the tagger, separately
+dispatch the exact-tuple canonical publisher only after package and Docker
+smoke pass, then verify the exact version installs from TestPyPI.`
 
-Its suggested artifacts are the `release.yml` run URL for the exact immutable
-prerelease tag, validation/build/publish/post-index-install logs, the TestPyPI
-project/version URL, and a fresh exact-version install smoke log.
+Its suggested artifacts are both workflow run URLs for the exact immutable
+prerelease tag and commit, validation/build/publish/post-index-install logs, the
+TestPyPI project/version URL, and a fresh exact-version install smoke log.
 
-Within the local planner, revision 2 is the default stable-release sign-off
+Within the local planner, revision 3 is the default stable-release sign-off
 evidence. It is not an input consumed by `.github/workflows/release.yml` and
 cannot grant or revoke that workflow's publication capability.
 
 ## Benefits
 
-- Ties TestPyPI acceptance to the immutable tag and exact workflow that
-  performed the upload.
+- Ties TestPyPI acceptance to the immutable tag, both authorization tuples and
+  the exact workflow that performed the upload.
 - Proves the published version can be installed back from the external index.
 - Prevents the read-only compatibility preflight from being mistaken for
   publication evidence.
@@ -69,6 +69,7 @@ cannot grant or revoke that workflow's publication capability.
 - ADR 0016 defines manual acceptance evidence records.
 - ADR 0058 defines suggested evidence artifacts in manual acceptance plans.
 - ADR 0127 defines hosted readiness smoke.
-- ADR 0255 defines the canonical tag publisher and legacy preflight boundary.
+- ADRs 0255 and 0258 define the canonical exact-tuple publisher and legacy
+  preflight boundary.
 - `scripts/manual_acceptance.py` owns the canonical acceptance item registry.
 - `docs/release-v2-checklist.md` mirrors the canonical manual acceptance items.

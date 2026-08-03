@@ -162,7 +162,9 @@ The legacy `ready` field is deprecated and is only an alias for
 `schedule plan --json` is read-only and returns host scheduler commands,
 reviewed cron export entries, Docker command shapes when requested, and
 side-effect flags before any `schedule setup` command writes config or touches
-host scheduler state.
+host scheduler state. Invalid resource overrides return
+`resource_policy_valid=false` with diagnostics and suppress every install/apply
+surface.
 `maintenance status` reports generated artifact state and freshness, generated
 packet archive cleanup counts, provider readiness, false-positive review due
 counts, stale suppression counts, conflict review counts, and hook capture
@@ -532,8 +534,9 @@ Product acceptance stays separate from automated package gates. This repository
 is operationally maintained by Codex: it prepares release PRs, versions,
 changelog entries and exact-artifact evidence. A release PR is not merged and
 no tag or package is published until the user explicitly authorizes those
-important actions. Once authorized, the canonical tag-driven workflow builds
-once, smokes the exact wheel and sdist, attests them, publishes through OIDC and
+important actions. The manual tagger and publisher are separate exact-tuple
+dispatches. After both are authorized, the canonical publisher builds once,
+smokes the exact wheel and sdist, attests them, publishes through OIDC and
 verifies the installed index package.
 See `docs/ai-operated-releases.md`.
 
@@ -568,11 +571,14 @@ compatibility: TestPyPI local readiness may defer only the
 `testpypi-publish` acceptance item, while the local PyPI planner requires full
 release evidence. The canonical workflow cannot read private-vault receipts
 and does not enforce either field. Actual publication belongs exclusively to
-the immutable-tag-driven `.github/workflows/release.yml` path and requires
-explicit owner authorization after any remaining evidence gaps are disclosed.
-`testpypi-publish` requires acceptance revision 2. Legacy revision-1 or
-unversioned passing records from the former manual publisher remain auditable
-but do not complete the current local acceptance/readiness signal.
+the manually dispatched `.github/workflows/release.yml` path for an exact
+immutable tag/commit tuple. Tag creation and publication are separate explicit
+owner authorizations after any remaining evidence gaps are disclosed; pushing
+a tag alone does not invoke the current publisher.
+`testpypi-publish` requires acceptance revision 3. Earlier or unversioned
+passing records from the former manual publisher or retired tag-push topology
+remain auditable but do not complete the current local acceptance/readiness
+signal.
 
 Use `ai-dememory release-evidence --write-report --report-path
 reports/v2-release-evidence.md` when a handoff needs an explicit generated

@@ -182,6 +182,10 @@ hook captures. Canonical and secret scans, graph pages/nodes/edges, MCP
 frames/queues/output, and SQLite audit retention have additional
 non-configurable ceilings. Malformed or out-of-range overrides make the policy
 invalid instead of widening those ceilings.
+Scheduler plan/apply fails closed in that state: it emits the exact
+`validation_errors`, creates no definitions or receipt, and rechecks validity
+immediately before its first write. Manual and dry-run maintenance reject the
+same policy with those diagnostics instead of silently using fallback values.
 
 Run profiles manually:
 
@@ -351,8 +355,9 @@ review workflow tools.
 - MCP runtime smoke refuses to run: create the PR first and set
   `AI_DEMEMORY_PR_URL` to the draft PR URL.
 - Scheduler install fails: run `ai-dememory schedule setup --dry-run`, inspect
-  the generated platform command, then install manually or fix the platform
-  scheduler.
+  `resource_policy_valid`/`validation_errors` from `ai-dememory schedule plan
+  --json`, then fix the policy or platform scheduler. Never install the emitted
+  host command manually while the resource policy is invalid.
 
 ## Safety Invariants
 

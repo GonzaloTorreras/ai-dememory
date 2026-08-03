@@ -8021,6 +8021,16 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse((root / "indexes").exists())
         self.assertFalse((root / "reports").exists())
 
+    def test_maintenance_reports_invalid_resource_policy_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+
+            with self.assertRaisesRegex(ValueError, "provider_file_limit"):
+                run_maintenance(root, "daily")
+            with self.assertRaisesRegex(ValueError, "provider_file_limit"):
+                dry_run_maintenance(root, "daily")
+
     def test_daily_maintenance_writes_custom_in_root_report_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -8521,6 +8531,107 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse((root / ".ai-dememory.toml").exists())
         self.assertTrue(any(command["command"][:2] == ["systemctl", "--user"] for command in payload["commands"]))
         self.assertTrue(any(entry["command"][:2] == ["docker", "run"] for entry in payload["cron_entries"]))
+
+    def test_schedule_plan_blocks_invalid_resource_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+
+            plan = schedule_plan(root, target_platform="windows")
+
+        self.assertFalse(plan["resource_policy_valid"])
+        self.assertFalse(plan["installable"])
+        self.assertEqual(plan["commands"], [])
+        self.assertEqual(plan["cron_entries"], [])
+        self.assertEqual(plan["apply_command"], [])
+        self.assertTrue(
+            any("provider_file_limit" in error for error in plan["validation_errors"])
+        )
+        self.assertIn("Fix the invalid resource policy", plan["next_actions"][0])
+
+    def test_schedule_install_refuses_invalid_resource_policy_without_side_effects(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+            plan = schedule_plan(root, target_platform="windows")
+            config_path = root / ".ai-dememory.toml"
+            config_before = config_path.read_text(encoding="utf-8")
+            error = io.StringIO()
+
+            with (
+                patch("schedule_memory.write_platform_schedule_files") as write_files,
+                patch("schedule_memory.run_install_commands") as run_install,
+                redirect_stderr(error),
+            ):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            config_after = config_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("provider_file_limit", error.getvalue())
+        self.assertEqual(config_after, config_before)
+        write_files.assert_not_called()
+        run_install.assert_not_called()
+
+    def test_schedule_cron_refuses_invalid_resource_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            set_section(root, "resources", {"provider_file_limit": 999})
+            output = io.StringIO()
+            error = io.StringIO()
+
+            with redirect_stdout(output), redirect_stderr(error):
+                exit_code = schedule_main(
+                    ["--root", str(root), "cron", "--json"]
+                )
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("provider_file_limit", error.getvalue())
+
+    def test_schedule_install_rechecks_policy_immediately_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            error = io.StringIO()
+
+            def invalidate_policy(expected: str, actual: str) -> bool:
+                set_section(root, "resources", {"provider_file_limit": 999})
+                return expected == actual
+
+            with (
+                patch("schedule_memory.hmac.compare_digest", side_effect=invalidate_policy),
+                patch("schedule_memory.write_platform_schedule_files") as write_files,
+                patch("schedule_memory.run_install_commands") as run_install,
+                redirect_stderr(error),
+            ):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("changed or is invalid", error.getvalue())
+        self.assertIn("provider_file_limit", error.getvalue())
+        write_files.assert_not_called()
+        run_install.assert_not_called()
 
     def test_schedule_namespaces_and_fingerprints_are_stable_per_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -11216,8 +11327,8 @@ jobs:
             issues = validate_publish_workflow(root)
 
         messages = "\n".join(issue.message for issue in issues)
-        self.assertIn("manual workflow dispatch", messages)
-        self.assertIn("must not run automatically", messages)
+        self.assertIn("workflow_dispatch-only", messages)
+        self.assertIn("tagger must be workflow_dispatch-only", messages)
         self.assertIn("exact tag and commit", messages)
         self.assertIn("current main", messages)
         self.assertIn("successful push CI", messages)
@@ -11299,12 +11410,13 @@ jobs:
         messages = "\n".join(issue.message for issue in issues)
         self.assertIn("stored PyPI tokens", messages)
         self.assertIn("must not reference stored GitHub secrets", messages)
-        self.assertIn("canonical release workflow is missing: tags:", messages)
+        self.assertIn("canonical release workflow is missing: workflow_dispatch:", messages)
+        self.assertIn("canonical release must be workflow_dispatch-only", messages)
         self.assertIn("canonical release workflow is missing: concurrency:", messages)
         self.assertIn("canonical release workflow is missing: python scripts/ai_release_guard.py --tag", messages)
         self.assertIn("canonical release workflow is missing: release_artifact_smoke.py", messages)
         self.assertIn("canonical release workflow is missing: SHA256SUMS", messages)
-        self.assertIn("recovery must require confirm=recover-<immutable-tag>", messages)
+        self.assertIn("exact intent, tag, and commit confirmation", messages)
 
     def test_publish_guard_requires_exact_recovery_confirmation(self) -> None:
         misplaced = """
@@ -11338,8 +11450,54 @@ jobs:
         issues = validate_publish_workflow_text(misplaced)
 
         messages = "\n".join(issue.message for issue in issues)
-        self.assertIn("recovery must require confirm=recover-<immutable-tag>", messages)
+        self.assertIn("exact intent, tag, and commit confirmation", messages)
         self.assertIn("release distributions must be built exactly once", messages)
+
+    def test_publish_guard_rejects_direct_tag_trigger(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        unsafe = current.replace(
+            "on:\n  workflow_dispatch:",
+            'on:\n  push:\n    tags:\n      - "v*"\n  workflow_dispatch:',
+            1,
+        )
+
+        issues = validate_publish_workflow_text(unsafe)
+
+        self.assertTrue(
+            any("workflow_dispatch-only" in issue.message for issue in issues)
+        )
+
+    def test_publish_guard_rejects_any_alternate_release_event(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        unsafe = current.replace(
+            "on:\n  workflow_dispatch:",
+            "on:\n  workflow_call:\n  workflow_dispatch:",
+            1,
+        )
+
+        issues = validate_publish_workflow_text(unsafe)
+
+        self.assertTrue(
+            any("workflow_dispatch-only" in issue.message for issue in issues)
+        )
+
+    def test_publish_guard_keeps_tagger_separate_from_publisher_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            for name in ("release.yml", "publish.yml", "tag-release.yml"):
+                text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+                if name == "tag-release.yml":
+                    text = text.replace("actions: read", "actions: write")
+                    text += "\n      - run: gh workflow run release.yml\n"
+                (workflows / name).write_text(text, encoding="utf-8")
+
+            issues = validate_publish_workflow(root)
+
+        messages = "\n".join(issue.message for issue in issues)
+        self.assertIn("Actions read-only", messages)
+        self.assertIn("must not dispatch the publisher automatically", messages)
 
     def test_publish_plan_summarizes_manual_dispatch_without_publishing(self) -> None:
         plan = publish_plan(
@@ -12782,7 +12940,7 @@ Generated distilled indexes reports.
                 "testpypi-publish",
                 "passed",
                 "Unit Test",
-                "Canonical immutable prerelease tag and exact TestPyPI install reviewed.",
+                "Both exact-tuple dispatches and the TestPyPI install were reviewed.",
                 artifacts=["https://test.pypi.org/project/ai-dememory/2.1.0/"],
             )
             current_status = next(
@@ -12791,12 +12949,12 @@ Generated distilled indexes reports.
             new_record_text = new_path.read_text(encoding="utf-8")
 
         self.assertFalse(legacy_status.completed)
-        self.assertEqual(legacy_status.required_revision, 2)
+        self.assertEqual(legacy_status.required_revision, 3)
         self.assertEqual(legacy_status.records[-1].revision, 1)
         self.assertTrue(current_status.completed)
         self.assertEqual(current_status.records[-1].revision, ACCEPTANCE_REVISIONS["testpypi-publish"])
         self.assertIn(
-            "acceptance_revision: 2",
+            "acceptance_revision: 3",
             new_record_text,
         )
 

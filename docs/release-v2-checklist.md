@@ -991,7 +991,11 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   `.github/workflows/release.yml` and environment `testpypi`.
 - [ ] PyPI trusted publisher is configured only for
   `.github/workflows/release.yml` and environment `pypi`.
-- [ ] `ai-dememory publish-guard` confirms the canonical tag publisher and
+- [ ] The active `v*` ruleset rejects tag creation except for the GitHub Actions
+  integration used by `tag-release.yml`, and rejects deletion and rewrite.
+- [ ] `ai-dememory publish-guard` confirms the canonical publisher is
+  `workflow_dispatch`-only, exact-tag/commit-bound, and separate from the
+  read-only-Actions tagger, and
   proves the legacy preflight is manual, `confirm=preflight`, read-only,
   token-free, environment-free, and non-publishing; it also finds no publishing
   marker in any other checked-in workflow.
@@ -999,8 +1003,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   `validate`, `secret-scan`, `verify-mcp`, `release-check`, installed package
   smoke, package build smoke with `--check-clean`, and Docker local MCP smoke
   without exporting or publishing distributions.
-- [ ] First canonical publication uses an immutable prerelease tag and targets
-  TestPyPI.
+- [ ] First canonical publication uses an authorized immutable prerelease tag,
+  then a separate exact-tuple publisher dispatch, and targets TestPyPI.
 - [ ] Stable PyPI publication is authorized only after TestPyPI install
   verification.
 
@@ -1306,9 +1310,12 @@ Run only after the PR exists, preserving the requested workflow order.
 - [ ] `git-lesson`: Capture one git lesson candidate and review its inbox file.
 - [ ] `daily-maintenance`: Run one daily maintenance pass and inspect index, graph, weights, and report artifacts.
 - [ ] `review-reports`: Generate false-positive and conflict reports, then review one intentional case or the empty-report evidence.
-- [ ] `testpypi-publish`: Publish an immutable prerelease tag through the canonical release workflow only after package and Docker smoke pass, then verify the exact version installs from TestPyPI.
-  Acceptance revision 2 is required for complete local sign-off; unversioned
-  or revision-1 passes remain audit history and are not package-workflow gates.
+- [ ] `testpypi-publish`: Create an authorized immutable prerelease tag with the
+  tagger, separately dispatch the exact-tuple canonical publisher only after
+  package and Docker smoke pass, then verify the exact version installs from
+  TestPyPI.
+  Acceptance revision 3 is required for complete local sign-off; unversioned
+  or earlier passes remain audit history and are not package-workflow gates.
 - [ ] Promote or reject the proposal manually; do not auto-modify durable
   memory.
 - [ ] Record reviewed manual proof with `ai-dememory acceptance record --item

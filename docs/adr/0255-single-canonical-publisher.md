@@ -28,9 +28,11 @@ Use `.github/workflows/release.yml` as the sole package publisher:
   job, invoke the PyPI publisher action, or create the GitHub Release;
 - PyPI and TestPyPI Trusted Publisher identities must reference only
   `.github/workflows/release.yml` and the matching environment;
-- normal publication begins with an explicitly authorized immutable tag;
+- normal publication requires both an explicitly authorized immutable tag and
+  a separate exact tag/commit publisher dispatch;
 - recovery re-dispatches `.github/workflows/release.yml` for that existing tag
-  with `confirm=recover-<tag>` and never rebuilds from an arbitrary branch;
+  with `intent=recover` and `confirm=recover-<tag>@<approved_sha>` and never
+  rebuilds from an arbitrary branch;
 - `.github/workflows/publish.yml` remains temporarily as a manual read-only
   readiness preflight, requires `confirm=preflight`, has only
   `contents: read`, disables persisted checkout credentials, and cannot request
@@ -39,10 +41,10 @@ Use `.github/workflows/release.yml` as the sole package publisher:
 - `publish-plan` retains its name and response fields for compatibility but
   reports `uses_trusted_publishing=false`; its hosted workflow URL identifies
   the read-only preflight, not publication authority;
-- `testpypi-publish` manual acceptance requires revision 2 evidence from the
-  canonical immutable-tag workflow and exact-version post-index install;
-  unversioned or revision-1 passes from the old publisher remain auditable but
-  do not complete the current local acceptance/readiness signal;
+- `testpypi-publish` manual acceptance requires revision 3 evidence from both
+  exact-tuple dispatches, the canonical immutable-tag workflow and exact-version
+  post-index install; earlier or unversioned passes remain auditable but do not
+  complete the current local acceptance/readiness signal;
 - `publish-guard` inventories every checked-in workflow and rejects known
   publishing markers, package-registry permissions, and stored-secret
   references outside `release.yml`, including any return of publishing

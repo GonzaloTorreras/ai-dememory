@@ -13,7 +13,10 @@ accepted by the release identity guard.
   independent technical review. Keep one immutable-tag package publisher and
   reduce the former manual publisher to a guarded read-only readiness preflight.
   Replace ambient post-CI tagging with a manual confirmation bound to the exact
-  release tag and green current-main SHA.
+  release tag and green current-main SHA. Keep the tagger unable to dispatch
+  publication, remove ambient tag-push publication, and require a second manual
+  intent/tag/SHA confirmation before the canonical publisher can run. Move
+  checkout and Python setup to immutable Node 24-native v7 action pins.
 - Keep Python 3.11+ as the authoritative domain and headless runtime; reserve
   Node/TypeScript for a future evidence-gated presentation plane with generated
   contracts and prebuilt assets.
@@ -34,7 +37,9 @@ accepted by the release identity guard.
   moves, reject copied receipts while the original vault still owns the same
   enabled namespace and plan, keep receipted cadence/intensity removable after policy changes,
   restore exact Windows task XML, reject mutable unattended Docker images, and compensate
-  failed install/remove transactions.
+  failed install/remove transactions. Fail closed before command generation and
+  again before scheduler writes when the resource policy is invalid, returning
+  its exact validation diagnostics instead of installing jobs that cannot run.
 - Add MCP idle self-leases, per-response deadlines, non-interactive Git,
   bounded child output/time, suspended-before-assignment Windows kill-on-close
   Job Objects, and POSIX owned
@@ -48,10 +53,10 @@ accepted by the release identity guard.
   filter before result limits, ignore hostile sensitivity overrides, omit
   generated working state and rejected identifiers, and reject auto-query
   derivation for public output.
-- Version local manual acceptance evidence and require revision 2 for
+- Version local manual acceptance evidence and require revision 3 for
   `testpypi-publish`, invalidating legacy passes from the former manual
-  publisher without deleting their audit history; this remains sign-off
-  evidence rather than a package-workflow gate.
+  publisher and retired tag-push topology without deleting their audit history;
+  this remains sign-off evidence rather than a package-workflow gate.
 - Make path handling and the unit-test matrix portable across Linux, macOS and
   Windows while preserving symlink and vault-boundary protections.
 - Avoid repeated canonical-root resolution while scanning repository text for
