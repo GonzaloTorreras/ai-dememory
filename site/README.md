@@ -101,13 +101,12 @@ review remains required before PR readiness.
 | MCP setup | `docs/local-mcp.md`, `docs/mcp-tool-profiles.md` |
 | Python/Node boundary | `docs/adr/0254-python-node-runtime-boundary.md` |
 | Process ownership | `docs/operations.md`, lifecycle tests |
-| Security model | `AGENTS.md`, `docs/architecture.md`, `docs/operations.md`, `docs/local-api.md` |
+| Security model and reporting | `SECURITY.md`, `AGENTS.md`, `docs/architecture.md`, `docs/operations.md`, `docs/local-api.md` |
 
 The structural guard verifies that every listed source exists, keeps stable
-2.0.0 command blocks free of 2.1-only features, and derives profile numbers and
-idle leases from `scripts/resource_policy.py`. A future repository-level
-`SECURITY.md` requires a separately previewed and approved policy decision; this
-site does not pretend that policy already exists.
+2.0.0 command blocks free of 2.1-only features, derives profile numbers and
+idle leases from `scripts/resource_policy.py`, and keeps the approved
+`SECURITY.md` plus private-reporting route aligned with the security page.
 
 ## Local Preview
 
