@@ -73,9 +73,12 @@ gh api --method PUT `
 
 Do not make a `codex-review` commit status with the normal `GITHUB_TOKEN` a
 required check. Every repository workflow shares the GitHub Actions app
-identity, so another writable workflow could forge that context. Introducing a
-dedicated review app would add credentials and operational cost without adding
-an independent human trust domain.
+identity, so another writable workflow could forge that context. Workflows must
+not request `statuses: write`, `checks: write`, or `permissions: write-all`, and
+no workflow other than `ci.yml` may define a job or job name equal to the
+required `verify` context. Introducing a dedicated review app would add
+credentials and operational cost without adding an independent human trust
+domain.
 
 ## Authority boundaries
 

@@ -37,9 +37,10 @@ Use a sole-owner, exact-tuple review receipt:
 - repeat CI, review, and receipt whenever base or head moves;
 - remove the auto-approval workflow and disable Actions' ability to approve
   pull requests;
-- prohibit workflow-level `pull-requests: write`, `statuses: write`, automated
-  approving-review calls, and the legacy receipt marker unless a future ADR
-  defines a genuinely separate trust domain.
+- prohibit workflow-level `pull-requests: write`, `statuses: write`,
+  `checks: write`, `permissions: write-all`, automated approving-review calls,
+  duplicate `verify` check names, and the legacy receipt marker unless a future
+  ADR defines a genuinely separate trust domain.
 
 Routine merges are covered by the owner's standing delegation. Package
 publication, release tags, trusted publishing, secrets, visibility, destructive

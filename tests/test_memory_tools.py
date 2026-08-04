@@ -11846,6 +11846,7 @@ jobs:
 permissions:
   pull-requests: write
   statuses: write
+  checks: write
 jobs:
   forge:
     steps:
@@ -11856,6 +11857,25 @@ jobs:
             )
             (workflows / "auto-approve.yml").write_text(
                 "name: legacy auto approval\n",
+                encoding="utf-8",
+            )
+            (workflows / "inline.yml").write_text(
+                'permissions: {"checks": "write", statuses: write}\n',
+                encoding="utf-8",
+            )
+            (workflows / "write-all.yml").write_text(
+                "permissions: write-all\n",
+                encoding="utf-8",
+            )
+            (workflows / "duplicate-verify.yml").write_text(
+                """permissions: read-all
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+  impersonate:
+    name: verify
+    runs-on: ubuntu-latest
+""",
                 encoding="utf-8",
             )
             (root / "AGENTS.md").write_text(
@@ -11874,9 +11894,21 @@ jobs:
 
         self.assertIn(".github/workflows/rogue.yml:pull_requests_write", targets)
         self.assertIn(".github/workflows/rogue.yml:statuses_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:checks_write", targets)
         self.assertIn(".github/workflows/rogue.yml:automated_approval", targets)
         self.assertIn(".github/workflows/rogue.yml:legacy_receipt", targets)
         self.assertIn(".github/workflows/auto-approve.yml", targets)
+        self.assertIn(".github/workflows/inline.yml:checks_write", targets)
+        self.assertIn(".github/workflows/inline.yml:statuses_write", targets)
+        self.assertIn(".github/workflows/write-all.yml:write_all", targets)
+        self.assertIn(
+            ".github/workflows/duplicate-verify.yml:required_check_job",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/duplicate-verify.yml:required_check_name",
+            targets,
+        )
 
     def test_solo_review_boundary_requires_auditable_policy(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

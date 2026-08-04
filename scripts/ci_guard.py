@@ -373,9 +373,18 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
             )
         )
 
+    def permission_write_pattern(permission: str) -> str:
+        key = re.escape(permission)
+        return (
+            rf"(?im)(?:^|[{{,])\s*[\"']?{key}[\"']?\s*:\s*"
+            rf"[\"']?write[\"']?(?=\s*(?:$|[,}}#]))"
+        )
+
     forbidden_workflow_patterns = {
-        "pull_requests_write": r"(?m)^\s*pull-requests:\s*write\s*$",
-        "statuses_write": r"(?m)^\s*statuses:\s*write\s*$",
+        "pull_requests_write": permission_write_pattern("pull-requests"),
+        "statuses_write": permission_write_pattern("statuses"),
+        "checks_write": permission_write_pattern("checks"),
+        "write_all": r"(?im)^\s*[\"']?permissions[\"']?\s*:\s*[\"']?write-all[\"']?\s*(?:#.*)?$",
         "automated_approval": r"(?:event=['\"]APPROVE|/pulls/[^\s\"']+/reviews)",
         "legacy_receipt": r"codex-double-check",
     }
@@ -388,9 +397,22 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
                 issues.append(
                     CiGuardIssue(
                         f"{display}:{name}",
-                        "solo-maintainer review forbids automated approvals and forgeable review statuses",
+                        "solo-maintainer review forbids automated approvals and forgeable review/status checks",
                     )
                 )
+        if path.relative_to(root) != WORKFLOW_PATH:
+            duplicate_verify_patterns = {
+                "required_check_job": r"(?im)^[ \t]+verify\s*:\s*(?:#.*)?$",
+                "required_check_name": r"(?im)^[ \t]+name\s*:\s*[\"']?verify[\"']?\s*(?:#.*)?$",
+            }
+            for name, pattern in duplicate_verify_patterns.items():
+                if re.search(pattern, text):
+                    issues.append(
+                        CiGuardIssue(
+                            f"{display}:{name}",
+                            "only ci.yml may emit the required verify check name",
+                        )
+                    )
 
     policy_requirements = {
         Path("AGENTS.md"): {
@@ -403,6 +425,8 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
             "no_last_push": "require_last_push_approval=false",
             "no_bot_approval": "can_approve_pull_request_reviews=false",
             "boundary_scope": "Scope: security-boundary",
+            "checks_write": "checks: write",
+            "write_all": "permissions: write-all",
         },
     }
     for path, fragments in policy_requirements.items():
