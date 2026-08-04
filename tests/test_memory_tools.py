@@ -11878,6 +11878,62 @@ jobs:
 """,
                 encoding="utf-8",
             )
+            (workflows / "anchored.yml").write_text(
+                """x-write: &level write
+permissions:
+  checks: *level
+""",
+                encoding="utf-8",
+            )
+            (workflows / "anchored-write-all.yml").write_text(
+                "permissions: &1 write-all\n",
+                encoding="utf-8",
+            )
+            (workflows / "permission-block.yml").write_text(
+                '"checks": >-\n  write\n',
+                encoding="utf-8",
+            )
+            (workflows / "permission-tag.yml").write_text(
+                "'checks': !!str write\n",
+                encoding="utf-8",
+            )
+            (workflows / "quoted-permission.yml").write_text(
+                'permissions: "read-all"\n',
+                encoding="utf-8",
+            )
+            (workflows / "quoted-verify.yml").write_text(
+                """permissions: read-all
+jobs:
+  "verify":
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
+            (workflows / "inline-verify.yml").write_text(
+                'jobs: {gate: {name: "verify", runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "escaped-verify.yml").write_text(
+                'jobs: {"ver\\u0069fy": {runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "escaped-name.yml").write_text(
+                'jobs: {gate: {name: "ver\\u0069fy", runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "safe-block-scalar.yml").write_text(
+                """name: it's safe
+description: "&not-an-anchor"
+permissions: read-all
+jobs:
+  document:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo 'checks: write &anchor *alias <<:'
+""",
+                encoding="utf-8",
+            )
             (root / "AGENTS.md").write_text(
                 (ROOT / "AGENTS.md").read_text(encoding="utf-8"),
                 encoding="utf-8",
@@ -11908,6 +11964,42 @@ jobs:
         self.assertIn(
             ".github/workflows/duplicate-verify.yml:required_check_name",
             targets,
+        )
+        self.assertIn(".github/workflows/anchored.yml:yaml_indirection", targets)
+        self.assertIn(
+            ".github/workflows/anchored-write-all.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/permission-block.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/permission-tag.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/quoted-permission.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/quoted-verify.yml:required_check_job",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/inline-verify.yml:required_check_name",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/escaped-verify.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/escaped-name.yml:yaml_indirection",
+            targets,
+        )
+        self.assertFalse(
+            any(target.startswith(".github/workflows/safe-block-scalar.yml") for target in targets)
         )
 
     def test_solo_review_boundary_requires_auditable_policy(self) -> None:

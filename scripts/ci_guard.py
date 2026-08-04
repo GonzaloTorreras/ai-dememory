@@ -360,6 +360,101 @@ def validate_workflow_supply_chain(root: Path) -> list[CiGuardIssue]:
     return issues
 
 
+def _strip_yaml_comment(line: str) -> str:
+    """Remove an unquoted YAML comment while preserving quoted scalars."""
+
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    previous_significant: str | None = None
+    for index, character in enumerate(line):
+        if double_quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                double_quoted = False
+            continue
+        if single_quoted:
+            if character == "'":
+                if index + 1 < len(line) and line[index + 1] == "'":
+                    continue
+                single_quoted = False
+            continue
+        quote_can_start = previous_significant is None or previous_significant in ":-[{,"
+        if character == '"' and quote_can_start:
+            double_quoted = True
+        elif character == "'" and quote_can_start:
+            single_quoted = True
+        elif character == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index]
+        elif not character.isspace():
+            previous_significant = character
+    return line
+
+
+def _workflow_yaml_structure(text: str) -> str:
+    """Return YAML structure without comments or block-scalar payloads."""
+
+    structure: list[str] = []
+    block_parent_indent: int | None = None
+    for raw_line in text.splitlines():
+        line = _strip_yaml_comment(raw_line).rstrip()
+        if block_parent_indent is not None:
+            if not line.strip():
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            if indent > block_parent_indent:
+                continue
+            block_parent_indent = None
+        structure.append(line)
+        if re.search(r":\s*[>|][+\-0-9]*\s*$", line):
+            block_parent_indent = len(line) - len(line.lstrip(" "))
+    return "\n".join(structure)
+
+
+def _mask_yaml_quoted_scalars(text: str) -> str:
+    """Mask quoted content so anchor checks inspect YAML tokens only."""
+
+    masked: list[str] = []
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    previous_significant: str | None = None
+    for character in text:
+        if double_quoted:
+            masked.append("\n" if character == "\n" else " ")
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                double_quoted = False
+            continue
+        if single_quoted:
+            masked.append("\n" if character == "\n" else " ")
+            if character == "'":
+                single_quoted = False
+            continue
+        if character == "\n":
+            previous_significant = None
+            masked.append(character)
+            continue
+        quote_can_start = previous_significant is None or previous_significant in ":-[{,"
+        if character == '"' and quote_can_start:
+            double_quoted = True
+            masked.append(" ")
+        elif character == "'" and quote_can_start:
+            single_quoted = True
+            masked.append(" ")
+        else:
+            masked.append(character)
+            if not character.isspace():
+                previous_significant = character
+    return "".join(masked)
+
+
 def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
     """Keep solo-maintainer review auditable without forgeable bot approval."""
 
@@ -391,22 +486,56 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
     workflow_root = root / WORKFLOW_DIR
     for path in sorted(workflow_root.glob("*.y*ml")):
         text = path.read_text(encoding="utf-8")
+        structure_text = _workflow_yaml_structure(text)
+        unquoted_structure = _mask_yaml_quoted_scalars(structure_text)
         display = path.relative_to(root).as_posix()
         for name, pattern in forbidden_workflow_patterns.items():
-            if re.search(pattern, text):
+            search_text = text if name in {"automated_approval", "legacy_receipt"} else structure_text
+            if re.search(pattern, search_text):
                 issues.append(
                     CiGuardIssue(
                         f"{display}:{name}",
                         "solo-maintainer review forbids automated approvals and forgeable review/status checks",
                     )
                 )
+        yaml_token_indirection_patterns = (
+            r"(?m)(?:^|[\s\[{,:])(?:&|\*)[^\s\[\]{},]+",
+            r"(?m)(?:^|[{,])\s*<<\s*:",
+            r"(?m)(?:^|[\[{,:])\s*!(?:!|<|[A-Za-z_])[^\s\[\]{},]*",
+        )
+        sensitive_value_indirection_patterns = (
+            r"(?im)(?:^|[{,])\s*[\"']?(?:permissions|pull-requests|statuses|checks)[\"']?\s*:\s*!",
+            r"(?im)^\s*[\"']?(?:permissions|pull-requests|statuses|checks|name)[\"']?\s*:\s*[>|]",
+            r"(?im)(?:^|[{,])\s*[\"']?(?:permissions|pull-requests|statuses|checks)[\"']?\s*:\s*[\"']",
+            r"(?im)(?:^|[{,])\s*[\"']?name[\"']?\s*:\s*\"[^\"\n]*\\",
+            r"(?m)(?:^|[{,])\s*(?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*')\s*:",
+        )
+        has_yaml_indirection = any(
+            re.search(pattern, unquoted_structure)
+            for pattern in yaml_token_indirection_patterns
+        ) or any(
+            re.search(pattern, structure_text)
+            for pattern in sensitive_value_indirection_patterns
+        )
+        if has_yaml_indirection:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:yaml_indirection",
+                    "workflow YAML anchors, aliases, merge keys, tags, and permission block scalars are forbidden",
+                )
+            )
         if path.relative_to(root) != WORKFLOW_PATH:
             duplicate_verify_patterns = {
-                "required_check_job": r"(?im)^[ \t]+verify\s*:\s*(?:#.*)?$",
-                "required_check_name": r"(?im)^[ \t]+name\s*:\s*[\"']?verify[\"']?\s*(?:#.*)?$",
+                "required_check_job": (
+                    r"(?im)(?:^[ \t]+|[{,]\s*)(?:verify|\"verify\"|'verify')\s*:"
+                ),
+                "required_check_name": (
+                    r"(?im)(?:^|[{,])\s*[\"']?name[\"']?\s*:\s*"
+                    r"(?:verify|\"verify\"|'verify')(?=\s*(?:$|[,}#]))"
+                ),
             }
             for name, pattern in duplicate_verify_patterns.items():
-                if re.search(pattern, text):
+                if re.search(pattern, structure_text):
                     issues.append(
                         CiGuardIssue(
                             f"{display}:{name}",
@@ -427,6 +556,7 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
             "boundary_scope": "Scope: security-boundary",
             "checks_write": "checks: write",
             "write_all": "permissions: write-all",
+            "yaml_indirection": "YAML anchors",
         },
     }
     for path, fragments in policy_requirements.items():
