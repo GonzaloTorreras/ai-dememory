@@ -78,11 +78,11 @@ not request `statuses: write`, `checks: write`, or `permissions: write-all`, and
 no workflow other than `ci.yml` may define a job or job name equal to the
 required `verify` context. Workflow YAML anchors, aliases, merge keys, explicit
 tags, quoted mapping keys or permission scalars, escaped job names, and
-block-scalar permission/name values are deliberately forbidden so this
-dependency-free guard can fail closed without pretending to implement GitHub's
-complete YAML resolver. Introducing a dedicated review app would add
-credentials and operational cost without adding an independent human trust
-domain.
+block/multiline permission or name values are deliberately forbidden. Non-CI
+jobs must use block mappings and static same-line check names. This lets the
+dependency-free guard fail closed without pretending to implement GitHub's
+complete YAML resolver. Introducing a dedicated review app would add credentials
+and operational cost without adding an independent human trust domain.
 
 ## Authority boundaries
 

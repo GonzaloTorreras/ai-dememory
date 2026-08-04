@@ -11867,6 +11867,22 @@ jobs:
                 "permissions: write-all\n",
                 encoding="utf-8",
             )
+            (workflows / "flow-write-all.yml").write_text(
+                "jobs:\n  forge: {runs-on: ubuntu-latest, permissions: write-all}\n",
+                encoding="utf-8",
+            )
+            (workflows / "multiline-write.yml").write_text(
+                "permissions:\n  checks:\n    write\n",
+                encoding="utf-8",
+            )
+            (workflows / "dynamic-job-name.yml").write_text(
+                """jobs:
+  gate:
+    name: ${{ 'verify' }}
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
             (workflows / "duplicate-verify.yml").write_text(
                 """permissions: read-all
 jobs:
@@ -11957,6 +11973,19 @@ jobs:
         self.assertIn(".github/workflows/inline.yml:checks_write", targets)
         self.assertIn(".github/workflows/inline.yml:statuses_write", targets)
         self.assertIn(".github/workflows/write-all.yml:write_all", targets)
+        self.assertIn(".github/workflows/flow-write-all.yml:write_all", targets)
+        self.assertIn(
+            ".github/workflows/flow-write-all.yml:flow_job",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/multiline-write.yml:multiline_permission",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/dynamic-job-name.yml:dynamic_job_name",
+            targets,
+        )
         self.assertIn(
             ".github/workflows/duplicate-verify.yml:required_check_job",
             targets,
@@ -11988,6 +12017,10 @@ jobs:
         )
         self.assertIn(
             ".github/workflows/inline-verify.yml:required_check_name",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/inline-verify.yml:flow_jobs",
             targets,
         )
         self.assertIn(

@@ -455,6 +455,146 @@ def _mask_yaml_quoted_scalars(text: str) -> str:
     return "".join(masked)
 
 
+def _simple_yaml_mapping(line: str) -> tuple[str, str] | None:
+    """Return a plain mapping key/value pair used by the strict workflow subset."""
+
+    stripped = line.lstrip(" ")
+    if not stripped or stripped.startswith("-"):
+        return None
+    match = re.match(r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*(?P<value>.*)$", stripped)
+    if not match:
+        return None
+    return match.group("key"), match.group("value")
+
+
+def _workflow_structure_contract_issues(
+    structure_text: str,
+    display: str,
+    *,
+    canonical_ci: bool,
+) -> list[CiGuardIssue]:
+    """Reject multiline permission scalars and ambiguous non-CI job names."""
+
+    issues: list[CiGuardIssue] = []
+    lines = structure_text.splitlines()
+    sensitive_permissions = {"permissions", "pull-requests", "statuses", "checks"}
+    for index, line in enumerate(lines):
+        entry = _simple_yaml_mapping(line)
+        if not entry or entry[0].lower() not in sensitive_permissions or entry[1]:
+            continue
+        key = entry[0].lower()
+        if key != "permissions":
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:multiline_permission",
+                    "permission capability values must use canonical same-line scalars",
+                )
+            )
+            continue
+        base_indent = len(line) - len(line.lstrip(" "))
+        next_structural = next(
+            (candidate for candidate in lines[index + 1 :] if candidate.strip()),
+            None,
+        )
+        if next_structural is None:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:multiline_permission",
+                    "permissions must be an explicit mapping, read-all, or empty mapping",
+                )
+            )
+            continue
+        next_indent = len(next_structural) - len(next_structural.lstrip(" "))
+        if next_indent <= base_indent or _simple_yaml_mapping(next_structural) is None:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:multiline_permission",
+                    "permissions must be an explicit mapping, read-all, or empty mapping",
+                )
+            )
+
+    if canonical_ci:
+        return issues
+
+    for jobs_index, jobs_line in enumerate(lines):
+        jobs_entry = _simple_yaml_mapping(jobs_line)
+        if not jobs_entry or jobs_entry[0].lower() != "jobs":
+            continue
+        if jobs_entry[1].lstrip().startswith("{"):
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:flow_jobs",
+                    "non-CI workflows must use block-style jobs with static reviewable names",
+                )
+            )
+            continue
+        jobs_indent = len(jobs_line) - len(jobs_line.lstrip(" "))
+        end_index = len(lines)
+        for candidate_index in range(jobs_index + 1, len(lines)):
+            candidate = lines[candidate_index]
+            if not candidate.strip():
+                continue
+            candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+            if candidate_indent <= jobs_indent:
+                end_index = candidate_index
+                break
+        job_candidates = [
+            (candidate_index, lines[candidate_index])
+            for candidate_index in range(jobs_index + 1, end_index)
+            if lines[candidate_index].strip()
+            and _simple_yaml_mapping(lines[candidate_index]) is not None
+        ]
+        if not job_candidates:
+            continue
+        job_indent = min(
+            len(candidate) - len(candidate.lstrip(" "))
+            for _, candidate in job_candidates
+        )
+        job_starts = [
+            (candidate_index, candidate)
+            for candidate_index, candidate in job_candidates
+            if len(candidate) - len(candidate.lstrip(" ")) == job_indent
+        ]
+        for position, (job_index, job_line) in enumerate(job_starts):
+            job_entry = _simple_yaml_mapping(job_line)
+            if job_entry is None:
+                continue
+            if job_entry[1].lstrip().startswith("{"):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:flow_job",
+                        "non-CI job definitions must use block style",
+                    )
+                )
+                continue
+            job_end = job_starts[position + 1][0] if position + 1 < len(job_starts) else end_index
+            property_candidates = [
+                lines[candidate_index]
+                for candidate_index in range(job_index + 1, job_end)
+                if lines[candidate_index].strip()
+                and _simple_yaml_mapping(lines[candidate_index]) is not None
+            ]
+            if not property_candidates:
+                continue
+            property_indent = min(
+                len(candidate) - len(candidate.lstrip(" "))
+                for candidate in property_candidates
+            )
+            for candidate in property_candidates:
+                if len(candidate) - len(candidate.lstrip(" ")) != property_indent:
+                    continue
+                property_entry = _simple_yaml_mapping(candidate)
+                if property_entry and property_entry[0].lower() == "name":
+                    if not property_entry[1] or "${{" in property_entry[1]:
+                        issues.append(
+                            CiGuardIssue(
+                                f"{display}:dynamic_job_name",
+                                "non-CI job check names must be static same-line scalars",
+                            )
+                        )
+    return issues
+
+
 def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
     """Keep solo-maintainer review auditable without forgeable bot approval."""
 
@@ -468,18 +608,19 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
             )
         )
 
-    def permission_write_pattern(permission: str) -> str:
-        key = re.escape(permission)
+    def workflow_key_value_pattern(key_name: str, value_name: str) -> str:
+        key = re.escape(key_name)
+        value = re.escape(value_name)
         return (
             rf"(?im)(?:^|[{{,])\s*[\"']?{key}[\"']?\s*:\s*"
-            rf"[\"']?write[\"']?(?=\s*(?:$|[,}}#]))"
+            rf"[\"']?{value}[\"']?(?=\s*(?:$|[,}}#]))"
         )
 
     forbidden_workflow_patterns = {
-        "pull_requests_write": permission_write_pattern("pull-requests"),
-        "statuses_write": permission_write_pattern("statuses"),
-        "checks_write": permission_write_pattern("checks"),
-        "write_all": r"(?im)^\s*[\"']?permissions[\"']?\s*:\s*[\"']?write-all[\"']?\s*(?:#.*)?$",
+        "pull_requests_write": workflow_key_value_pattern("pull-requests", "write"),
+        "statuses_write": workflow_key_value_pattern("statuses", "write"),
+        "checks_write": workflow_key_value_pattern("checks", "write"),
+        "write_all": workflow_key_value_pattern("permissions", "write-all"),
         "automated_approval": r"(?:event=['\"]APPROVE|/pulls/[^\s\"']+/reviews)",
         "legacy_receipt": r"codex-double-check",
     }
@@ -524,7 +665,15 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
                     "workflow YAML anchors, aliases, merge keys, tags, and permission block scalars are forbidden",
                 )
             )
-        if path.relative_to(root) != WORKFLOW_PATH:
+        canonical_ci = path.relative_to(root) == WORKFLOW_PATH
+        issues.extend(
+            _workflow_structure_contract_issues(
+                structure_text,
+                display,
+                canonical_ci=canonical_ci,
+            )
+        )
+        if not canonical_ci:
             duplicate_verify_patterns = {
                 "required_check_job": (
                     r"(?im)(?:^[ \t]+|[{,]\s*)(?:verify|\"verify\"|'verify')\s*:"
