@@ -642,6 +642,7 @@ def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
         yaml_token_indirection_patterns = (
             r"(?m)(?:^|[\s\[{,:])(?:&|\*)[^\s\[\]{},]+",
             r"(?m)(?:^|[{,])\s*<<\s*:",
+            r"(?m)(?:^|[{,])\s*[?:]\s+",
             r"(?m)(?:^|[\[{,:])\s*!(?:!|<|[A-Za-z_])[^\s\[\]{},]*",
         )
         sensitive_value_indirection_patterns = (

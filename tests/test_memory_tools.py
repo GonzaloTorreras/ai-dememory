@@ -11875,6 +11875,18 @@ jobs:
                 "permissions:\n  checks:\n    write\n",
                 encoding="utf-8",
             )
+            (workflows / "explicit-mapping.yml").write_text(
+                """permissions:
+  contents: read
+  ? checks
+  : write
+jobs:
+  ? verify
+  :
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
             (workflows / "dynamic-job-name.yml").write_text(
                 """jobs:
   gate:
@@ -11980,6 +11992,10 @@ jobs:
         )
         self.assertIn(
             ".github/workflows/multiline-write.yml:multiline_permission",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/explicit-mapping.yml:yaml_indirection",
             targets,
         )
         self.assertIn(

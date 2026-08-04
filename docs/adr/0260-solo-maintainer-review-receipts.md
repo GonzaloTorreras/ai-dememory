@@ -39,9 +39,9 @@ Use a sole-owner, exact-tuple review receipt:
   pull requests;
 - prohibit workflow-level `pull-requests: write`, `statuses: write`,
   `checks: write`, `permissions: write-all`, automated approving-review calls,
-  duplicate `verify` check names, YAML anchors/aliases/merge indirection, and the
-  legacy receipt marker unless a future ADR defines a genuinely separate trust
-  domain.
+  duplicate `verify` check names, YAML anchors/aliases/merge or explicit-mapping
+  indirection, and the legacy receipt marker unless a future ADR defines a
+  genuinely separate trust domain.
 
 Routine merges are covered by the owner's standing delegation. Package
 publication, release tags, trusted publishing, secrets, visibility, destructive
