@@ -1,7 +1,8 @@
 # Documentation Experience And Static Site Plan
 
-Status: D0-D2 implementation and validation complete; D3 deployment remains
-separately gated
+Status: D0-D2 implementation and validation complete; the isolated D3 workflow
+boundary is implemented, while Pages enablement, dispatch, and public-origin QA
+remain separately gated
 
 Owner: Codex operational owner
 
@@ -322,13 +323,18 @@ Split publication into two changes:
 
 ### PR B: deployment boundary
 
-- Add one dedicated Pages workflow only after PR A is merged.
+- Add a read-only pull-request validator and a separate manual-only deployment
+  workflow after PR A is merged. Never put PR code and Pages write/OIDC
+  permissions in the same workflow.
 - Pin every GitHub Action to a full commit SHA.
 - Use only `contents: read`, `pages: write`, and `id-token: write` where the
   official Pages deployment requires them.
-- Upload only `site/`; do not build or package the private vault or repository
-  reports.
-- Bind deployment to the `github-pages` environment and canonical `main`.
+- Upload only a clean, tracked, blob-matched, link-free `site/`; do not build or
+  package the private vault or repository reports.
+- Bind deployment to the `github-pages` environment and an explicit SHA that a
+  live API readback proves is still canonical `main`.
+- Keep deployment `workflow_dispatch`-only. A merge or push must never publish
+  ambiently.
 - Set Pages source to GitHub Actions, verify the public URL, inspect the deployed
   artifact, and record rollback steps.
 - Resolve 404 assets and routes against the verified project Pages base path;
@@ -382,9 +388,12 @@ and all commands/source links verified.
 Exit: a fresh reviewer can trace every material claim to source and reproduce
 the rendered checks.
 
-### D3 - GitHub Pages deployment
+### D3 - GitHub Pages deployment boundary (workflow implemented)
 
-- Land the separate pinned workflow and repository Pages configuration.
+- Land the isolated validation and manual deployment workflows with exact pins,
+  tuple authorization, and artifact guards.
+- Configure repository Pages only after that PR is independently reviewed and
+  merged; do not use the workflow itself to enable Pages implicitly.
 - Verify the deployed artifact from a clean browser and mobile viewport.
 - Add the public documentation URL to package metadata only after it is live.
 
@@ -430,12 +439,14 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Open a separate security-reviewed PR for a pinned, least-privilege GitHub Pages
-   workflow after the content artifact and reporting path are accepted.
-2. Enable Pages only after that workflow passes its own exact-head gates, then
-   verify the deployed `main` commit and rollback path from clean desktop and
-   mobile sessions.
-3. Add a sitemap, social-preview URL, or package metadata link only after the real
+1. Independently review and land the separated, pinned Pages validation and
+   manual deployment workflows without dispatching them.
+2. Enable Pages only after that workflow change passes its exact-head gates;
+   inspect the generated `github-pages` environment, then dispatch the explicit
+   current-main tuple.
+3. Verify the deployed commit, 404 behavior, and rollback path from clean desktop
+   and mobile sessions.
+4. Add a sitemap, social-preview URL, or package metadata link only after the real
    public origin is live and verified.
-4. Use install friction and support questions to prioritize D4 improvements;
+5. Use install friction and support questions to prioritize D4 improvements;
    introduce Spanish pages only with an explicit source-parity check.

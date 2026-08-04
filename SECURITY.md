@@ -97,6 +97,13 @@ The following properties must hold:
   commit tuple, protected environments, immutable tags, and the single canonical
   OIDC publisher. A branch push, successful CI run, legacy preflight, or local
   readiness report alone cannot publish.
+- Pull-request documentation validation has no Pages, OIDC, environment, secret,
+  or artifact-upload capability. Pages delivery is a separate manual workflow
+  stored on trusted `main`; it requires an exact current-main SHA, a live API
+  readback both before preparation and after the protected environment gate,
+  and a clean tracked `site/` artifact whose canonical content matches Git blob IDs,
+  with no special index flags, links, gitlinks, hard links, modified files, or
+  untracked files.
 
 ## Reportable Findings And Severity Context
 

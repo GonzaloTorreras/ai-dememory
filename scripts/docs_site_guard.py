@@ -37,6 +37,11 @@ SOURCE_PATHS = (
     "docs/schema.md",
     "docs/adr/0254-python-node-runtime-boundary.md",
     "docs/adr/0257-bounded-autonomy-and-resource-profiles.md",
+    "docs/adr/0259-manual-github-pages-deployment.md",
+    ".github/workflows/pages-validate.yml",
+    ".github/workflows/pages.yml",
+    "scripts/ci_guard.py",
+    "scripts/pages_artifact_guard.py",
     "scripts/resource_policy.py",
 )
 

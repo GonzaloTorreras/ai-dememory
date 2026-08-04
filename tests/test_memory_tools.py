@@ -11388,6 +11388,27 @@ jobs:
         self.assertIn("package-index environments", messages)
         self.assertTrue(all(issue.target.startswith(".github/workflows/rogue.yml") for issue in issues))
 
+    def test_publish_guard_allows_oidc_only_for_guarded_pages_delivery(self) -> None:
+        release = Path(".github/workflows/release.yml")
+        pages = Path(".github/workflows/pages.yml")
+        pages_text = (ROOT / pages).read_text(encoding="utf-8")
+
+        allowed = validate_publisher_inventory(
+            {
+                release: "id-token: write\npypa/gh-action-pypi-publish",
+                pages: pages_text,
+            }
+        )
+        weakened = validate_publisher_inventory(
+            {
+                release: "id-token: write\npypa/gh-action-pypi-publish",
+                pages: pages_text.replace("pages: write", "contents: write"),
+            }
+        )
+
+        self.assertFalse(allowed)
+        self.assertIn("OIDC write permission", "\n".join(issue.message for issue in weakened))
+
     def test_publish_guard_rejects_automatic_or_token_publish(self) -> None:
         unsafe = """
 name: Publish

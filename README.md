@@ -29,9 +29,10 @@ future vector indexes are generated from Markdown and can be rebuilt.
 The active modernization and selective MemPalace adoption plan is documented in
 `docs/public-modernization-roadmap.md`. The progressive documentation source is
 in [`site/`](site/README.md), governed by the
-[documentation-site plan](docs/documentation-site-plan.md). Hosting remains a
-separate, security-reviewed GitHub Pages change; the source tree does not deploy
-or grant Pages permissions.
+[documentation-site plan](docs/documentation-site-plan.md). Two isolated,
+security-guarded workflows validate the artifact and prepare manual GitHub Pages
+delivery. They have no push trigger: merging source cannot deploy, and Pages
+enablement plus an exact-main dispatch remain separate production operations.
 
 ## Quick Start
 

@@ -392,8 +392,9 @@ Before a release:
 
 ## Immediate Next Steps
 
-1. Finish independent review and CI evidence for Phase 0 on the current public
-   branch.
+1. Independently review and land the isolated manual GitHub Pages workflow
+   boundary, then keep enablement, exact-main dispatch, and public QA as explicit
+   production operations.
 2. Build generated CLI/writer inventories; keep the already generated MCP
    profile inventory current.
 3. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
@@ -420,7 +421,8 @@ and isolates any future GitHub Pages workflow in its own security-reviewed
 change. The content artifact now lives under [`site/`](../site/README.md): its
 home, installation, architecture, and security-model routes are dependency-free.
 The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting now
-provide the reviewed reporting path, while Pages deployment remains a separate
-approval-gated change. The documentation also treats published 2.0.0
+provide the reviewed reporting path. Pages validation and manual delivery are
+isolated by ADR 0259; Pages enablement and dispatch remain separate
+approval-gated production operations. The documentation also treats published 2.0.0
 and unreleased 2.1.0 as different capability contracts, so a stable PyPI install
 is never followed by source-only wizard, profile, or idle-lease instructions.

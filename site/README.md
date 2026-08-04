@@ -8,8 +8,11 @@ vault data at build time or in the browser.
 ## Status And Boundary
 
 - Content/static artifact: implemented here.
-- Hosting: not configured in this change.
-- GitHub Pages permissions: reserved for a separate security-reviewed change.
+- Hosting: not enabled and no public deployment has been claimed.
+- Pull-request validation: read-only and isolated from every Pages permission.
+- GitHub Pages delivery: a separate manual exact-main workflow exists, but it
+  cannot run until the reviewed change is on `main`, Pages is explicitly
+  enabled, and an exact SHA dispatch is authorized.
 - Product runtime: unchanged; Python remains authoritative.
 - Documentation runtime: none. Any static file server can serve this directory.
 - JavaScript: optional enhancement only. Navigation and content work without it.
@@ -102,6 +105,7 @@ review remains required before PR readiness.
 | Python/Node boundary | `docs/adr/0254-python-node-runtime-boundary.md` |
 | Process ownership | `docs/operations.md`, lifecycle tests |
 | Security model and reporting | `SECURITY.md`, `AGENTS.md`, `docs/architecture.md`, `docs/operations.md`, `docs/local-api.md` |
+| Pages delivery boundary | `docs/adr/0259-manual-github-pages-deployment.md`, `.github/workflows/pages-validate.yml`, `.github/workflows/pages.yml`, `scripts/ci_guard.py`, `scripts/pages_artifact_guard.py` |
 
 The structural guard verifies that every listed source exists, keeps stable
 2.0.0 command blocks free of 2.1-only features, derives profile numbers and
@@ -125,7 +129,9 @@ requests until a reader intentionally follows an external link.
 
 ```bash
 python scripts/docs_site_guard.py
+python scripts/pages_artifact_guard.py
 python -m unittest tests.test_docs_site
+python -m unittest tests.test_pages_delivery
 ```
 
 Rendered QA additionally covers 320, 375, 768, 864, and 1440 px, keyboard
