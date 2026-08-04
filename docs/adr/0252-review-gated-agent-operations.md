@@ -3,7 +3,10 @@
 ## Status
 
 Accepted by the Codex Operational Owner under explicit owner-delegated
-repository authority on 2026-07-26.
+repository authority on 2026-07-26. ADR 0260 superseded the per-merge explicit
+authorization and bot-review mechanics for routine repository changes on
+2026-08-04; its release, publication, visibility, secret, destructive, and
+production-operation gates remain in force.
 
 ## Context
 
@@ -21,65 +24,64 @@ change or publish a particular package.
 
 ## Decision
 
-Keep the immutable-tag release and tuple-bound auto-approval mechanisms, with
-these authority boundaries:
+Keep immutable-tag release controls and the following authority boundaries:
 
-- Codex owns routine implementation, maintenance, branch preparation, test and
-  release evidence, documentation, version proposals, changelog proposals, and
-  fix-forward planning.
+- Codex owns routine implementation, maintenance, branch preparation, exact-head
+  merge, test and release evidence, documentation, version proposals, changelog
+  proposals, and fix-forward planning under the owner's standing delegation.
 - A fresh independent read-only review is required before a pull request is
   marked ready or presented for merge.
-- Merge, release-tag dispatch, publisher dispatch, package publication,
-  repository visibility changes, and secret or trusted-publisher changes
-  require explicit authorization from the repository owner.
-- The `github-actions[bot]` review is evidence that the exact PR tuple passed
-  the configured technical checks. It is not owner authorization.
+- Routine merge requires the exact-tuple owner receipt defined by ADR 0260,
+  strict CI, no unresolved findings, and an expected-head API merge. It does not
+  require a GitHub approving review or a repeated owner confirmation.
+- Release-tag dispatch, publisher dispatch, package publication, production
+  deployment, repository visibility changes, and secret or trusted-publisher
+  changes require explicit authorization from the repository owner.
 - Tag and publication authorizations are separate manual actions bound to the
-  exact tag and current-main SHA; approval to merge does not implicitly approve
+  exact tag and current-main SHA; a reviewed merge does not implicitly approve
   either dispatch.
 - Evidence generated from the historical private source checkout is not valid
   for the public repository. Changes must be ported onto public `origin/main`
   and validated again against the resulting public commit.
 
-This ADR supersedes the no-human-approval clauses in ADR 0247 and ADR 0251.
-Their immutable-artifact, OIDC, provenance, independent-review, and tuple-bound
-validation decisions remain in force.
+This ADR supersedes the no-human-approval clauses in ADR 0247. ADR 0260 later
+supersedes its routine-merge and bot-review mechanics. Immutable-artifact, OIDC,
+provenance, independent-review, and tuple-bound validation decisions remain in
+force.
 
 ## Consequences
 
-Codex can continue development autonomously through an approve-ready pull
-request and can repair findings without waiting for routine instructions. It
-must stop at the exact important action that needs owner authorization. Release
-handoffs must clearly identify the PR, commit tuple, version, successful checks,
-artifact evidence, and both exact manual dispatch tuples.
-
-Existing auto-approval workflows may continue to provide an auditable technical
-review signal. Documentation and future automation must not describe that signal
-as permission to merge or publish.
+Codex can continue development and routine exact-head merges autonomously after
+the required independent review and owner-account receipt. It must stop at the
+exact high-risk action that needs owner authorization. Release handoffs must
+clearly identify the PR, commit tuple, version, successful checks, artifact
+evidence, and both exact manual dispatch tuples.
 
 ## Limitations
 
-This policy cannot cryptographically prove that an instruction came from the
-legal account owner; the execution environment and GitHub permissions remain
-part of the trust boundary. It also introduces an intentional wait at merge and
-release boundaries even when every technical check is green.
+This policy cannot cryptographically prove that a subagent ran or that an
+instruction came from the legal account owner; the execution environment and
+GitHub permissions remain part of the trust boundary. It introduces an
+intentional wait at release and production boundaries even when every technical
+check is green.
 
 ## Future Risks
 
-New automation could accidentally collapse readiness and authorization again,
-especially if a default-branch workflow creates tags immediately after merge.
-Wording drift across runbooks, ADRs, workflow names, and bot comments could also
-mislead maintainers unless guarded by tests or periodic documentation review.
+New automation could accidentally collapse readiness and high-risk authorization
+again, especially if a default-branch workflow creates tags immediately after
+merge. Wording drift across runbooks, ADRs, and owner receipts could also mislead
+maintainers unless guarded by tests or periodic documentation review.
 
 ## Dependencies
 
 - ADR 0247 defines immutable-tag package releases.
-- ADR 0251 defines tuple-bound technical auto-approval.
+- ADR 0251 records the superseded tuple-bound bot-approval design.
+- ADR 0260 defines current sole-maintainer review receipts and routine merge.
 - ADR 0258 defines separate tuple-bound tag and publication authorization.
 - `AGENTS.md` defines repository authority and approval boundaries.
 - `.github/workflows/tag-release.yml` and `.github/workflows/release.yml`
   implement the release path.
-- `docs/auto-approval.md` documents the trusted bot-review boundary.
+- `docs/solo-maintainer-review.md` documents the current review boundary.
 
 ## Rollback
 

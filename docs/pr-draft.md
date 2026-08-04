@@ -12,7 +12,8 @@ review state.
 - Stacked on: `<parent PR or branch>`
 - Draft PR title: `<short title>`
 - Current status: `Draft PR`
-- Merge policy: `Do not merge without explicit user approval.`
+- Merge policy: `Merge only after exact-tuple CI, fresh review, owner receipt,
+  and expected-head recheck.`
 
 ## Body Template
 
@@ -40,8 +41,11 @@ review state.
 - Stacked on: `<parent PR or branch>`.
 - Draft PR: keep this PR in draft until CI and any required manual evidence are
   reviewed.
-- Codex prepares release evidence and independent review. Merge, tag, and
-  publication require explicit user authorization even after all checks pass.
+- Codex prepares release evidence and independent review. Routine exact-head
+  merge follows the solo-maintainer receipt flow; tag creation and publication
+  remain separate explicit owner gates.
+- Review receipt: use `codex-solo-review` as defined in
+  `docs/solo-maintainer-review.md` and bind it to the current base/head tuple.
 ```
 
 ## Validation Commands
@@ -66,9 +70,11 @@ py -3 scripts\ai_dememory.py mcp-smoke
 
 - Keep the pull request as a draft until required checks and a fresh independent
   read-only review pass. Codex may then mark it ready and present the exact
-  tuple for approval.
-- Do not merge, publish packages, deploy, rotate secrets, or force-push without
-  explicit user approval.
+  tuple in the owner-account review receipt.
+- Merge only with green exact-tuple CI, a fresh `READY` subagent review, the
+  current receipt, no unresolved threads, and `expected_head_sha` binding.
+- Do not publish packages, create release tags, deploy, rotate secrets, change
+  visibility, or force-push without explicit user approval.
 - Do not stage generated SQLite indexes, reports, caches, distilled context
   exports, or package build outputs unless the change explicitly reviews them.
 - Treat durable memory edits as human-reviewed changes.

@@ -27,7 +27,9 @@ REQUIRED_HEADINGS = {
 REQUIRED_SNIPPETS = {
     "draft_pr": "Draft PR",
     "stacked_on": "Stacked on",
-    "do_not_merge": "Do not merge",
+    "solo_review_receipt": "codex-solo-review",
+    "expected_head": "expected_head_sha",
+    "high_risk_gate": "Do not publish packages",
     "summary": "## Summary",
     "tests": "## Tests",
     "notes": "## Notes",

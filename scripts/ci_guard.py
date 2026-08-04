@@ -14,7 +14,8 @@ from memorylib import repo_root
 
 
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
-AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+LEGACY_AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+SOLO_REVIEW_DOC_PATH = Path("docs/solo-maintainer-review.md")
 PAGES_VALIDATE_WORKFLOW_PATH = Path(".github/workflows/pages-validate.yml")
 PAGES_DEPLOY_WORKFLOW_PATH = Path(".github/workflows/pages.yml")
 WORKFLOW_DIR = Path(".github/workflows")
@@ -304,13 +305,7 @@ def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
     except FileNotFoundError:
         return [CiGuardIssue(str(WORKFLOW_PATH), "CI workflow is missing")]
     issues = validate_ci_workflow_text(text)
-    auto_approve_path = root / AUTO_APPROVE_WORKFLOW_PATH
-    try:
-        auto_approve_text = auto_approve_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        issues.append(CiGuardIssue(str(AUTO_APPROVE_WORKFLOW_PATH), "auto-approval workflow is missing"))
-    else:
-        issues.extend(validate_auto_approve_workflow_text(auto_approve_text))
+    issues.extend(validate_solo_maintainer_review_boundary(root))
     for workflow_path, validator in (
         (PAGES_VALIDATE_WORKFLOW_PATH, validate_pages_validation_workflow_text),
         (PAGES_DEPLOY_WORKFLOW_PATH, validate_pages_deploy_workflow_text),
@@ -365,68 +360,70 @@ def validate_workflow_supply_chain(root: Path) -> list[CiGuardIssue]:
     return issues
 
 
-def validate_auto_approve_workflow_text(text: str) -> list[CiGuardIssue]:
+def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
+    """Keep solo-maintainer review auditable without forgeable bot approval."""
+
     issues: list[CiGuardIssue] = []
-    required_fragments = {
-        "trigger": "issue_comment:",
-        "created_only": "types: [created]",
-        "actions_read": "actions: read",
-        "contents_read": "contents: read",
-        "issues_read": "issues: read",
-        "pull_requests_write": "pull-requests: write",
-        "trusted_commenter": "github.event.comment.user.login == 'GonzaloTorreras'",
-        "receipt_prefix": "startsWith(github.event.comment.body, '<!-- codex-double-check ')",
-        "tuple_receipt": 'receipt_marker="codex-double-check pr=$PR_NUMBER head=$head_sha base=$base_sha"',
-        "exact_receipt": 'test "$first_line" = "<!-- $receipt_marker -->"',
-        "approved_verdict": "grep -Fxq 'Verdict: APPROVED'",
-        "owner": '.user.login == "GonzaloTorreras"',
-        "main_base": '.base.ref == "main"',
-        "exact_base": '.base.sha == $base',
-        "shared_pr_validator": 'validate_pr() {',
-        "initial_pr_validation": 'validate_pr "$pr_json"',
-        "fresh_pr_validation": 'validate_pr "$fresh_pr_json"',
-        "final_pr_validation": 'validate_pr "$final_pr_json"',
-        "internal_repo": ".head.repo.full_name == $repo",
-        "codex_branch": 'startswith("codex/")',
-        "exact_head": '.head.sha == $sha',
-        "canonical_ci": 'actions/workflows/ci.yml/runs',
-        "pr_binding": '.number == $pr',
-        "ci_base_binding": '.base.sha == $base',
-        "ci_success": 'select(.status == "completed" and .conclusion == "success")',
-        "paginated_reviews": 'gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100"',
-        "review_marker": 'contains($marker)',
-        "boundary_workflows": 'startswith(".github/workflows/")',
-        "boundary_actions": 'startswith(".github/actions/")',
-        "boundary_policy": '. == "AGENTS.md"',
-        "boundary_guard": '. == "scripts/ci_guard.py"',
-        "file_count_cap": '.changed_files | select(type == "number" and . >= 0 and . <= 3000)',
-        "file_count_complete": 'test "$returned_file_count" -eq "$expected_file_count"',
-        "fresh_head": '.head.sha == $sha',
-        "approve": "-f event='APPROVE'",
-        "commit_id": '-f commit_id="$head_sha"',
+    legacy_path = root / LEGACY_AUTO_APPROVE_WORKFLOW_PATH
+    if legacy_path.exists():
+        issues.append(
+            CiGuardIssue(
+                LEGACY_AUTO_APPROVE_WORKFLOW_PATH.as_posix(),
+                "legacy bot auto-approval workflow must be removed for solo-maintainer review",
+            )
+        )
+
+    forbidden_workflow_patterns = {
+        "pull_requests_write": r"(?m)^\s*pull-requests:\s*write\s*$",
+        "statuses_write": r"(?m)^\s*statuses:\s*write\s*$",
+        "automated_approval": r"(?:event=['\"]APPROVE|/pulls/[^\s\"']+/reviews)",
+        "legacy_receipt": r"codex-double-check",
     }
-    for name, fragment in required_fragments.items():
-        if fragment not in text:
+    workflow_root = root / WORKFLOW_DIR
+    for path in sorted(workflow_root.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        display = path.relative_to(root).as_posix()
+        for name, pattern in forbidden_workflow_patterns.items():
+            if re.search(pattern, text):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:{name}",
+                        "solo-maintainer review forbids automated approvals and forgeable review statuses",
+                    )
+                )
+
+    policy_requirements = {
+        Path("AGENTS.md"): {
+            "receipt": "<!-- codex-solo-review pr=<number> head=<head-sha> base=<base-sha> -->",
+            "expected_head": "expected_head_sha",
+            "no_aliases": "Do not create aliases, secondary accounts, bot approvals",
+        },
+        SOLO_REVIEW_DOC_PATH: {
+            "zero_approvals": "required_approving_review_count=0",
+            "no_last_push": "require_last_push_approval=false",
+            "no_bot_approval": "can_approve_pull_request_reviews=false",
+            "boundary_scope": "Scope: security-boundary",
+        },
+    }
+    for path, fragments in policy_requirements.items():
+        try:
+            text = (root / path).read_text(encoding="utf-8")
+        except FileNotFoundError:
             issues.append(
                 CiGuardIssue(
-                    f"auto-approve.yml:{name}",
-                    f"auto-approval workflow is missing required guard: {fragment}",
+                    path.as_posix(),
+                    "solo-maintainer review policy file is missing",
                 )
             )
-    forbidden_fragments = {
-        "pull_request_target": "pull_request_target:",
-        "checkout": "actions/checkout@",
-        "artifact_download": "download-artifact",
-        "cache": "actions/cache",
-    }
-    for name, fragment in forbidden_fragments.items():
-        if fragment in text:
-            issues.append(
-                CiGuardIssue(
-                    f"auto-approve.yml:{name}",
-                    f"privileged auto-approval workflow must not contain: {fragment}",
+            continue
+        for name, fragment in fragments.items():
+            if fragment not in text:
+                issues.append(
+                    CiGuardIssue(
+                        f"{path.as_posix()}:{name}",
+                        f"solo-maintainer review policy is missing required contract: {fragment}",
+                    )
                 )
-            )
     return issues
 
 

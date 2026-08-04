@@ -283,9 +283,9 @@ from review_memory import (  # noqa: E402
 )
 from ai_dememory_tool.cli import build_mcp_config, copy_template_tree, export_vault_template, main as cli_main, mcp_config  # noqa: E402
 from ci_guard import (  # noqa: E402
-    validate_auto_approve_workflow_text,
     validate_ci_workflow,
     validate_ci_workflow_text,
+    validate_solo_maintainer_review_boundary,
     validate_workflow_supply_chain,
 )
 from artifact_guard import validate_artifact_paths, validate_staged_artifacts  # noqa: E402
@@ -11831,95 +11831,64 @@ jobs:
         self.assertIn("full commit SHA", messages)
         self.assertIn("persist-credentials: false", messages)
 
-    def test_auto_approve_guard_accepts_current_workflow(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-
-        issues = validate_auto_approve_workflow_text(text)
+    def test_solo_review_boundary_accepts_current_repository(self) -> None:
+        issues = validate_solo_maintainer_review_boundary(ROOT)
 
         self.assertFalse(issues)
 
-    def test_auto_approve_guard_rejects_untrusted_code_execution(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+    def test_solo_review_boundary_rejects_forgeable_automation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "rogue.yml").write_text(
+                """
+permissions:
+  pull-requests: write
+  statuses: write
+jobs:
+  forge:
+    steps:
+      # codex-double-check
+      - run: gh api /pulls/1/reviews -f event='APPROVE'
+""",
+                encoding="utf-8",
+            )
+            (workflows / "auto-approve.yml").write_text(
+                "name: legacy auto approval\n",
+                encoding="utf-8",
+            )
+            (root / "AGENTS.md").write_text(
+                (ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "solo-maintainer-review.md").write_text(
+                (ROOT / "docs" / "solo-maintainer-review.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
 
-        issues = validate_auto_approve_workflow_text(
-            text
-            + "\n  pull_request_target:\n"
-            + "\n      - uses: actions/checkout@deadbeef\n"
-            + "\n      - uses: actions/download-artifact@deadbeef\n"
-        )
-        messages = "\n".join(issue.message for issue in issues)
+            issues = validate_solo_maintainer_review_boundary(root)
+            targets = {issue.target for issue in issues}
 
-        self.assertIn("pull_request_target", messages)
-        self.assertIn("actions/checkout@", messages)
-        self.assertIn("download-artifact", messages)
+        self.assertIn(".github/workflows/rogue.yml:pull_requests_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:statuses_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:automated_approval", targets)
+        self.assertIn(".github/workflows/rogue.yml:legacy_receipt", targets)
+        self.assertIn(".github/workflows/auto-approve.yml", targets)
 
-    def test_auto_approve_guard_requires_tuple_receipt_and_successful_ci(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace(
-            'test "$first_line" = "<!-- $receipt_marker -->"',
-            "echo receipt-not-bound",
-        ).replace(
-            'select(.status == "completed" and .conclusion == "success")',
-            "select(.conclusion != null)",
-        )
+    def test_solo_review_boundary_requires_auditable_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / "AGENTS.md").write_text("missing receipt contract\n", encoding="utf-8")
 
-        issues = validate_auto_approve_workflow_text(weakened)
-        targets = {issue.target for issue in issues}
+            issues = validate_solo_maintainer_review_boundary(root)
+            targets = {issue.target for issue in issues}
 
-        self.assertIn("auto-approve.yml:exact_receipt", targets)
-        self.assertIn("auto-approve.yml:ci_success", targets)
-
-    def test_auto_approve_guard_requires_pr_base_and_review_binding(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = (
-            text.replace('.number == $pr', '.number > 0')
-            .replace('.base.sha == $base', '.base.sha != null')
-            .replace('contains($marker)', 'length > 0')
-        )
-
-        issues = validate_auto_approve_workflow_text(weakened)
-        targets = {issue.target for issue in issues}
-
-        self.assertIn("auto-approve.yml:pr_binding", targets)
-        self.assertIn("auto-approve.yml:exact_base", targets)
-        self.assertIn("auto-approve.yml:ci_base_binding", targets)
-        self.assertIn("auto-approve.yml:review_marker", targets)
-
-    def test_auto_approve_guard_requires_security_boundary_exclusions(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace('startswith(".github/workflows/")', 'false')
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
-        self.assertIn(
-            "auto-approve.yml:boundary_workflows",
-            {issue.target for issue in issues},
-        )
-
-    def test_auto_approve_guard_rejects_truncated_changed_file_listing(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace(
-            'test "$returned_file_count" -eq "$expected_file_count"',
-            'echo truncated-list-accepted',
-        )
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
-        self.assertIn(
-            "auto-approve.yml:file_count_complete",
-            {issue.target for issue in issues},
-        )
-
-    def test_auto_approve_guard_requires_full_fresh_state_recheck(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace('validate_pr "$final_pr_json"', 'echo stale-state-accepted')
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
-        self.assertIn(
-            "auto-approve.yml:final_pr_validation",
-            {issue.target for issue in issues},
-        )
+        self.assertIn("AGENTS.md:receipt", targets)
+        self.assertIn("docs/solo-maintainer-review.md", targets)
 
     def test_ci_guard_rejects_missing_required_v2_gates(self) -> None:
         incomplete = """
@@ -12248,6 +12217,21 @@ jobs:
         issues = validate_pr_draft(ROOT)
 
         self.assertFalse(issues)
+
+    def test_pr_draft_guard_requires_solo_maintainer_merge_contract(self) -> None:
+        current = (ROOT / "docs" / "pr-draft.md").read_text(encoding="utf-8")
+        weakened = (
+            current.replace("codex-solo-review", "review receipt")
+            .replace("expected_head_sha", "head check")
+            .replace("Do not publish packages", "Avoid package publication")
+        )
+
+        issues = validate_pr_draft_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("pr_draft:solo_review_receipt", targets)
+        self.assertIn("pr_draft:expected_head", targets)
+        self.assertIn("pr_draft:high_risk_gate", targets)
 
     def test_pr_draft_guard_rejects_stale_pr_specific_text(self) -> None:
         stale = """

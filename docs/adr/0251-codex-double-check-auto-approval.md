@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted. The bot review remains a technical branch-protection signal; ADR 0252
-superseded its no-human-authorization interpretation on 2026-07-26.
+Superseded by ADR 0260 on 2026-08-04. The historical bot-approval design is
+retained below as audit context and must not be re-enabled as current policy.
 
 ## Context
 

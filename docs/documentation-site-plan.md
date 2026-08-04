@@ -1,12 +1,12 @@
 # Documentation Experience And Static Site Plan
 
-Status: D0-D2 implementation and validation complete; the isolated D3 workflow
-boundary is implemented, while Pages enablement, dispatch, and public-origin QA
-remain separately gated
+Status: D0-D2 complete; the isolated D3 workflow boundary merged in PR #14 at
+`d5effee51cb115a055310c2858ac8ea2f7c06251`, while Pages enablement, dispatch,
+and public-origin QA remain separately gated
 
 Owner: Codex operational owner
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 Product foundation: PR #10 merged into canonical `main` at
 `2e900acc021411193c5298addfece4c82fda69b4`. Documentation-plan baseline: PR
@@ -26,9 +26,9 @@ runtime, or documentation build. The site is a documentation surface, not the
 future product dashboard described by the visual-strangler roadmap.
 
 Host the finished static artifact on GitHub Pages only after the content PR is
-merged and a separate, security-reviewed deployment change is approved. The
-Pages workflow changes a repository security boundary and must not be smuggled
-into a content-only PR.
+merged and a separate deployment change passes security-boundary review and
+the solo-maintainer receipt flow. The Pages workflow changes a repository
+security boundary and must not be smuggled into a content-only PR.
 
 ## Current Gaps
 
@@ -341,9 +341,10 @@ Split publication into two changes:
   document-relative links are intentionally only a local/content placeholder
   because nested missing URLs otherwise resolve below the missing path.
 
-PR B touches `.github/workflows/` and therefore requires a fresh security review,
-formal GitHub approval from an authorized identity, explicit owner authorization,
-and post-merge readback. Never weaken branch protection to publish it.
+PR B touches `.github/workflows/` and therefore requires a fresh read-only
+security review, the exact owner-account receipt, expected-head merge, and
+post-merge readback. Pages enablement and deployment remain explicit production
+operations. Never weaken branch protection to publish it.
 
 Rollback has two explicit modes. For a bad release, keep Pages enabled and
 redeploy the last known-good static commit. To withdraw the site entirely,
@@ -388,10 +389,10 @@ and all commands/source links verified.
 Exit: a fresh reviewer can trace every material claim to source and reproduce
 the rendered checks.
 
-### D3 - GitHub Pages deployment boundary (workflow implemented)
+### D3 - GitHub Pages deployment boundary (workflow merged)
 
-- Land the isolated validation and manual deployment workflows with exact pins,
-  tuple authorization, and artifact guards.
+- The isolated validation and manual deployment workflows landed in PR #14 with
+  exact pins, tuple authorization, artifact guards, and green post-merge CI.
 - Configure repository Pages only after that PR is independently reviewed and
   merged; do not use the workflow itself to enable Pages implicitly.
 - Verify the deployed artifact from a clean browser and mobile viewport.
