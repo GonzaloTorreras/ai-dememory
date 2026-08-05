@@ -179,6 +179,13 @@ def validate_publish_workflow(root: Path) -> list[PublishGuardIssue]:
                     "tagger must require confirmation bound to the exact tag and commit",
                 )
             )
+        if '[[ "$RELEASE_TAG" =~' in tagger_text:
+            issues.append(
+                PublishGuardIssue(
+                    "tag-release.yml:tag-syntax",
+                    "tag syntax must be centralized in ai_release_guard.py instead of a duplicate shell regex",
+                )
+            )
         if "ref: ${{ inputs.approved_sha }}" not in tagger_text:
             issues.append(PublishGuardIssue("tag-release.yml:checkout", "tagger must check out the approved commit"))
         if 'gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha' not in tagger_text:
@@ -194,6 +201,20 @@ def validate_publish_workflow(root: Path) -> list[PublishGuardIssue]:
             not in tagger_text
         ):
             issues.append(PublishGuardIssue("tag-release.yml:identity", "tagger must validate the approved tag, version, and changelog"))
+        else:
+            identity_index = tagger_text.index(
+                'python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --version-only'
+            )
+            mutation_index = tagger_text.find(
+                'gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags"'
+            )
+            if mutation_index != -1 and identity_index > mutation_index:
+                issues.append(
+                    PublishGuardIssue(
+                        "tag-release.yml:identity-order",
+                        "canonical tag identity validation must run before tag mutation",
+                    )
+                )
         if (
             'gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"' not in tagger_text
             or '-f ref="refs/tags/$RELEASE_TAG"' not in tagger_text

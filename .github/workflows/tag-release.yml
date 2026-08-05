@@ -36,7 +36,6 @@ jobs:
         shell: bash
         run: |
           test "$RELEASE_CONFIRM" = "release-$RELEASE_TAG@$APPROVED_SHA"
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
           [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Check out the explicitly approved commit

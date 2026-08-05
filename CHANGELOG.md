@@ -12,6 +12,9 @@ been published to and installed from TestPyPI with matching provenance.
 
 ## [2.1.0rc1] - 2026-08-05
 
+- Centralize release-tag syntax in `ai_release_guard.py` so PEP 440 tags such
+  as `v2.1.0rc1` cannot be rejected by a drifting shell/SemVer precheck; guard
+  the single-source validation and its ordering before tag mutation.
 - Correct the release-tag trust model for the current personal repository:
   protect existing `v*` tags against deletion and rewrite, keep exact tag
   creation and package publication as separate manual workflows, and reserve a

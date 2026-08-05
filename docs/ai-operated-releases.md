@@ -39,7 +39,10 @@ tests, attestations, OIDC and post-index installation.
    40-character current-main commit, and
    `confirm=release-<tag>@<approved_sha>`. The workflow rechecks current
    `main`, a successful push-CI run for that SHA, version/changelog identity,
-   and immutable-tag collisions before creating the annotated tag.
+   and immutable-tag collisions before creating the annotated tag. The early
+   approval step validates only the exact confirmation and SHA; canonical tag
+   syntax is validated once by `ai_release_guard.py` after checkout and before
+   any tag mutation, avoiding a second regex that can drift from PEP 440.
 5. The tagger stops. It keeps Actions read-only and does not dispatch the
    publisher. The user separately dispatches `release.yml` with `intent`, the
    same exact tag and commit, and

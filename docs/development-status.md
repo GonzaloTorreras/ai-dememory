@@ -10,8 +10,8 @@ changes.
 
 - Public remote: `https://github.com/GonzaloTorreras/ai-dememory.git`
 - Base: `origin/main`
-- Current public `main`: `640322c560e19c10be9b168a17f28116b04f3312`
-- Active corrective branch: `codex/rc1-tag-policy`
+- Current public `main`: `6be35adcefee80fee24f1226f83e208cc40f24cc`
+- Active corrective branch: `codex/rc1-tag-validator`
 - Stable package at task start: `2.0.0`
 - Planned sequence: `2.1.0rc1` on TestPyPI, then `2.1.0` on PyPI
 
@@ -23,9 +23,9 @@ and none of its release evidence is reusable.
 - Task: `BRG-014`
 - Batch: `B04a`
 - Compatibility: V2-compatible release fix; no V3 gate claim
-- Objective: correct the impossible personal-repository tag-ruleset claim
-  before publishing the already merged `2.1.0rc1` candidate
-- Owned paths: release runbook/checklist, checklist guard/tests, release ADRs,
+- Objective: remove the duplicate shell tag regex that rejected the valid PEP
+  440 tag `v2.1.0rc1` before publishing the already merged candidate
+- Owned paths: exact tagger workflow, publish guard/tests, release runbook,
   changelog and this durable handoff
 
 Required invariants:
@@ -35,7 +35,9 @@ Required invariants:
 - a direct tag never triggers package publication;
 - publication stays a second exact-tuple, environment-bound OIDC workflow;
 - documentation must not claim a native Actions bypass that GitHub rejects for
-  the current personal repository.
+  the current personal repository;
+- `ai_release_guard.py` is the single source of truth for stable and PEP 440
+  prerelease tag syntax, and it runs before every tag mutation.
 
 ## Historical Reconciliation
 
@@ -81,13 +83,22 @@ and 87 untracked. It must not be merged wholesale.
   `refs/tags/v*`. GitHub rejected the documented native Actions creation bypass
   with HTTP 422 because the repository has a personal owner. ADR 0261 records
   the corrected effective boundary.
+- Pull request [#18](https://github.com/GonzaloTorreras/ai-dememory/pull/18)
+  corrected that boundary and merged as
+  `6be35adcefee80fee24f1226f83e208cc40f24cc`; main push CI run `31005007306`
+  succeeded and the merge tree matched reviewed head
+  `d439f3039c447ff27312db849cb543eca57454e5`.
+- Exact tagger run `31005240878` failed closed before checkout or mutation.
+  Its shell regex accepted SemVer-like suffixes but rejected the canonical PEP
+  440 tag `v2.1.0rc1`, while `ai_release_guard.py` correctly requires that tag.
+  No release tag or package was created.
 
 ## Release Blockers
 
 1. No `2.1.0rc1` has been published and installed from TestPyPI.
-2. Release/tag workflows have not yet been exercised for the 2.1 exact tuple.
-3. The ruleset/documentation correction requires a focused PR, green CI and
-   fresh read-only review before release dispatch.
+2. The tagger validation mismatch requires a focused PR, green CI and fresh
+   read-only review before the exact tuple can be retried.
+3. The publisher workflow has not yet been exercised for the 2.1 exact tuple.
 4. Both Trusted Publisher identities still require live verification through
    the exact RC and stable publication paths.
 5. Stable documentation must not claim 2.1.0 until the stable artifact is
@@ -95,10 +106,11 @@ and 87 untracked. It must not be merged wholesale.
 
 ## Next Legal Actions
 
-1. Validate and open the focused tag-policy correction PR.
+1. Validate and open the focused tag-validator correction PR.
 2. Wait for exact-head CI, obtain a fresh read-only `READY` review, post the
    exact-tuple receipt, and merge only with its expected head SHA.
-3. Tag/publish `v2.1.0rc1`, install it from TestPyPI, and record evidence.
+3. Retry the exact `v2.1.0rc1` tagger, then separately publish it to TestPyPI,
+   install it from the index, and record evidence.
 4. Open a separate stable-prep PR for `2.1.0`, repeat review/CI, then tag and
    publish the exact stable tuple.
 5. Resume the V3 frontier only after stable post-publish verification.

@@ -11340,6 +11340,49 @@ for line in sys.stdin:
 
         self.assertFalse(issues)
 
+    def test_publish_guard_rejects_duplicate_shell_tag_syntax_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            for name in ("release.yml", "publish.yml", "tag-release.yml"):
+                text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+                if name == "tag-release.yml":
+                    text = text.replace(
+                        'test "$RELEASE_CONFIRM" = "release-$RELEASE_TAG@$APPROVED_SHA"',
+                        'test "$RELEASE_CONFIRM" = "release-$RELEASE_TAG@$APPROVED_SHA"\n'
+                        '          [[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]',
+                        1,
+                    )
+                (workflows / name).write_text(text, encoding="utf-8")
+
+            issues = validate_publish_workflow(root)
+
+        self.assertIn(
+            "tag syntax must be centralized in ai_release_guard.py",
+            "\n".join(issue.message for issue in issues),
+        )
+
+    def test_publish_guard_requires_identity_validation_before_tag_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            identity = 'python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --version-only'
+            for name in ("release.yml", "publish.yml", "tag-release.yml"):
+                text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+                if name == "tag-release.yml":
+                    text = text.replace(identity, "true # identity validation moved", 1)
+                    text += f"\n      - run: {identity}\n"
+                (workflows / name).write_text(text, encoding="utf-8")
+
+            issues = validate_publish_workflow(root)
+
+        self.assertIn(
+            "canonical tag identity validation must run before tag mutation",
+            "\n".join(issue.message for issue in issues),
+        )
+
     def test_publish_guard_rejects_ambient_post_ci_tagger(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
