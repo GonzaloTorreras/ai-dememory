@@ -11845,6 +11845,19 @@ jobs:
         self.assertIn("ci.yml:unit_tests_condition", targets)
         self.assertIn("ci.yml:unit_tests_env", targets)
 
+    def test_ci_guard_rejects_plain_scalar_command_continuation(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          || true",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", targets)
+
     def test_ci_guard_rejects_duplicate_or_renamed_protected_check(self) -> None:
         current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         duplicate_name = current.replace(

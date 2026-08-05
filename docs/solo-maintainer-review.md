@@ -83,12 +83,12 @@ or change from `ubuntu-latest`. Required steps cannot change shell, working
 directory, environment, or skip conditions; only the two exact PR-only gates may
 carry their fixed pull-request URL binding. Workflow YAML anchors, aliases,
 merge keys, explicit mapping entries/tags, quoted mapping keys or permission
-scalars, escaped job names, and block/multiline permission or name values are
-deliberately forbidden. Non-CI jobs must use block mappings and static same-line
-check names. This lets the dependency-free guard fail closed without pretending
-to implement GitHub's complete YAML resolver. Introducing a dedicated review app
-would add credentials and operational cost without adding an independent human
-trust domain.
+scalars, escaped job names, block/multiline permission or name values, and plain
+scalar continuation lines are deliberately forbidden. Non-CI jobs must use
+block mappings and static same-line check names. This lets the dependency-free
+guard fail closed without pretending to implement GitHub's complete YAML
+resolver. Introducing a dedicated review app would add credentials and
+operational cost without adding an independent human trust domain.
 
 ## Authority boundaries
 

@@ -718,6 +718,16 @@ def _workflow_structure_contract_issues(
 
     issues: list[CiGuardIssue] = []
     lines = structure_text.splitlines()
+    for line in lines:
+        stripped = line.lstrip(" ")
+        if not stripped or stripped.startswith("- ") or _simple_yaml_mapping(line) is not None:
+            continue
+        issues.append(
+            CiGuardIssue(
+                f"{display}:scalar_continuation",
+                "workflow plain-scalar continuation lines are forbidden; use one canonical same-line value",
+            )
+        )
     sensitive_permissions = {"permissions", "pull-requests", "statuses", "checks"}
     for index, line in enumerate(lines):
         entry = _simple_yaml_mapping(line)
