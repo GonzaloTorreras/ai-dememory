@@ -43,6 +43,9 @@ REQUIRED_SNIPPETS = {
     "acceptance_guard": "python3 scripts/ai_dememory.py acceptance-guard",
     "adr_guard": "python3 scripts/ai_dememory.py adr-guard",
     "release_checklist_guard": "python3 scripts/ai_dememory.py release-checklist-guard",
+    "tag_ruleset_immutability": "The active `v*` ruleset rejects deletion and non-fast-forward updates.",
+    "tag_ruleset_personal_boundary": "GitHub rejects its native Actions integration as a repository-ruleset bypass actor",
+    "direct_tag_no_publish": "a direct tag cannot publish",
     "release_check": "python3 scripts/ai_dememory.py release-check",
     "roadmap_status": "python3 scripts/ai_dememory.py roadmap status --json",
     "roadmap_status_adr": "docs/adr/0232-roadmap-status.md",
@@ -491,6 +494,12 @@ REQUIRED_SNIPPETS = {
     "install_smoke_protocol_version_adr": "docs/adr/0104-install-smoke-protocol-version-diagnostics.md",
 }
 
+FORBIDDEN_SNIPPETS = {
+    "impossible_native_actions_creation_bypass": (
+        "rejects tag creation except for the GitHub Actions integration"
+    ),
+}
+
 
 @dataclass(frozen=True)
 class ChecklistGuardIssue:
@@ -514,6 +523,14 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
                 ChecklistGuardIssue(
                     f"release_checklist:{name}",
                     f"missing required checklist item: {snippet}",
+                )
+            )
+    for name, snippet in FORBIDDEN_SNIPPETS.items():
+        if normalize(snippet) in normalized:
+            issues.append(
+                ChecklistGuardIssue(
+                    f"release_checklist:{name}",
+                    f"forbidden stale checklist claim: {snippet}",
                 )
             )
     return issues

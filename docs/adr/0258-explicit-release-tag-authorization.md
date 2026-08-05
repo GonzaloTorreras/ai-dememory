@@ -55,14 +55,16 @@ remain automated after the second dispatch.
 
 ## Limitations
 
-Repository maintainers can still create tags through other GitHub surfaces, so
-the `v*` creation ruleset and account security remain part of the trust
-boundary. A direct tag no longer triggers the current publisher, but tagging an
-older commit could select its historical workflow unless tag creation is
-restricted to the GitHub Actions integration. Workflow text guards are defense
-in depth, not a substitute for ruleset, environment and Trusted Publisher
-configuration. The CI API check proves a successful recorded run, not the
-absence of a compromised action.
+Repository maintainers can still create tags through other GitHub surfaces.
+For this personal repository, GitHub rejects the native Actions integration as
+a repository-ruleset bypass actor, so a creation rule would also block the
+approved tagger. ADR 0261 records the effective boundary: existing `v*` tags
+are ruleset-immutable; new tag creation remains inside the sole-writer trust
+domain and exact manual tagger; publication remains a separate exact-tuple
+dispatch. A direct tag does not publish. Workflow text guards are defense in
+depth, not a substitute for account security, environment protection and
+Trusted Publisher configuration. The CI API check proves a successful
+recorded run, not the absence of a compromised action.
 
 ## Future Risks
 
@@ -75,6 +77,7 @@ Workflow supply-chain and publisher-inventory guards must remain release gates.
 
 - ADR 0252 defines readiness versus owner authorization.
 - ADR 0255 defines the single canonical publisher.
+- ADR 0261 defines the personal-repository tag-ruleset boundary.
 - `.github/workflows/tag-release.yml` creates the explicitly approved tag.
 - `.github/workflows/release.yml` validates and publishes only immutable tags.
 - `scripts/publish_guard.py` enforces the manual tagger and publisher topology.

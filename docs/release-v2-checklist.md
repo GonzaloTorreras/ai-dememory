@@ -991,8 +991,13 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   `.github/workflows/release.yml` and environment `testpypi`.
 - [ ] PyPI trusted publisher is configured only for
   `.github/workflows/release.yml` and environment `pypi`.
-- [ ] The active `v*` ruleset rejects tag creation except for the GitHub Actions
-  integration used by `tag-release.yml`, and rejects deletion and rewrite.
+- [ ] The active `v*` ruleset rejects deletion and non-fast-forward updates.
+  For the current personal repository, record that GitHub rejects its native
+  Actions integration as a repository-ruleset bypass actor; new-tag authority
+  is therefore confined to repository writers and the exact manual tagger,
+  while a direct tag cannot publish. If an organization or dedicated installed
+  tagger App becomes available, add the creation rule with only that
+  integration as bypass.
 - [ ] `ai-dememory publish-guard` confirms the canonical publisher is
   `workflow_dispatch`-only, exact-tag/commit-bound, and separate from the
   read-only-Actions tagger, and

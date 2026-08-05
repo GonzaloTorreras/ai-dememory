@@ -12713,6 +12713,22 @@ This records future risks.
 
         self.assertFalse(issues)
 
+    def test_release_checklist_guard_rejects_impossible_actions_creation_bypass(self) -> None:
+        stale = """
+## Publishing
+
+- [ ] The ruleset rejects tag creation except for the GitHub Actions integration.
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:impossible_native_actions_creation_bypass"
+                for issue in issues
+            )
+        )
+
     def test_roadmap_status_reports_current_v2_phases(self) -> None:
         payload = roadmap_status(ROOT)
         phases = payload["phases"]

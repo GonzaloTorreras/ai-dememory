@@ -12,6 +12,12 @@ been published to and installed from TestPyPI with matching provenance.
 
 ## [2.1.0rc1] - 2026-08-05
 
+- Correct the release-tag trust model for the current personal repository:
+  protect existing `v*` tags against deletion and rewrite, keep exact tag
+  creation and package publication as separate manual workflows, and reserve a
+  creation-only integration bypass for a future organization or dedicated
+  installed GitHub App. Make the checklist guard reject the impossible native
+  Actions creation-bypass claim.
 - Canonicalize the public repository as the sole development and distribution
   source, keep historical private work as non-pushable review input, and make
   routine merges review-bound while keeping tag and publication authorization
