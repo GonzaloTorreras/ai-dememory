@@ -363,9 +363,11 @@ review workflow tools.
 
 - No durable memory mutation without human review.
 - No secrets in Markdown, reports, indexes, distilled context, or inbox captures.
-- No merge, release tag, trusted-publishing dispatch, or package publication
-  without explicit owner authorization. Tag and publication automation may run
-  only as the stated consequence of that exact authorized release merge.
+- No merge without the strict CI, fresh exact-head `READY` review, tuple-bound
+  receipt, and other standing-delegation conditions in `AGENTS.md`. No release
+  tag, trusted-publishing dispatch, or package publication without separate,
+  explicit owner authorization for the exact tag and commit. A reviewed merge,
+  including a release-preparation merge, never implies either authorization.
 - MCP write paths stay proposal-only unless a human explicitly approves a
   different workflow.
 - Package and plugin installation do not create background jobs. Scheduler,

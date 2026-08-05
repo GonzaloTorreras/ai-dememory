@@ -85,7 +85,9 @@ maintainers unless guarded by tests or periodic documentation review.
 
 ## Rollback
 
-Fail closed: if authorization is absent, ambiguous, stale, or does not cover the
-publication consequence, do not merge, tag, dispatch, or publish. Changing this
-boundary requires a new owner-accepted ADR and corresponding policy, workflow,
-guard, and documentation review; editing historical evidence is not a rollback.
+Fail closed: if the required CI, exact-head review, or tuple receipt is absent,
+ambiguous, or stale, do not merge. If explicit authorization for the exact tag
+or publication consequence is absent, ambiguous, or stale, do not tag, dispatch,
+or publish. Changing this boundary requires a new owner-accepted ADR and
+corresponding policy, workflow, guard, and documentation review; editing
+historical evidence is not a rollback.
