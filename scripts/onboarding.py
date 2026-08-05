@@ -39,6 +39,7 @@ from secret_scan import scan_text
 BASELINE_KINDS = ("values", "preferences", "recommendations")
 ALLOWED_SENSITIVITY = {"public", "internal"}
 DEFAULT_CLIENTS = ["codex", "claude"]
+GUIDED_DECLINED_EXIT_CODE = 3
 
 
 def onboarding_plan(
@@ -785,7 +786,10 @@ def interactive_answers() -> dict[str, Any]:
     preferences = prompt_list("Working preferences (semicolon-separated): ")
     recommendations = prompt_list("Recommendations for agents (semicolon-separated): ")
     project_name = input("Primary project name (optional): ").strip()
-    print("Intensity: minimal (weekly/manual), balanced (recommended), active (larger bounded budgets).")
+    print(
+        "Intensity: minimal (weekly/manual), balanced (recommended), "
+        "active (maximum bounded budgets)."
+    )
     intensity = input("Intensity [balanced]: ").strip().lower() or DEFAULT_INTENSITY
     print("Host model policy: off (zero advisory work), advisory, proposals (review-first only).")
     model_policy = input("Host model policy [off]: ").strip().lower() or DEFAULT_MODEL_POLICY
@@ -924,7 +928,74 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--expect-plan-sha256", default=None, help="Fingerprint returned by the reviewed preview.")
     parser.add_argument("--dry-run", action="store_true", help="Explicit preview alias; preview is the default.")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--guided", action="store_true", help=argparse.SUPPRESS)
     return parser
+
+
+def uses_interactive_answers(args: argparse.Namespace) -> bool:
+    return not any(
+        (
+            args.input_json,
+            args.input_file,
+            args.stdin,
+            args.reviewed_by,
+            args.value,
+            args.preference,
+            args.recommendation,
+            args.project,
+        )
+    )
+
+
+def print_human_result(result: dict[str, Any], *, include_apply_hint: bool = True) -> None:
+    action = "Applied" if result["applied"] else "Preview"
+    print(f"{action}: {result['created_count']} create, {result['updated_count']} update, "
+          f"{result['unchanged_count']} unchanged, {result['conflict_count']} conflict")
+    policy = result["resource_policy"]
+    print(
+        f"Intensity: {policy['intensity']}; model policy: {policy['model_policy']}; "
+        f"automatic recall ceiling: {policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+    )
+    print(
+        "ai-dememory runtime model/embedding calls per maintenance run: 0/0; "
+        f"estimated local jobs/week after explicit install: {policy['estimated_local_runs_per_week']}"
+    )
+    resources = policy["resources"]
+    print(
+        f"MCP profile/idle lease: {policy['mcp_profile']}/"
+        f"{resources['mcp_idle_timeout_seconds']}s; context/recall ceilings: "
+        f"{policy['manual_context_default_tokens']}/"
+        f"{policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+    )
+    print(
+        f"Provider/maintenance ceilings: {resources['provider_file_limit']} files, "
+        f"{resources['provider_max_file_bytes']} bytes/file, "
+        f"{resources['provider_scan_entries']} scanned entries, "
+        f"{resources['maintenance_timeout_seconds']}s per maintenance run"
+    )
+    for item in result["writes"]:
+        print(f"- {item['status']}: {item['path']}")
+    if not result["applied"] and result.get("can_apply"):
+        fingerprint = result["plan_sha256"]
+        print(f"plan_sha256: {fingerprint}")
+        if include_apply_hint:
+            print(
+                "Next: rerun the same answers with "
+                f"--apply --expect-plan-sha256 {fingerprint}"
+            )
+
+
+def print_guided_next_actions(result: dict[str, Any]) -> None:
+    root = json.dumps(str(result["root"]), ensure_ascii=False)
+    print("Next actions (nothing else was installed automatically):")
+    print(f"- ai-dememory --root {root} doctor")
+    print(f"- ai-dememory --root {root} index")
+    clients = result.get("clients")
+    if isinstance(clients, list):
+        for client in clients:
+            if client in {"codex", "claude", "generic"}:
+                print(f"- ai-dememory mcp-config --root {root} --client {client}")
+    print("- Review hook and scheduler previews separately before installing either one.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -932,6 +1003,28 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.apply and args.dry_run:
         parser.error("--apply and --dry-run are mutually exclusive")
+    if args.json and uses_interactive_answers(args):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "JSON onboarding is non-interactive; provide --input-json, --input-file, "
+                        "--stdin, or explicit baseline flags"
+                    ),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    guided_interactive = (
+        args.guided
+        and uses_interactive_answers(args)
+        and not args.apply
+        and not args.dry_run
+        and not args.json
+    )
     try:
         root = repo_root(args.root)
         answers = load_answers(args)
@@ -941,6 +1034,20 @@ def main(argv: list[str] | None = None) -> int:
             else onboarding_plan(root, answers)
         )
         result.setdefault("applied", False)
+        if guided_interactive:
+            print_human_result(result, include_apply_hint=False)
+            if not result.get("can_apply"):
+                raise ValueError("guided onboarding cannot apply until every conflict is reviewed")
+            try:
+                confirmation = input(
+                    f"Apply this exact reviewed plan ({result['plan_sha256']}) now? [y/N]: "
+                )
+            except EOFError:
+                confirmation = ""
+            if confirmation.strip().lower() not in {"y", "yes"}:
+                print("Onboarding was not applied. The existing vault is unchanged; setup is incomplete.")
+                return GUIDED_DECLINED_EXIT_CODE
+            result = apply_onboarding(root, answers, str(result["plan_sha256"]))
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False))
@@ -950,40 +1057,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps({"ok": True, **result}, indent=2, ensure_ascii=False))
     else:
-        action = "Applied" if result["applied"] else "Preview"
-        print(f"{action}: {result['created_count']} create, {result['updated_count']} update, "
-              f"{result['unchanged_count']} unchanged, {result['conflict_count']} conflict")
-        policy = result["resource_policy"]
-        print(
-            f"Intensity: {policy['intensity']}; model policy: {policy['model_policy']}; "
-            f"automatic recall ceiling: {policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
-        )
-        print(
-            "ai-dememory runtime model/embedding calls per maintenance run: 0/0; "
-            f"estimated local jobs/week after explicit install: {policy['estimated_local_runs_per_week']}"
-        )
-        resources = policy["resources"]
-        print(
-            f"MCP profile/idle lease: {policy['mcp_profile']}/"
-            f"{resources['mcp_idle_timeout_seconds']}s; context/recall ceilings: "
-            f"{policy['manual_context_default_tokens']}/"
-            f"{policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
-        )
-        print(
-            f"Provider/maintenance ceilings: {resources['provider_file_limit']} files, "
-            f"{resources['provider_max_file_bytes']} bytes/file, "
-            f"{resources['provider_scan_entries']} scanned entries, "
-            f"{resources['maintenance_timeout_seconds']}s per maintenance run"
-        )
-        for item in result["writes"]:
-            print(f"- {item['status']}: {item['path']}")
-        if not result["applied"] and result.get("can_apply"):
-            fingerprint = result["plan_sha256"]
-            print(f"plan_sha256: {fingerprint}")
-            print(
-                "Next: rerun the same answers with "
-                f"--apply --expect-plan-sha256 {fingerprint}"
-            )
+        if not guided_interactive:
+            print_human_result(result)
+        else:
+            print_human_result(result, include_apply_hint=False)
+            print_guided_next_actions(result)
     return 0
 
 

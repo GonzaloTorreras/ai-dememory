@@ -60,8 +60,12 @@ must not be described as free or as ai-dememory background inference.
 
 The initial wizard previews the selected policy, hard caps, generated Markdown,
 vault-bound MCP configuration, public-only hook configuration, and scheduler
-plan. Applying reviewed wizard output requires the exact preview fingerprint.
-It does not install MCP config, hooks, providers, or scheduler jobs.
+plan. In the human-guided TTY flow it retains the answers in memory, prints the
+exact preview fingerprint, and asks once whether to apply that exact plan. A
+decline writes nothing and exits as incomplete. JSON, stdin, input-file,
+explicit dry-run, and direct `onboard` flows remain passive and require a
+separate apply bound to the exact preview fingerprint. The wizard does not
+install MCP config, hooks, providers, or scheduler jobs.
 
 Generated MCP configurations use an explicit vault, the selected
 server-enforced profile, and `--require-bound-root`. The server filters

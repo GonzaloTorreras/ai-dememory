@@ -395,19 +395,22 @@ Before a release:
 1. Enable GitHub Pages for merged commit `d5effee5`, dispatch the manual workflow
    against the then-current exact `main`, and complete desktop, mobile, 404,
    accessibility, and public-origin QA as explicit production operations.
-2. Build generated CLI/writer inventories; keep the already generated MCP
+2. Separate operational first-run configuration from optional durable personal
+   baseline onboarding. Preserve `onboard` as the explicit fingerprint-bound
+   memory contract and keep every host integration independently confirmed.
+3. Build generated CLI/writer inventories; keep the already generated MCP
    profile inventory current.
-3. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
+4. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
    crash-recovery tests before increasing scheduler autonomy.
-4. Define and measure real hook, startup, recall, import, write, recovery, peak
+5. Define and measure real hook, startup, recall, import, write, recovery, peak
    RSS, and host-agent-token SLOs for each resource intensity.
-5. Add just-in-time `review` profile escalation so normal turns remain on
+6. Add just-in-time `review` profile escalation so normal turns remain on
    `core`/`working`, with an explicit return to the smaller surface.
-6. Audit rollback of pre-existing scheduler state on Windows, Linux, and macOS.
-7. Design the semantic planning schema and keep all external evidence ledgers
+7. Audit rollback of pre-existing scheduler state on Windows, Linux, and macOS.
+8. Design the semantic planning schema and keep all external evidence ledgers
    empty until authenticated providers are configured.
-8. Port only the external-resource fail-closed preflight.
-9. Re-audit the current MemPalace head before implementing the first adapter or
+9. Port only the external-resource fail-closed preflight.
+10. Re-audit the current MemPalace head before implementing the first adapter or
    retrieval experiment.
 
 The default decision remains: improve the verified Python product, preserve

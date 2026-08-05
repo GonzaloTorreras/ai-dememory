@@ -146,8 +146,8 @@ ai-dememory setup health --json</code></pre>
           </section>
 
           <section class="content-section" id="wizard">
-            <h2>5. Preview the 2.1 setup wizard</h2>
-            <p>Start with a machine-readable plan, then use the interactive wizard. It exposes generated configuration, caps, and commands before any reviewed apply.</p>
+            <h2>5. Review and confirm the 2.1 setup wizard</h2>
+            <p>Start with a machine-readable plan, then use the interactive wizard. It exposes generated configuration, caps, planned files, and an exact fingerprint before asking once whether to apply that same in-memory plan.</p>
             <div class="code-block" data-copy-block data-release="source-2.1.0">
               <pre tabindex="0"><code>ai-dememory setup plan \
   --intensity balanced \
@@ -155,9 +155,9 @@ ai-dememory setup health --json</code></pre>
 ai-dememory setup wizard
 ai-dememory setup health --json</code></pre>
             </div>
-            <p>A durable apply requires reviewer identity and the exact preview fingerprint via <code>--expect-plan-sha256</code>. Changed answers require a fresh preview.</p>
+            <p>Answering no writes nothing and reports that onboarding is incomplete. JSON, stdin, input-file, dry-run, and direct <code>ai-dememory onboard</code> flows stay passive: their durable apply still requires the exact preview fingerprint via <code>--expect-plan-sha256</code>. Changed answers require a fresh preview.</p>
             <div class="callout callout-safe">
-              <p>The wizard does not install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
+              <p>The wizard applies only the reviewed vault files it displayed. It does not install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
             </div>
           </section>
 
