@@ -72,18 +72,22 @@ and 87 untracked. It must not be merged wholesale.
   evidence paths, and ledger consistency.
 - Exact staged diff whitespace, generated-artifact, secret, and Pages artifact
   checks passed on the consolidated snapshot.
-- The release check passed every contract gate. Its remaining warnings are the
-  local doctor warning and the intentionally missing PR URL before PR creation.
-
-CI, the PR-bound strict release check, and a fresh final reviewer remain
-required after the branch is pushed and the PR exists.
+- Pull request [#17](https://github.com/GonzaloTorreras/ai-dememory/pull/17)
+  exists for this branch. PR-bound strict release, MCP runtime, and MCP client
+  smokes passed after generating the disposable local index used by CI.
+- CI run `31000835426` and Pages run `31000835430` passed on candidate commit
+  `c7c87eac3f0f8d137bb05c5da5f68822a4ec5601`, including Docker and the
+  Windows/macOS/Linux Python 3.11-3.13 matrix.
+- The first post-PR reviewer found no code, security, or CI blocker and required
+  only this stale-handoff correction. Because this correction creates a new PR
+  head, exact-head CI and a fresh read-only review must pass again before merge.
 
 ## Release Blockers
 
 1. No `2.1.0rc1` has been published and installed from TestPyPI.
 2. Release/tag workflows have not yet been exercised for the 2.1 exact tuple.
-3. Release-candidate identity is prepared locally but is not yet committed,
-   reviewed, or present on the package index.
+3. Release-candidate identity is committed and code-reviewed in PR #17, but the
+   PR is not yet merged and the candidate is not present on the package index.
 4. Repository tag creation protection and both Trusted Publisher identities
    must be verified before dispatch.
 5. Stable documentation must not claim 2.1.0 until the stable artifact is
@@ -91,9 +95,11 @@ required after the branch is pushed and the PR exists.
 
 ## Next Legal Actions
 
-1. Finish `BRG-014`, continuity docs, RC identity, and guards on this branch.
-2. Run full validation and obtain a fresh read-only review.
-3. Open and merge the RC PR only after exact-head CI and approval.
+1. Push this documentation-only handoff correction and update PR #17 with its
+   exact head and completed evidence.
+2. Wait for exact-head CI and obtain a fresh read-only `READY` review.
+3. Post the exact-tuple solo-maintainer receipt, mark PR #17 ready, and merge
+   only with its expected head SHA.
 4. Tag/publish `v2.1.0rc1`, install it from TestPyPI, and record evidence.
 5. Open a separate stable-prep PR for `2.1.0`, repeat review/CI, then tag and
    publish the exact stable tuple.
