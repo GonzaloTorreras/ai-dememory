@@ -138,7 +138,8 @@ References:
    acceptance packet archive cleanup candidates without deleting files.
 5. Revisit durable and release acceptance provenance if reviewer identity needs
    signed approvals or external identity integration.
-6. Plan post-v2 work through `PLAN.md`: finish productization integrity, add a
-   local shared-memory policy kernel, adversarial evaluation, traceability,
-   supersession, quarantine, safe read-only governance surfaces, and gated super
-   search without enabling automatic durable writes.
+6. Plan post-v2 work through
+   `docs/v3-hybrid-visual-multiplatform-roadmap.md` and
+   `contracts/planning/v3-execution-sequence.json`. Use `PLAN.md` only as
+   non-normative research for productization, governance, evaluation,
+   traceability, quarantine, and gated retrieval ideas.

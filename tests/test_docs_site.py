@@ -5,10 +5,30 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.docs_site_guard import REPO_ROOT, SITE_ROOT, audit_site
+from scripts.docs_site_guard import (
+    REPO_ROOT,
+    SITE_ROOT,
+    STABLE_RELEASE_CONTRACTS,
+    audit_site,
+    release_scope_markers,
+    site_release_lens,
+)
 
 
 class DocumentationSiteGuardTests(unittest.TestCase):
+    def test_stable_2_1_contract_includes_the_operational_wizard(self) -> None:
+        contract = STABLE_RELEASE_CONTRACTS["2.1.0"]
+
+        self.assertIn("ai-dememory setup wizard", contract["required"])
+        self.assertIn(
+            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
+            contract["source_only"],
+        )
+
+    def test_release_scope_supports_source_equal_to_stable(self) -> None:
+        self.assertEqual(release_scope_markers("2.1.0", "2.1.0"), ("stable 2.1.0",))
+        self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/stable line: 2.1.0")
+
     def test_checked_in_site_passes_guard(self) -> None:
         self.assertEqual([], audit_site())
 
@@ -98,6 +118,22 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home.read_text(encoding="utf-8").replace(
                     "ai-dememory setup plan --json",
                     "ai-dememory setup plan --json\nai-dememory setup wizard",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            errors = audit_site(REPO_ROOT, copied)
+            self.assertTrue(any("stable 2.0.0 command block contains source-only" in error for error in errors))
+
+    def test_guard_rejects_mutable_vcs_install_in_stable_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "pipx install ai-dememory",
+                    "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
                     1,
                 ),
                 encoding="utf-8",

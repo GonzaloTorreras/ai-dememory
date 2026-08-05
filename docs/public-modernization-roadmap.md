@@ -28,7 +28,7 @@ sources:
 
 The public and former private repositories had competing authority, and active
 documentation described both personal-memory storage and package distribution.
-The source declares 2.1.0 while the latest published stable package remains
+The source declares 2.1.0rc1 while the latest published stable package remains
 2.0.0. Release documentation also treated automated technical approval as
 authorization to merge and publish.
 
@@ -145,7 +145,9 @@ envelope:
 - model policy `off`, `advisory`, or `proposals` never lets ai-dememory call a
   model, enable embeddings, or promote durable memory automatically;
 - the wizard previews vault-bound MCP/public-only hook configs, catalogs, hard
-  caps, scheduler policy, and an exact apply fingerprint;
+  caps, scheduler policy, and an exact apply fingerprint; its apply changes
+  only `.ai-dememory.toml`, while optional `onboard` writes reviewed personal
+  memory without rewriting operating policy;
 - MCP profiles are enforced by `tools/list` and `tools/call`, with
   a three-tool public ceiling, a four-tool private-vault core, and
   resources/prompts reserved for explicit `admin`;
@@ -395,22 +397,19 @@ Before a release:
 1. Enable GitHub Pages for merged commit `d5effee5`, dispatch the manual workflow
    against the then-current exact `main`, and complete desktop, mobile, 404,
    accessibility, and public-origin QA as explicit production operations.
-2. Separate operational first-run configuration from optional durable personal
-   baseline onboarding. Preserve `onboard` as the explicit fingerprint-bound
-   memory contract and keep every host integration independently confirmed.
-3. Build generated CLI/writer inventories; keep the already generated MCP
+2. Build generated CLI/writer inventories; keep the already generated MCP
    profile inventory current.
-4. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
+3. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
    crash-recovery tests before increasing scheduler autonomy.
-5. Define and measure real hook, startup, recall, import, write, recovery, peak
+4. Define and measure real hook, startup, recall, import, write, recovery, peak
    RSS, and host-agent-token SLOs for each resource intensity.
-6. Add just-in-time `review` profile escalation so normal turns remain on
+5. Add just-in-time `review` profile escalation so normal turns remain on
    `core`/`working`, with an explicit return to the smaller surface.
-7. Audit rollback of pre-existing scheduler state on Windows, Linux, and macOS.
-8. Design the semantic planning schema and keep all external evidence ledgers
+6. Audit rollback of pre-existing scheduler state on Windows, Linux, and macOS.
+7. Design the semantic planning schema and keep all external evidence ledgers
    empty until authenticated providers are configured.
-9. Port only the external-resource fail-closed preflight.
-10. Re-audit the current MemPalace head before implementing the first adapter or
+8. Port only the external-resource fail-closed preflight.
+9. Re-audit the current MemPalace head before implementing the first adapter or
    retrieval experiment.
 
 The default decision remains: improve the verified Python product, preserve
@@ -427,5 +426,5 @@ The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting no
 provide the reviewed reporting path. Pages validation and manual delivery are
 isolated by ADR 0259; Pages enablement and dispatch remain separate
 approval-gated production operations. The documentation also treats published 2.0.0
-and unreleased 2.1.0 as different capability contracts, so a stable PyPI install
+and unreleased 2.1.0rc1 as different capability contracts, so a stable PyPI install
 is never followed by source-only wizard, profile, or idle-lease instructions.

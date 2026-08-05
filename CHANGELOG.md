@@ -7,6 +7,11 @@ accepted by the release identity guard.
 
 ## [2.1.0] - Unreleased
 
+Stable 2.1.0 remains reserved until the release-candidate artifact below has
+been published to and installed from TestPyPI with matching provenance.
+
+## [2.1.0rc1] - 2026-08-05
+
 - Canonicalize the public repository as the sole development and distribution
   source, keep historical private work as non-pushable review input, and make
   routine merges review-bound while keeping tag and publication authorization
@@ -20,11 +25,15 @@ accepted by the release identity guard.
 - Keep Python 3.11+ as the authoritative domain and headless runtime; reserve
   Node/TypeScript for a future evidence-gated presentation plane with generated
   contracts and prebuilt assets.
-- Add prompt-aware, project-aware reviewed recall hooks and a fingerprint-bound
-  onboarding wizard for baseline values, preferences and recommendations.
-  Make the interactive setup wizard show one exact plan, ask once, and apply
-  those same in-memory answers without forcing users to repeat them; declining
-  writes nothing, while structured and direct onboarding flows stay two-step.
+- Add prompt-aware, project-aware reviewed recall hooks and fingerprint-bound
+  personal baseline onboarding for values, preferences and recommendations.
+  Separate the interactive setup wizard from optional personal onboarding: the
+  wizard previews and applies only bounded `.ai-dememory.toml` policy, accepts
+  deterministic `--json` preview/apply, and never creates durable memory;
+  `onboard` writes only reviewed memory and cannot rewrite operating policy.
+  Make the interactive wizard show one exact plan, ask once, and apply those
+  same in-memory answers without repetition; declining writes nothing, while
+  every structured setup and onboarding flow stays explicit two-step.
   Preserve each recalled item's sensitivity label in structured and rendered
   context so public-repository egress policy remains enforceable.
 - Add `minimal`, `balanced`, and `active` resource intensities with hard recall,

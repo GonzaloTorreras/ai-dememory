@@ -67,12 +67,29 @@ STABLE_RELEASE_CONTRACTS = {
             "ai-dememory mcp-client-smoke",
         ),
         "source_only": (
+            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
             "ai-dememory setup wizard",
             "--intensity",
             "--model-policy",
             "--idle-timeout-seconds",
         ),
-    }
+    },
+    "2.1.0": {
+        "required": (
+            "pipx install ai-dememory",
+            "ai-dememory init ~/code/my-memory",
+            "ai-dememory doctor",
+            "ai-dememory index",
+            "ai-dememory setup plan --json",
+            "ai-dememory setup wizard",
+            "ai-dememory setup health --json",
+            "ai-dememory mcp-config --client codex",
+            "ai-dememory mcp-client-smoke",
+        ),
+        "source_only": (
+            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
+        ),
+    },
 }
 
 RELEASE_SCOPE_DOCS = (
@@ -88,6 +105,19 @@ ALLOWED_EXTERNAL_HOSTS = {"github.com"}
 PRODUCTION_ASSET_BUDGET = 250 * 1024
 JAVASCRIPT_BUDGET = 8 * 1024
 RASTER_BUDGET = 120 * 1024
+
+
+def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
+    markers = [f"stable {stable_version}"]
+    if source_version != stable_version:
+        markers.append(f"unreleased {source_version}")
+    return tuple(markers)
+
+
+def site_release_lens(stable_version: str, source_version: str) -> str:
+    if source_version != stable_version:
+        return f"Source line: {source_version}, unreleased"
+    return f"Source/stable line: {source_version}"
 
 
 class DocumentParser(HTMLParser):
@@ -343,16 +373,18 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         errors.append("README.md: published stable version is not machine-readable")
         return
     stable_version = stable_match.group(1)
+    scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
         scope_text = (repo_root / relative).read_text(encoding="utf-8").lower()
-        for marker in (f"stable {stable_version}", f"unreleased {source_version}"):
+        for marker in scope_markers:
             if marker not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
 
     install = (site_root / "install/index.html").read_text(encoding="utf-8")
+    release_lens = site_release_lens(stable_version, source_version)
     for expected, label in (
         (f"Stable package: {stable_version}", "stable package version"),
-        (f"Source line: {source_version}, unreleased", "source version"),
+        (release_lens, "source version"),
         (f"Python {requires_python.removeprefix('>=')}+", "Python requirement"),
     ):
         if expected not in install:
@@ -386,16 +418,17 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             if marker in stable_text:
                 errors.append(f"site: stable {stable_version} command block contains source-only marker {marker!r}")
 
-        source_label = f"source-{source_version}"
-        source_text = "\n".join(release_blocks.get(source_label, []))
-        for marker in (
-            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
-            "ai-dememory setup wizard",
-            "--intensity",
-            "--model-policy",
-        ):
-            if marker not in source_text:
-                errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
+        if source_version != stable_version:
+            source_label = f"source-{source_version}"
+            source_text = "\n".join(release_blocks.get(source_label, []))
+            for marker in (
+                "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
+                "ai-dememory setup wizard",
+                "--intensity",
+                "--model-policy",
+            ):
+                if marker not in source_text:
+                    errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
 
     policy_path = repo_root / "SECURITY.md"
     policy_exists = policy_path.exists()

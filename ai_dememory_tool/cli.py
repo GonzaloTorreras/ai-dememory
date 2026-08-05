@@ -181,7 +181,14 @@ def root_arg_value(argv: list[str]) -> str | None:
     return None
 
 
-def run_packaged_command(command: str, argv: list[str]) -> int:
+def run_packaged_command(
+    command: str,
+    argv: list[str],
+    *,
+    onboarding_mode: str | None = None,
+) -> int:
+    if onboarding_mode is not None and command != "onboard":
+        raise ValueError("onboarding_mode is valid only for the internal onboarding command")
     explicit_root = root_arg_value(argv)
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
     if (
@@ -216,6 +223,8 @@ def run_packaged_command(command: str, argv: list[str]) -> int:
     _, module_name = COMMANDS[command]
     prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
     module = importlib.import_module(f"{prefix}.{module_name}")
+    if command == "onboard":
+        return int(module.main(argv, mode=onboarding_mode or "onboard"))
     return int(module.main(argv))
 
 
@@ -245,7 +254,7 @@ def init_vault(argv: list[str]) -> int:
     parser.add_argument("path", nargs="?", default=".", help="Vault directory to create.")
     parser.add_argument("--force", action="store_true", help="Add or overwrite template files in a non-empty directory.")
     wizard_group = parser.add_mutually_exclusive_group()
-    wizard_group.add_argument("--wizard", action="store_true", help="Run the reviewed onboarding wizard after copying the vault.")
+    wizard_group.add_argument("--wizard", action="store_true", help="Run the fingerprint-bound operational setup wizard after copying the vault.")
     wizard_group.add_argument("--no-wizard", action="store_true", help="Copy only; this is the default for non-interactive setup.")
     args = parser.parse_args(argv)
 
@@ -258,8 +267,12 @@ def init_vault(argv: list[str]) -> int:
     print(f"Initialized ai-dememory vault at {target}")
     print(f"Wrote {len(copied)} file(s).")
     if args.wizard:
-        return run_packaged_command("onboard", ["--root", str(target), "--guided"])
-    print("Next: run `ai-dememory setup wizard`; it previews one exact plan and asks before applying it.")
+        return run_packaged_command(
+            "onboard",
+            ["--root", str(target)],
+            onboarding_mode="operational",
+        )
+    print("Next: run `ai-dememory setup wizard`; it previews one config-only plan and asks before applying it.")
     print("Then run `ai-dememory doctor` and `ai-dememory index`.")
     return 0
 
@@ -447,7 +460,9 @@ def usage() -> str:
             "  ai-dememory mcp-config --client codex",
             "  ai-dememory setup plan --json",
             "  ai-dememory setup wizard",
-            "  ai-dememory setup wizard --input-file onboarding.json --json",
+            "  ai-dememory setup wizard --json",
+            "  ai-dememory setup wizard --apply --expect-plan-sha256 <preview-sha256> --json",
+            "  ai-dememory onboard --input-file onboarding.json --json",
             "  ai-dememory onboard --input-file onboarding.json --apply --expect-plan-sha256 <preview-sha256> --json",
             "  ai-dememory turn-context \"fix portfolio tracker staging smoke\" --cwd D:/Github/portfolio-tracker --json",
             "  ai-dememory setup health --json",
@@ -528,6 +543,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     command = argv.pop(0)
+    onboarding_mode: str | None = None
     if command == "dev":
         if not argv or argv[0] in {"-h", "--help", "help"}:
             print(dev_usage())
@@ -549,7 +565,8 @@ def main(argv: list[str] | None = None) -> int:
         argv = ["capture", *argv]
     if command == "setup" and argv and argv[0] == "wizard":
         command = "onboard"
-        argv = ["--guided", *argv[1:]]
+        onboarding_mode = "operational"
+        argv = argv[1:]
     if command == "mark-seen":
         argv = ["mark-seen", *argv]
     if command == "outcome":
@@ -567,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
         print(usage(), file=sys.stderr)
         return 2
 
+    if onboarding_mode is not None:
+        return run_packaged_command(command, argv, onboarding_mode=onboarding_mode)
     return run_packaged_command(command, argv)
 
 

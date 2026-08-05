@@ -22,7 +22,13 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import onboarding  # noqa: E402
-from onboarding import apply_onboarding, main as onboarding_main, onboarding_plan  # noqa: E402
+from onboarding import (  # noqa: E402
+    apply_onboarding,
+    apply_operational_setup,
+    main as onboarding_main,
+    onboarding_plan,
+    operational_setup_plan,
+)
 from resource_policy import resolved_resource_policy  # noqa: E402
 from validate_memory import validate_repo_result  # noqa: E402
 
@@ -41,16 +47,29 @@ def answers() -> dict[str, object]:
                 "keywords": ["thesis", "staging"],
             }
         ],
-        "clients": ["codex", "claude"],
-        "automation": {"intensity": "balanced", "model_policy": "proposals"},
-        "recall": {"default_budget_tokens": 900, "baseline_budget_tokens": 300},
-        "learning": {"session_proposals": True},
     }
 
 
 def apply_reviewed(root: Path, payload: dict[str, object]) -> dict[str, object]:
     plan = onboarding_plan(root, payload)
     return apply_onboarding(root, payload, str(plan["plan_sha256"]))
+
+
+def operational_answers() -> dict[str, object]:
+    return {
+        "clients": ["codex", "claude"],
+        "automation": {"intensity": "balanced", "model_policy": "off"},
+        "learning": {"session_proposals": False},
+    }
+
+
+def apply_operational(root: Path, payload: dict[str, object]) -> dict[str, object]:
+    plan = operational_setup_plan(root, payload)
+    return apply_operational_setup(root, payload, str(plan["plan_sha256"]))
+
+
+def operational_main(argv: list[str]) -> int:
+    return onboarding_main(argv, mode="operational")
 
 
 class InteractiveStdin:
@@ -68,20 +87,31 @@ class OnboardingTests(unittest.TestCase):
             self.assertFalse((root / ".ai-dememory.toml").exists())
 
         self.assertTrue(plan["can_apply"])
-        self.assertEqual(plan["created_count"], 5)
+        self.assertEqual(plan["created_count"], 4)
+        self.assertFalse(plan["writes_config"])
+        self.assertNotIn("resource_policy", plan)
+        self.assertNotIn("integrations", plan)
         self.assertTrue(all(item["status"] == "create" for item in plan["writes"]))
         self.assertFalse(plan["writes_files"])
+
+    def test_onboarding_rejects_operational_payload_fields(self) -> None:
+        payload = answers()
+        payload["automation"] = {"intensity": "minimal"}
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
+            ValueError,
+            "setup wizard",
+        ):
+            onboarding_plan(Path(tmp), payload)
 
     def test_preview_rejects_nonfinite_relevance_thresholds(self) -> None:
         for value in (float("nan"), float("inf"), float("-inf")):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp:
-                payload = answers()
+                payload = operational_answers()
                 payload["recall"] = {
-                    **dict(payload["recall"]),
                     "min_relevance_score": value,
                 }
                 with self.assertRaisesRegex(ValueError, "number must be between"):
-                    onboarding_plan(Path(tmp), payload)
+                    operational_setup_plan(Path(tmp), payload)
 
     def test_apply_writes_reviewed_valid_memory_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,24 +120,36 @@ class OnboardingTests(unittest.TestCase):
             second = apply_reviewed(root, answers())
             validation = validate_repo_result(root)
             values_text = (root / "memories/durable/onboarding-values.md").read_text(encoding="utf-8")
-            config_text = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
+            config_exists = (root / ".ai-dememory.toml").exists()
 
         self.assertTrue(first["applied"])
-        self.assertEqual(len(first["changed"]), 5)
+        self.assertEqual(len(first["changed"]), 4)
         self.assertEqual(second["changed"], [])
-        self.assertEqual(second["unchanged_count"], 5)
+        self.assertEqual(second["unchanged_count"], 4)
         self.assertTrue(validation["ok"], validation)
+        self.assertFalse(config_exists)
         self.assertIn("reviewed: true", values_text)
         self.assertIn('reviewed_by: "Unit Test Reviewer"', values_text)
-        self.assertIn("[recall]", config_text)
-        self.assertIn("per_turn = true", config_text)
-        self.assertIn("[learning]", config_text)
-        self.assertIn("session_proposals = true", config_text)
-        self.assertIn("[resources]", config_text)
-        self.assertIn("[automation]", config_text)
-        self.assertIn('model_policy = "proposals"', config_text)
 
-    def test_enabled_schedule_receipt_blocks_wizard_apply_without_overwrite(self) -> None:
+    def test_operational_setup_apply_writes_only_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = apply_operational(root, operational_answers())
+            second = apply_operational(root, operational_answers())
+            config_text = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
+
+            self.assertFalse((root / "memories").exists())
+
+        self.assertEqual(first["changed"], [".ai-dememory.toml"])
+        self.assertEqual(second["changed"], [])
+        self.assertTrue(first["writes_config"])
+        self.assertFalse(first["durable_memory_reviewed"])
+        self.assertIn("[recall]", config_text)
+        self.assertIn("[resources]", config_text)
+        self.assertIn('intensity = "balanced"', config_text)
+        self.assertIn('model_policy = "off"', config_text)
+
+    def test_enabled_schedule_receipt_blocks_operational_setup_without_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config_path = root / ".ai-dememory.toml"
@@ -119,9 +161,9 @@ class OnboardingTests(unittest.TestCase):
             )
             config_path.write_text(original, encoding="utf-8")
 
-            plan = onboarding_plan(root, answers())
+            plan = operational_setup_plan(root, operational_answers())
             with self.assertRaisesRegex(ValueError, "enabled-schedule"):
-                apply_onboarding(root, answers(), str(plan["plan_sha256"]))
+                apply_operational_setup(root, operational_answers(), str(plan["plan_sha256"]))
             current = config_path.read_text(encoding="utf-8")
 
         self.assertTrue(plan["schedule_preserved"])
@@ -129,18 +171,30 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn(".ai-dememory.toml:[enabled-schedule]", plan["conflicts"])
         self.assertEqual(current, original)
 
+    def test_onboarding_never_rewrites_existing_operational_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            original = "[automation]\nintensity = \"minimal\"\nmodel_policy = \"off\"\n"
+            config_path.write_text(original, encoding="utf-8")
+
+            result = apply_reviewed(root, answers())
+
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+            self.assertNotIn(".ai-dememory.toml", result["changed"])
+
     def test_profiles_are_bounded_zero_model_call_plans(self) -> None:
-        minimal = answers()
+        minimal = operational_answers()
         minimal["automation"] = {"intensity": "minimal", "model_policy": "off"}
         minimal["learning"] = {"session_proposals": False}
-        active = answers()
+        active = operational_answers()
         active["automation"] = {"intensity": "active", "model_policy": "proposals"}
         active.pop("recall", None)
 
         with tempfile.TemporaryDirectory() as tmp:
-            minimal_plan = onboarding_plan(Path(tmp), minimal)
+            minimal_plan = operational_setup_plan(Path(tmp), minimal)
         with tempfile.TemporaryDirectory() as tmp:
-            active_plan = onboarding_plan(Path(tmp), active)
+            active_plan = operational_setup_plan(Path(tmp), active)
 
         minimal_policy = minimal_plan["resource_policy"]
         active_policy = active_plan["resource_policy"]
@@ -157,10 +211,10 @@ class OnboardingTests(unittest.TestCase):
         self.assertFalse(active_policy["host_model"]["durable_auto_promotion"])
 
     def test_integration_configs_are_vault_bound_and_server_enforced(self) -> None:
-        payload = answers()
+        payload = operational_answers()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            plan = onboarding_plan(root, payload)
+            plan = operational_setup_plan(root, payload)
 
         integrations = plan["integrations"]
         codex = tomllib.loads(integrations["mcp_configs"]["codex"])["mcp_servers"]["ai-dememory"]
@@ -176,10 +230,10 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn(str(root.resolve()), codex_hook["command"])
 
     def test_docker_schedule_preview_requires_and_preserves_immutable_image(self) -> None:
-        payload = answers()
+        payload = operational_answers()
         payload["schedule"] = {"mode": "docker", "image": PINNED_TEST_IMAGE}
         with tempfile.TemporaryDirectory() as tmp:
-            plan = onboarding_plan(Path(tmp), payload)
+            plan = operational_setup_plan(Path(tmp), payload)
 
         command = plan["integrations"]["schedule_plan_command"]
         self.assertTrue(plan["resource_policy"]["scheduler_image_immutable"])
@@ -188,16 +242,17 @@ class OnboardingTests(unittest.TestCase):
 
         payload["schedule"] = {"mode": "docker", "image": "ai-dememory:latest"}
         with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "immutable"):
-            onboarding_plan(Path(tmp), payload)
+            operational_setup_plan(Path(tmp), payload)
 
     def test_session_proposals_require_proposals_model_policy(self) -> None:
-        contradictory = answers()
+        contradictory = operational_answers()
         contradictory["automation"] = {"intensity": "balanced", "model_policy": "off"}
+        contradictory["learning"] = {"session_proposals": True}
         with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(
             ValueError,
             "model_policy=proposals",
         ):
-            onboarding_plan(Path(tmp), contradictory)
+            operational_setup_plan(Path(tmp), contradictory)
 
     def test_invalid_resource_override_fails_closed_to_profile_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,17 +336,39 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("plan_sha256:", output.getvalue())
         self.assertIn("--apply --expect-plan-sha256", output.getvalue())
-        self.assertIn("MCP profile/idle lease:", output.getvalue())
-        self.assertIn("Provider/maintenance ceilings:", output.getvalue())
+        self.assertIn("Reviewed by: Unit Test", output.getvalue())
+        self.assertNotIn("MCP profile/idle lease:", output.getvalue())
 
-    def test_guided_wizard_previews_then_applies_same_answers_once(self) -> None:
+    def test_interactive_onboard_collects_only_personal_baseline(self) -> None:
         prompted_answers = [
             "Unit Test Reviewer",
             "Prefer clear, safe work.",
             "Run narrow tests first.",
             "Recall reviewed memory.",
             "",
-            "",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ) as prompt, redirect_stdout(output):
+                exit_code = onboarding_main(["--root", tmp])
+
+            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertFalse((root / "memories").exists())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(prompt.call_count, len(prompted_answers))
+        self.assertIn("durable baseline only", output.getvalue())
+        self.assertIn("--apply --expect-plan-sha256", output.getvalue())
+
+    def test_operational_setup_rejects_non_object_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "JSON object"):
+            operational_setup_plan(Path(tmp), [])  # type: ignore[arg-type]
+
+    def test_guided_wizard_previews_then_applies_operational_answers_once(self) -> None:
+        prompted_answers = [
             "",
             "",
             "yes",
@@ -302,29 +379,25 @@ class OnboardingTests(unittest.TestCase):
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ) as prompt, redirect_stdout(output):
-                exit_code = onboarding_main(["--root", tmp, "--guided"])
+                exit_code = operational_main(["--root", tmp])
 
-            values = (root / "memories/durable/onboarding-values.md").read_text(encoding="utf-8")
             config = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
+            memories_exist = (root / "memories").exists()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(prompt.call_count, len(prompted_answers))
         self.assertIn("Preview:", output.getvalue())
         self.assertIn("Applied:", output.getvalue())
+        self.assertIn("operational vault configuration only", output.getvalue())
         self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
-        self.assertIn("reviewed_by: \"Unit Test Reviewer\"", values)
+        self.assertIn("Optional durable baseline", output.getvalue())
+        self.assertFalse(memories_exist)
         self.assertIn('intensity = "balanced"', config)
 
     def test_guided_wizard_decline_writes_nothing_and_is_incomplete(self) -> None:
         prompted_answers = [
-            "Unit Test Reviewer",
-            "Prefer clear, safe work.",
-            "Run narrow tests first.",
-            "Recall reviewed memory.",
-            "",
             "minimal",
             "off",
-            "",
             "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
@@ -333,13 +406,13 @@ class OnboardingTests(unittest.TestCase):
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ), redirect_stdout(output):
-                exit_code = onboarding_main(["--root", tmp, "--guided"])
+                exit_code = operational_main(["--root", tmp])
 
             self.assertFalse((root / "memories").exists())
             self.assertFalse((root / ".ai-dememory.toml").exists())
 
         self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
-        self.assertIn("Onboarding was not applied", output.getvalue())
+        self.assertIn("Setup was not applied", output.getvalue())
         self.assertNotIn("Applied:", output.getvalue())
 
     def test_guided_json_input_remains_passive_and_noninteractive(self) -> None:
@@ -347,13 +420,12 @@ class OnboardingTests(unittest.TestCase):
             root = Path(tmp)
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
-                exit_code = onboarding_main(
+                exit_code = operational_main(
                     [
                         "--root",
                         tmp,
-                        "--guided",
                         "--input-json",
-                        json.dumps(answers()),
+                        json.dumps(operational_answers()),
                         "--json",
                     ]
                 )
@@ -365,26 +437,173 @@ class OnboardingTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertFalse(payload["applied"])
         self.assertTrue(payload["can_apply"])
+        self.assertEqual(payload["setup_scope"], "operational")
+        self.assertEqual([item["path"] for item in payload["writes"]], [".ai-dememory.toml"])
 
-    def test_guided_json_without_answers_rejects_instead_of_prompting(self) -> None:
+    def test_guided_input_file_without_json_is_a_passive_preview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            input_path = Path(tmp) / "setup.json"
+            input_path.write_text(json.dumps(operational_answers()), encoding="utf-8")
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp, "--input-file", str(input_path)])
+
+            self.assertFalse((Path(tmp) / ".ai-dememory.toml").exists())
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Preview:", output.getvalue())
+        self.assertIn("plan_sha256:", output.getvalue())
+
+    def test_guided_stdin_without_json_is_a_passive_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            stream = io.StringIO(json.dumps(operational_answers()))
+            with patch.object(onboarding.sys, "stdin", stream), patch(
+                "builtins.input", side_effect=AssertionError("must not prompt")
+            ), redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp, "--stdin"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Preview:", output.getvalue())
+
+    def test_setup_rejects_personal_cli_flags_instead_of_ignoring_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = operational_main(
+                    ["--root", tmp, "--reviewed-by", "Reviewer", "--json"]
+                )
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("does not accept personal baseline flags", payload["error"])
+
+    def test_onboard_rejects_operational_cli_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = onboarding_main(
+                    [
+                        "--root", tmp, "--reviewed-by", "Reviewer", "--value", "Safe work",
+                        "--preference", "Narrow tests", "--recommendation", "Recall first",
+                        "--intensity", "minimal", "--json",
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("durable baseline fields only", payload["error"])
+
+    def test_guided_json_without_answers_previews_safe_operational_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=AssertionError("must not prompt")
             ), redirect_stdout(output):
-                exit_code = onboarding_main(["--root", tmp, "--guided", "--json"])
+                exit_code = operational_main(["--root", tmp, "--json"])
+            payload = json.loads(output.getvalue())
+
+            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertFalse((root / "memories").exists())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["applied"])
+        self.assertEqual(payload["setup_scope"], "operational")
+        self.assertEqual(payload["automation"]["intensity"], "balanced")
+        self.assertEqual(payload["automation"]["model_policy"], "off")
+
+    def test_guided_json_apply_requires_exact_operational_fingerprint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            preview_output = io.StringIO()
+            with redirect_stdout(preview_output):
+                preview_exit = operational_main(["--root", tmp, "--json"])
+            preview = json.loads(preview_output.getvalue())
+
+            drift_output = io.StringIO()
+            with redirect_stdout(drift_output):
+                drift_exit = operational_main(
+                    [
+                        "--root", tmp, "--intensity", "minimal", "--apply",
+                        "--expect-plan-sha256", preview["plan_sha256"], "--json",
+                    ]
+                )
+
+            apply_output = io.StringIO()
+            with redirect_stdout(apply_output):
+                apply_exit = operational_main(
+                    [
+                        "--root", tmp, "--apply", "--expect-plan-sha256",
+                        preview["plan_sha256"], "--json",
+                    ]
+                )
+            applied = json.loads(apply_output.getvalue())
+
+            self.assertTrue((root / ".ai-dememory.toml").exists())
+            self.assertFalse((root / "memories").exists())
+
+        self.assertEqual(preview_exit, 0)
+        self.assertEqual(drift_exit, 1)
+        self.assertIn("changed after preview", json.loads(drift_output.getvalue())["error"])
+        self.assertEqual(apply_exit, 0)
+        self.assertTrue(applied["applied"])
+        self.assertEqual(applied["changed"], [".ai-dememory.toml"])
+        self.assertFalse(applied["installs_hooks"])
+        self.assertFalse(applied["installs_schedules"])
+
+    def test_setup_wizard_generated_json_command_executes_without_prompting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
+                exit_code = unified_cli.main(["--root", tmp, "setup", "wizard", "--json"])
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["setup_scope"], "operational")
+
+    def test_guided_json_rejects_personal_baseline_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
+                exit_code = operational_main(
+                    ["--root", tmp, "--input-json", json.dumps(answers()), "--json"]
+                )
             payload = json.loads(output.getvalue())
 
         self.assertEqual(exit_code, 1)
         self.assertFalse(payload["ok"])
-        self.assertIn("JSON onboarding is non-interactive", payload["error"])
+        self.assertIn("use ai-dememory onboard", payload["error"])
 
     def test_setup_wizard_alias_enables_guided_mode(self) -> None:
         with patch("ai_dememory_tool.cli.run_packaged_command", return_value=0) as runner:
             exit_code = unified_cli.main(["setup", "wizard", "--json"])
 
         self.assertEqual(exit_code, 0)
-        runner.assert_called_once_with("onboard", ["--guided", "--json"])
+        runner.assert_called_once_with(
+            "onboard",
+            ["--json"],
+            onboarding_mode="operational",
+        )
+
+    def test_direct_onboard_cannot_select_internal_operational_mode(self) -> None:
+        with self.assertRaises(SystemExit):
+            onboarding_main(["--guided", "--json"])
+
+    def test_command_help_exposes_only_the_selected_scope(self) -> None:
+        setup_help = io.StringIO()
+        with self.assertRaises(SystemExit), redirect_stdout(setup_help):
+            onboarding_main(["--help"], mode="operational")
+        onboard_help = io.StringIO()
+        with self.assertRaises(SystemExit), redirect_stdout(onboard_help):
+            onboarding_main(["--help"])
+
+        self.assertIn("--intensity", setup_help.getvalue())
+        self.assertNotIn("--reviewed-by", setup_help.getvalue())
+        self.assertIn("--reviewed-by", onboard_help.getvalue())
+        self.assertNotIn("--intensity", onboard_help.getvalue())
 
     def test_init_wizard_propagates_incomplete_guided_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -397,19 +616,17 @@ class OnboardingTests(unittest.TestCase):
                 exit_code = unified_cli.init_vault([str(target), "--wizard"])
 
         self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
-        runner.assert_called_once_with("onboard", ["--root", str(target.resolve()), "--guided"])
+        runner.assert_called_once_with(
+            "onboard",
+            ["--root", str(target.resolve())],
+            onboarding_mode="operational",
+        )
         self.assertNotIn("Then run `ai-dememory doctor`", output.getvalue())
 
-    def test_init_wizard_completes_guided_onboarding_in_one_session(self) -> None:
+    def test_init_wizard_completes_operational_setup_without_personal_memory(self) -> None:
         prompted_answers = [
-            "Unit Test Reviewer",
-            "Prefer clear, safe work.",
-            "Run narrow tests first.",
-            "Recall reviewed memory.",
-            "",
             "balanced",
             "off",
-            "",
             "yes",
         ]
         with tempfile.TemporaryDirectory() as tmp:
@@ -420,14 +637,16 @@ class OnboardingTests(unittest.TestCase):
             ), patch("builtins.input", side_effect=prompted_answers), redirect_stdout(output):
                 exit_code = unified_cli.init_vault([str(target), "--wizard"])
 
-            values = (target / "memories/durable/onboarding-values.md").read_text(encoding="utf-8")
+            config = (target / ".ai-dememory.toml").read_text(encoding="utf-8")
+            personal_memory_exists = (target / "memories/durable/onboarding-values.md").exists()
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Initialized ai-dememory vault", output.getvalue())
         self.assertIn("Preview:", output.getvalue())
         self.assertIn("Applied:", output.getvalue())
         self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
-        self.assertIn("reviewed_by: \"Unit Test Reviewer\"", values)
+        self.assertIn('intensity = "balanced"', config)
+        self.assertFalse(personal_memory_exists)
 
     def test_apply_requires_matching_preview_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other_tmp:
@@ -447,7 +666,7 @@ class OnboardingTests(unittest.TestCase):
     def test_apply_rejects_config_drift_after_fingerprint_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            plan = onboarding_plan(root, answers())
+            plan = operational_setup_plan(root, operational_answers())
             real_batch_write = onboarding.atomic_batch_write
 
             def drift_then_write(batch: object) -> None:
@@ -461,7 +680,7 @@ class OnboardingTests(unittest.TestCase):
                 "onboarding.atomic_batch_write",
                 side_effect=drift_then_write,
             ), self.assertRaisesRegex(ValueError, "changed after review"):
-                apply_onboarding(root, answers(), str(plan["plan_sha256"]))
+                apply_operational_setup(root, operational_answers(), str(plan["plan_sha256"]))
 
             self.assertEqual(
                 (root / ".ai-dememory.toml").read_text(encoding="utf-8"),
@@ -475,12 +694,12 @@ class OnboardingTests(unittest.TestCase):
             config_path = root / ".ai-dememory.toml"
             original = b"[legacy]\r\nenabled = true\r\n"
             config_path.write_bytes(original)
-            plan = onboarding_plan(root, answers())
+            plan = operational_setup_plan(root, operational_answers())
             config_write = next(
                 item for item in plan["writes"] if item["path"] == ".ai-dememory.toml"
             )
 
-            result = apply_onboarding(root, answers(), str(plan["plan_sha256"]))
+            result = apply_operational_setup(root, operational_answers(), str(plan["plan_sha256"]))
             updated = config_path.read_text(encoding="utf-8")
 
         self.assertEqual(config_write["current_sha256"], hashlib.sha256(original).hexdigest())

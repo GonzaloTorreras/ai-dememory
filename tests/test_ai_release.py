@@ -72,10 +72,14 @@ class AiReleaseGuardTests(unittest.TestCase):
         self.assertEqual(stats["status"], "insufficient_evidence")
         self.assertIsNone(stats["recall"])
 
-    def test_current_version_stays_unreleased_until_release_prep(self) -> None:
+    def test_current_release_prep_has_exact_dated_identity(self) -> None:
         version = project_version(ROOT)
-        with self.assertRaisesRegex(ValueError, "no dated"):
-            validate_identity(ROOT, f"v{version}", version_only=True)
+        identity = validate_identity(ROOT, f"v{version}", version_only=True)
+
+        self.assertEqual(identity.version, version)
+        self.assertEqual(identity.tag, f"v{version}")
+        self.assertTrue(identity.prerelease)
+        self.assertIn(f"## [{version}] - ", identity.changelog_heading)
 
     def test_dated_version_has_matching_release_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

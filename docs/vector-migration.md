@@ -49,11 +49,12 @@ report is secret-scanned before writing.
 
 ## Future Hybrid Score
 
-`PLAN.md` R7 covers the broader super-search direction: fuzzy lexical matching,
-candidate-bundle review, optional graph/vector signals, and an optional
-low-latency retrieval reviewer connector. That work is still gated by policy,
-privacy, traceability, and measured fixture failures; it should not be treated
-as permission to enable vectors by default.
+The non-normative `PLAN.md` R7 appendix covers broader super-search ideas:
+fuzzy lexical matching, candidate-bundle review, optional graph/vector signals,
+and an optional low-latency retrieval reviewer connector. That work must first
+enter the normative planning frontier and remains gated by policy, privacy,
+traceability, and measured fixture failures; it is not permission to enable
+vectors by default.
 
 ```text
 score =

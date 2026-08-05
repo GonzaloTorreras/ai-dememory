@@ -22,6 +22,7 @@ from doctor import run_checks
 from eval_recall import load_fixtures
 from memorylib import repo_root
 from mcp_inventory import build_inventory, validate_inventory_docs
+from planning_contract import validate_planning_contract
 from pr_draft_guard import validate_pr_draft
 from pr_template_guard import validate_pr_template
 from publish_guard import validate_publish_workflow
@@ -33,7 +34,6 @@ from verify_mcp_contract import validate_contract
 from ai_dememory_tool.mcp_profiles import PUBLIC_MCP_TOOLS
 
 
-EXPECTED_VERSION = "2.1.0"
 LEGACY_DEFAULT_PLUGIN_MCP_TOOLS = (
     "memory.search",
     "memory.get",
@@ -160,9 +160,16 @@ def check_versions(root: Path) -> ReleaseCheck:
     package_version = match.group(1) if match else None
     if project_version != package_version:
         return fail("version", f"pyproject={project_version}, package={package_version}")
-    if project_version != EXPECTED_VERSION:
-        return warn("version", f"current version is {project_version}, expected {EXPECTED_VERSION}")
     return ok("version", project_version)
+
+
+def plugin_version_for_package(project_version: str) -> str:
+    """Map an exact PEP 440 release identity to equivalent SemVer."""
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)(?:rc(\d+))?", project_version)
+    if not match:
+        raise ValueError(f"unsupported package version for plugin identity: {project_version}")
+    release, rc_number = match.groups()
+    return f"{release}-rc.{rc_number}" if rc_number is not None else release
 
 
 def check_required_docs(root: Path) -> ReleaseCheck:
@@ -170,8 +177,15 @@ def check_required_docs(root: Path) -> ReleaseCheck:
         "LICENSE",
         "AGENTS.md",
         "CLAUDE.md",
+        "DEVELOPMENT.md",
         "Dockerfile",
         ".dockerignore",
+        "contracts/planning/README.md",
+        "contracts/planning/v3-execution-ledger.json",
+        "contracts/planning/v3-execution-sequence.json",
+        "contracts/planning/v3-execution-sequence.schema.json",
+        "docs/development-status.md",
+        "docs/v3-hybrid-visual-multiplatform-roadmap.md",
         "docs/mcp-v2.md",
         "docs/mcp-v2-gap-analysis.md",
         "docs/install.md",
@@ -478,6 +492,13 @@ def check_required_docs(root: Path) -> ReleaseCheck:
     return ok("required_docs", f"{len(required)} file(s)")
 
 
+def check_planning_contract(root: Path) -> ReleaseCheck:
+    errors = validate_planning_contract(root)
+    if errors:
+        return fail("planning_contract", f"{len(errors)} issue(s): " + "; ".join(errors[:3]))
+    return ok("planning_contract", "schema, DAG, frontier, ledger, and evidence paths valid")
+
+
 def check_license(root: Path) -> ReleaseCheck:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject["project"]
@@ -685,14 +706,27 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
     mcp = load_json(plugin_root / ".mcp.json", errors, "plugin MCP config")
     hooks = load_json(plugin_root / "hooks" / "hooks.json", errors, "plugin hooks")
     marketplace = load_json(root / ".agents" / "plugins" / "marketplace.json", errors, "marketplace")
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project_version = str(metadata["project"]["version"])
+    try:
+        expected_plugin_version = plugin_version_for_package(project_version)
+    except ValueError as exc:
+        errors.append(str(exc))
+        expected_plugin_version = ""
 
     if manifest:
         if manifest.get("name") != "ai-dememory":
             errors.append("plugin name must be ai-dememory")
-        if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("version") or "")):
+        if not re.fullmatch(
+            r"\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?",
+            str(manifest.get("version") or ""),
+        ):
             errors.append("plugin version must be semver")
-        elif manifest.get("version") != EXPECTED_VERSION:
-            errors.append(f"plugin version must match package version {EXPECTED_VERSION}")
+        elif manifest.get("version") != expected_plugin_version:
+            errors.append(
+                "plugin version must match the exact package release identity "
+                f"{expected_plugin_version} (package {project_version})"
+            )
         if manifest.get("skills") not in {"./skills/", "skills"}:
             errors.append("plugin skills path must point to ./skills/")
         if manifest.get("mcpServers") not in {"./.mcp.json", ".mcp.json"}:
@@ -923,6 +957,7 @@ def run_release_checks(root: Path, pr_url: str | None = None) -> list[ReleaseChe
         check_doctor(root),
         check_versions(root),
         check_required_docs(root),
+        check_planning_contract(root),
         check_license(root),
         check_vault_template(root),
         check_recall_fixtures(root),

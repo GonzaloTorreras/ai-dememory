@@ -40,13 +40,13 @@ exists. That means the measured vector gate is implemented, not that embeddings
 are enabled. Embeddings remain disabled until reviewed recall failures justify a
 separate experiment.
 
-The next strategic roadmap is `PLAN.md`. It defines the R0-R7 future direction:
-productization and plan integrity, local shared-memory policy, adversarial
-evaluation, traceability, supersession, quarantine, read-only governance
-surfaces, and gated super search. The detailed governance appendix remains in
-`docs/shared-memory-governance-roadmap.md`. These future plans are intentionally
-documented separately because `ai-dememory roadmap status` reports current v2
-implementation evidence, not future work.
+The normative future order is
+`docs/v3-hybrid-visual-multiplatform-roadmap.md` plus
+`contracts/planning/v3-execution-sequence.json`. `PLAN.md` and
+`docs/shared-memory-governance-roadmap.md` retain useful R0-R7/P0-P6 research,
+but are non-executable appendices and cannot advance a task or gate. They remain
+separate because `ai-dememory roadmap status` reports current v2 implementation
+evidence, not future work.
 
 The command does not replace release gates. `release-check`,
 `release-evidence`, manual acceptance, recall fixture freshness, and CI remain

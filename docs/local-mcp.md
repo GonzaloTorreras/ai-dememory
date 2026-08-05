@@ -46,7 +46,7 @@ AI_DEMEMORY_ROOT = "<vault path>"
 It does not generate a server profile, required-root flag, enabled-tool
 allowlist, or idle lease.
 
-## Unreleased 2.1.0 Generated Config
+## Unreleased 2.1.0rc1 Generated Config
 
 To test the current source branch instead of stable PyPI 2.0.0, install from
 GitHub in a clean pipx environment:

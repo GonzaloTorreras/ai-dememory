@@ -1,8 +1,9 @@
 # Shared Memory Governance Roadmap
 
-This roadmap is the detailed governance appendix for the master future plan in
-`../PLAN.md`. The master plan is the canonical R0-R7 roadmap; this document
-keeps the detailed P0-P6 shared-memory governance work breakdown.
+This roadmap is a non-normative governance research appendix derived from the
+historical R0-R7 work in `../PLAN.md`. Executable task order and state live only
+in `v3-hybrid-visual-multiplatform-roadmap.md` and `../contracts/planning/**`;
+this document keeps the detailed P0-P6 shared-memory research breakdown.
 
 The goal is to move from a reviewed personal vault to governed shared memory
 that can be used safely by multiple LLM tools, agents, projects, and review
@@ -423,6 +424,7 @@ P4 is intentionally after the governance and evaluation work. The repository
 should not optimize retrieval before it can prove that retrieval is allowed,
 current, attributable, and resistant to poisoning.
 
-The super-search and retrieval-review direction is tracked in `../PLAN.md` R7.
-It should remain gated behind the policy, evaluation, traceability, and
+The historical super-search and retrieval-review direction is described in
+`../PLAN.md` R7. Any implementation must first appear on the normative planning
+frontier and remain gated behind the policy, evaluation, traceability, and
 quarantine work described here.

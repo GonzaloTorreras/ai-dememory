@@ -5,6 +5,23 @@ Private personal/project memory belongs in a separately bound vault and must
 never be treated as repository content.
 The checked-in `memories/**` files are public demo/validation fixtures only.
 
+## Development Continuity
+
+- Start every non-trivial repository task with `DEVELOPMENT.md` and
+  `docs/development-status.md` after inspecting the active branch, PR, remotes,
+  and `git status --short --branch`.
+- `docs/v3-hybrid-visual-multiplatform-roadmap.md` and
+  `contracts/planning/**` are the only normative V3 task/DAG/state sources.
+  `PLAN.md` and research appendices are not executable backlogs.
+- Map work to existing task and batch IDs before adding a task, tool, or ADR.
+  Work on the first legal frontier and keep V2 fixes small and compatible.
+- The PR body is the durable branch handoff. Record base/head, task and batch
+  IDs, owned paths, completed scope, formal evidence, tests run/not run,
+  blockers, rollback, next legal action, and the pending approval boundary.
+- Only the lead integrator updates `docs/development-status.md`, and only when
+  its checkout, frontier, blockers, release state, or reproducible evidence
+  changes. Subagents return scoped handoffs without editing it.
+
 ## GitHub Access
 
 - Prefer the native Codex GitHub connector over gh for Codex-driven GitHub work.
@@ -17,7 +34,7 @@ The checked-in `memories/**` files are public demo/validation fixtures only.
   clean branch based on public `origin/main`; never merge an archive worktree
   wholesale or reuse its release evidence, pins, or repository identity.
 
-## PR And Merge Review
+## PR And Merge Approval
 
 - Codex is the operational owner for implementation, maintenance, branches,
   routine merges, release evidence, documentation, and package readiness. A
@@ -48,9 +65,9 @@ The checked-in `memories/**` files are public demo/validation fixtures only.
   maintainer, and subagents are review processes rather than GitHub identities.
   Do not create aliases, secondary accounts, bot approvals, or writable status
   checks to simulate another collaborator.
-- Routine merges may proceed under the owner's standing delegation only with
-  strict required CI, a fresh `READY` review, the exact tuple receipt, no open
-  review threads, and an API merge bound with `expected_head_sha`.
+- Merge only with explicit user approval, strict required CI, a fresh `READY`
+  review, the exact tuple receipt, no open review threads, and an API merge
+  bound with `expected_head_sha`.
 - Do not change repository visibility, create or push release tags, publish
   packages, rotate secrets, dispatch trusted publishing, or perform production
   deployment without explicit user approval, even when evidence and CI are
@@ -59,20 +76,16 @@ The checked-in `memories/**` files are public demo/validation fixtures only.
   or weaken OIDC. PyPI rollback is yank plus fix-forward with a new version,
   never overwrite.
 
-## Agent And Process Budget
+## Agent And Process Hygiene
 
-- Prefer the root agent for repository exploration, implementation, mechanical
-  validation, and repeated follow-up work. Do not fan out candidate-by-candidate
-  reviews across a large worker pool.
-- Run at most one subagent at a time by default. The required final independent
-  reviewer is the normal exception, and it must still be a single fresh,
-  read-only turn.
+- Prefer the root agent for implementation and mechanical validation. Use only
+  bounded, focused read-only subagents for independent exploration, security,
+  tests, maintainability, and the required final review.
 - Give each subagent one bounded assignment. Do not recycle a completed agent
   through repeated follow-up turns; a host may start another full MCP/browser
   tool stack for every turn even when the logical agent name is reused.
-- Before starting a subagent, confirm that no earlier subagent is still active.
-  After it finishes, confirm that the root agent is the only live agent before
-  continuing.
+- Before release handoff, confirm that no earlier subagent remains active and
+  that the root agent owns the only required live process tree.
 - If helper processes remain after all subagents finish, stop creating agents.
   Inspect parent/child ownership and request approval before terminating only
   the exact process trees attributable to completed agents. Never kill
