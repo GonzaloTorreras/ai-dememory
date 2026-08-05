@@ -44,7 +44,8 @@ Use a sole-owner, exact-tuple review receipt:
   `verify` job, and the legacy receipt marker unless a future ADR defines a
   genuinely separate trust domain;
 - bind every required CI command exactly once to the single static `verify` job,
-  its fixed hosted runner, and non-overridden execution context.
+  its fixed hosted runner, exact checkout/setup/command step inventory, and
+  non-overridden execution context.
 
 Routine merges are covered by the owner's standing delegation. Package
 publication, release tags, trusted publishing, secrets, visibility, destructive

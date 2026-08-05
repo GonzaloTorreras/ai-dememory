@@ -11852,11 +11852,45 @@ jobs:
             "        run: python -m unittest discover -s tests -t .\n          || true",
             1,
         )
+        mapping_like = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          true:|| true",
+            1,
+        )
+        sequence_like = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          - x|| true",
+            1,
+        )
 
         issues = validate_ci_workflow_text(weakened)
         targets = {issue.target for issue in issues}
+        mapping_like_targets = {issue.target for issue in validate_ci_workflow_text(mapping_like)}
+        sequence_like_targets = {issue.target for issue in validate_ci_workflow_text(sequence_like)}
 
         self.assertIn(".github/workflows/ci.yml:scalar_continuation", targets)
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", mapping_like_targets)
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", sequence_like_targets)
+
+    def test_ci_guard_rejects_extra_verify_steps_and_checkout_ref_override(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        extra_step = current.replace(
+            "      - name: Compile Python",
+            "      - name: Replace reviewed tree\n"
+            "        run: git checkout --force d5effee51cb115a055310c2858ac8ea2f7c06251\n"
+            "      - name: Compile Python",
+            1,
+        )
+        checkout_override = current.replace(
+            "          persist-credentials: false",
+            "          persist-credentials: false\n          ref: main",
+        )
+
+        extra_targets = {issue.target for issue in validate_ci_workflow_text(extra_step)}
+        checkout_targets = {issue.target for issue in validate_ci_workflow_text(checkout_override)}
+
+        self.assertIn("ci.yml:verify_step_inventory", extra_targets)
+        self.assertIn("ci.yml:verify_step_inventory", checkout_targets)
 
     def test_ci_guard_rejects_duplicate_or_renamed_protected_check(self) -> None:
         current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

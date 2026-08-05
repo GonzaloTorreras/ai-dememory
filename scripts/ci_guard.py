@@ -53,6 +53,46 @@ REQUIRED_COMMANDS = {
     "post_smoke_package_build_artifact_guard": "python scripts/ai_dememory.py package-build-smoke --check-clean",
 }
 
+VERIFY_COMMAND_ORDER = (
+    "compile",
+    "validate",
+    "secret_scan",
+    "verify_mcp",
+    "artifact_guard",
+    "vault_setup_guard",
+    "pr_template_guard",
+    "pr_draft_guard",
+    "acceptance_guard",
+    "adr_guard",
+    "release_checklist_guard",
+    "release_check",
+    "roadmap_status",
+    "api_smoke",
+    "unit_tests",
+    "index",
+    "search",
+    "eval_recall",
+    "strict_pr_release_check",
+    "mcp_smoke",
+    "install_smoke",
+    "package_build_smoke",
+    "docker_smoke",
+    "post_smoke_package_build_artifact_guard",
+)
+
+VERIFY_ACTION_STEPS = (
+    (
+        "Check out repository",
+        CHECKOUT_ACTION,
+        [("persist-credentials", "false")],
+    ),
+    (
+        "Set up Python",
+        SETUP_PYTHON_ACTION,
+        [("python-version", "3.12")],
+    ),
+)
+
 FINAL_ARTIFACT_GUARD_NAME = "Final package build artifact guard"
 STRICT_PR_RELEASE_CHECK_NAME = "Strict PR release readiness check"
 MCP_RUNTIME_SMOKE_NAME = "MCP runtime smoke"
@@ -66,6 +106,15 @@ class CiGuardIssue:
 
 def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _plain_scalar_value(value: str) -> str:
+    """Normalize the simple quoted or unquoted scalars allowed by the workflow subset."""
+
+    value = normalize(value)
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def validate_pages_validation_workflow_text(text: str) -> list[CiGuardIssue]:
@@ -464,10 +513,13 @@ def _simple_yaml_mapping(line: str) -> tuple[str, str] | None:
     stripped = line.lstrip(" ")
     if not stripped or stripped.startswith("-"):
         return None
-    match = re.match(r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)\s*:\s*(?P<value>.*)$", stripped)
+    match = re.match(
+        r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)\s*:(?P<value>(?:[ \t].*)?)$",
+        stripped,
+    )
     if not match:
         return None
-    return match.group("key"), match.group("value")
+    return match.group("key"), match.group("value").lstrip(" \t")
 
 
 def _block_style_workflow_jobs(structure_text: str) -> tuple[list[tuple[str, str]], str | None]:
@@ -718,10 +770,23 @@ def _workflow_structure_contract_issues(
 
     issues: list[CiGuardIssue] = []
     lines = structure_text.splitlines()
-    for line in lines:
+    for line_index, line in enumerate(lines):
         stripped = line.lstrip(" ")
-        if not stripped or stripped.startswith("- ") or _simple_yaml_mapping(line) is not None:
+        if not stripped or _simple_yaml_mapping(line) is not None:
             continue
+        if stripped.startswith("- "):
+            sequence_indent = len(line) - len(line.lstrip(" "))
+            parent_entry: tuple[str, str] | None = None
+            for previous in reversed(lines[:line_index]):
+                if not previous.strip():
+                    continue
+                previous_indent = len(previous) - len(previous.lstrip(" "))
+                if previous_indent >= sequence_indent:
+                    continue
+                parent_entry = _simple_yaml_mapping(previous)
+                break
+            if parent_entry is not None and not parent_entry[1]:
+                continue
         issues.append(
             CiGuardIssue(
                 f"{display}:scalar_continuation",
@@ -1058,6 +1123,68 @@ def validate_ci_workflow_text(text: str) -> list[CiGuardIssue]:
     step_blocks, steps_error = _job_step_blocks(verify_block) if verify_block else ([], None)
     if verify_block and steps_error:
         issues.append(CiGuardIssue("ci.yml:verify_steps", steps_error))
+
+    expected_step_count = len(VERIFY_ACTION_STEPS) + len(VERIFY_COMMAND_ORDER)
+    if step_blocks and len(step_blocks) != expected_step_count:
+        issues.append(
+            CiGuardIssue(
+                "ci.yml:verify_step_inventory",
+                f"verify must contain exactly {expected_step_count} allowlisted steps in canonical order",
+            )
+        )
+
+    for position, (expected_name, expected_action, expected_with) in enumerate(VERIFY_ACTION_STEPS):
+        if position >= len(step_blocks):
+            break
+        entries = _step_direct_mapping_entries(step_blocks[position])
+        keys = [key.lower() for key, _ in entries]
+        names = [_plain_scalar_value(value) for key, value in entries if key.lower() == "name"]
+        actions = [_plain_scalar_value(value) for key, value in entries if key.lower() == "uses"]
+        with_entries = _step_nested_mapping_entries(step_blocks[position], "with")
+        normalized_with = (
+            [(key, _plain_scalar_value(value)) for key, value in with_entries]
+            if with_entries is not None
+            else None
+        )
+        if (
+            sorted(keys) != ["name", "uses", "with"]
+            or names != [expected_name]
+            or actions != [expected_action]
+            or normalized_with != expected_with
+        ):
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_step_inventory",
+                    f"verify step {position + 1} must be the exact allowlisted {expected_name} action and configuration",
+                )
+            )
+
+    for offset, command_name in enumerate(VERIFY_COMMAND_ORDER, start=len(VERIFY_ACTION_STEPS)):
+        if offset >= len(step_blocks):
+            break
+        entries = _step_direct_mapping_entries(step_blocks[offset])
+        keys = [key.lower() for key, _ in entries]
+        expected_keys = (
+            ["env", "if", "name", "run"]
+            if command_name in {"strict_pr_release_check", "mcp_smoke"}
+            else ["name", "run"]
+        )
+        names = [_plain_scalar_value(value) for key, value in entries if key.lower() == "name"]
+        runs = [normalize(value) for key, value in entries if key.lower() == "run"]
+        if (
+            sorted(keys) != expected_keys
+            or len(names) != 1
+            or not names[0]
+            or "${{" in names[0]
+            or runs != [normalize(REQUIRED_COMMANDS[command_name])]
+        ):
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_step_inventory",
+                    f"verify step {offset + 1} must run only the canonical {command_name} command",
+                )
+            )
+
     run_steps: dict[str, list[tuple[int, str]]] = {}
     for position, step_block in enumerate(step_blocks):
         entries = _step_direct_mapping_entries(step_block)
