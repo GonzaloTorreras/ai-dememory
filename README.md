@@ -86,8 +86,11 @@ ai-dememory setup wizard
 ```
 
 The initial wizard is preview-first. It asks for reviewed baseline values and
-one bounded operating envelope, then prints an exact fingerprint before any
-apply:
+one bounded operating envelope, prints a reviewable summary and exact fingerprint,
+then asks whether to apply that same in-memory plan. Declining leaves onboarding
+incomplete and writes nothing. JSON, stdin, input-file, `--dry-run`, and direct
+`ai-dememory onboard` flows remain passive two-step interfaces: apply them only
+by supplying the exact reviewed fingerprint.
 
 | Intensity | Automatic recall | Local jobs after explicit install | Import cap/run | MCP profile |
 | --- | ---: | ---: | ---: | --- |
@@ -95,12 +98,15 @@ apply:
 | `balanced` | up to 1,200 tokens per eligible turn | 8/week | 20 | `core` |
 | `active` | up to 2,400 tokens per eligible turn | 8/week | 50 | `working` |
 
-`balanced` is the default. Separately choose host-model policy `off`,
+`balanced` is the default. `active` is the maximum bounded profile, not an
+unlimited mode. Separately choose host-model policy `off`,
 `advisory`, or `proposals`. ai-dememory itself makes zero model and embedding
 calls in all profiles; `advisory` and `proposals` only authorize bounded work by
 an already active host agent, whose normal token usage still applies. No policy
 automatically promotes durable memory. Installation and the wizard do not
-install hooks or scheduler jobs.
+install MCP configuration, hooks, provider imports, or scheduler jobs. After a
+confirmed interactive apply, the wizard prints the exact vault-local health,
+index, and MCP-config commands to run next.
 
 Run from the repository root. On Windows PowerShell, use `py -3` if `python3`
 is not available.

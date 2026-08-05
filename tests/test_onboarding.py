@@ -12,6 +12,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+from ai_dememory_tool import cli as unified_cli
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -49,6 +51,11 @@ def answers() -> dict[str, object]:
 def apply_reviewed(root: Path, payload: dict[str, object]) -> dict[str, object]:
     plan = onboarding_plan(root, payload)
     return apply_onboarding(root, payload, str(plan["plan_sha256"]))
+
+
+class InteractiveStdin:
+    def isatty(self) -> bool:
+        return True
 
 
 class OnboardingTests(unittest.TestCase):
@@ -276,6 +283,151 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn("--apply --expect-plan-sha256", output.getvalue())
         self.assertIn("MCP profile/idle lease:", output.getvalue())
         self.assertIn("Provider/maintenance ceilings:", output.getvalue())
+
+    def test_guided_wizard_previews_then_applies_same_answers_once(self) -> None:
+        prompted_answers = [
+            "Unit Test Reviewer",
+            "Prefer clear, safe work.",
+            "Run narrow tests first.",
+            "Recall reviewed memory.",
+            "",
+            "",
+            "",
+            "",
+            "yes",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ) as prompt, redirect_stdout(output):
+                exit_code = onboarding_main(["--root", tmp, "--guided"])
+
+            values = (root / "memories/durable/onboarding-values.md").read_text(encoding="utf-8")
+            config = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(prompt.call_count, len(prompted_answers))
+        self.assertIn("Preview:", output.getvalue())
+        self.assertIn("Applied:", output.getvalue())
+        self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
+        self.assertIn("reviewed_by: \"Unit Test Reviewer\"", values)
+        self.assertIn('intensity = "balanced"', config)
+
+    def test_guided_wizard_decline_writes_nothing_and_is_incomplete(self) -> None:
+        prompted_answers = [
+            "Unit Test Reviewer",
+            "Prefer clear, safe work.",
+            "Run narrow tests first.",
+            "Recall reviewed memory.",
+            "",
+            "minimal",
+            "off",
+            "",
+            "no",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ), redirect_stdout(output):
+                exit_code = onboarding_main(["--root", tmp, "--guided"])
+
+            self.assertFalse((root / "memories").exists())
+            self.assertFalse((root / ".ai-dememory.toml").exists())
+
+        self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
+        self.assertIn("Onboarding was not applied", output.getvalue())
+        self.assertNotIn("Applied:", output.getvalue())
+
+    def test_guided_json_input_remains_passive_and_noninteractive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
+                exit_code = onboarding_main(
+                    [
+                        "--root",
+                        tmp,
+                        "--guided",
+                        "--input-json",
+                        json.dumps(answers()),
+                        "--json",
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+
+            self.assertFalse((root / "memories").exists())
+            self.assertFalse((root / ".ai-dememory.toml").exists())
+
+        self.assertEqual(exit_code, 0)
+        self.assertFalse(payload["applied"])
+        self.assertTrue(payload["can_apply"])
+
+    def test_guided_json_without_answers_rejects_instead_of_prompting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=AssertionError("must not prompt")
+            ), redirect_stdout(output):
+                exit_code = onboarding_main(["--root", tmp, "--guided", "--json"])
+            payload = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertIn("JSON onboarding is non-interactive", payload["error"])
+
+    def test_setup_wizard_alias_enables_guided_mode(self) -> None:
+        with patch("ai_dememory_tool.cli.run_packaged_command", return_value=0) as runner:
+            exit_code = unified_cli.main(["setup", "wizard", "--json"])
+
+        self.assertEqual(exit_code, 0)
+        runner.assert_called_once_with("onboard", ["--guided", "--json"])
+
+    def test_init_wizard_propagates_incomplete_guided_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "vault"
+            output = io.StringIO()
+            with patch(
+                "ai_dememory_tool.cli.run_packaged_command",
+                return_value=onboarding.GUIDED_DECLINED_EXIT_CODE,
+            ) as runner, redirect_stdout(output):
+                exit_code = unified_cli.init_vault([str(target), "--wizard"])
+
+        self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
+        runner.assert_called_once_with("onboard", ["--root", str(target.resolve()), "--guided"])
+        self.assertNotIn("Then run `ai-dememory doctor`", output.getvalue())
+
+    def test_init_wizard_completes_guided_onboarding_in_one_session(self) -> None:
+        prompted_answers = [
+            "Unit Test Reviewer",
+            "Prefer clear, safe work.",
+            "Run narrow tests first.",
+            "Recall reviewed memory.",
+            "",
+            "balanced",
+            "off",
+            "",
+            "yes",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "vault"
+            output = io.StringIO()
+            with patch.dict(os.environ, {}, clear=False), patch.object(
+                onboarding.sys, "stdin", InteractiveStdin()
+            ), patch("builtins.input", side_effect=prompted_answers), redirect_stdout(output):
+                exit_code = unified_cli.init_vault([str(target), "--wizard"])
+
+            values = (target / "memories/durable/onboarding-values.md").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Initialized ai-dememory vault", output.getvalue())
+        self.assertIn("Preview:", output.getvalue())
+        self.assertIn("Applied:", output.getvalue())
+        self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
+        self.assertIn("reviewed_by: \"Unit Test Reviewer\"", values)
 
     def test_apply_requires_matching_preview_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other_tmp:

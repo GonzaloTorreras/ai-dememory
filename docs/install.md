@@ -124,11 +124,16 @@ This section describes the current public source line, not the stable 2.0.0
 package. Install from GitHub or a local checkout as described above before
 running these commands.
 
-Then run `ai-dememory setup wizard` to preview a minimum baseline of values,
-preferences, recommendations, and project profiles. Durable writes require
-reviewer identity plus `--expect-plan-sha256 <preview fingerprint>` so changed
-answers cannot be stamped reviewed without a new preview; reconfiguration
-remains review-first.
+Then run `ai-dememory setup wizard` to review a minimum baseline of values,
+preferences, recommendations, and project profiles. The interactive command
+prints the policy, limits, planned files, and exact fingerprint before asking
+once whether to apply that same in-memory plan. A decline returns an incomplete
+status and writes nothing. Changed answers always require a fresh preview.
+
+Machine-readable and automation-oriented flows remain deliberately passive.
+`--json`, stdin, input files, `--dry-run`, and direct `ai-dememory onboard`
+still require a separate `--apply --expect-plan-sha256 <preview fingerprint>`
+invocation with the same answers.
 
 The wizard also asks for two independent policies:
 
@@ -138,13 +143,17 @@ The wizard also asks for two independent policies:
 | `balanced` | up to 1,200 tokens | daily + weekly | 20 | 64 KiB / 2,500 entries |
 | `active` | up to 2,400 tokens | daily + weekly | 50 | 128 KiB / 10,000 entries |
 
-`balanced` is recommended for a first installation. Host-model policy is
+`balanced` is recommended for a first installation. `active` is the maximum
+bounded envelope, not an unlimited mode. Host-model policy is
 separate: `off` permits deterministic local tools only, `advisory` lets the
 already active host agent recommend, and `proposals` lets it create
 review-first inbox proposals. ai-dememory runtime model calls and embedding
 calls are zero in every option; host-agent token consumption is external and
 still applies. No option installs integrations, captures raw payloads, or
-promotes durable memory during the wizard.
+promotes durable memory during the wizard. A confirmed apply changes only the
+reviewed vault files shown in the plan, then prints commands for health,
+indexing, and MCP configuration; hooks and schedules keep their own
+preview/apply boundaries.
 
 ## Optional Integrations And Setup Planning
 

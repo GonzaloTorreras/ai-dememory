@@ -22,6 +22,9 @@ accepted by the release identity guard.
   contracts and prebuilt assets.
 - Add prompt-aware, project-aware reviewed recall hooks and a fingerprint-bound
   onboarding wizard for baseline values, preferences and recommendations.
+  Make the interactive setup wizard show one exact plan, ask once, and apply
+  those same in-memory answers without forcing users to repeat them; declining
+  writes nothing, while structured and direct onboarding flows stay two-step.
   Preserve each recalled item's sensitivity label in structured and rendered
   context so public-repository egress policy remains enforceable.
 - Add `minimal`, `balanced`, and `active` resource intensities with hard recall,

@@ -258,11 +258,8 @@ def init_vault(argv: list[str]) -> int:
     print(f"Initialized ai-dememory vault at {target}")
     print(f"Wrote {len(copied)} file(s).")
     if args.wizard:
-        exit_code = run_packaged_command("onboard", ["--root", str(target)])
-        if exit_code:
-            return exit_code
-    else:
-        print("Next: run `ai-dememory onboard`, review the preview, then apply it with its `plan_sha256`.")
+        return run_packaged_command("onboard", ["--root", str(target), "--guided"])
+    print("Next: run `ai-dememory setup wizard`; it previews one exact plan and asks before applying it.")
     print("Then run `ai-dememory doctor` and `ai-dememory index`.")
     return 0
 
@@ -449,7 +446,8 @@ def usage() -> str:
             "  ai-dememory vault-template export ~/code/ai-dememory-vault-template",
             "  ai-dememory mcp-config --client codex",
             "  ai-dememory setup plan --json",
-            "  ai-dememory setup wizard --json",
+            "  ai-dememory setup wizard",
+            "  ai-dememory setup wizard --input-file onboarding.json --json",
             "  ai-dememory onboard --input-file onboarding.json --apply --expect-plan-sha256 <preview-sha256> --json",
             "  ai-dememory turn-context \"fix portfolio tracker staging smoke\" --cwd D:/Github/portfolio-tracker --json",
             "  ai-dememory setup health --json",
@@ -551,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = ["capture", *argv]
     if command == "setup" and argv and argv[0] == "wizard":
         command = "onboard"
-        argv = argv[1:]
+        argv = ["--guided", *argv[1:]]
     if command == "mark-seen":
         argv = ["mark-seen", *argv]
     if command == "outcome":
