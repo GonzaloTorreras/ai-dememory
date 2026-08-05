@@ -63,9 +63,15 @@ There is no repository variable that can convert every future green merge into
 a release. Before dispatching the manual tag workflow, all of these must be
 true:
 
-- `main` protection is active and the `v*` ruleset rejects tag creation except
-  for the GitHub Actions integration used by the approved tagger, while also
-  rejecting deletion and non-fast-forward updates;
+- `main` protection is active and the `v*` ruleset rejects deletion and
+  non-fast-forward updates, making every existing release tag immutable;
+- while the repository remains under a personal owner, GitHub does not accept
+  its native Actions integration as a repository-ruleset bypass actor. New tag
+  creation is therefore limited by repository write access plus the exact,
+  manual tagger. A direct tag does not trigger publication. If the repository
+  moves to an organization or installs a dedicated tagger App, add the
+  creation rule with only that installed integration as bypass before treating
+  creation as ruleset-enforced;
 - GitHub environments `testpypi` and `pypi` exist with the intended approval
   policy and no alternate publisher identity;
 - PyPI and TestPyPI Trusted Publishers point exactly to

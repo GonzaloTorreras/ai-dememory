@@ -10,9 +10,8 @@ changes.
 
 - Public remote: `https://github.com/GonzaloTorreras/ai-dememory.git`
 - Base: `origin/main`
-- Base SHA at release worktree creation:
-  `a2210224dc8bb34df8ecb37ea711e3da80577b42`
-- Active integration branch: `codex/release-2.1.0`
+- Current public `main`: `640322c560e19c10be9b168a17f28116b04f3312`
+- Active corrective branch: `codex/rc1-tag-policy`
 - Stable package at task start: `2.0.0`
 - Planned sequence: `2.1.0rc1` on TestPyPI, then `2.1.0` on PyPI
 
@@ -24,18 +23,19 @@ and none of its release evidence is reusable.
 - Task: `BRG-014`
 - Batch: `B04a`
 - Compatibility: V2-compatible release fix; no V3 gate claim
-- Objective: make `setup wizard` config-only and keep `onboard` memory-only
-- Owned paths: onboarding/setup CLI, tests, install/site/plugin documentation,
-  continuity and planning contracts
+- Objective: correct the impossible personal-repository tag-ruleset claim
+  before publishing the already merged `2.1.0rc1` candidate
+- Owned paths: release runbook/checklist, checklist guard/tests, release ADRs,
+  changelog and this durable handoff
 
 Required invariants:
 
-- `setup wizard` writes only `.ai-dememory.toml`;
-- `onboard` writes only reviewed personal/project Markdown;
-- both structured flows require an exact preview fingerprint;
-- decline, drift, conflicts, and incomplete rollback fail closed;
-- neither flow installs MCP, hooks, providers, or scheduler jobs;
-- `init --wizard` never invents or creates personal memory.
+- existing `v*` tags reject deletion and non-fast-forward updates;
+- release tag creation stays a manual exact-tuple workflow;
+- a direct tag never triggers package publication;
+- publication stays a second exact-tuple, environment-bound OIDC workflow;
+- documentation must not claim a native Actions bypass that GitHub rejects for
+  the current personal repository.
 
 ## Historical Reconciliation
 
@@ -72,35 +72,33 @@ and 87 untracked. It must not be merged wholesale.
   evidence paths, and ledger consistency.
 - Exact staged diff whitespace, generated-artifact, secret, and Pages artifact
   checks passed on the consolidated snapshot.
-- Pull request [#17](https://github.com/GonzaloTorreras/ai-dememory/pull/17)
-  exists for this branch. PR-bound strict release, MCP runtime, and MCP client
-  smokes passed after generating the disposable local index used by CI.
-- CI run `31000835426` and Pages run `31000835430` passed on candidate commit
-  `c7c87eac3f0f8d137bb05c5da5f68822a4ec5601`, including Docker and the
-  Windows/macOS/Linux Python 3.11-3.13 matrix.
-- The first post-PR reviewer found no code, security, or CI blocker and required
-  only this stale-handoff correction. Because this correction creates a new PR
-  head, exact-head CI and a fresh read-only review must pass again before merge.
+- Pull request [#17](https://github.com/GonzaloTorreras/ai-dememory/pull/17) was
+  independently reviewed, passed exact-head CI and Pages, and merged as
+  `640322c560e19c10be9b168a17f28116b04f3312`.
+- Main push CI run `31003339116` passed on that exact merge SHA. Its tree is
+  identical to reviewed PR head `2ae3199e4ead219cea35338863460841d6473e5b`.
+- Live ruleset inspection found deletion and non-fast-forward protection on
+  `refs/tags/v*`. GitHub rejected the documented native Actions creation bypass
+  with HTTP 422 because the repository has a personal owner. ADR 0261 records
+  the corrected effective boundary.
 
 ## Release Blockers
 
 1. No `2.1.0rc1` has been published and installed from TestPyPI.
 2. Release/tag workflows have not yet been exercised for the 2.1 exact tuple.
-3. Release-candidate identity is committed and code-reviewed in PR #17, but the
-   PR is not yet merged and the candidate is not present on the package index.
-4. Repository tag creation protection and both Trusted Publisher identities
-   must be verified before dispatch.
+3. The ruleset/documentation correction requires a focused PR, green CI and
+   fresh read-only review before release dispatch.
+4. Both Trusted Publisher identities still require live verification through
+   the exact RC and stable publication paths.
 5. Stable documentation must not claim 2.1.0 until the stable artifact is
    actually published and verified.
 
 ## Next Legal Actions
 
-1. Push this documentation-only handoff correction and update PR #17 with its
-   exact head and completed evidence.
-2. Wait for exact-head CI and obtain a fresh read-only `READY` review.
-3. Post the exact-tuple solo-maintainer receipt, mark PR #17 ready, and merge
-   only with its expected head SHA.
-4. Tag/publish `v2.1.0rc1`, install it from TestPyPI, and record evidence.
-5. Open a separate stable-prep PR for `2.1.0`, repeat review/CI, then tag and
+1. Validate and open the focused tag-policy correction PR.
+2. Wait for exact-head CI, obtain a fresh read-only `READY` review, post the
+   exact-tuple receipt, and merge only with its expected head SHA.
+3. Tag/publish `v2.1.0rc1`, install it from TestPyPI, and record evidence.
+4. Open a separate stable-prep PR for `2.1.0`, repeat review/CI, then tag and
    publish the exact stable tuple.
-6. Resume the V3 frontier only after stable post-publish verification.
+5. Resume the V3 frontier only after stable post-publish verification.

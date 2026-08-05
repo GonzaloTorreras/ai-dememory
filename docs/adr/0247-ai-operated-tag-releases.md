@@ -43,7 +43,8 @@ This supersedes the ordinary approval and manual-dispatch decisions in ADRs
 - one PyPI version maps to one immutable tag reachable from protected `main`;
 - tested and attested bytes are exactly the bytes passed to the publisher;
 - no static PyPI token exists;
-- Codex cannot bypass rulesets, rewrite tags or overwrite published versions;
+- release automation cannot delete or rewrite protected `v*` tags or overwrite
+  published versions;
 - rollback is yank plus fix-forward, never history or artifact replacement;
 - legal ownership and destructive break-glass remain human-held.
 
