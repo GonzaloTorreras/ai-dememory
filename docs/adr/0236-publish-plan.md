@@ -3,7 +3,8 @@
 ## Status
 
 Accepted as a read-only compatibility API. Publication and
-`confirm=publish` clauses were superseded by ADR 0255 on 2026-07-26.
+`confirm=publish` clauses were superseded by ADR 0255 on 2026-07-26. ADR 0260
+superseded the old per-merge authorization boundary on 2026-08-04.
 
 ## Context
 
@@ -59,7 +60,7 @@ non-git checkout, it returns
   or GitHub environment protection rules.
 - It does not prove the legacy preflight or canonical release has run.
 - It does not replace manual acceptance records, real TestPyPI verification, or
-  explicit owner authorization to merge, tag, or publish.
+  explicit owner authorization to create a release tag or publish.
 
 ## Future Work
 
@@ -72,6 +73,7 @@ non-git checkout, it returns
 
 - ADRs 0255 and 0258 define the sole exact-tuple publisher and legacy preflight
   boundary.
+- ADR 0260 defines reviewed routine merges under standing owner delegation.
 - ADR 0076 and ADR 0127 retain the historical preflight and smoke rationale.
 - ADR 0128 defines TestPyPI manual acceptance evidence requirements.
 - ADR 0235 defines release evidence handoff commands.

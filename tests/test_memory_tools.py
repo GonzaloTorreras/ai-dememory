@@ -283,9 +283,9 @@ from review_memory import (  # noqa: E402
 )
 from ai_dememory_tool.cli import build_mcp_config, copy_template_tree, export_vault_template, main as cli_main, mcp_config  # noqa: E402
 from ci_guard import (  # noqa: E402
-    validate_auto_approve_workflow_text,
     validate_ci_workflow,
     validate_ci_workflow_text,
+    validate_solo_maintainer_review_boundary,
     validate_workflow_supply_chain,
 )
 from artifact_guard import validate_artifact_paths, validate_staged_artifacts  # noqa: E402
@@ -11805,6 +11805,151 @@ jobs:
 
         self.assertFalse(issues)
 
+    def test_ci_guard_binds_all_required_commands_to_the_protected_verify_job(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace("\n  verify:\n", "\n  full-validation:\n", 1)
+        weakened += """
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo trivial-required-check
+"""
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("ci.yml:compile", targets)
+        self.assertIn("ci.yml:unit_tests", targets)
+        self.assertIn("ci.yml:docker_smoke", targets)
+        self.assertNotIn(".github/workflows/ci.yml:required_verify_job", targets)
+
+    def test_ci_guard_rejects_verify_skip_and_command_interpreter_overrides(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "  verify:\n    runs-on: ubuntu-latest",
+            "  verify:\n    runs-on: self-hosted\n    container: attacker/example:latest\n    continue-on-error: true",
+            1,
+        ).replace(
+            "      - name: Unit tests\n        run: python -m unittest discover -s tests -t .",
+            "      - name: Unit tests\n        if: ${{ false }}\n        shell: echo {0}\n        env:\n          PYTHONPATH: ./fake\n        run: python -m unittest discover -s tests -t .",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("ci.yml:verify_continue-on-error", targets)
+        self.assertIn("ci.yml:verify_container", targets)
+        self.assertIn("ci.yml:verify_runner", targets)
+        self.assertIn("ci.yml:verify_step_shell", targets)
+        self.assertIn("ci.yml:unit_tests_condition", targets)
+        self.assertIn("ci.yml:unit_tests_env", targets)
+
+    def test_ci_guard_rejects_plain_scalar_command_continuation(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          || true",
+            1,
+        )
+        mapping_like = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          true:|| true",
+            1,
+        )
+        sequence_like = current.replace(
+            "        run: python -m unittest discover -s tests -t .",
+            "        run: python -m unittest discover -s tests -t .\n          - x|| true",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+        mapping_like_targets = {issue.target for issue in validate_ci_workflow_text(mapping_like)}
+        sequence_like_targets = {issue.target for issue in validate_ci_workflow_text(sequence_like)}
+
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", targets)
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", mapping_like_targets)
+        self.assertIn(".github/workflows/ci.yml:scalar_continuation", sequence_like_targets)
+
+    def test_ci_guard_rejects_extra_verify_steps_and_checkout_ref_override(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        extra_step = current.replace(
+            "      - name: Compile Python",
+            "      - name: Replace reviewed tree\n"
+            "        run: git checkout --force d5effee51cb115a055310c2858ac8ea2f7c06251\n"
+            "      - name: Compile Python",
+            1,
+        )
+        checkout_override = current.replace(
+            "          persist-credentials: false",
+            "          persist-credentials: false\n          ref: main",
+        )
+
+        extra_targets = {issue.target for issue in validate_ci_workflow_text(extra_step)}
+        checkout_targets = {issue.target for issue in validate_ci_workflow_text(checkout_override)}
+
+        self.assertIn("ci.yml:verify_step_inventory", extra_targets)
+        self.assertIn("ci.yml:verify_step_inventory", checkout_targets)
+
+    def test_ci_guard_rejects_duplicate_or_renamed_protected_check(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        duplicate_name = current.replace(
+            "    name: compatibility (${{ matrix.os }}, Python ${{ matrix.python }})",
+            "    name: verify",
+            1,
+        )
+        renamed_verify = current.replace(
+            "  verify:\n    runs-on: ubuntu-latest",
+            "  verify:\n    name: not-verify\n    runs-on: ubuntu-latest",
+            1,
+        )
+        dynamic_duplicate = current.replace(
+            "    name: compatibility (${{ matrix.os }}, Python ${{ matrix.python }})",
+            "    name: ${{ 'ver' }}${{ 'ify' }}",
+            1,
+        )
+
+        duplicate_targets = {issue.target for issue in validate_ci_workflow_text(duplicate_name)}
+        renamed_targets = {issue.target for issue in validate_ci_workflow_text(renamed_verify)}
+        dynamic_targets = {issue.target for issue in validate_ci_workflow_text(dynamic_duplicate)}
+
+        self.assertIn(".github/workflows/ci.yml:duplicate_verify_name", duplicate_targets)
+        self.assertIn(".github/workflows/ci.yml:required_verify_name", renamed_targets)
+        self.assertIn(".github/workflows/ci.yml:dynamic_job_name", dynamic_targets)
+
+    def test_ci_guard_rejects_extended_false_pr_gate(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "if: ${{ github.event_name == 'pull_request' }}",
+            "if: ${{ github.event_name == 'pull_request' && false }}",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("Strict PR release readiness check must run only on pull_request events", messages)
+
+    def test_ci_guard_rejects_spoofed_trigger_and_broadened_permissions(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "  pull_request:\n",
+            "  pull_request_target:\n  # pull_request:\n",
+            1,
+        ).replace(
+            "permissions:\n  contents: read",
+            "permissions:\n  contents: write",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("exactly once on pull_request", messages)
+        self.assertIn("forbidden additional triggers: pull_request_target", messages)
+        self.assertIn("only top-level contents: read", messages)
+
     def test_ci_guard_rejects_mutable_actions_and_persisted_checkout_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -11831,95 +11976,237 @@ jobs:
         self.assertIn("full commit SHA", messages)
         self.assertIn("persist-credentials: false", messages)
 
-    def test_auto_approve_guard_accepts_current_workflow(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-
-        issues = validate_auto_approve_workflow_text(text)
+    def test_solo_review_boundary_accepts_current_repository(self) -> None:
+        issues = validate_solo_maintainer_review_boundary(ROOT)
 
         self.assertFalse(issues)
 
-    def test_auto_approve_guard_rejects_untrusted_code_execution(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
+    def test_solo_review_boundary_rejects_forgeable_automation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workflows = root / ".github" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "rogue.yml").write_text(
+                """
+permissions:
+  pull-requests: write
+  statuses: write
+  checks: write
+jobs:
+  forge:
+    steps:
+      # codex-double-check
+      - run: gh api /pulls/1/reviews -f event='APPROVE'
+""",
+                encoding="utf-8",
+            )
+            (workflows / "auto-approve.yml").write_text(
+                "name: legacy auto approval\n",
+                encoding="utf-8",
+            )
+            (workflows / "inline.yml").write_text(
+                'permissions: {"checks": "write", statuses: write}\n',
+                encoding="utf-8",
+            )
+            (workflows / "write-all.yml").write_text(
+                "permissions: write-all\n",
+                encoding="utf-8",
+            )
+            (workflows / "flow-write-all.yml").write_text(
+                "jobs:\n  forge: {runs-on: ubuntu-latest, permissions: write-all}\n",
+                encoding="utf-8",
+            )
+            (workflows / "multiline-write.yml").write_text(
+                "permissions:\n  checks:\n    write\n",
+                encoding="utf-8",
+            )
+            (workflows / "explicit-mapping.yml").write_text(
+                """permissions:
+  contents: read
+  ? checks
+  : write
+jobs:
+  ? verify
+  :
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
+            (workflows / "dynamic-job-name.yml").write_text(
+                """jobs:
+  gate:
+    name: ${{ 'verify' }}
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
+            (workflows / "duplicate-verify.yml").write_text(
+                """permissions: read-all
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+  impersonate:
+    name: verify
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
+            (workflows / "anchored.yml").write_text(
+                """x-write: &level write
+permissions:
+  checks: *level
+""",
+                encoding="utf-8",
+            )
+            (workflows / "anchored-write-all.yml").write_text(
+                "permissions: &1 write-all\n",
+                encoding="utf-8",
+            )
+            (workflows / "permission-block.yml").write_text(
+                '"checks": >-\n  write\n',
+                encoding="utf-8",
+            )
+            (workflows / "permission-tag.yml").write_text(
+                "'checks': !!str write\n",
+                encoding="utf-8",
+            )
+            (workflows / "quoted-permission.yml").write_text(
+                'permissions: "read-all"\n',
+                encoding="utf-8",
+            )
+            (workflows / "quoted-verify.yml").write_text(
+                """permissions: read-all
+jobs:
+  "verify":
+    runs-on: ubuntu-latest
+""",
+                encoding="utf-8",
+            )
+            (workflows / "inline-verify.yml").write_text(
+                'jobs: {gate: {name: "verify", runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "escaped-verify.yml").write_text(
+                'jobs: {"ver\\u0069fy": {runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "escaped-name.yml").write_text(
+                'jobs: {gate: {name: "ver\\u0069fy", runs-on: ubuntu-latest}}\n',
+                encoding="utf-8",
+            )
+            (workflows / "safe-block-scalar.yml").write_text(
+                """name: it's safe
+description: "&not-an-anchor"
+permissions: read-all
+jobs:
+  document:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo 'checks: write &anchor *alias <<:'
+""",
+                encoding="utf-8",
+            )
+            (root / "AGENTS.md").write_text(
+                (ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "solo-maintainer-review.md").write_text(
+                (ROOT / "docs" / "solo-maintainer-review.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
 
-        issues = validate_auto_approve_workflow_text(
-            text
-            + "\n  pull_request_target:\n"
-            + "\n      - uses: actions/checkout@deadbeef\n"
-            + "\n      - uses: actions/download-artifact@deadbeef\n"
-        )
-        messages = "\n".join(issue.message for issue in issues)
+            issues = validate_solo_maintainer_review_boundary(root)
+            targets = {issue.target for issue in issues}
 
-        self.assertIn("pull_request_target", messages)
-        self.assertIn("actions/checkout@", messages)
-        self.assertIn("download-artifact", messages)
-
-    def test_auto_approve_guard_requires_tuple_receipt_and_successful_ci(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace(
-            'test "$first_line" = "<!-- $receipt_marker -->"',
-            "echo receipt-not-bound",
-        ).replace(
-            'select(.status == "completed" and .conclusion == "success")',
-            "select(.conclusion != null)",
-        )
-
-        issues = validate_auto_approve_workflow_text(weakened)
-        targets = {issue.target for issue in issues}
-
-        self.assertIn("auto-approve.yml:exact_receipt", targets)
-        self.assertIn("auto-approve.yml:ci_success", targets)
-
-    def test_auto_approve_guard_requires_pr_base_and_review_binding(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = (
-            text.replace('.number == $pr', '.number > 0')
-            .replace('.base.sha == $base', '.base.sha != null')
-            .replace('contains($marker)', 'length > 0')
-        )
-
-        issues = validate_auto_approve_workflow_text(weakened)
-        targets = {issue.target for issue in issues}
-
-        self.assertIn("auto-approve.yml:pr_binding", targets)
-        self.assertIn("auto-approve.yml:exact_base", targets)
-        self.assertIn("auto-approve.yml:ci_base_binding", targets)
-        self.assertIn("auto-approve.yml:review_marker", targets)
-
-    def test_auto_approve_guard_requires_security_boundary_exclusions(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace('startswith(".github/workflows/")', 'false')
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
+        self.assertIn(".github/workflows/rogue.yml:pull_requests_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:statuses_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:checks_write", targets)
+        self.assertIn(".github/workflows/rogue.yml:automated_approval", targets)
+        self.assertIn(".github/workflows/rogue.yml:legacy_receipt", targets)
+        self.assertIn(".github/workflows/auto-approve.yml", targets)
+        self.assertIn(".github/workflows/inline.yml:checks_write", targets)
+        self.assertIn(".github/workflows/inline.yml:statuses_write", targets)
+        self.assertIn(".github/workflows/write-all.yml:write_all", targets)
+        self.assertIn(".github/workflows/flow-write-all.yml:write_all", targets)
         self.assertIn(
-            "auto-approve.yml:boundary_workflows",
-            {issue.target for issue in issues},
+            ".github/workflows/flow-write-all.yml:flow_job",
+            targets,
         )
-
-    def test_auto_approve_guard_rejects_truncated_changed_file_listing(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace(
-            'test "$returned_file_count" -eq "$expected_file_count"',
-            'echo truncated-list-accepted',
-        )
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
         self.assertIn(
-            "auto-approve.yml:file_count_complete",
-            {issue.target for issue in issues},
+            ".github/workflows/multiline-write.yml:multiline_permission",
+            targets,
         )
-
-    def test_auto_approve_guard_requires_full_fresh_state_recheck(self) -> None:
-        text = (ROOT / ".github" / "workflows" / "auto-approve.yml").read_text(encoding="utf-8")
-        weakened = text.replace('validate_pr "$final_pr_json"', 'echo stale-state-accepted')
-
-        issues = validate_auto_approve_workflow_text(weakened)
-
         self.assertIn(
-            "auto-approve.yml:final_pr_validation",
-            {issue.target for issue in issues},
+            ".github/workflows/explicit-mapping.yml:yaml_indirection",
+            targets,
         )
+        self.assertIn(
+            ".github/workflows/dynamic-job-name.yml:dynamic_job_name",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/duplicate-verify.yml:required_check_job",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/duplicate-verify.yml:required_check_name",
+            targets,
+        )
+        self.assertIn(".github/workflows/anchored.yml:yaml_indirection", targets)
+        self.assertIn(
+            ".github/workflows/anchored-write-all.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/permission-block.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/permission-tag.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/quoted-permission.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/quoted-verify.yml:required_check_job",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/inline-verify.yml:required_check_name",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/inline-verify.yml:flow_jobs",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/escaped-verify.yml:yaml_indirection",
+            targets,
+        )
+        self.assertIn(
+            ".github/workflows/escaped-name.yml:yaml_indirection",
+            targets,
+        )
+        self.assertFalse(
+            any(target.startswith(".github/workflows/safe-block-scalar.yml") for target in targets)
+        )
+
+    def test_solo_review_boundary_requires_auditable_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / "AGENTS.md").write_text("missing receipt contract\n", encoding="utf-8")
+
+            issues = validate_solo_maintainer_review_boundary(root)
+            targets = {issue.target for issue in issues}
+
+        self.assertIn("AGENTS.md:receipt", targets)
+        self.assertIn("docs/solo-maintainer-review.md", targets)
 
     def test_ci_guard_rejects_missing_required_v2_gates(self) -> None:
         incomplete = """
@@ -12248,6 +12535,21 @@ jobs:
         issues = validate_pr_draft(ROOT)
 
         self.assertFalse(issues)
+
+    def test_pr_draft_guard_requires_solo_maintainer_merge_contract(self) -> None:
+        current = (ROOT / "docs" / "pr-draft.md").read_text(encoding="utf-8")
+        weakened = (
+            current.replace("codex-solo-review", "review receipt")
+            .replace("expected_head_sha", "head check")
+            .replace("Do not publish packages", "Avoid package publication")
+        )
+
+        issues = validate_pr_draft_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("pr_draft:solo_review_receipt", targets)
+        self.assertIn("pr_draft:expected_head", targets)
+        self.assertIn("pr_draft:high_risk_gate", targets)
 
     def test_pr_draft_guard_rejects_stale_pr_specific_text(self) -> None:
         stale = """

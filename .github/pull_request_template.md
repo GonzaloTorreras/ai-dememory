@@ -44,3 +44,12 @@
 - [ ] No generated SQLite, reports, caches, or distilled context outputs are
   staged unless explicitly reviewed.
 - [ ] Durable memory changes include human review.
+
+## Solo-maintainer review (before merge)
+
+- [ ] Canonical `verify` is green for the exact current base/head tuple.
+- [ ] One fresh read-only subagent reviewed the exact diff and returned `READY`.
+- [ ] `GonzaloTorreras` posted a `codex-solo-review` receipt naming the reviewer,
+      scope, and exact CI evidence.
+- [ ] The root agent re-read the tuple, threads, checks, and clean worktree and
+      will merge only with `expected_head_sha`.

@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to ai-dememory are documented here. In-development versions
-use `## [VERSION] - Unreleased`. An explicitly authorized release-prep change
+use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
@@ -9,8 +9,8 @@ accepted by the release identity guard.
 
 - Canonicalize the public repository as the sole development and distribution
   source, keep historical private work as non-pushable review input, and make
-  merge, tag, and publication authorization explicit while preserving
-  independent technical review. Keep one immutable-tag package publisher and
+  routine merges review-bound while keeping tag and publication authorization
+  explicit. Keep one immutable-tag package publisher and
   reduce the former manual publisher to a guarded read-only readiness preflight.
   Replace ambient post-CI tagging with a manual confirmation bound to the exact
   release tag and green current-main SHA. Keep the tagger unable to dispatch

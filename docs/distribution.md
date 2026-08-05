@@ -150,13 +150,16 @@ ai-dememory package-build-smoke
 
 The canonical package path is the exact-tuple dispatch flow documented in
 [AI-operated releases](ai-operated-releases.md). Codex prepares and verifies
-the release, but must not merge a release PR, create or push its tag, or publish
-without explicit user authorization. Once tag creation is authorized, the
-manual tagger may create the immutable version tag and stop. A second explicit
-dispatch of `.github/workflows/release.yml`, bound to the same tag and commit,
-authorizes publication. The publisher validates tag/version/changelog identity,
-builds once, smokes the exact wheel and sdist, attests them, publishes through
-OIDC, verifies the index install, and creates the GitHub Release.
+the release PR and may merge it under the standing repository delegation only
+after strict CI, a fresh exact-head `READY` review, and the tuple-bound receipt
+defined in [Sole-maintainer review](solo-maintainer-review.md). That merge does
+not authorize a tag or publication. The manual tagger may create the immutable
+version tag and stop only after explicit user authorization for that exact tag
+and commit. A second explicit dispatch of `.github/workflows/release.yml`, bound
+to the same tag and commit, separately authorizes publication. The publisher
+validates tag/version/changelog identity, builds once, smokes the exact wheel
+and sdist, attests them, publishes through OIDC, verifies the index install, and
+creates the GitHub Release.
 
 The older `publish.yml` and `publish-plan` interfaces are retained as a
 read-only compatibility and diagnostic surface during migration. PyPI Trusted

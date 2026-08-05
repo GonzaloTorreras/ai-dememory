@@ -346,10 +346,12 @@ Before publishing a package:
   the image.
 - Run `ai-dememory dev publish-guard`, package/install smokes, and the release
   guard before merging the release PR.
-- Obtain explicit user authorization for the exact release PR, version, merge,
-  release tag, and consequent package publication.
-- After that authorization, merge through protected `main` and wait for CI on
-  the exact main commit. Then manually dispatch
+- Merge the release PR only after strict exact-tuple CI, a fresh `READY`
+  read-only review, the owner-account receipt, and an `expected_head_sha`
+  recheck. Obtain explicit user authorization separately for the exact release
+  tag and consequent package publication.
+- After the reviewed merge, wait for CI on the exact main commit. Then, with
+  the tag authorization, manually dispatch
   `.github/workflows/tag-release.yml` with `tag=v<version>`,
   `approved_sha=<40-character-main-sha>`, and
   `confirm=release-<tag>@<approved_sha>`. The workflow refuses a stale main

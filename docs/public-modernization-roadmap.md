@@ -1,8 +1,8 @@
 # Public Modernization and Continuous Improvement Roadmap
 
 Status: active working plan
-Owner: Codex operational owner; repository owner approves merge and release
-Updated: 2026-07-27
+Owner: Codex operational owner; repository owner gates production and release
+Updated: 2026-08-04
 
 ## Executive Decision
 
@@ -387,14 +387,14 @@ Before a release:
 
 - regenerate public release evidence from the exact branch/tag;
 - independently review the exact PR tuple;
-- present version, artifact hashes, CI, known risks, and automatic publication
-  consequence for explicit owner authorization.
+- present version, artifact hashes, CI, and known risks; obtain explicit owner
+  authorization for the exact tag tuple and the separate publication tuple.
 
 ## Immediate Next Steps
 
-1. Independently review and land the isolated manual GitHub Pages workflow
-   boundary, then keep enablement, exact-main dispatch, and public QA as explicit
-   production operations.
+1. Enable GitHub Pages for merged commit `d5effee5`, dispatch the manual workflow
+   against the then-current exact `main`, and complete desktop, mobile, 404,
+   accessibility, and public-origin QA as explicit production operations.
 2. Build generated CLI/writer inventories; keep the already generated MCP
    profile inventory current.
 3. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and

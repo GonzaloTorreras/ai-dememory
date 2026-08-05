@@ -41,13 +41,14 @@ a separate manual `release.yml` dispatch for an existing immutable tag with
 
 This ADR supersedes the automatic-tagger and migration-switch clauses in ADRs
 0247, 0252, and 0255. Their protected-main, immutable artifact, single
-publisher, OIDC, provenance, and explicit-authorization requirements remain.
+publisher, OIDC, provenance, and explicit tag/publication authorization
+requirements remain. ADR 0260 later supersedes per-merge authorization.
 
 ## Consequences
 
 A green merge no longer publishes by ambient repository configuration. Release
 authorization is inspectable, replay-resistant at the tuple level, and
-separate from merge authorization. The operator performs two manual dispatches
+separate from the reviewed merge. The operator performs two manual dispatches
 after green `main`: one creates the exact tag and the other authorizes the
 publisher for that same tuple. Artifact build, publication and verification
 remain automated after the second dispatch.

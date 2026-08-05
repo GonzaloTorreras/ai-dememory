@@ -14,7 +14,8 @@ from memorylib import repo_root
 
 
 WORKFLOW_PATH = Path(".github/workflows/ci.yml")
-AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+LEGACY_AUTO_APPROVE_WORKFLOW_PATH = Path(".github/workflows/auto-approve.yml")
+SOLO_REVIEW_DOC_PATH = Path("docs/solo-maintainer-review.md")
 PAGES_VALIDATE_WORKFLOW_PATH = Path(".github/workflows/pages-validate.yml")
 PAGES_DEPLOY_WORKFLOW_PATH = Path(".github/workflows/pages.yml")
 WORKFLOW_DIR = Path(".github/workflows")
@@ -52,6 +53,46 @@ REQUIRED_COMMANDS = {
     "post_smoke_package_build_artifact_guard": "python scripts/ai_dememory.py package-build-smoke --check-clean",
 }
 
+VERIFY_COMMAND_ORDER = (
+    "compile",
+    "validate",
+    "secret_scan",
+    "verify_mcp",
+    "artifact_guard",
+    "vault_setup_guard",
+    "pr_template_guard",
+    "pr_draft_guard",
+    "acceptance_guard",
+    "adr_guard",
+    "release_checklist_guard",
+    "release_check",
+    "roadmap_status",
+    "api_smoke",
+    "unit_tests",
+    "index",
+    "search",
+    "eval_recall",
+    "strict_pr_release_check",
+    "mcp_smoke",
+    "install_smoke",
+    "package_build_smoke",
+    "docker_smoke",
+    "post_smoke_package_build_artifact_guard",
+)
+
+VERIFY_ACTION_STEPS = (
+    (
+        "Check out repository",
+        CHECKOUT_ACTION,
+        [("persist-credentials", "false")],
+    ),
+    (
+        "Set up Python",
+        SETUP_PYTHON_ACTION,
+        [("python-version", "3.12")],
+    ),
+)
+
 FINAL_ARTIFACT_GUARD_NAME = "Final package build artifact guard"
 STRICT_PR_RELEASE_CHECK_NAME = "Strict PR release readiness check"
 MCP_RUNTIME_SMOKE_NAME = "MCP runtime smoke"
@@ -67,15 +108,13 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def find_step_block(text: str, step_name: str) -> str | None:
-    marker = f"- name: {step_name}"
-    start = text.find(marker)
-    if start == -1:
-        return None
-    next_step = text.find("\n      - ", start + len(marker))
-    if next_step == -1:
-        return text[start:]
-    return text[start:next_step]
+def _plain_scalar_value(value: str) -> str:
+    """Normalize the simple quoted or unquoted scalars allowed by the workflow subset."""
+
+    value = normalize(value)
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def validate_pages_validation_workflow_text(text: str) -> list[CiGuardIssue]:
@@ -293,8 +332,22 @@ def validate_pages_deploy_workflow_text(text: str) -> list[CiGuardIssue]:
 
 
 def step_has_pr_gate_and_url(step: str) -> bool:
-    has_pr_gate = "github.event_name == 'pull_request'" in step or 'github.event_name == "pull_request"' in step
-    return has_pr_gate and "AI_DEMEMORY_PR_URL" in step and "github.event.pull_request.html_url" in step
+    entries = _step_direct_mapping_entries(step)
+    if_values = [normalize(value) for key, value in entries if key.lower() == "if"]
+    expected_conditions = {
+        "${{ github.event_name == 'pull_request' }}",
+        '${{ github.event_name == "pull_request" }}',
+    }
+    has_exact_gate = len(if_values) == 1 and if_values[0] in expected_conditions
+    has_env_mapping = sum(1 for key, value in entries if key.lower() == "env" and not value) == 1
+    has_exact_url = bool(
+        re.search(
+            r"(?m)^\s*AI_DEMEMORY_PR_URL:\s*"
+            r"\$\{\{\s*github\.event\.pull_request\.html_url\s*}}\s*$",
+            step,
+        )
+    )
+    return has_exact_gate and has_env_mapping and has_exact_url
 
 
 def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
@@ -304,13 +357,7 @@ def validate_ci_workflow(root: Path) -> list[CiGuardIssue]:
     except FileNotFoundError:
         return [CiGuardIssue(str(WORKFLOW_PATH), "CI workflow is missing")]
     issues = validate_ci_workflow_text(text)
-    auto_approve_path = root / AUTO_APPROVE_WORKFLOW_PATH
-    try:
-        auto_approve_text = auto_approve_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        issues.append(CiGuardIssue(str(AUTO_APPROVE_WORKFLOW_PATH), "auto-approval workflow is missing"))
-    else:
-        issues.extend(validate_auto_approve_workflow_text(auto_approve_text))
+    issues.extend(validate_solo_maintainer_review_boundary(root))
     for workflow_path, validator in (
         (PAGES_VALIDATE_WORKFLOW_PATH, validate_pages_validation_workflow_text),
         (PAGES_DEPLOY_WORKFLOW_PATH, validate_pages_deploy_workflow_text),
@@ -365,158 +412,926 @@ def validate_workflow_supply_chain(root: Path) -> list[CiGuardIssue]:
     return issues
 
 
-def validate_auto_approve_workflow_text(text: str) -> list[CiGuardIssue]:
+def _strip_yaml_comment(line: str) -> str:
+    """Remove an unquoted YAML comment while preserving quoted scalars."""
+
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    previous_significant: str | None = None
+    for index, character in enumerate(line):
+        if double_quoted:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                double_quoted = False
+            continue
+        if single_quoted:
+            if character == "'":
+                if index + 1 < len(line) and line[index + 1] == "'":
+                    continue
+                single_quoted = False
+            continue
+        quote_can_start = previous_significant is None or previous_significant in ":-[{,"
+        if character == '"' and quote_can_start:
+            double_quoted = True
+        elif character == "'" and quote_can_start:
+            single_quoted = True
+        elif character == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index]
+        elif not character.isspace():
+            previous_significant = character
+    return line
+
+
+def _workflow_yaml_structure(text: str) -> str:
+    """Return YAML structure without comments or block-scalar payloads."""
+
+    structure: list[str] = []
+    block_parent_indent: int | None = None
+    for raw_line in text.splitlines():
+        line = _strip_yaml_comment(raw_line).rstrip()
+        if block_parent_indent is not None:
+            if not line.strip():
+                continue
+            indent = len(line) - len(line.lstrip(" "))
+            if indent > block_parent_indent:
+                continue
+            block_parent_indent = None
+        structure.append(line)
+        if re.search(r":\s*[>|][+\-0-9]*\s*$", line):
+            block_parent_indent = len(line) - len(line.lstrip(" "))
+    return "\n".join(structure)
+
+
+def _mask_yaml_quoted_scalars(text: str) -> str:
+    """Mask quoted content so anchor checks inspect YAML tokens only."""
+
+    masked: list[str] = []
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    previous_significant: str | None = None
+    for character in text:
+        if double_quoted:
+            masked.append("\n" if character == "\n" else " ")
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                double_quoted = False
+            continue
+        if single_quoted:
+            masked.append("\n" if character == "\n" else " ")
+            if character == "'":
+                single_quoted = False
+            continue
+        if character == "\n":
+            previous_significant = None
+            masked.append(character)
+            continue
+        quote_can_start = previous_significant is None or previous_significant in ":-[{,"
+        if character == '"' and quote_can_start:
+            double_quoted = True
+            masked.append(" ")
+        elif character == "'" and quote_can_start:
+            single_quoted = True
+            masked.append(" ")
+        else:
+            masked.append(character)
+            if not character.isspace():
+                previous_significant = character
+    return "".join(masked)
+
+
+def _simple_yaml_mapping(line: str) -> tuple[str, str] | None:
+    """Return a plain mapping key/value pair used by the strict workflow subset."""
+
+    stripped = line.lstrip(" ")
+    if not stripped or stripped.startswith("-"):
+        return None
+    match = re.match(
+        r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)\s*:(?P<value>(?:[ \t].*)?)$",
+        stripped,
+    )
+    if not match:
+        return None
+    return match.group("key"), match.group("value").lstrip(" \t")
+
+
+def _block_style_workflow_jobs(structure_text: str) -> tuple[list[tuple[str, str]], str | None]:
+    """Return static block-style job IDs and their structural YAML blocks."""
+
+    lines = structure_text.splitlines()
+    jobs_entries = [
+        (index, line, entry)
+        for index, line in enumerate(lines)
+        if line.strip()
+        and len(line) == len(line.lstrip(" "))
+        and (entry := _simple_yaml_mapping(line)) is not None
+        and entry[0].lower() == "jobs"
+    ]
+    if len(jobs_entries) != 1:
+        return [], "workflow must contain exactly one top-level block-style jobs mapping"
+
+    jobs_index, jobs_line, jobs_entry = jobs_entries[0]
+    if jobs_entry[1]:
+        return [], "workflow jobs must use a block-style mapping"
+    jobs_indent = len(jobs_line) - len(jobs_line.lstrip(" "))
+    end_index = len(lines)
+    for candidate_index in range(jobs_index + 1, len(lines)):
+        candidate = lines[candidate_index]
+        if not candidate.strip():
+            continue
+        candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+        if candidate_indent <= jobs_indent:
+            end_index = candidate_index
+            break
+
+    job_candidates = [
+        (candidate_index, lines[candidate_index])
+        for candidate_index in range(jobs_index + 1, end_index)
+        if lines[candidate_index].strip()
+        and _simple_yaml_mapping(lines[candidate_index]) is not None
+    ]
+    if not job_candidates:
+        return [], "workflow jobs mapping must contain at least one static job"
+    job_indent = min(
+        len(candidate) - len(candidate.lstrip(" "))
+        for _, candidate in job_candidates
+    )
+    job_starts = [
+        (candidate_index, candidate)
+        for candidate_index, candidate in job_candidates
+        if len(candidate) - len(candidate.lstrip(" ")) == job_indent
+    ]
+
+    jobs: list[tuple[str, str]] = []
+    for position, (job_index, job_line) in enumerate(job_starts):
+        job_entry = _simple_yaml_mapping(job_line)
+        if job_entry is None or job_entry[1]:
+            return [], "workflow job definitions must use static block-style mappings"
+        job_end = job_starts[position + 1][0] if position + 1 < len(job_starts) else end_index
+        jobs.append((job_entry[0], "\n".join(lines[job_index:job_end])))
+    return jobs, None
+
+
+def _top_level_mapping_block(structure_text: str, key_name: str) -> tuple[str | None, str | None]:
+    """Return one top-level block-style mapping and its descendants."""
+
+    lines = structure_text.splitlines()
+    matches = [
+        (index, line, entry)
+        for index, line in enumerate(lines)
+        if line.strip()
+        and len(line) == len(line.lstrip(" "))
+        and (entry := _simple_yaml_mapping(line)) is not None
+        and entry[0].lower() == key_name.lower()
+    ]
+    if len(matches) != 1:
+        return None, f"workflow must contain exactly one top-level {key_name} mapping"
+    start_index, start_line, entry = matches[0]
+    if entry[1]:
+        return None, f"workflow {key_name} must use a block-style mapping"
+    base_indent = len(start_line) - len(start_line.lstrip(" "))
+    end_index = len(lines)
+    for candidate_index in range(start_index + 1, len(lines)):
+        candidate = lines[candidate_index]
+        if not candidate.strip():
+            continue
+        if len(candidate) - len(candidate.lstrip(" ")) <= base_indent:
+            end_index = candidate_index
+            break
+    return "\n".join(lines[start_index:end_index]), None
+
+
+def _direct_mapping_entries(block: str) -> list[tuple[str, str]]:
+    """Return the direct child mappings of the first mapping in a YAML block."""
+
+    lines = block.splitlines()[1:]
+    candidates = [
+        line
+        for line in lines
+        if line.strip() and _simple_yaml_mapping(line) is not None
+    ]
+    if not candidates:
+        return []
+    direct_indent = min(len(line) - len(line.lstrip(" ")) for line in candidates)
+    return [
+        entry
+        for line in candidates
+        if len(line) - len(line.lstrip(" ")) == direct_indent
+        and (entry := _simple_yaml_mapping(line)) is not None
+    ]
+
+
+def _job_step_blocks(job_block: str) -> tuple[list[str], str | None]:
+    """Return static step blocks from one block-style job."""
+
+    lines = job_block.splitlines()
+    property_candidates = [
+        (index, line, entry)
+        for index, line in enumerate(lines[1:], start=1)
+        if line.strip() and (entry := _simple_yaml_mapping(line)) is not None
+    ]
+    if not property_candidates:
+        return [], "verify job must contain a block-style steps mapping"
+    property_indent = min(
+        len(line) - len(line.lstrip(" "))
+        for _, line, _ in property_candidates
+    )
+    steps_entries = [
+        (index, line, entry)
+        for index, line, entry in property_candidates
+        if len(line) - len(line.lstrip(" ")) == property_indent
+        and entry[0].lower() == "steps"
+    ]
+    if len(steps_entries) != 1 or steps_entries[0][2][1]:
+        return [], "verify job must contain exactly one block-style steps mapping"
+
+    steps_index, steps_line, _ = steps_entries[0]
+    steps_indent = len(steps_line) - len(steps_line.lstrip(" "))
+    end_index = len(lines)
+    for candidate_index in range(steps_index + 1, len(lines)):
+        candidate = lines[candidate_index]
+        if not candidate.strip():
+            continue
+        candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+        if candidate_indent <= steps_indent:
+            end_index = candidate_index
+            break
+    step_candidates = [
+        (index, lines[index])
+        for index in range(steps_index + 1, end_index)
+        if lines[index].lstrip(" ").startswith("- ")
+    ]
+    if not step_candidates:
+        return [], "verify job steps mapping must contain static block-style steps"
+    step_indent = min(len(line) - len(line.lstrip(" ")) for _, line in step_candidates)
+    step_starts = [
+        (index, line)
+        for index, line in step_candidates
+        if len(line) - len(line.lstrip(" ")) == step_indent
+    ]
+    return [
+        "\n".join(
+            lines[
+                step_index : (
+                    step_starts[position + 1][0]
+                    if position + 1 < len(step_starts)
+                    else end_index
+                )
+            ]
+        )
+        for position, (step_index, _) in enumerate(step_starts)
+    ], None
+
+
+def _step_direct_mapping_entries(step_block: str) -> list[tuple[str, str]]:
+    """Return direct mappings for a dash-prefixed block-style workflow step."""
+
+    lines = step_block.splitlines()
+    entries: list[tuple[int, tuple[str, str]]] = []
+    first = lines[0].lstrip(" ")[2:]
+    first_entry = _simple_yaml_mapping(first)
+    if first_entry is not None:
+        entries.append((0, first_entry))
+    nested_candidates = [
+        line
+        for line in lines[1:]
+        if line.strip() and _simple_yaml_mapping(line) is not None
+    ]
+    if nested_candidates:
+        direct_indent = min(len(line) - len(line.lstrip(" ")) for line in nested_candidates)
+        entries.extend(
+            (index, entry)
+            for index, line in enumerate(nested_candidates, start=1)
+            if len(line) - len(line.lstrip(" ")) == direct_indent
+            and (entry := _simple_yaml_mapping(line)) is not None
+        )
+    return [entry for _, entry in entries]
+
+
+def _step_nested_mapping_entries(step_block: str, parent_key: str) -> list[tuple[str, str]] | None:
+    """Return direct children of one direct step mapping, or None when absent/ambiguous."""
+
+    lines = step_block.splitlines()
+    candidates = [
+        (index, line, entry)
+        for index, line in enumerate(lines[1:], start=1)
+        if line.strip() and (entry := _simple_yaml_mapping(line)) is not None
+    ]
+    if not candidates:
+        return None
+    direct_indent = min(len(line) - len(line.lstrip(" ")) for _, line, _ in candidates)
+    parents = [
+        (index, line, entry)
+        for index, line, entry in candidates
+        if len(line) - len(line.lstrip(" ")) == direct_indent
+        and entry[0].lower() == parent_key.lower()
+    ]
+    if len(parents) != 1 or parents[0][2][1]:
+        return None
+    parent_index = parents[0][0]
+    end_index = len(lines)
+    for candidate_index in range(parent_index + 1, len(lines)):
+        candidate = lines[candidate_index]
+        if not candidate.strip():
+            continue
+        if len(candidate) - len(candidate.lstrip(" ")) <= direct_indent:
+            end_index = candidate_index
+            break
+    children = [
+        line
+        for line in lines[parent_index + 1 : end_index]
+        if line.strip() and _simple_yaml_mapping(line) is not None
+    ]
+    if not children:
+        return []
+    child_indent = min(len(line) - len(line.lstrip(" ")) for line in children)
+    return [
+        entry
+        for line in children
+        if len(line) - len(line.lstrip(" ")) == child_indent
+        and (entry := _simple_yaml_mapping(line)) is not None
+    ]
+
+
+def _workflow_structure_contract_issues(
+    structure_text: str,
+    display: str,
+    *,
+    canonical_ci: bool,
+) -> list[CiGuardIssue]:
+    """Reject multiline permission scalars and ambiguous non-CI job names."""
+
     issues: list[CiGuardIssue] = []
-    required_fragments = {
-        "trigger": "issue_comment:",
-        "created_only": "types: [created]",
-        "actions_read": "actions: read",
-        "contents_read": "contents: read",
-        "issues_read": "issues: read",
-        "pull_requests_write": "pull-requests: write",
-        "trusted_commenter": "github.event.comment.user.login == 'GonzaloTorreras'",
-        "receipt_prefix": "startsWith(github.event.comment.body, '<!-- codex-double-check ')",
-        "tuple_receipt": 'receipt_marker="codex-double-check pr=$PR_NUMBER head=$head_sha base=$base_sha"',
-        "exact_receipt": 'test "$first_line" = "<!-- $receipt_marker -->"',
-        "approved_verdict": "grep -Fxq 'Verdict: APPROVED'",
-        "owner": '.user.login == "GonzaloTorreras"',
-        "main_base": '.base.ref == "main"',
-        "exact_base": '.base.sha == $base',
-        "shared_pr_validator": 'validate_pr() {',
-        "initial_pr_validation": 'validate_pr "$pr_json"',
-        "fresh_pr_validation": 'validate_pr "$fresh_pr_json"',
-        "final_pr_validation": 'validate_pr "$final_pr_json"',
-        "internal_repo": ".head.repo.full_name == $repo",
-        "codex_branch": 'startswith("codex/")',
-        "exact_head": '.head.sha == $sha',
-        "canonical_ci": 'actions/workflows/ci.yml/runs',
-        "pr_binding": '.number == $pr',
-        "ci_base_binding": '.base.sha == $base',
-        "ci_success": 'select(.status == "completed" and .conclusion == "success")',
-        "paginated_reviews": 'gh api --paginate --slurp "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100"',
-        "review_marker": 'contains($marker)',
-        "boundary_workflows": 'startswith(".github/workflows/")',
-        "boundary_actions": 'startswith(".github/actions/")',
-        "boundary_policy": '. == "AGENTS.md"',
-        "boundary_guard": '. == "scripts/ci_guard.py"',
-        "file_count_cap": '.changed_files | select(type == "number" and . >= 0 and . <= 3000)',
-        "file_count_complete": 'test "$returned_file_count" -eq "$expected_file_count"',
-        "fresh_head": '.head.sha == $sha',
-        "approve": "-f event='APPROVE'",
-        "commit_id": '-f commit_id="$head_sha"',
-    }
-    for name, fragment in required_fragments.items():
-        if fragment not in text:
+    lines = structure_text.splitlines()
+    for line_index, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        if not stripped or _simple_yaml_mapping(line) is not None:
+            continue
+        if stripped.startswith("- "):
+            sequence_indent = len(line) - len(line.lstrip(" "))
+            parent_entry: tuple[str, str] | None = None
+            for previous in reversed(lines[:line_index]):
+                if not previous.strip():
+                    continue
+                previous_indent = len(previous) - len(previous.lstrip(" "))
+                if previous_indent >= sequence_indent:
+                    continue
+                parent_entry = _simple_yaml_mapping(previous)
+                break
+            if parent_entry is not None and not parent_entry[1]:
+                continue
+        issues.append(
+            CiGuardIssue(
+                f"{display}:scalar_continuation",
+                "workflow plain-scalar continuation lines are forbidden; use one canonical same-line value",
+            )
+        )
+    sensitive_permissions = {"permissions", "pull-requests", "statuses", "checks"}
+    for index, line in enumerate(lines):
+        entry = _simple_yaml_mapping(line)
+        if not entry or entry[0].lower() not in sensitive_permissions or entry[1]:
+            continue
+        key = entry[0].lower()
+        if key != "permissions":
             issues.append(
                 CiGuardIssue(
-                    f"auto-approve.yml:{name}",
-                    f"auto-approval workflow is missing required guard: {fragment}",
+                    f"{display}:multiline_permission",
+                    "permission capability values must use canonical same-line scalars",
                 )
             )
-    forbidden_fragments = {
-        "pull_request_target": "pull_request_target:",
-        "checkout": "actions/checkout@",
-        "artifact_download": "download-artifact",
-        "cache": "actions/cache",
-    }
-    for name, fragment in forbidden_fragments.items():
-        if fragment in text:
+            continue
+        base_indent = len(line) - len(line.lstrip(" "))
+        next_structural = next(
+            (candidate for candidate in lines[index + 1 :] if candidate.strip()),
+            None,
+        )
+        if next_structural is None:
             issues.append(
                 CiGuardIssue(
-                    f"auto-approve.yml:{name}",
-                    f"privileged auto-approval workflow must not contain: {fragment}",
+                    f"{display}:multiline_permission",
+                    "permissions must be an explicit mapping, read-all, or empty mapping",
                 )
             )
+            continue
+        next_indent = len(next_structural) - len(next_structural.lstrip(" "))
+        if next_indent <= base_indent or _simple_yaml_mapping(next_structural) is None:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:multiline_permission",
+                    "permissions must be an explicit mapping, read-all, or empty mapping",
+                )
+            )
+
+    jobs, jobs_error = _block_style_workflow_jobs(structure_text)
+    if jobs_error:
+        target = "job_structure"
+        if not canonical_ci and jobs_error == "workflow jobs must use a block-style mapping":
+            target = "flow_jobs"
+        elif not canonical_ci and jobs_error == "workflow job definitions must use static block-style mappings":
+            target = "flow_job"
+        issues.append(CiGuardIssue(f"{display}:{target}", jobs_error))
+        return issues
+
+    if canonical_ci:
+        verify_jobs = [job for job in jobs if job[0] == "verify"]
+        if len(verify_jobs) != 1:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:required_verify_job",
+                    "canonical CI must contain exactly one static block-style verify job",
+                )
+            )
+        for job_id, job_block in jobs:
+            names = [
+                value.strip("'\"")
+                for key, value in _direct_mapping_entries(job_block)
+                if key.lower() == "name"
+            ]
+            if len(names) > 1 or (job_id == "verify" and names and names != ["verify"]):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:required_verify_name",
+                        "the verify job check name must remain the static value verify",
+                    )
+                )
+            if job_id != "verify" and "verify" in names:
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:duplicate_verify_name",
+                        "only the canonical verify job may emit the required verify check name",
+                    )
+                )
+            expected_compatibility_name = "compatibility (${{ matrix.os }}, Python ${{ matrix.python }})"
+            if job_id != "verify" and any("${{" in name for name in names):
+                if job_id != "compatibility" or names != [expected_compatibility_name]:
+                    issues.append(
+                        CiGuardIssue(
+                            f"{display}:dynamic_job_name",
+                            "canonical CI permits a dynamic check name only for the exact compatibility matrix",
+                        )
+                    )
+        return issues
+
+    for _, job_block in jobs:
+        for key, value in _direct_mapping_entries(job_block):
+            if key.lower() == "name" and (not value or "${{" in value):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:dynamic_job_name",
+                        "non-CI job check names must be static same-line scalars",
+                    )
+                )
+    return issues
+
+
+def validate_solo_maintainer_review_boundary(root: Path) -> list[CiGuardIssue]:
+    """Keep solo-maintainer review auditable without forgeable bot approval."""
+
+    issues: list[CiGuardIssue] = []
+    legacy_path = root / LEGACY_AUTO_APPROVE_WORKFLOW_PATH
+    if legacy_path.exists():
+        issues.append(
+            CiGuardIssue(
+                LEGACY_AUTO_APPROVE_WORKFLOW_PATH.as_posix(),
+                "legacy bot auto-approval workflow must be removed for solo-maintainer review",
+            )
+        )
+
+    def workflow_key_value_pattern(key_name: str, value_name: str) -> str:
+        key = re.escape(key_name)
+        value = re.escape(value_name)
+        return (
+            rf"(?im)(?:^|[{{,])\s*[\"']?{key}[\"']?\s*:\s*"
+            rf"[\"']?{value}[\"']?(?=\s*(?:$|[,}}#]))"
+        )
+
+    forbidden_workflow_patterns = {
+        "pull_requests_write": workflow_key_value_pattern("pull-requests", "write"),
+        "statuses_write": workflow_key_value_pattern("statuses", "write"),
+        "checks_write": workflow_key_value_pattern("checks", "write"),
+        "write_all": workflow_key_value_pattern("permissions", "write-all"),
+        "automated_approval": r"(?:event=['\"]APPROVE|/pulls/[^\s\"']+/reviews)",
+        "legacy_receipt": r"codex-double-check",
+    }
+    workflow_root = root / WORKFLOW_DIR
+    for path in sorted(workflow_root.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        structure_text = _workflow_yaml_structure(text)
+        unquoted_structure = _mask_yaml_quoted_scalars(structure_text)
+        display = path.relative_to(root).as_posix()
+        for name, pattern in forbidden_workflow_patterns.items():
+            search_text = text if name in {"automated_approval", "legacy_receipt"} else structure_text
+            if re.search(pattern, search_text):
+                issues.append(
+                    CiGuardIssue(
+                        f"{display}:{name}",
+                        "solo-maintainer review forbids automated approvals and forgeable review/status checks",
+                    )
+                )
+        yaml_token_indirection_patterns = (
+            r"(?m)(?:^|[\s\[{,:])(?:&|\*)[^\s\[\]{},]+",
+            r"(?m)(?:^|[{,])\s*<<\s*:",
+            r"(?m)(?:^|[{,])\s*[?:]\s+",
+            r"(?m)(?:^|[\[{,:])\s*!(?:!|<|[A-Za-z_])[^\s\[\]{},]*",
+        )
+        sensitive_value_indirection_patterns = (
+            r"(?im)(?:^|[{,])\s*[\"']?(?:permissions|pull-requests|statuses|checks)[\"']?\s*:\s*!",
+            r"(?im)^\s*[\"']?(?:permissions|pull-requests|statuses|checks|name)[\"']?\s*:\s*[>|]",
+            r"(?im)(?:^|[{,])\s*[\"']?(?:permissions|pull-requests|statuses|checks)[\"']?\s*:\s*[\"']",
+            r"(?im)(?:^|[{,])\s*[\"']?name[\"']?\s*:\s*\"[^\"\n]*\\",
+            r"(?m)(?:^|[{,])\s*(?:\"(?:[^\"\\]|\\.)*\"|'(?:[^']|'')*')\s*:",
+        )
+        has_yaml_indirection = any(
+            re.search(pattern, unquoted_structure)
+            for pattern in yaml_token_indirection_patterns
+        ) or any(
+            re.search(pattern, structure_text)
+            for pattern in sensitive_value_indirection_patterns
+        )
+        if has_yaml_indirection:
+            issues.append(
+                CiGuardIssue(
+                    f"{display}:yaml_indirection",
+                    "workflow YAML anchors, aliases, merge keys, tags, and permission block scalars are forbidden",
+                )
+            )
+        canonical_ci = path.relative_to(root) == WORKFLOW_PATH
+        issues.extend(
+            _workflow_structure_contract_issues(
+                structure_text,
+                display,
+                canonical_ci=canonical_ci,
+            )
+        )
+        if not canonical_ci:
+            duplicate_verify_patterns = {
+                "required_check_job": (
+                    r"(?im)(?:^[ \t]+|[{,]\s*)(?:verify|\"verify\"|'verify')\s*:"
+                ),
+                "required_check_name": (
+                    r"(?im)(?:^|[{,])\s*[\"']?name[\"']?\s*:\s*"
+                    r"(?:verify|\"verify\"|'verify')(?=\s*(?:$|[,}#]))"
+                ),
+            }
+            for name, pattern in duplicate_verify_patterns.items():
+                if re.search(pattern, structure_text):
+                    issues.append(
+                        CiGuardIssue(
+                            f"{display}:{name}",
+                            "only ci.yml may emit the required verify check name",
+                        )
+                    )
+
+    policy_requirements = {
+        Path("AGENTS.md"): {
+            "receipt": "<!-- codex-solo-review pr=<number> head=<head-sha> base=<base-sha> -->",
+            "expected_head": "expected_head_sha",
+            "no_aliases": "Do not create aliases, secondary accounts, bot approvals",
+        },
+        SOLO_REVIEW_DOC_PATH: {
+            "zero_approvals": "required_approving_review_count=0",
+            "no_last_push": "require_last_push_approval=false",
+            "no_bot_approval": "can_approve_pull_request_reviews=false",
+            "boundary_scope": "Scope: security-boundary",
+            "checks_write": "checks: write",
+            "write_all": "permissions: write-all",
+            "yaml_indirection": "YAML anchors",
+        },
+    }
+    for path, fragments in policy_requirements.items():
+        try:
+            text = (root / path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            issues.append(
+                CiGuardIssue(
+                    path.as_posix(),
+                    "solo-maintainer review policy file is missing",
+                )
+            )
+            continue
+        for name, fragment in fragments.items():
+            if fragment not in text:
+                issues.append(
+                    CiGuardIssue(
+                        f"{path.as_posix()}:{name}",
+                        f"solo-maintainer review policy is missing required contract: {fragment}",
+                    )
+                )
     return issues
 
 
 def validate_ci_workflow_text(text: str) -> list[CiGuardIssue]:
     issues: list[CiGuardIssue] = []
-    compact = normalize(text)
-    if not re.search(r"(?m)^on:\s*$", text):
-        issues.append(CiGuardIssue("ci.yml:on", "workflow must declare triggers"))
-    if "pull_request:" not in text:
-        issues.append(CiGuardIssue("ci.yml:on", "workflow must run on pull_request"))
-    if "push:" not in text or "main" not in text:
-        issues.append(CiGuardIssue("ci.yml:on", "workflow must run on pushes to main"))
-    if "python-version: \"3.12\"" not in text and "python-version: '3.12'" not in text:
-        issues.append(CiGuardIssue("ci.yml:python", "workflow must use Python 3.12"))
+    structure_text = _workflow_yaml_structure(text)
+    issues.extend(
+        _workflow_structure_contract_issues(
+            structure_text,
+            WORKFLOW_PATH.as_posix(),
+            canonical_ci=True,
+        )
+    )
+    jobs, jobs_error = _block_style_workflow_jobs(structure_text)
+    verify_blocks = [block for job_id, block in jobs if job_id == "verify"] if not jobs_error else []
+    verify_block = verify_blocks[0] if len(verify_blocks) == 1 else ""
+
+    top_level_entries = [
+        entry
+        for line in structure_text.splitlines()
+        if line.strip()
+        and len(line) == len(line.lstrip(" "))
+        and (entry := _simple_yaml_mapping(line)) is not None
+    ]
+    for forbidden_key in ("defaults", "env"):
+        if any(key.lower() == forbidden_key for key, _ in top_level_entries):
+            issues.append(
+                CiGuardIssue(
+                    f"ci.yml:workflow_{forbidden_key}",
+                    f"canonical CI must not override workflow-level {forbidden_key}",
+                )
+            )
+
+    on_block, on_error = _top_level_mapping_block(structure_text, "on")
+    if on_error or on_block is None:
+        issues.append(CiGuardIssue("ci.yml:on", on_error or "workflow must declare triggers"))
+    else:
+        trigger_entries = _direct_mapping_entries(on_block)
+        trigger_names = [key.lower() for key, _ in trigger_entries]
+        if trigger_names.count("pull_request") != 1:
+            issues.append(CiGuardIssue("ci.yml:on", "workflow must run exactly once on pull_request"))
+        if trigger_names.count("push") != 1 or not re.search(r"(?m)^\s+-\s+main\s*$", on_block):
+            issues.append(CiGuardIssue("ci.yml:on", "workflow must run on pushes to main"))
+        unexpected_triggers = sorted(set(trigger_names) - {"pull_request", "push"})
+        if unexpected_triggers:
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:on",
+                    "canonical CI has forbidden additional triggers: " + ", ".join(unexpected_triggers),
+                )
+            )
+
+    permissions_block, permissions_error = _top_level_mapping_block(structure_text, "permissions")
+    permissions_entries = _direct_mapping_entries(permissions_block) if permissions_block else []
+    if permissions_error or permissions_entries != [("contents", "read")]:
+        issues.append(
+            CiGuardIssue(
+                "ci.yml:permissions",
+                "canonical CI must grant only top-level contents: read",
+            )
+        )
+    if "python-version: \"3.12\"" not in verify_block and "python-version: '3.12'" not in verify_block:
+        issues.append(CiGuardIssue("ci.yml:python", "verify job must use Python 3.12"))
+
+    if verify_block:
+        forbidden_job_properties = {
+            "continue-on-error",
+            "container",
+            "defaults",
+            "env",
+            "environment",
+            "if",
+            "needs",
+            "permissions",
+            "services",
+            "strategy",
+            "uses",
+        }
+        verify_entries = _direct_mapping_entries(verify_block)
+        for key, _ in verify_entries:
+            if key.lower() in forbidden_job_properties:
+                issues.append(
+                    CiGuardIssue(
+                        f"ci.yml:verify_{key.lower()}",
+                        f"canonical verify job must not set {key}",
+                    )
+                )
+        runs_on = [normalize(value) for key, value in verify_entries if key.lower() == "runs-on"]
+        if runs_on != ["ubuntu-latest"]:
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_runner",
+                    "canonical verify job must run exactly once on ubuntu-latest",
+                )
+            )
+
+    step_blocks, steps_error = _job_step_blocks(verify_block) if verify_block else ([], None)
+    if verify_block and steps_error:
+        issues.append(CiGuardIssue("ci.yml:verify_steps", steps_error))
+
+    expected_step_count = len(VERIFY_ACTION_STEPS) + len(VERIFY_COMMAND_ORDER)
+    if step_blocks and len(step_blocks) != expected_step_count:
+        issues.append(
+            CiGuardIssue(
+                "ci.yml:verify_step_inventory",
+                f"verify must contain exactly {expected_step_count} allowlisted steps in canonical order",
+            )
+        )
+
+    for position, (expected_name, expected_action, expected_with) in enumerate(VERIFY_ACTION_STEPS):
+        if position >= len(step_blocks):
+            break
+        entries = _step_direct_mapping_entries(step_blocks[position])
+        keys = [key.lower() for key, _ in entries]
+        names = [_plain_scalar_value(value) for key, value in entries if key.lower() == "name"]
+        actions = [_plain_scalar_value(value) for key, value in entries if key.lower() == "uses"]
+        with_entries = _step_nested_mapping_entries(step_blocks[position], "with")
+        normalized_with = (
+            [(key, _plain_scalar_value(value)) for key, value in with_entries]
+            if with_entries is not None
+            else None
+        )
+        if (
+            sorted(keys) != ["name", "uses", "with"]
+            or names != [expected_name]
+            or actions != [expected_action]
+            or normalized_with != expected_with
+        ):
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_step_inventory",
+                    f"verify step {position + 1} must be the exact allowlisted {expected_name} action and configuration",
+                )
+            )
+
+    for offset, command_name in enumerate(VERIFY_COMMAND_ORDER, start=len(VERIFY_ACTION_STEPS)):
+        if offset >= len(step_blocks):
+            break
+        entries = _step_direct_mapping_entries(step_blocks[offset])
+        keys = [key.lower() for key, _ in entries]
+        expected_keys = (
+            ["env", "if", "name", "run"]
+            if command_name in {"strict_pr_release_check", "mcp_smoke"}
+            else ["name", "run"]
+        )
+        names = [_plain_scalar_value(value) for key, value in entries if key.lower() == "name"]
+        runs = [normalize(value) for key, value in entries if key.lower() == "run"]
+        if (
+            sorted(keys) != expected_keys
+            or len(names) != 1
+            or not names[0]
+            or "${{" in names[0]
+            or runs != [normalize(REQUIRED_COMMANDS[command_name])]
+        ):
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_step_inventory",
+                    f"verify step {offset + 1} must run only the canonical {command_name} command",
+                )
+            )
+
+    run_steps: dict[str, list[tuple[int, str]]] = {}
+    for position, step_block in enumerate(step_blocks):
+        entries = _step_direct_mapping_entries(step_block)
+        run_values = [normalize(value) for key, value in entries if key.lower() == "run"]
+        if len(run_values) > 1:
+            issues.append(
+                CiGuardIssue(
+                    "ci.yml:verify_step_run",
+                    "each verify step may contain only one static same-line run command",
+                )
+            )
+        for run_value in run_values:
+            run_steps.setdefault(run_value, []).append((position, step_block))
+        for key, _ in entries:
+            if key.lower() in {"continue-on-error", "shell", "working-directory"}:
+                issues.append(
+                    CiGuardIssue(
+                        f"ci.yml:verify_step_{key.lower()}",
+                        f"verify steps must not override {key}",
+                    )
+                )
+
+    required_steps: dict[str, tuple[int, str]] = {}
     for name, command in REQUIRED_COMMANDS.items():
-        if normalize(command) not in compact:
-            issues.append(CiGuardIssue(f"ci.yml:{name}", f"missing required command: {command}"))
-    docker_index = compact.find(normalize(REQUIRED_COMMANDS["docker_smoke"]))
-    final_name_index = compact.find(normalize(FINAL_ARTIFACT_GUARD_NAME))
-    final_command_index = compact.find(normalize(REQUIRED_COMMANDS["post_smoke_package_build_artifact_guard"]))
-    if final_name_index == -1:
+        matches = run_steps.get(normalize(command), [])
+        if len(matches) != 1:
+            message = (
+                f"missing required command: {command}"
+                if not matches
+                else f"required command must appear exactly once: {command}"
+            )
+            issues.append(CiGuardIssue(f"ci.yml:{name}", message))
+        else:
+            required_steps[name] = matches[0]
+
+    for name, (_, step_block) in required_steps.items():
+        entries = _step_direct_mapping_entries(step_block)
+        if_values = [value for key, value in entries if key.lower() == "if"]
+        if name not in {"strict_pr_release_check", "mcp_smoke"} and if_values:
+            issues.append(
+                CiGuardIssue(
+                    f"ci.yml:{name}_condition",
+                    "required verify commands must not be conditionally skipped",
+                )
+            )
+        env_entries = _step_nested_mapping_entries(step_block, "env")
+        if name in {"strict_pr_release_check", "mcp_smoke"}:
+            expected_env = [("AI_DEMEMORY_PR_URL", "${{ github.event.pull_request.html_url }}")]
+            if env_entries != expected_env:
+                issues.append(
+                    CiGuardIssue(
+                        f"ci.yml:{name}_env",
+                        "PR-gated verify steps may set only the exact pull request URL environment binding",
+                    )
+                )
+        elif any(key.lower() == "env" for key, _ in entries):
+            issues.append(
+                CiGuardIssue(
+                    f"ci.yml:{name}_env",
+                    "required verify commands must not override their execution environment",
+                )
+            )
+
+    docker_step = required_steps.get("docker_smoke")
+    final_step = required_steps.get("post_smoke_package_build_artifact_guard")
+    final_names = (
+        [
+            value.strip("'\"")
+            for key, value in _step_direct_mapping_entries(final_step[1])
+            if key.lower() == "name"
+        ]
+        if final_step
+        else []
+    )
+    if final_names != [FINAL_ARTIFACT_GUARD_NAME]:
         issues.append(
             CiGuardIssue(
                 "ci.yml:final_artifact_guard",
                 f"missing required post-smoke step name: {FINAL_ARTIFACT_GUARD_NAME}",
             )
         )
-    elif docker_index == -1 or final_name_index < docker_index or final_command_index < docker_index:
+    elif docker_step is None or final_step is None or final_step[0] <= docker_step[0]:
         issues.append(
             CiGuardIssue(
                 "ci.yml:final_artifact_guard",
                 "final package build artifact guard must run after Docker local MCP smoke",
             )
         )
-    mcp_name_index = compact.find(normalize(MCP_RUNTIME_SMOKE_NAME))
-    mcp_command_index = compact.find(normalize(REQUIRED_COMMANDS["mcp_smoke"]))
-    release_check_index = compact.find(normalize(REQUIRED_COMMANDS["release_check"]))
-    strict_release_check_index = compact.find(normalize(REQUIRED_COMMANDS["strict_pr_release_check"]))
-    api_smoke_index = compact.find(normalize(REQUIRED_COMMANDS["api_smoke"]))
-    index_index = compact.find(normalize(REQUIRED_COMMANDS["index"]))
-    search_index = compact.find(normalize(REQUIRED_COMMANDS["search"]))
-    eval_recall_index = compact.find(normalize(REQUIRED_COMMANDS["eval_recall"]))
-    install_smoke_index = compact.find(normalize(REQUIRED_COMMANDS["install_smoke"]))
-    strict_release_name_index = compact.find(normalize(STRICT_PR_RELEASE_CHECK_NAME))
-    strict_release_step = find_step_block(text, STRICT_PR_RELEASE_CHECK_NAME)
-    mcp_step = find_step_block(text, MCP_RUNTIME_SMOKE_NAME)
-    if strict_release_name_index == -1:
+
+    strict_release_step = required_steps.get("strict_pr_release_check")
+    strict_names = (
+        [
+            value.strip("'\"")
+            for key, value in _step_direct_mapping_entries(strict_release_step[1])
+            if key.lower() == "name"
+        ]
+        if strict_release_step
+        else []
+    )
+    if strict_names != [STRICT_PR_RELEASE_CHECK_NAME]:
         issues.append(
             CiGuardIssue(
                 "ci.yml:strict_pr_release_check",
                 f"missing required PR-gated step name: {STRICT_PR_RELEASE_CHECK_NAME}",
             )
         )
-    elif strict_release_step is None or not step_has_pr_gate_and_url(strict_release_step):
+    elif not step_has_pr_gate_and_url(strict_release_step[1]):
         issues.append(
             CiGuardIssue(
                 "ci.yml:strict_pr_release_check",
                 "Strict PR release readiness check must run only on pull_request events and set AI_DEMEMORY_PR_URL from the pull request URL",
             )
         )
-    if mcp_name_index == -1:
+
+    mcp_step = required_steps.get("mcp_smoke")
+    mcp_names = (
+        [
+            value.strip("'\"")
+            for key, value in _step_direct_mapping_entries(mcp_step[1])
+            if key.lower() == "name"
+        ]
+        if mcp_step
+        else []
+    )
+    if mcp_names != [MCP_RUNTIME_SMOKE_NAME]:
         issues.append(CiGuardIssue("ci.yml:mcp_smoke", f"missing required PR-gated step name: {MCP_RUNTIME_SMOKE_NAME}"))
-    elif mcp_step is None or not step_has_pr_gate_and_url(mcp_step):
+    elif not step_has_pr_gate_and_url(mcp_step[1]):
         issues.append(
             CiGuardIssue(
                 "ci.yml:mcp_smoke",
                 "MCP runtime smoke must run only on pull_request events and set AI_DEMEMORY_PR_URL from the pull request URL",
             )
         )
-    if (
-        mcp_name_index != -1
-        and mcp_command_index != -1
-        and release_check_index != -1
-        and strict_release_check_index != -1
-        and api_smoke_index != -1
-        and index_index != -1
-        and search_index != -1
-        and eval_recall_index != -1
-        and install_smoke_index != -1
-        and not (
-            release_check_index
-            < api_smoke_index
-            < index_index
-            < search_index
-            < eval_recall_index
-            < strict_release_check_index
-            < mcp_name_index
-            <= mcp_command_index
-            < install_smoke_index
-        )
+
+    ordered_names = (
+        "release_check",
+        "api_smoke",
+        "index",
+        "search",
+        "eval_recall",
+        "strict_pr_release_check",
+        "mcp_smoke",
+        "install_smoke",
+    )
+    if all(name in required_steps for name in ordered_names) and not all(
+        required_steps[left][0] < required_steps[right][0]
+        for left, right in zip(ordered_names, ordered_names[1:])
     ):
         issues.append(
             CiGuardIssue(

@@ -17,29 +17,44 @@ The checked-in `memories/**` files are public demo/validation fixtures only.
   clean branch based on public `origin/main`; never merge an archive worktree
   wholesale or reuse its release evidence, pins, or repository identity.
 
-## PR And Merge Approval
+## PR And Merge Review
 
 - Codex is the operational owner for implementation, maintenance, branches,
-  release evidence, documentation, and package readiness. A fresh independent
-  read-only review is required before marking a PR ready or requesting merge.
+  routine merges, release evidence, documentation, and package readiness. A
+  fresh independent read-only subagent review is required before marking a PR
+  ready or requesting merge.
 - Codex may act as release owner for repeatable, non-secret release checks:
   collecting evidence, setting `AI_DEMEMORY_PR_URL`, recording manual
   acceptance as `Codex Release Owner`, updating PR comments, and pushing scoped
   release-readiness commits when the proof was generated and inspected in this
   workspace.
-- Whenever a PR is ready or a merge needs approval, delegate a fresh,
-  read-only professional review to a subagent with the GitHub plugin context
-  before asking for or acting on approval.
+- Whenever a PR is ready or a merge is proposed, delegate one fresh, read-only
+  professional review to a subagent with the GitHub plugin context.
 - Give the reviewer enough context to understand the stack, base/head branches,
   CI status, test evidence, and intended merge order, but avoid dumping noisy
   implementation history.
 - The reviewer must not merge, publish, or mutate repository state. Use its
   findings to decide whether approval is safe or more work is needed.
-- The tuple-bound `github-actions[bot]` review is a technical branch-protection
-  signal, not user authorization to merge, tag, dispatch, or publish.
-- Do not merge, change repository visibility, create or push release tags,
-  publish packages, rotate secrets, or dispatch trusted publishing without
-  explicit user approval, even when release evidence and CI are green.
+- After a `READY` verdict, the root agent must re-read the PR, exact base/head
+  tuple, canonical CI, review threads, and worktree, then publish this receipt
+  from the sole owner account before merging:
+
+  `<!-- codex-solo-review pr=<number> head=<head-sha> base=<base-sha> -->`
+
+  The receipt must also name the reviewer task, scope (`routine` or
+  `security-boundary`), and exact CI evidence. Any head or base movement makes
+  the receipt stale and requires new CI, a fresh reviewer, and a new receipt.
+- GitHub approving reviews are not required: the repository has one human
+  maintainer, and subagents are review processes rather than GitHub identities.
+  Do not create aliases, secondary accounts, bot approvals, or writable status
+  checks to simulate another collaborator.
+- Routine merges may proceed under the owner's standing delegation only with
+  strict required CI, a fresh `READY` review, the exact tuple receipt, no open
+  review threads, and an API merge bound with `expected_head_sha`.
+- Do not change repository visibility, create or push release tags, publish
+  packages, rotate secrets, dispatch trusted publishing, or perform production
+  deployment without explicit user approval, even when evidence and CI are
+  green.
 - Never bypass branch/tag protections, rewrite published tags, delete releases,
   or weaken OIDC. PyPI rollback is yank plus fix-forward with a new version,
   never overwrite.

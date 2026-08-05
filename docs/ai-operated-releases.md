@@ -7,10 +7,12 @@ has standing authority to implement, test, prepare release PRs, update proposed
 versions and changelog entries, collect exact-artifact evidence, coordinate
 independent review and prepare fix-forward recovery.
 
-Merge, immutable tag creation, trusted-publishing dispatch and package
-publication remain important actions that require explicit user authorization.
-Automated gates establish technical readiness; they do not grant that
-authorization. Gonzalo's account or a future organization remains the legal
+Routine exact-head merge is covered by the owner's standing delegation after
+strict CI, a fresh read-only review, and the owner-account receipt. Immutable
+tag creation, trusted-publishing dispatch, and package publication remain
+important actions that require explicit user authorization. Automated gates
+establish technical readiness; they do not grant those release
+authorizations. Gonzalo's account or a future organization remains the legal
 GitHub and PyPI owner and the destructive break-glass authority.
 
 `release_ready`, `publish_ready`, and manual acceptance are local
@@ -28,11 +30,11 @@ tests, attestations, OIDC and post-index installation.
    do not gate package integrity.
 2. CI runs compile, schema, secret, MCP, release, unit, install, package and
    Docker smokes. A fresh read-only reviewer checks the exact PR tuple.
-3. Codex presents the exact PR, head/base SHAs, CI and release evidence. The
-   user must explicitly authorize its merge and, for a release PR, the
-   consequent tag and publication. Without that authorization the PR remains
-   unmerged, regardless of technical readiness.
-4. After an authorized merge and successful CI on `main`, the user explicitly
+3. Codex presents the exact PR, head/base SHAs, CI and release evidence, obtains
+   a fresh `READY` review, posts the exact-tuple `codex-solo-review` receipt,
+   and merges with `expected_head_sha` under the standing repository
+   delegation. This merge does not authorize a tag or publication.
+4. After the reviewed merge and successful CI on `main`, the user explicitly
    dispatches `tag-release.yml` with the exact `v<version>`, the exact
    40-character current-main commit, and
    `confirm=release-<tag>@<approved_sha>`. The workflow rechecks current
@@ -73,10 +75,10 @@ true:
 - the recovery runbook has been exercised without uploading a duplicate;
 - the owner has approved the exact tag and commit tuple shown in the dispatch.
 
-A green CI run with a new version is never authorization by itself. Creating
-the approved tag does not trigger publication. Tag authorization and
-publication authorization are two separate manual dispatches, each bound to
-the same immutable tuple. `release.yml` is intentionally
+A green CI run or reviewed merge with a new version is never tag or publication
+authorization by itself. Creating the approved tag does not trigger
+publication. Tag authorization and publication authorization are two separate
+manual dispatches, each bound to the same immutable tuple. `release.yml` is intentionally
 `workflow_dispatch`-only, so a direct `v*` push is not a publisher path.
 
 `.github/workflows/publish.yml` is not a recovery publisher. It is a retained
