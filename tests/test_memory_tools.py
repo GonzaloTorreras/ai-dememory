@@ -11805,6 +11805,104 @@ jobs:
 
         self.assertFalse(issues)
 
+    def test_ci_guard_binds_all_required_commands_to_the_protected_verify_job(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace("\n  verify:\n", "\n  full-validation:\n", 1)
+        weakened += """
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo trivial-required-check
+"""
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("ci.yml:compile", targets)
+        self.assertIn("ci.yml:unit_tests", targets)
+        self.assertIn("ci.yml:docker_smoke", targets)
+        self.assertNotIn(".github/workflows/ci.yml:required_verify_job", targets)
+
+    def test_ci_guard_rejects_verify_skip_and_command_interpreter_overrides(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "  verify:\n    runs-on: ubuntu-latest",
+            "  verify:\n    runs-on: self-hosted\n    container: attacker/example:latest\n    continue-on-error: true",
+            1,
+        ).replace(
+            "      - name: Unit tests\n        run: python -m unittest discover -s tests -t .",
+            "      - name: Unit tests\n        if: ${{ false }}\n        shell: echo {0}\n        env:\n          PYTHONPATH: ./fake\n        run: python -m unittest discover -s tests -t .",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        targets = {issue.target for issue in issues}
+
+        self.assertIn("ci.yml:verify_continue-on-error", targets)
+        self.assertIn("ci.yml:verify_container", targets)
+        self.assertIn("ci.yml:verify_runner", targets)
+        self.assertIn("ci.yml:verify_step_shell", targets)
+        self.assertIn("ci.yml:unit_tests_condition", targets)
+        self.assertIn("ci.yml:unit_tests_env", targets)
+
+    def test_ci_guard_rejects_duplicate_or_renamed_protected_check(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        duplicate_name = current.replace(
+            "    name: compatibility (${{ matrix.os }}, Python ${{ matrix.python }})",
+            "    name: verify",
+            1,
+        )
+        renamed_verify = current.replace(
+            "  verify:\n    runs-on: ubuntu-latest",
+            "  verify:\n    name: not-verify\n    runs-on: ubuntu-latest",
+            1,
+        )
+        dynamic_duplicate = current.replace(
+            "    name: compatibility (${{ matrix.os }}, Python ${{ matrix.python }})",
+            "    name: ${{ 'ver' }}${{ 'ify' }}",
+            1,
+        )
+
+        duplicate_targets = {issue.target for issue in validate_ci_workflow_text(duplicate_name)}
+        renamed_targets = {issue.target for issue in validate_ci_workflow_text(renamed_verify)}
+        dynamic_targets = {issue.target for issue in validate_ci_workflow_text(dynamic_duplicate)}
+
+        self.assertIn(".github/workflows/ci.yml:duplicate_verify_name", duplicate_targets)
+        self.assertIn(".github/workflows/ci.yml:required_verify_name", renamed_targets)
+        self.assertIn(".github/workflows/ci.yml:dynamic_job_name", dynamic_targets)
+
+    def test_ci_guard_rejects_extended_false_pr_gate(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "if: ${{ github.event_name == 'pull_request' }}",
+            "if: ${{ github.event_name == 'pull_request' && false }}",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("Strict PR release readiness check must run only on pull_request events", messages)
+
+    def test_ci_guard_rejects_spoofed_trigger_and_broadened_permissions(self) -> None:
+        current = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        weakened = current.replace(
+            "  pull_request:\n",
+            "  pull_request_target:\n  # pull_request:\n",
+            1,
+        ).replace(
+            "permissions:\n  contents: read",
+            "permissions:\n  contents: write",
+            1,
+        )
+
+        issues = validate_ci_workflow_text(weakened)
+        messages = "\n".join(issue.message for issue in issues)
+
+        self.assertIn("exactly once on pull_request", messages)
+        self.assertIn("forbidden additional triggers: pull_request_target", messages)
+        self.assertIn("only top-level contents: read", messages)
+
     def test_ci_guard_rejects_mutable_actions_and_persisted_checkout_token(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -76,14 +76,19 @@ required check. Every repository workflow shares the GitHub Actions app
 identity, so another writable workflow could forge that context. Workflows must
 not request `statuses: write`, `checks: write`, or `permissions: write-all`, and
 no workflow other than `ci.yml` may define a job or job name equal to the
-required `verify` context. Workflow YAML anchors, aliases, merge keys, explicit
-mapping entries/tags, quoted mapping keys or permission scalars, escaped job
-names, and
-block/multiline permission or name values are deliberately forbidden. Non-CI
-jobs must use block mappings and static same-line check names. This lets the
-dependency-free guard fail closed without pretending to implement GitHub's
-complete YAML resolver. Introducing a dedicated review app would add credentials
-and operational cost without adding an independent human trust domain.
+required `verify` context. In `ci.yml`, every required command must appear
+exactly once inside that one static `verify` job; the job cannot delegate,
+continue on error, use a conditional/matrix/container, override its environment,
+or change from `ubuntu-latest`. Required steps cannot change shell, working
+directory, environment, or skip conditions; only the two exact PR-only gates may
+carry their fixed pull-request URL binding. Workflow YAML anchors, aliases,
+merge keys, explicit mapping entries/tags, quoted mapping keys or permission
+scalars, escaped job names, and block/multiline permission or name values are
+deliberately forbidden. Non-CI jobs must use block mappings and static same-line
+check names. This lets the dependency-free guard fail closed without pretending
+to implement GitHub's complete YAML resolver. Introducing a dedicated review app
+would add credentials and operational cost without adding an independent human
+trust domain.
 
 ## Authority boundaries
 

@@ -40,8 +40,10 @@ Use a sole-owner, exact-tuple review receipt:
 - prohibit workflow-level `pull-requests: write`, `statuses: write`,
   `checks: write`, `permissions: write-all`, automated approving-review calls,
   duplicate `verify` check names, YAML anchors/aliases/merge or explicit-mapping
-  indirection, and the legacy receipt marker unless a future ADR defines a
-  genuinely separate trust domain.
+  indirection, a trivial or skippable protected `verify` job, and the legacy
+  receipt marker unless a future ADR defines a genuinely separate trust domain;
+- bind every required CI command exactly once to the single static `verify` job,
+  its fixed hosted runner, and non-overridden execution context.
 
 Routine merges are covered by the owner's standing delegation. Package
 publication, release tags, trusted publishing, secrets, visibility, destructive

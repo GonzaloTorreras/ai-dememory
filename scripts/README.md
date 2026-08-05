@@ -265,8 +265,9 @@ python3 scripts/review_memory.py review plan --kind conflict
 - `publish_guard.py`: validates the exact tag/SHA-confirmed manual tagger,
   single OIDC publisher, exact-artifact smoke, attestation, and
   confirmation-gated token-free recovery contracts.
-- `ci_guard.py`: validates required v2 verification gates plus the isolated,
-  manual-only GitHub Pages workflow boundary.
+- `ci_guard.py`: binds required v2 verification commands to the single static,
+  non-skippable `verify` job, rejects forgeable workflow equivalents, and
+  validates the isolated manual-only GitHub Pages workflow boundary.
 - `pages_artifact_guard.py`: requires the Pages `site/` tree to match clean
   stage-zero regular Git files and blob IDs exactly, with no special index
   flags, generated, linked, or untracked content.
