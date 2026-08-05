@@ -32,4 +32,8 @@ description: "Use when Codex needs to operate the installed ai-dememory tool aga
   commands may be repository-bounded, but they must not turn public fixtures
   into a private-memory destination.
 
-Use `ai-dememory setup wizard` for first-run baseline memory, `ai-dememory hook-event dispatch` for JSON harness integration, and the dedicated plugin skills for recall, working sessions, setup, maintenance, and inbox review.
+Use `ai-dememory setup wizard` for first-run operational policy and the separate
+`ai-dememory onboard` contract only when reviewed personal/project memory is
+wanted. Use `ai-dememory hook-event dispatch` for JSON harness integration and
+the dedicated plugin skills for recall, working sessions, setup, maintenance,
+and inbox review.

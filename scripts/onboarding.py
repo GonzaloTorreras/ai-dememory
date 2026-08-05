@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview or apply the minimum reviewed ai-dememory baseline."""
+"""Preview/apply operational setup or an explicit reviewed personal baseline."""
 
 from __future__ import annotations
 
@@ -48,39 +48,133 @@ def onboarding_plan(
     *,
     _include_payloads: bool = False,
 ) -> dict[str, Any]:
-    """Build a side-effect-free onboarding plan."""
-    root = Path(root).resolve()
+    """Build a side-effect-free, memory-only onboarding plan."""
     normalized = normalize_answers(answers)
     documents = render_documents(normalized)
+    return _durable_onboarding_plan(
+        root,
+        normalized,
+        documents,
+        _include_payloads=_include_payloads,
+    )
+
+
+def _durable_onboarding_plan(
+    root: Path,
+    normalized: dict[str, Any],
+    documents: dict[str, str],
+    *,
+    _include_payloads: bool,
+) -> dict[str, Any]:
+    """Fingerprint only the reviewed durable writes, never operating policy."""
+    root = Path(root).resolve()
     writes: list[dict[str, Any]] = []
     for relative_path, content in documents.items():
         target = safe_target(root, relative_path)
         writes.append(planned_write(root, target, content, kind="memory", allow_update=False))
 
-    config_path = safe_target(root, ".ai-dememory.toml")
-    current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
-    existing_schedule = (
-        load_config_path(config_path).get("schedule", {})
-        if config_path.exists()
-        else {}
-    )
-    schedule_preserved = bool(
-        isinstance(existing_schedule, dict)
-        and existing_schedule.get("enabled", False)
-    )
-    updated_config = merge_onboarding_config(
-        current_config,
+    conflicts = [item["path"] for item in writes if item["status"] == "conflict"]
+    plan = {
+        "root": str(root),
+        "setup_scope": "durable_baseline",
+        "writes_config": False,
+        "reviewed_by": normalized["reviewed_by"],
+        "writes": writes,
+        "created_count": sum(item["status"] == "create" for item in writes),
+        "updated_count": 0,
+        "unchanged_count": sum(item["status"] == "unchanged" for item in writes),
+        "conflict_count": len(conflicts),
+        "conflicts": conflicts,
+        "can_apply": not conflicts,
+        "mutates_system": False,
+        "writes_files": False,
+        "durable_memory_reviewed": True,
+        "auto_promotes": False,
+        "installs_hooks": False,
+        "installs_schedules": False,
+    }
+    plan["plan_sha256"] = plan_fingerprint(plan)
+    if _include_payloads:
+        plan["_payloads"] = dict(documents)
+    return plan
+
+
+def operational_setup_plan(
+    root: Path,
+    answers: dict[str, Any],
+    *,
+    _include_payloads: bool = False,
+) -> dict[str, Any]:
+    """Build a config-only first-run plan without creating durable memory."""
+    if not isinstance(answers, dict):
+        raise ValueError("setup input must be a JSON object")
+    personal_fields = [
+        field
+        for field in ("reviewed_by", *BASELINE_KINDS, "projects", "sensitivity")
+        if field in answers
+    ]
+    if personal_fields:
+        raise ValueError(
+            "setup wizard configures operations only; use ai-dememory onboard for: "
+            + ", ".join(personal_fields)
+        )
+    normalized = normalize_operational_answers(answers)
+    return _setup_plan(
+        root,
         normalized,
-        preserve_schedule=schedule_preserved,
+        documents={},
+        setup_scope="operational",
+        durable_memory_reviewed=False,
+        write_config=True,
+        _include_payloads=_include_payloads,
     )
-    writes.append(planned_write(root, config_path, updated_config, kind="config", allow_update=True))
+
+
+def _setup_plan(
+    root: Path,
+    normalized: dict[str, Any],
+    *,
+    documents: dict[str, str],
+    setup_scope: str,
+    durable_memory_reviewed: bool,
+    write_config: bool,
+    _include_payloads: bool,
+) -> dict[str, Any]:
+    root = Path(root).resolve()
+    writes: list[dict[str, Any]] = []
+    for relative_path, content in documents.items():
+        target = safe_target(root, relative_path)
+        writes.append(planned_write(root, target, content, kind="memory", allow_update=False))
+
+    updated_config: str | None = None
+    schedule_preserved = False
+    if write_config:
+        config_path = safe_target(root, ".ai-dememory.toml")
+        current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+        existing_schedule = (
+            load_config_path(config_path).get("schedule", {})
+            if config_path.exists()
+            else {}
+        )
+        schedule_preserved = bool(
+            isinstance(existing_schedule, dict)
+            and existing_schedule.get("enabled", False)
+        )
+        updated_config = merge_onboarding_config(
+            current_config,
+            normalized,
+            preserve_schedule=schedule_preserved,
+        )
+        writes.append(planned_write(root, config_path, updated_config, kind="config", allow_update=True))
 
     conflicts = [item["path"] for item in writes if item["status"] == "conflict"]
     if schedule_preserved:
         conflicts.append(".ai-dememory.toml:[enabled-schedule]")
     plan = {
         "root": str(root),
-        "reviewed_by": normalized["reviewed_by"],
+        "setup_scope": setup_scope,
+        "writes_config": write_config,
+        "reviewed_by": normalized.get("reviewed_by"),
         "clients": normalized["clients"],
         "automation": normalized["automation"],
         "resource_policy": onboarding_resource_policy(normalized),
@@ -101,30 +195,50 @@ def onboarding_plan(
         "can_apply": not conflicts,
         "mutates_system": False,
         "writes_files": False,
-        "durable_memory_reviewed": True,
+        "durable_memory_reviewed": durable_memory_reviewed,
         "auto_promotes": False,
         "installs_hooks": False,
         "installs_schedules": False,
     }
     plan["plan_sha256"] = plan_fingerprint(plan)
     if _include_payloads:
-        plan["_payloads"] = {**documents, ".ai-dememory.toml": updated_config}
+        plan["_payloads"] = dict(documents)
+        if updated_config is not None:
+            plan["_payloads"][".ai-dememory.toml"] = updated_config
     return plan
 
 
 def apply_onboarding(root: Path, answers: dict[str, Any], expected_plan_sha256: str | None = None) -> dict[str, Any]:
     """Apply exactly one reviewed onboarding plan, refusing memory overwrites."""
-    root = Path(root).resolve()
     plan = onboarding_plan(root, answers, _include_payloads=True)
+    return _apply_setup_plan(root, plan, expected_plan_sha256)
+
+
+def apply_operational_setup(
+    root: Path,
+    answers: dict[str, Any],
+    expected_plan_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Apply exactly one reviewed config-only first-run plan."""
+    plan = operational_setup_plan(root, answers, _include_payloads=True)
+    return _apply_setup_plan(root, plan, expected_plan_sha256)
+
+
+def _apply_setup_plan(
+    root: Path,
+    plan: dict[str, Any],
+    expected_plan_sha256: str | None,
+) -> dict[str, Any]:
+    root = Path(root).resolve()
     payloads = plan.pop("_payloads")
     if not isinstance(payloads, dict):
-        raise ValueError("onboarding plan payloads are unavailable")
+        raise ValueError("setup plan payloads are unavailable")
     if not expected_plan_sha256:
-        raise ValueError("--expect-plan-sha256 is required; preview and review the onboarding plan first")
+        raise ValueError("--expect-plan-sha256 is required; preview and review the setup plan first")
     if not hmac.compare_digest(expected_plan_sha256, str(plan["plan_sha256"])):
-        raise ValueError("onboarding plan changed after preview; review the new plan before apply")
+        raise ValueError("setup plan changed after preview; review the new plan before apply")
     if plan["conflicts"]:
-        raise ValueError("onboarding conflicts must be reviewed before apply: " + ", ".join(plan["conflicts"]))
+        raise ValueError("setup conflicts must be reviewed before apply: " + ", ".join(plan["conflicts"]))
 
     changed: list[str] = []
     batch: list[tuple[Path, str, bool, str | None]] = []
@@ -160,16 +274,10 @@ def apply_onboarding(root: Path, answers: dict[str, Any], expected_plan_sha256: 
 def plan_fingerprint(plan: dict[str, Any]) -> str:
     canonical = {
         "root": plan["root"],
+        "setup_scope": plan["setup_scope"],
+        "writes_config": plan["writes_config"],
+        "durable_memory_reviewed": plan["durable_memory_reviewed"],
         "reviewed_by": plan["reviewed_by"],
-        "clients": plan["clients"],
-        "automation": plan["automation"],
-        "resource_policy": plan["resource_policy"],
-        "context": plan["context"],
-        "recall": plan["recall"],
-        "learning": plan["learning"],
-        "schedule": plan["schedule"],
-        "schedule_preserved": plan["schedule_preserved"],
-        "integrations": plan["integrations"],
         "writes": [
             {
                 key: item[key]
@@ -178,6 +286,20 @@ def plan_fingerprint(plan: dict[str, Any]) -> str:
             for item in plan["writes"]
         ],
     }
+    if plan["setup_scope"] == "operational":
+        canonical.update(
+            {
+                "clients": plan["clients"],
+                "automation": plan["automation"],
+                "resource_policy": plan["resource_policy"],
+                "context": plan["context"],
+                "recall": plan["recall"],
+                "learning": plan["learning"],
+                "schedule": plan["schedule"],
+                "schedule_preserved": plan["schedule_preserved"],
+                "integrations": plan["integrations"],
+            }
+        )
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -197,6 +319,45 @@ def normalize_answers(answers: dict[str, Any]) -> dict[str, Any]:
     sensitivity = clean_scalar(answers.get("sensitivity")) or "internal"
     if sensitivity not in ALLOWED_SENSITIVITY:
         raise ValueError("sensitivity must be public or internal for injectable baseline memory")
+
+    operational_fields = sorted(
+        field
+        for field in (
+            "clients",
+            "automation",
+            "context",
+            "recall",
+            "learning",
+            "resources",
+            "review",
+            "schedule",
+            "intensity",
+            "model_policy",
+        )
+        if field in answers
+    )
+    if operational_fields:
+        raise ValueError(
+            "onboard writes durable memory only; use ai-dememory setup wizard for: "
+            + ", ".join(operational_fields)
+        )
+    projects = normalize_projects(answers.get("projects"))
+    return {
+        "reviewed_by": reviewed_by,
+        **baseline,
+        "projects": projects,
+        "sensitivity": sensitivity,
+    }
+
+
+def normalize_operational_answers(
+    answers: dict[str, Any],
+    *,
+    reviewed_by: str | None = None,
+) -> dict[str, Any]:
+    """Normalize bounded first-run policy without requiring personal memory."""
+    if not isinstance(answers, dict):
+        raise ValueError("setup input must be a JSON object")
 
     clients = clean_list(answers.get("clients")) or list(DEFAULT_CLIENTS)
     clients = unique(slugify(client, fallback="") for client in clients)
@@ -314,7 +475,7 @@ def normalize_answers(answers: dict[str, Any]) -> dict[str, Any]:
     schedule_mode = normalize_schedule_mode(clean_scalar(schedule_input.get("mode")) or "installed")
     schedule_image = clean_scalar(schedule_input.get("image")) or "ai-dememory:local"
     if schedule_mode == "docker" and not immutable_docker_image(schedule_image):
-        raise ValueError("onboarding Docker schedules require an immutable repo@sha256:<digest> image")
+        raise ValueError("setup Docker schedules require an immutable repo@sha256:<digest> image")
     schedule = {
         "enabled": False,
         "daily_enabled": clean_bool(schedule_input.get("daily_enabled"), profile.daily_enabled),
@@ -326,12 +487,8 @@ def normalize_answers(answers: dict[str, Any]) -> dict[str, Any]:
         "image": schedule_image,
     }
     review = review_mode_config_values(host_policy.review_mode, reviewed_by)
-    projects = normalize_projects(answers.get("projects"))
     return {
         "reviewed_by": reviewed_by,
-        **baseline,
-        "projects": projects,
-        "sensitivity": sensitivity,
         "clients": clients,
         "automation": automation,
         "context": context,
@@ -522,7 +679,7 @@ confidence: 1.0
 sensitivity: {sensitivity}
 source:
   kind: manual
-  ref: onboarding-wizard
+  ref: onboard
 pin: true
 decay: none
 review_after: {review_after.isoformat()}
@@ -755,18 +912,82 @@ def load_answers(args: argparse.Namespace) -> dict[str, Any]:
             "preferences": args.preference,
             "recommendations": args.recommendation,
             "projects": [parse_project_flag(item) for item in args.project],
-            "clients": args.client,
-            "recall": {"default_budget_tokens": args.budget_tokens} if args.budget_tokens else {},
-            "learning": {"session_proposals": args.enable_auto_learning},
-            "automation": {
-                "intensity": args.intensity or DEFAULT_INTENSITY,
-                "model_policy": args.model_policy or DEFAULT_MODEL_POLICY,
-            },
         }
     else:
         data = interactive_answers()
     if not isinstance(data, dict):
         raise ValueError("onboarding input must be a JSON object")
+    return data
+
+
+def reject_personal_setup_flags(args: argparse.Namespace) -> None:
+    fields = [
+        name
+        for name, present in (
+            ("--reviewed-by", args.reviewed_by is not None),
+            ("--value", bool(args.value)),
+            ("--preference", bool(args.preference)),
+            ("--recommendation", bool(args.recommendation)),
+            ("--project", bool(args.project)),
+        )
+        if present
+    ]
+    if fields:
+        raise ValueError(
+            "setup wizard does not accept personal baseline flags; use ai-dememory onboard for: "
+            + ", ".join(fields)
+        )
+
+
+def reject_operational_onboarding_flags(args: argparse.Namespace) -> None:
+    fields = [
+        name
+        for name, present in (
+            ("--client", bool(args.client)),
+            ("--budget-tokens", args.budget_tokens is not None),
+            ("--intensity", args.intensity is not None),
+            ("--model-policy", args.model_policy is not None),
+            ("--enable-auto-learning", args.enable_auto_learning),
+        )
+        if present
+    ]
+    if fields:
+        raise ValueError(
+            "onboard accepts durable baseline fields only; use ai-dememory setup wizard for: "
+            + ", ".join(fields)
+        )
+
+
+def operational_answers_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    """Build non-personal setup answers from explicit flags and safe defaults."""
+    learning: dict[str, Any] = {}
+    if args.enable_auto_learning:
+        learning["session_proposals"] = True
+    return {
+        "clients": args.client or list(DEFAULT_CLIENTS),
+        "automation": {
+            "intensity": args.intensity or DEFAULT_INTENSITY,
+            "model_policy": args.model_policy or DEFAULT_MODEL_POLICY,
+        },
+        "recall": {"default_budget_tokens": args.budget_tokens} if args.budget_tokens else {},
+        "learning": learning,
+    }
+
+
+def load_operational_answers(args: argparse.Namespace) -> dict[str, Any]:
+    sources = sum(bool(value) for value in (args.input_json, args.input_file, args.stdin))
+    if sources > 1:
+        raise ValueError("choose only one of --input-json, --input-file, or --stdin")
+    if args.input_json:
+        data = json.loads(args.input_json)
+    elif args.input_file:
+        data = json.loads(Path(args.input_file).read_text(encoding="utf-8"))
+    elif args.stdin:
+        data = json.load(sys.stdin)
+    else:
+        data = operational_answers_from_args(args)
+    if not isinstance(data, dict):
+        raise ValueError("setup input must be a JSON object")
     if args.intensity or args.model_policy:
         automation = data.get("automation")
         automation = dict(automation) if isinstance(automation, dict) else {}
@@ -778,32 +999,55 @@ def load_answers(args: argparse.Namespace) -> dict[str, Any]:
     return data
 
 
-def interactive_answers() -> dict[str, Any]:
+def interactive_setup_answers(args: argparse.Namespace) -> dict[str, Any]:
+    """Capture one guided operational plan without personal memory."""
     if not sys.stdin.isatty():
-        raise ValueError("non-interactive onboarding requires JSON/stdin or explicit flags")
+        raise ValueError("non-interactive setup requires --json or --dry-run")
+    data = operational_answers_from_args(args)
+    automation = dict(data["automation"])
+    print(
+        "Intensity: minimal (weekly/manual), balanced (recommended), "
+        "active (maximum bounded budgets)."
+    )
+    if args.intensity:
+        print(f"Intensity selected by command line: {args.intensity}")
+    else:
+        automation["intensity"] = input("Intensity [balanced]: ").strip().lower() or DEFAULT_INTENSITY
+    print("Host model policy: off (zero advisory work), advisory, proposals (review-first only).")
+    if args.model_policy:
+        print(f"Host model policy selected by command line: {args.model_policy}")
+    else:
+        automation["model_policy"] = input("Host model policy [off]: ").strip().lower() or DEFAULT_MODEL_POLICY
+    data["automation"] = automation
+
+    if automation["model_policy"] == "proposals" and not args.enable_auto_learning:
+        response = input("Create review-first Stop learning proposals? [Y/n]: ").strip().lower()
+        data["learning"] = {"session_proposals": response not in {"n", "no"}}
+    elif automation["model_policy"] != "proposals":
+        data["learning"] = {"session_proposals": False}
+
+    return data
+
+
+def interactive_baseline_answers() -> dict[str, Any]:
     reviewed_by = input("Reviewer name: ").strip()
     values = prompt_list("Values (semicolon-separated): ")
     preferences = prompt_list("Working preferences (semicolon-separated): ")
     recommendations = prompt_list("Recommendations for agents (semicolon-separated): ")
     project_name = input("Primary project name (optional): ").strip()
-    print(
-        "Intensity: minimal (weekly/manual), balanced (recommended), "
-        "active (maximum bounded budgets)."
-    )
-    intensity = input("Intensity [balanced]: ").strip().lower() or DEFAULT_INTENSITY
-    print("Host model policy: off (zero advisory work), advisory, proposals (review-first only).")
-    model_policy = input("Host model policy [off]: ").strip().lower() or DEFAULT_MODEL_POLICY
-    enable_learning = input("Create review-first Stop learning proposals? [y/N]: ").strip().lower() in {"y", "yes"}
     return {
         "reviewed_by": reviewed_by,
         "values": values,
         "preferences": preferences,
         "recommendations": recommendations,
         "projects": [{"name": project_name}] if project_name else [],
-        "clients": list(DEFAULT_CLIENTS),
-        "automation": {"intensity": intensity, "model_policy": model_policy},
-        "learning": {"session_proposals": enable_learning},
     }
+
+
+def interactive_answers() -> dict[str, Any]:
+    if not sys.stdin.isatty():
+        raise ValueError("non-interactive onboarding requires JSON/stdin or explicit flags")
+    return interactive_baseline_answers()
 
 
 def prompt_list(prompt: str) -> list[str]:
@@ -908,27 +1152,43 @@ def toml_value(value: Any) -> str:
     return str(value)
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
+    if mode not in {"onboard", "operational"}:
+        raise ValueError(f"unsupported onboarding mode: {mode}")
+    operational = mode == "operational"
+    parser = argparse.ArgumentParser(
+        description=(
+            "Preview/apply operational vault configuration without personal memory."
+            if operational
+            else "Preview/apply an explicit reviewed personal baseline without operating policy."
+        )
+    )
     parser.add_argument("--root", default=None, help="Memory vault root.")
-    parser.add_argument("--input-json", default=None, help="Inline onboarding JSON object.")
-    parser.add_argument("--input-file", default=None, help="Path to onboarding JSON.")
-    parser.add_argument("--stdin", action="store_true", help="Read onboarding JSON from stdin.")
-    parser.add_argument("--reviewed-by", default=None)
-    parser.add_argument("--value", action="append", default=[])
-    parser.add_argument("--preference", action="append", default=[])
-    parser.add_argument("--recommendation", action="append", default=[])
-    parser.add_argument("--project", action="append", default=[], help="name|path|alias1,alias2")
-    parser.add_argument("--client", action="append", default=[])
-    parser.add_argument("--budget-tokens", type=int, default=None)
-    parser.add_argument("--intensity", choices=profile_names(), default=None)
-    parser.add_argument("--model-policy", choices=model_policy_names(), default=None)
-    parser.add_argument("--enable-auto-learning", action="store_true")
+    payload_name = "setup" if operational else "onboarding"
+    parser.add_argument("--input-json", default=None, help=f"Inline {payload_name} JSON object.")
+    parser.add_argument("--input-file", default=None, help=f"Path to {payload_name} JSON.")
+    parser.add_argument("--stdin", action="store_true", help=f"Read {payload_name} JSON from stdin.")
+    personal_help = argparse.SUPPRESS if operational else None
+    operational_help = None if operational else argparse.SUPPRESS
+    parser.add_argument("--reviewed-by", default=None, help=personal_help)
+    parser.add_argument("--value", action="append", default=[], help=personal_help)
+    parser.add_argument("--preference", action="append", default=[], help=personal_help)
+    parser.add_argument("--recommendation", action="append", default=[], help=personal_help)
+    parser.add_argument(
+        "--project",
+        action="append",
+        default=[],
+        help=argparse.SUPPRESS if operational else "name|path|alias1,alias2",
+    )
+    parser.add_argument("--client", action="append", default=[], help=operational_help)
+    parser.add_argument("--budget-tokens", type=int, default=None, help=operational_help)
+    parser.add_argument("--intensity", choices=profile_names(), default=None, help=operational_help)
+    parser.add_argument("--model-policy", choices=model_policy_names(), default=None, help=operational_help)
+    parser.add_argument("--enable-auto-learning", action="store_true", help=operational_help)
     parser.add_argument("--apply", action="store_true", help="Apply a plan whose preview fingerprint was reviewed.")
     parser.add_argument("--expect-plan-sha256", default=None, help="Fingerprint returned by the reviewed preview.")
     parser.add_argument("--dry-run", action="store_true", help="Explicit preview alias; preview is the default.")
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--guided", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -951,28 +1211,35 @@ def print_human_result(result: dict[str, Any], *, include_apply_hint: bool = Tru
     action = "Applied" if result["applied"] else "Preview"
     print(f"{action}: {result['created_count']} create, {result['updated_count']} update, "
           f"{result['unchanged_count']} unchanged, {result['conflict_count']} conflict")
-    policy = result["resource_policy"]
-    print(
-        f"Intensity: {policy['intensity']}; model policy: {policy['model_policy']}; "
-        f"automatic recall ceiling: {policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
-    )
-    print(
-        "ai-dememory runtime model/embedding calls per maintenance run: 0/0; "
-        f"estimated local jobs/week after explicit install: {policy['estimated_local_runs_per_week']}"
-    )
-    resources = policy["resources"]
-    print(
-        f"MCP profile/idle lease: {policy['mcp_profile']}/"
-        f"{resources['mcp_idle_timeout_seconds']}s; context/recall ceilings: "
-        f"{policy['manual_context_default_tokens']}/"
-        f"{policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
-    )
-    print(
-        f"Provider/maintenance ceilings: {resources['provider_file_limit']} files, "
-        f"{resources['provider_max_file_bytes']} bytes/file, "
-        f"{resources['provider_scan_entries']} scanned entries, "
-        f"{resources['maintenance_timeout_seconds']}s per maintenance run"
-    )
+    if result.get("setup_scope") == "operational":
+        print("Scope: operational vault configuration only; no durable personal memory.")
+    else:
+        print("Scope: reviewed durable baseline only; operational vault configuration is unchanged.")
+    if result.get("setup_scope") == "operational":
+        policy = result["resource_policy"]
+        print(
+            f"Intensity: {policy['intensity']}; model policy: {policy['model_policy']}; "
+            f"automatic recall ceiling: {policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+        )
+        print(
+            "ai-dememory runtime model/embedding calls per maintenance run: 0/0; "
+            f"estimated local jobs/week after explicit install: {policy['estimated_local_runs_per_week']}"
+        )
+        resources = policy["resources"]
+        print(
+            f"MCP profile/idle lease: {policy['mcp_profile']}/"
+            f"{resources['mcp_idle_timeout_seconds']}s; context/recall ceilings: "
+            f"{policy['manual_context_default_tokens']}/"
+            f"{policy['automatic_recall_max_tokens_per_eligible_turn']} tokens"
+        )
+        print(
+            f"Provider/maintenance ceilings: {resources['provider_file_limit']} files, "
+            f"{resources['provider_max_file_bytes']} bytes/file, "
+            f"{resources['provider_scan_entries']} scanned entries, "
+            f"{resources['maintenance_timeout_seconds']}s per maintenance run"
+        )
+    else:
+        print(f"Reviewed by: {result['reviewed_by']}")
     for item in result["writes"]:
         print(f"- {item['status']}: {item['path']}")
     if not result["applied"] and result.get("can_apply"):
@@ -990,20 +1257,24 @@ def print_guided_next_actions(result: dict[str, Any]) -> None:
     print("Next actions (nothing else was installed automatically):")
     print(f"- ai-dememory --root {root} doctor")
     print(f"- ai-dememory --root {root} index")
+    print(f"- ai-dememory --root {root} setup health --json")
     clients = result.get("clients")
     if isinstance(clients, list):
         for client in clients:
             if client in {"codex", "claude", "generic"}:
                 print(f"- ai-dememory mcp-config --root {root} --client {client}")
     print("- Review hook and scheduler previews separately before installing either one.")
+    if result.get("setup_scope") == "operational":
+        print(f"- Optional durable baseline: ai-dememory --root {root} onboard")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
+def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
+    operational_guided = mode == "operational"
+    parser = build_parser(mode=mode)
     args = parser.parse_args(argv)
     if args.apply and args.dry_run:
         parser.error("--apply and --dry-run are mutually exclusive")
-    if args.json and uses_interactive_answers(args):
+    if args.json and uses_interactive_answers(args) and not operational_guided:
         print(
             json.dumps(
                 {
@@ -1019,35 +1290,51 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     guided_interactive = (
-        args.guided
-        and uses_interactive_answers(args)
+        operational_guided
         and not args.apply
         and not args.dry_run
         and not args.json
+        and not any((args.input_json, args.input_file, args.stdin))
     )
     try:
         root = repo_root(args.root)
-        answers = load_answers(args)
+        if operational_guided:
+            reject_personal_setup_flags(args)
+        else:
+            reject_operational_onboarding_flags(args)
+        if guided_interactive:
+            answers = interactive_setup_answers(args)
+            plan_builder = operational_setup_plan
+            plan_applier = apply_operational_setup
+        elif operational_guided:
+            answers = load_operational_answers(args)
+            plan_builder = operational_setup_plan
+            plan_applier = apply_operational_setup
+        else:
+            answers = load_answers(args)
+            plan_builder = onboarding_plan
+            plan_applier = apply_onboarding
         result = (
-            apply_onboarding(root, answers, args.expect_plan_sha256)
+            plan_applier(root, answers, args.expect_plan_sha256)
             if args.apply
-            else onboarding_plan(root, answers)
+            else plan_builder(root, answers)
         )
         result.setdefault("applied", False)
         if guided_interactive:
             print_human_result(result, include_apply_hint=False)
             if not result.get("can_apply"):
-                raise ValueError("guided onboarding cannot apply until every conflict is reviewed")
+                raise ValueError("guided setup cannot apply until every conflict is reviewed")
+            scope = "operational setup" if result.get("setup_scope") == "operational" else "reviewed onboarding"
             try:
                 confirmation = input(
-                    f"Apply this exact reviewed plan ({result['plan_sha256']}) now? [y/N]: "
+                    f"Apply this exact {scope} plan ({result['plan_sha256']}) now? [y/N]: "
                 )
             except EOFError:
                 confirmation = ""
             if confirmation.strip().lower() not in {"y", "yes"}:
-                print("Onboarding was not applied. The existing vault is unchanged; setup is incomplete.")
+                print("Setup was not applied. The existing vault is unchanged; setup is incomplete.")
                 return GUIDED_DECLINED_EXIT_CODE
-            result = apply_onboarding(root, answers, str(result["plan_sha256"]))
+            result = plan_applier(root, answers, str(result["plan_sha256"]))
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False))

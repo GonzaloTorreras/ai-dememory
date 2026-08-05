@@ -7,7 +7,7 @@ vault.
 
 Release boundary: `mcp-config` exists in stable 2.0.0, but the server-enforced
 profiles, required-root flag, enabled-tool allowlist, and generated idle leases
-shown below describe the unreleased 2.1.0 source line. See
+shown below describe the unreleased 2.1.0rc1 source line. See
 [Local MCP server setup](local-mcp.md) for the simpler stable output shape.
 
 ## Preferred Command

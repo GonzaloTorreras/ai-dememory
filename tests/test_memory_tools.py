@@ -27,6 +27,7 @@ PINNED_TEST_IMAGE = "registry.example/ai-dememory@sha256:" + ("a" * 64)
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(MCP_SERVER))
 
+from ai_dememory_tool import __version__ as PACKAGE_VERSION  # noqa: E402
 from acceptance_guard import validate_acceptance_checklist, validate_acceptance_checklist_text  # noqa: E402
 from adr_guard import validate_adr_docs, validate_adr_text  # noqa: E402
 from index_memory import rebuild_index  # noqa: E402
@@ -221,6 +222,7 @@ from release_check import (  # noqa: E402
     EXPECTED_PLUGIN_MCP_TOOLS,
     check_pr_gate,
     check_codex_plugin,
+    plugin_version_for_package,
     plugin_skill_safety_issues,
 )
 from doctor import main as doctor_main, run_checks as run_doctor_checks  # noqa: E402
@@ -7720,6 +7722,10 @@ class MemoryToolTests(unittest.TestCase):
             generated_reports = plan["commands"]["generated_reports"]
             generated_archive_status = plan["commands"]["generated_archive_status"]
             generated_archive_retention = plan["commands"]["generated_archive_retention"]
+            setup_preview = plan["commands"]["setup_preview"]
+            setup_apply = plan["commands"]["setup_apply"]
+            onboarding_preview = plan["commands"]["optional_onboarding_preview"]
+            onboarding_apply = plan["commands"]["optional_onboarding_apply"]
 
         self.assertFalse(plan["mutates_system"])
         self.assertFalse(plan["writes_files"])
@@ -7731,6 +7737,15 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(plan["suggests_generated_reports"])
         self.assertTrue(plan["suggests_generated_archive_status"])
         self.assertTrue(plan["suggests_generated_archive_retention"])
+        self.assertEqual(setup_preview[:3], ["ai-dememory", "setup", "wizard"])
+        self.assertEqual(setup_preview[setup_preview.index("--root") + 1], str(root))
+        self.assertIn("--json", setup_preview)
+        self.assertIn("--apply", setup_apply)
+        self.assertIn("--expect-plan-sha256", setup_apply)
+        self.assertEqual(onboarding_preview[:2], ["ai-dememory", "onboard"])
+        self.assertIn("<reviewed-onboarding.json>", onboarding_preview)
+        self.assertNotIn("--apply", onboarding_preview)
+        self.assertIn("--apply", onboarding_apply)
         self.assertEqual(plan["commands"]["provider_plan"], ["ai-dememory", "providers", "plan", "--json"])
         self.assertEqual(plan["commands"]["schedule_environment"], ["ai-dememory", "schedule", "doctor", "--json"])
         self.assertEqual(
@@ -9876,6 +9891,12 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn(f"{len(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)} server-only tools classified", result.detail)
         self.assertIn("5 skills", result.detail)
 
+    def test_plugin_version_maps_release_candidates_to_exact_semver(self) -> None:
+        self.assertEqual(plugin_version_for_package("2.1.0rc1"), "2.1.0-rc.1")
+        self.assertEqual(plugin_version_for_package("2.1.0"), "2.1.0")
+        with self.assertRaisesRegex(ValueError, "unsupported package version"):
+            plugin_version_for_package("2.1")
+
     def test_release_check_classifies_every_mcp_tool_for_plugin_boundary(self) -> None:
         inventory = build_inventory(ROOT)
         classified = set(EXPECTED_PLUGIN_MCP_TOOLS) | set(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)
@@ -9965,13 +9986,24 @@ class MemoryToolTests(unittest.TestCase):
 
     def test_install_smoke_validates_mcp_initialize_and_ping(self) -> None:
         good = (
-            '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}\n'
+            f'{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":"2025-11-25",'
+            f'"serverInfo":{{"name":"ai-dememory","version":"{PACKAGE_VERSION}","profile":"core"}}}}}}\n'
             '{"jsonrpc":"2.0","id":2,"result":{}}\n'
         )
         with_notification = (
             '{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info"}}\n'
             '{"jsonrpc":"2.0","id":2,"result":{}}\n'
+            f'{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":"2025-11-25",'
+            f'"serverInfo":{{"name":"ai-dememory","version":"{PACKAGE_VERSION}","profile":"core"}}}}}}\n'
+        )
+        missing_server_info = (
             '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25"}}\n'
+            '{"jsonrpc":"2.0","id":2,"result":{}}\n'
+        )
+        wrong_server_version = (
+            '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",'
+            '"serverInfo":{"name":"ai-dememory","version":"0.0.0","profile":"core"}}}\n'
+            '{"jsonrpc":"2.0","id":2,"result":{}}\n'
         )
         bad = (
             '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}\n'
@@ -10019,6 +10051,10 @@ class MemoryToolTests(unittest.TestCase):
 
         assert_mcp_initialize_and_ping(good)
         assert_mcp_initialize_and_ping(with_notification)
+        with self.assertRaisesRegex(InstallSmokeError, "missing serverInfo"):
+            assert_mcp_initialize_and_ping(missing_server_info)
+        with self.assertRaisesRegex(InstallSmokeError, "did not match installed package"):
+            assert_mcp_initialize_and_ping(wrong_server_version)
         with self.assertRaises(InstallSmokeError):
             assert_mcp_initialize_and_ping(bad)
         with self.assertRaisesRegex(InstallSmokeError, "ping response id 2 was missing"):
@@ -10891,6 +10927,11 @@ class MemoryToolTests(unittest.TestCase):
         )
         self.assertIn("--apply", commands["onboarding apply"])
         self.assertNotIn("--apply", commands["onboarding preview"])
+        self.assertEqual(
+            commands["setup preview"],
+            ["setup", "wizard", "--intensity", "balanced", "--json"],
+        )
+        self.assertIn("--apply", commands["setup apply"])
         self.assertEqual(
             commands["mark seen receipt"],
             ["mark-seen", "--id", "mem_install_smoke_policy", "--query", "install smoke package policy", "--json"],

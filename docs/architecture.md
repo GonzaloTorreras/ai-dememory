@@ -43,8 +43,9 @@ Use hybrid Markdown plus SQLite FTS.
   Objects and POSIX owned sessions/process groups.
 - Canonical/secret discovery, files/bytes, graph pages/nodes/edges, MCP
   frames/queues/output, and disposable SQLite audit history are all bounded.
-- The onboarding wizard and scheduler use exact preview fingerprints and
-  vault-bound, exact-definition receipts. Installation remains passive.
+- Operational setup, optional personal onboarding, and the scheduler use
+  separate exact preview fingerprints. Setup changes only vault config;
+  onboarding changes only reviewed memory; installation remains passive.
 - Vector search is a future optional layer, not the foundation.
 - Python owns domain policy and durable writes. A future TypeScript/React visual
   plane may use generated contracts but cannot become canonical authority.

@@ -4,7 +4,7 @@ This repository is the ai-dememory tool distribution repo. Users should install
 the tool, then create a separate private memory vault.
 
 PyPI currently serves stable `ai-dememory` 2.0.0. The public source tree declares
-2.1.0, but those bytes are an unreleased development line until the immutable
+2.1.0rc1, but those bytes are an unreleased development line until the immutable
 tag, canonical release workflow, post-index verification, and explicit release
 authorization are complete.
 
@@ -51,7 +51,7 @@ py -3 -m venv .venv
 py -3 -m pip install ai-dememory
 ```
 
-## From GitHub: Unreleased 2.1.0
+## From GitHub: Unreleased 2.1.0rc1
 
 PyPI is the normal installation source. To test an unreleased development
 snapshot, install directly from GitHub:
@@ -61,7 +61,7 @@ pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
 ```
 
 Use this path, rather than the stable PyPI install, to evaluate `setup wizard`,
-resource intensity/model policy, generated MCP idle leases, and other 2.1.0
+resource intensity/model policy, generated MCP idle leases, and other 2.1.0rc1
 source behavior. Stable 2.0.0 does not contain those capabilities.
 
 Or from a local checkout:
@@ -118,22 +118,26 @@ ai-dememory setup plan --json
 
 That command is available in stable 2.0.0 and remains passive.
 
-## Unreleased 2.1.0 Wizard And Profiles
+## Unreleased 2.1.0rc1 Wizard And Profiles
 
 This section describes the current public source line, not the stable 2.0.0
 package. Install from GitHub or a local checkout as described above before
 running these commands.
 
-Then run `ai-dememory setup wizard` to review a minimum baseline of values,
-preferences, recommendations, and project profiles. The interactive command
-prints the policy, limits, planned files, and exact fingerprint before asking
-once whether to apply that same in-memory plan. A decline returns an incomplete
-status and writes nothing. Changed answers always require a fresh preview.
+Then run `ai-dememory setup wizard` to review operational policy and limits.
+The interactive command plans only `.ai-dememory.toml`, prints the exact
+fingerprint, and asks once whether to apply that same in-memory plan. A decline
+returns an incomplete status and writes nothing. `setup wizard --json` provides
+the same deterministic, non-interactive preview with safe defaults. Changed
+answers or config drift always require a fresh preview.
 
-Machine-readable and automation-oriented flows remain deliberately passive.
-`--json`, stdin, input files, `--dry-run`, and direct `ai-dememory onboard`
-still require a separate `--apply --expect-plan-sha256 <preview fingerprint>`
-invocation with the same answers.
+Personal values, preferences, recommendations, and project profiles are a
+separate optional action. Preview them with `ai-dememory onboard`; that command
+creates only reviewed memory and never rewrites the operational config.
+Machine-readable setup and onboarding flows remain deliberately passive:
+`--json`, stdin, input files, and `--dry-run` require a separate
+`--apply --expect-plan-sha256 <preview fingerprint>` invocation with the same
+input.
 
 The wizard also asks for two independent policies:
 
@@ -149,11 +153,11 @@ separate: `off` permits deterministic local tools only, `advisory` lets the
 already active host agent recommend, and `proposals` lets it create
 review-first inbox proposals. ai-dememory runtime model calls and embedding
 calls are zero in every option; host-agent token consumption is external and
-still applies. No option installs integrations, captures raw payloads, or
-promotes durable memory during the wizard. A confirmed apply changes only the
-reviewed vault files shown in the plan, then prints commands for health,
-indexing, and MCP configuration; hooks and schedules keep their own
-preview/apply boundaries.
+still applies. No option creates personal memory, installs integrations,
+captures raw payloads, or promotes durable memory during the wizard. A
+confirmed apply changes only the displayed operational config, then prints
+commands for health, indexing, MCP configuration, and optional onboarding;
+hooks and schedules keep their own preview/apply boundaries.
 
 ## Optional Integrations And Setup Planning
 

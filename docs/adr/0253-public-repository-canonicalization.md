@@ -15,7 +15,7 @@ claims, repository-bound hashes, and a risk of mixing public fixtures with a
 live private vault.
 
 The public repository already contains the released 2.0.0 lineage and the
-unreleased 2.1.0 source line. The historical checkout contains later research
+unreleased 2.1.0rc1 source line. The historical checkout contains later research
 and planning, but its dirty-worktree evidence, repository identity, pins, and
 release receipts cannot establish facts about public commits.
 

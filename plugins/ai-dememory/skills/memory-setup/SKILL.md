@@ -14,14 +14,14 @@ files, or promote memory.
 1. Run `ai-dememory setup plan --json`.
 2. For a human-guided first run, launch:
    `ai-dememory setup wizard --intensity <minimal|balanced|active> --model-policy <off|advisory|proposals>`.
-3. Inspect the printed `resource_policy`, integrations, every planned write,
-   and `plan_sha256`. Reject secret or personal content that should not become
-   reviewed vault memory. Confirm only after that preview; the wizard applies
-   the exact same in-memory answers and fingerprint without asking for them
-   again.
-4. For JSON, stdin, input-file, dry-run, or direct `onboard` automation, keep
-   the explicit two-step contract: preview first, then apply the same answers
-   with `--apply --expect-plan-sha256 <sha> --json`.
+3. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
+   write, and `plan_sha256`. Confirm only after that preview; the wizard applies
+   the exact same in-memory operating policy and fingerprint without asking for
+   it again. It never creates personal memory.
+4. If the user explicitly wants reviewed personal or project memory, use the
+   separate `ai-dememory onboard` preview. Setup and onboarding each keep the
+   two-step JSON/stdin/input-file/dry-run contract: preview first, then apply
+   the same input with `--apply --expect-plan-sha256 <sha> --json`.
 5. Run `ai-dememory doctor`, `ai-dememory index`, and
    `ai-dememory setup health --json`.
 
@@ -41,7 +41,7 @@ durable memory.
 
 ## Integrations
 
-- Copy only the wizard-generated, absolute-vault-bound MCP config for the
+- Copy only the wizard-previewed, absolute-vault-bound MCP config for the
   selected client. Generated servers enforce `core` by default and fail closed
   without `AI_DEMEMORY_ROOT` or `--root`.
 - Generate hooks with

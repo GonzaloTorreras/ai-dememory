@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GonzaloTorreras/ai-dememory/contracts/planning/v3-execution-sequence.schema.json",
+  "title": "ai DeMemory V3 execution sequence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "planning_status",
+    "updated_at",
+    "current_frontier",
+    "batches",
+    "tasks"
+  ],
+  "properties": {
+    "$schema": {"type": "string"},
+    "contract_version": {"type": "integer", "minimum": 1},
+    "planning_status": {"type": "string", "minLength": 1},
+    "updated_at": {"type": "string", "format": "date"},
+    "current_frontier": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "batches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "depends_on", "tasks"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^B[0-9A-Za-z]+$"},
+          "title": {"type": "string", "minLength": 1},
+          "depends_on": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "tasks": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "batch",
+          "title",
+          "status",
+          "depends_on",
+          "evidence",
+          "external_readback_required"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Z]+-[0-9A-Z]+$"},
+          "batch": {"type": "string", "pattern": "^B[0-9A-Za-z]+$"},
+          "title": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pending", "in_progress", "blocked", "complete", "future"]},
+          "depends_on": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "evidence": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+          "external_readback_required": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

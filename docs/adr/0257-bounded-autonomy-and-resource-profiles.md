@@ -58,14 +58,16 @@ runtime. They never promote durable memory automatically. Any tokens consumed
 by an already running Codex, Claude, or other host agent remain host usage and
 must not be described as free or as ai-dememory background inference.
 
-The initial wizard previews the selected policy, hard caps, generated Markdown,
-vault-bound MCP configuration, public-only hook configuration, and scheduler
-plan. In the human-guided TTY flow it retains the answers in memory, prints the
-exact preview fingerprint, and asks once whether to apply that exact plan. A
-decline writes nothing and exits as incomplete. JSON, stdin, input-file,
-explicit dry-run, and direct `onboard` flows remain passive and require a
-separate apply bound to the exact preview fingerprint. The wizard does not
-install MCP config, hooks, providers, or scheduler jobs.
+The initial wizard previews the selected policy, hard caps, vault-bound MCP
+configuration, public-only hook configuration, and scheduler plan. Its only
+planned write is `.ai-dememory.toml`. In the human-guided TTY flow it retains
+the answers in memory, prints the exact preview fingerprint, and asks once
+whether to apply that exact plan. A decline writes nothing and exits as
+incomplete. `setup wizard --json`, stdin, input-file, and explicit dry-run flows
+remain passive and require a separate apply bound to the exact preview
+fingerprint. Optional `onboard` uses an independent fingerprint and writes only
+reviewed personal/project Markdown. Neither surface installs MCP config, hooks,
+providers, or scheduler jobs.
 
 Generated MCP configurations use an explicit vault, the selected
 server-enforced profile, and `--require-bound-root`. The server filters

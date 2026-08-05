@@ -8,7 +8,7 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-The checked-in plugin configuration targets the unreleased 2.1.0 source line;
+The checked-in plugin configuration targets the unreleased 2.1.0rc1 source line;
 its server profile, required-root flag, and idle lease are not compatible with
 stable 2.0.0. Install the matching source package in a clean pipx environment:
 
@@ -194,9 +194,11 @@ list generated packet archives without writing files. `generated_archive_retenti
 commands preview generated packet cleanup candidates without deleting files.
 The plan exposes `minimal`, `balanced`, and `active` resource catalogs plus
 `off`, `advisory`, and `proposals` host-model policies. All report zero
-ai-dememory runtime model and embedding calls. The wizard emits vault-bound
-MCP config, public-only hook config, hard resource ceilings, and an exact apply
-fingerprint; it never installs those integrations itself.
+ai-dememory runtime model and embedding calls. The config-only wizard previews
+vault-bound MCP config, public-only hook config, hard resource ceilings, and an
+exact apply fingerprint; it changes only `.ai-dememory.toml` and never creates
+personal memory or installs those integrations itself. Optional reviewed
+personal memory uses the separate `ai-dememory onboard` fingerprint.
 
 `memory-recall` tells Codex how to use context, search, get, graph, and current
 working-state tools. For public-repository work it requires explicit

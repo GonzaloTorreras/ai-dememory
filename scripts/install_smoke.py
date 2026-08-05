@@ -8,12 +8,14 @@ from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from typing import Any
 
+from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from process_control import run_owned_capture
 
 from build_artifacts import cleanup_created_build_paths, snapshot_generated_build_paths
@@ -164,7 +166,11 @@ def mcp_responses_by_id(stdout: str) -> dict[int, Any]:
     return responses
 
 
-def assert_mcp_initialize_and_ping(stdout: str) -> None:
+def assert_mcp_initialize_and_ping(
+    stdout: str,
+    *,
+    expected_version: str = PACKAGE_VERSION,
+) -> None:
     responses = mcp_responses_by_id(stdout)
     unexpected_ids = sorted(set(responses) - {1, 2})
     if unexpected_ids:
@@ -186,6 +192,18 @@ def assert_mcp_initialize_and_ping(stdout: str) -> None:
         raise InstallSmokeError("MCP initialize protocolVersion was not a string")
     if protocol_version != "2025-11-25":
         raise InstallSmokeError("MCP initialize did not negotiate 2025-11-25")
+    server_info = init.get("serverInfo")
+    if not isinstance(server_info, dict):
+        raise InstallSmokeError("MCP initialize result missing serverInfo")
+    if server_info.get("name") != "ai-dememory":
+        raise InstallSmokeError("MCP initialize serverInfo name was not ai-dememory")
+    if server_info.get("version") != expected_version:
+        raise InstallSmokeError(
+            "MCP initialize serverInfo version did not match installed package "
+            f"{expected_version}"
+        )
+    if server_info.get("profile") != "core":
+        raise InstallSmokeError("MCP initialize serverInfo profile was not core")
     if ping != {}:
         raise InstallSmokeError("MCP ping did not return an empty result")
 
@@ -226,6 +244,13 @@ def assert_doctor_summary(stdout: str, expected_profile: str = "vault") -> None:
             raise InstallSmokeError(f"doctor summary {key} count does not match checks")
     if counts["fail"] != 0:
         raise InstallSmokeError("doctor summary reported failing checks")
+
+
+def installed_cli_version(stdout: str) -> str:
+    match = re.fullmatch(r"ai-dememory\s+(\S+)\s*", stdout)
+    if not match:
+        raise InstallSmokeError("installed ai-dememory --version output was invalid")
+    return match.group(1)
 
 
 def release_evidence_unavailable_payload(stdout: str) -> dict[str, object]:
@@ -531,24 +556,52 @@ def assert_onboarding(stdout: str, *, applied: bool) -> None:
         raise InstallSmokeError("onboarding apply/preview state was incorrect")
     if data.get("auto_promotes") is not False or data.get("durable_memory_reviewed") is not True:
         raise InstallSmokeError("onboarding review-first boundary was missing")
+    if data.get("setup_scope") != "durable_baseline" or data.get("writes_config") is not False:
+        raise InstallSmokeError("onboarding crossed the memory-only boundary")
     if not isinstance(data.get("writes"), list) or len(data["writes"]) < 4:
         raise InstallSmokeError("onboarding did not plan the minimum memory baseline")
+    if any(item.get("kind") != "memory" for item in data["writes"] if isinstance(item, dict)):
+        raise InstallSmokeError("onboarding planned a non-memory write")
     if not isinstance(data.get("plan_sha256"), str) or len(data["plan_sha256"]) != 64:
         raise InstallSmokeError("onboarding did not return a reviewable plan fingerprint")
     if applied and not data.get("changed"):
         raise InstallSmokeError("onboarding apply did not write the reviewed baseline")
+    if "resource_policy" in data or "integrations" in data:
+        raise InstallSmokeError("onboarding leaked operational setup into its fingerprint")
+
+
+def assert_operational_setup(stdout: str, *, applied: bool) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"operational setup did not return JSON: {exc}") from exc
+    if data.get("ok") is not True or data.get("applied") is not applied:
+        raise InstallSmokeError("operational setup apply/preview state was incorrect")
+    if data.get("setup_scope") != "operational" or data.get("writes_config") is not True:
+        raise InstallSmokeError("operational setup did not stay config-only")
+    if data.get("durable_memory_reviewed") is not False or data.get("auto_promotes") is not False:
+        raise InstallSmokeError("operational setup claimed durable memory review or promotion")
+    writes = data.get("writes")
+    if not isinstance(writes, list) or len(writes) != 1 or not isinstance(writes[0], dict):
+        raise InstallSmokeError("operational setup must plan exactly one config write")
+    if writes[0].get("path") != ".ai-dememory.toml" or writes[0].get("kind") != "config":
+        raise InstallSmokeError("operational setup planned a write outside .ai-dememory.toml")
+    if not isinstance(data.get("plan_sha256"), str) or len(data["plan_sha256"]) != 64:
+        raise InstallSmokeError("operational setup did not return a reviewable fingerprint")
+    if applied and data.get("changed") != [".ai-dememory.toml"]:
+        raise InstallSmokeError("operational setup did not apply exactly the reviewed config")
     policy = data.get("resource_policy")
     if not isinstance(policy, dict) or policy.get("intensity") != "balanced":
-        raise InstallSmokeError("onboarding did not expose the balanced resource policy")
+        raise InstallSmokeError("operational setup did not expose the selected balanced resource policy")
     if policy.get("runtime_model_calls_per_maintenance_run") != 0:
-        raise InstallSmokeError("onboarding must report zero runtime model calls")
+        raise InstallSmokeError("operational setup must report zero runtime model calls")
     if policy.get("runtime_embedding_calls_per_maintenance_run") != 0:
-        raise InstallSmokeError("onboarding must report zero runtime embedding calls")
+        raise InstallSmokeError("operational setup must report zero runtime embedding calls")
     integrations = data.get("integrations")
     if not isinstance(integrations, dict) or integrations.get("vault_bound") is not True:
-        raise InstallSmokeError("onboarding did not return vault-bound integration configs")
+        raise InstallSmokeError("operational setup did not return vault-bound integration previews")
     if integrations.get("installs_hooks") is not False or integrations.get("installs_schedules") is not False:
-        raise InstallSmokeError("onboarding integration preview crossed an apply boundary")
+        raise InstallSmokeError("operational setup crossed an integration apply boundary")
 
 
 def assert_turn_context(stdout: str) -> None:
@@ -613,6 +666,8 @@ def assert_hook_dispatch(stdout: str) -> None:
 def package_smoke_commands() -> list[tuple[str, list[str]]]:
     return [
         ("doctor", ["doctor"]),
+        ("setup preview", ["setup", "wizard", "--intensity", "balanced", "--json"]),
+        ("setup apply", ["setup", "wizard", "--intensity", "balanced", "--apply", "--json"]),
         (
             "onboarding preview",
             [
@@ -1022,10 +1077,14 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         run_step(steps, "upgrade pip", [str(python), "-m", "pip", "install", "--upgrade", "pip"])
         install_env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
         run_step(steps, "install package", [str(pip), "install", package], cwd=root, env=install_env)
+        version_result = run_step(steps, "installed version", [str(ai_dememory), "--version"])
+        expected_installed_version = installed_cli_version(version_result.stdout)
         run_step(steps, "init vault", [str(ai_dememory), "init", str(vault)])
         write_install_smoke_memory(vault)
         sample.write_text("# Install Smoke\n\nCapture this non-secret note.\n", encoding="utf-8")
         env = {**os.environ, "AI_DEMEMORY_ROOT": str(vault)}
+        setup_plan_sha256: str | None = None
+        setup_config_text: str | None = None
         onboarding_plan_sha256: str | None = None
         doctor_summary = run_step(
             steps,
@@ -1038,6 +1097,10 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         for name, args in package_smoke_commands():
             input_text = None
             command_args = materialize_args(args, root, vault, sample, ai_dememory, template_export)
+            if name == "setup apply":
+                if not setup_plan_sha256:
+                    raise InstallSmokeError("setup preview did not return a plan fingerprint")
+                command_args.extend(["--expect-plan-sha256", setup_plan_sha256])
             if name == "onboarding apply":
                 if not onboarding_plan_sha256:
                     raise InstallSmokeError("onboarding preview did not return a plan fingerprint")
@@ -1059,11 +1122,28 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
                 allowed_returncodes={0, 1} if name == "roadmap status" else None,
                 input_text=input_text,
             )
+            if name == "setup preview":
+                assert_operational_setup(completed.stdout, applied=False)
+                setup_plan_sha256 = str(json.loads(completed.stdout).get("plan_sha256") or "")
+            if name == "setup apply":
+                assert_operational_setup(completed.stdout, applied=True)
+                setup_config_text = (vault / ".ai-dememory.toml").read_text(encoding="utf-8")
+                for filename in (
+                    "onboarding-values.md",
+                    "onboarding-preferences.md",
+                    "onboarding-recommendations.md",
+                ):
+                    if (vault / "memories" / "durable" / filename).exists():
+                        raise InstallSmokeError("operational setup created personal durable memory")
             if name == "onboarding preview":
                 assert_onboarding(completed.stdout, applied=False)
                 onboarding_plan_sha256 = str(json.loads(completed.stdout).get("plan_sha256") or "")
             if name == "onboarding apply":
                 assert_onboarding(completed.stdout, applied=True)
+                if setup_config_text is None:
+                    raise InstallSmokeError("operational setup config snapshot was unavailable")
+                if (vault / ".ai-dememory.toml").read_text(encoding="utf-8") != setup_config_text:
+                    raise InstallSmokeError("onboarding modified operational configuration")
             if name == "turn context":
                 assert_turn_context(completed.stdout)
             if name in {"context public only", "mcp public context"}:
@@ -1097,7 +1177,7 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             env=env,
             input_text=mcp_payload(),
         )
-        assert_mcp_initialize_and_ping(mcp.stdout)
+        assert_mcp_initialize_and_ping(mcp.stdout, expected_version=expected_installed_version)
         return steps
     finally:
         try:

@@ -33,7 +33,7 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Stable package: 2.0.0</span>
-            <span>Source line: 2.1.0, unreleased</span>
+            <span>Source line: 2.1.0rc1, unreleased</span>
           </div>
         </div>
       </header>
@@ -87,8 +87,8 @@ ai-dememory setup health --json</code></pre>
 
           <section class="content-section" id="source">
             <h2>3. Opt into source 2.1 deliberately</h2>
-            <p>PyPI currently serves stable 2.0.0. The public source declares 2.1.0 but remains unreleased until its immutable tag, release workflow, verification, and explicit authorization exist.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.0">
+            <p>PyPI currently serves stable 2.0.0. The public source declares 2.1.0rc1 but remains unreleased until its immutable tag, release workflow, verification, and explicit authorization exist.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.0rc1">
               <pre tabindex="0"><code>pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git</code></pre>
             </div>
             <p>Use this instead of the PyPI command in a clean pipx environment when you intentionally want the development line. The following intensity, model-policy, wizard, and idle-lease behavior is 2.1 source functionality.</p>
@@ -147,17 +147,19 @@ ai-dememory setup health --json</code></pre>
 
           <section class="content-section" id="wizard">
             <h2>5. Review and confirm the 2.1 setup wizard</h2>
-            <p>Start with a machine-readable plan, then use the interactive wizard. It exposes generated configuration, caps, planned files, and an exact fingerprint before asking once whether to apply that same in-memory plan.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.0">
+            <p>Start with a machine-readable plan, then use the interactive wizard. It exposes the config-only operating policy, caps, planned file, and an exact fingerprint before asking once whether to apply that same in-memory plan.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.0rc1">
               <pre tabindex="0"><code>ai-dememory setup plan \
   --intensity balanced \
   --model-policy off --json
 ai-dememory setup wizard
-ai-dememory setup health --json</code></pre>
+ai-dememory setup health --json
+# Optional, separate reviewed personal memory
+ai-dememory onboard</code></pre>
             </div>
-            <p>Answering no writes nothing and reports that onboarding is incomplete. JSON, stdin, input-file, dry-run, and direct <code>ai-dememory onboard</code> flows stay passive: their durable apply still requires the exact preview fingerprint via <code>--expect-plan-sha256</code>. Changed answers require a fresh preview.</p>
+            <p>Answering no writes nothing and reports that setup is incomplete. <code>setup wizard --json</code> previews safe operational defaults without prompting. Personal values and project profiles belong only to the optional <code>ai-dememory onboard</code> flow. Both machine-readable contracts stay passive: apply still requires the exact preview fingerprint via <code>--expect-plan-sha256</code>, and changed input requires a fresh preview.</p>
             <div class="callout callout-safe">
-              <p>The wizard applies only the reviewed vault files it displayed. It does not install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
+              <p>The wizard applies only <code>.ai-dememory.toml</code>. It does not create personal memory or install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
             </div>
           </section>
 

@@ -10,8 +10,8 @@ future vector indexes are generated from Markdown and can be rebuilt.
 ## Status
 
 - Published stable release: `ai-dememory` 2.0.0 on PyPI and GitHub Releases.
-- Current public source version: 2.1.0 on `main`. It remains unreleased until an
-  immutable `v2.1.0` tag, the canonical release workflow, index verification,
+- Current public source version: 2.1.0rc1 on `main`. It remains unreleased until
+  an immutable `v2.1.0rc1` tag, the canonical release workflow, index verification,
   and explicit release authorization all exist.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
@@ -57,7 +57,7 @@ ai-dememory mcp-client-smoke
 
 Stable 2.0.0 does not include `setup wizard`, resource-intensity/model-policy
 selection, or generated MCP idle leases. Those capabilities belong to the
-unreleased 2.1.0 source line below and must not be presented as PyPI behavior.
+unreleased 2.1.0rc1 source line below and must not be presented as PyPI behavior.
 
 If you want a reusable private GitHub vault template repo instead of creating a
 single local vault, export the packaged vault template:
@@ -70,7 +70,7 @@ Review the exported files, push them to a separate private repository, then mark
 that repository as a GitHub template. Keep the tool distribution repo separate
 from private memory vault repos.
 
-### Unreleased 2.1.0 source onboarding
+### Unreleased 2.1.0rc1 source setup and optional onboarding
 
 To evaluate the current development line instead of stable PyPI, install it
 directly from GitHub in a clean pipx environment, then use its preview-first
@@ -83,14 +83,19 @@ cd ~/code/my-memory
 ai-dememory doctor
 ai-dememory setup plan --intensity balanced --model-policy off --json
 ai-dememory setup wizard
+# Optional: create reviewed personal/project memory in a separate plan
+ai-dememory onboard
 ```
 
-The initial wizard is preview-first. It asks for reviewed baseline values and
-one bounded operating envelope, prints a reviewable summary and exact fingerprint,
-then asks whether to apply that same in-memory plan. Declining leaves onboarding
-incomplete and writes nothing. JSON, stdin, input-file, `--dry-run`, and direct
-`ai-dememory onboard` flows remain passive two-step interfaces: apply them only
-by supplying the exact reviewed fingerprint.
+The initial wizard is preview-first and configuration-only. It asks for one
+bounded operating envelope, prints a reviewable summary and exact fingerprint,
+then asks whether to apply that same in-memory plan to `.ai-dememory.toml`.
+Declining leaves setup incomplete and writes nothing. `setup wizard --json`
+returns the same passive operational preview without prompting. Personal values,
+preferences, recommendations, and project profiles are never requested or
+created by setup; add them only through the separate `ai-dememory onboard`
+preview/apply contract. Every JSON, stdin, input-file, and `--dry-run` apply is
+bound to the exact reviewed fingerprint.
 
 | Intensity | Automatic recall | Local jobs after explicit install | Import cap/run | MCP profile |
 | --- | ---: | ---: | ---: | --- |
@@ -104,9 +109,10 @@ unlimited mode. Separately choose host-model policy `off`,
 calls in all profiles; `advisory` and `proposals` only authorize bounded work by
 an already active host agent, whose normal token usage still applies. No policy
 automatically promotes durable memory. Installation and the wizard do not
-install MCP configuration, hooks, provider imports, or scheduler jobs. After a
+create personal memory or install MCP configuration, hooks, provider imports,
+or scheduler jobs. After a
 confirmed interactive apply, the wizard prints the exact vault-local health,
-index, and MCP-config commands to run next.
+index, MCP-config, and optional onboarding commands to run next.
 
 Run from the repository root. On Windows PowerShell, use `py -3` if `python3`
 is not available.
@@ -215,7 +221,10 @@ Distribution and user vault setup:
 - Local REST API: [docs/local-api.md](docs/local-api.md)
 - Memory graph: [docs/memory-graph.md](docs/memory-graph.md)
 - Memory quality: [docs/memory-quality.md](docs/memory-quality.md)
-- Future master plan: [PLAN.md](PLAN.md)
+- Normative V3 roadmap:
+  [docs/v3-hybrid-visual-multiplatform-roadmap.md](docs/v3-hybrid-visual-multiplatform-roadmap.md)
+- Machine-readable V3 frontier: [contracts/planning/](contracts/planning/)
+- Historical R0-R7 research appendix, not an executable backlog: [PLAN.md](PLAN.md)
 - Shared memory governance roadmap:
   [docs/shared-memory-governance-roadmap.md](docs/shared-memory-governance-roadmap.md)
 - Import and capture: [docs/import-capture.md](docs/import-capture.md)
@@ -279,7 +288,10 @@ Distribution and user vault setup:
 - PR-gated MCP runtime smoke: `python3 scripts/ai_dememory.py mcp-smoke`
 - PR handoff: [docs/pr-draft.md](docs/pr-draft.md)
 - Roadmap status: [docs/roadmap-status.md](docs/roadmap-status.md)
-- Future master plan: [PLAN.md](PLAN.md)
+- Normative V3 roadmap:
+  [docs/v3-hybrid-visual-multiplatform-roadmap.md](docs/v3-hybrid-visual-multiplatform-roadmap.md)
+- Machine-readable V3 frontier: [contracts/planning/](contracts/planning/)
+- Historical planning research, non-normative: [PLAN.md](PLAN.md)
 - Shared-memory governance roadmap:
   [docs/shared-memory-governance-roadmap.md](docs/shared-memory-governance-roadmap.md)
 
@@ -731,10 +743,10 @@ Run as a stdio MCP server:
 python3 scripts/ai_dememory.py mcp --stdio
 ```
 
-The following lifecycle behavior describes the unreleased 2.1.0 source line,
+The following lifecycle behavior describes the unreleased 2.1.0rc1 source line,
 not stable 2.0.0. The stdio server exits after 600 seconds without an MCP
 message by default.
-Generated onboarding configs use 120/600/1800 seconds for the
+Generated setup configs use 120/600/1800 seconds for the
 `minimal`/`balanced`/`active` intensity profiles. This prevents completed agent
 sessions from retaining idle MCP processes indefinitely. Pass
 `--idle-timeout-seconds 0` only when a separate supervisor owns cleanup.

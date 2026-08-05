@@ -33,6 +33,8 @@ Add three coordinated, local-first capabilities:
    deduplicated proposals to `inbox/llm-captures/`.
 3. `ai-dememory onboard` previews a minimum reviewed baseline and applies it
    only with reviewer identity, `--apply`, and the reviewed preview fingerprint.
+   It writes only the reviewed memory documents and never creates or rewrites
+   `.ai-dememory.toml`; bounded runtime policy belongs to `setup wizard`.
    Canonical-memory conflicts stop the entire apply; every output is staged
    before a rollback-capable batch commit. An incomplete rollback is surfaced
    as a recovery error and preserves backup evidence for manual restoration.
@@ -48,6 +50,8 @@ They remain advisory fallbacks when a native hook is unavailable or untrusted.
 - Trivial prompts, missing indexes, invalid payloads, suspected secrets, and
   weak matches add no context and do not block the turn.
 - Reviewed values and recommendations are available early in a new vault.
+- A user can complete operational setup without inventing personal memory, and
+  later onboarding cannot silently change the selected operating envelope.
 - Automatic learning creates review work, not durable facts.
 - Project matching and baseline selection are visible in ranking evidence.
 

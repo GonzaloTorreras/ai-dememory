@@ -15,6 +15,7 @@ for candidate in (ROOT, ROOT / "scripts", ROOT / "mcp" / "server"):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
+from ai_dememory_tool import __version__  # noqa: E402
 from ai_dememory_tool.cli import build_mcp_config, main as cli_main  # noqa: E402
 from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     CORE_MCP_TOOLS,
@@ -102,6 +103,7 @@ class McpProfileTests(unittest.TestCase):
         initialized = handle_rpc({"method": "initialize", "params": {}}, ROOT, profile="core")
         self.assertEqual(initialized["capabilities"], {"tools": {"listChanged": False}})
         self.assertEqual(initialized["serverInfo"]["profile"], "core")
+        self.assertEqual(initialized["serverInfo"]["version"], __version__)
 
     def test_unprofiled_stdio_server_fails_closed_to_core(self) -> None:
         with (

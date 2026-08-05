@@ -18,6 +18,7 @@ import threading
 from typing import Any
 from urllib.parse import quote, unquote
 
+from ai_dememory_tool import __version__
 from ai_dememory_tool.mcp_profiles import (
     DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
     MCP_PROFILE_NAMES,
@@ -4313,7 +4314,7 @@ def handle_rpc(message: dict[str, Any], root: Path, profile: str = "admin") -> d
                 if profile == "admin"
                 else {"tools": {"listChanged": False}}
             ),
-            "serverInfo": {"name": "ai-dememory", "version": "2.1.0", "profile": profile},
+            "serverInfo": {"name": "ai-dememory", "version": __version__, "profile": profile},
         }
     if method == "ping":
         return {}

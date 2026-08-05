@@ -185,8 +185,9 @@ file, secret-scans the review metadata, and keeps canonical memory and
 
 Do not add vector search until recall fixtures show important searches failing
 with SQLite FTS and manual review confirms semantic retrieval would help.
-The same principle applies to future super-search work from `PLAN.md`: fuzzy
-matching, candidate-bundle review, and optional model/provider review must first
+The same principle applies to super-search ideas in the non-normative
+`PLAN.md` appendix: fuzzy matching, candidate-bundle review, and optional
+model/provider review must first enter the normative planning frontier and
 prove improvement through reviewed fixtures without increasing leakage.
 
 Run:

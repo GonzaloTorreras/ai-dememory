@@ -1,0 +1,113 @@
+{
+  "$schema": "./v3-execution-sequence.schema.json",
+  "contract_version": 1,
+  "planning_status": "c0_public_baseline",
+  "updated_at": "2026-08-05",
+  "current_frontier": ["BRG-014"],
+  "batches": [
+    {
+      "id": "B04a",
+      "title": "Operational setup separation",
+      "depends_on": [],
+      "tasks": ["BRG-014"]
+    },
+    {
+      "id": "B04b",
+      "title": "Binding and config hardening",
+      "depends_on": ["B04a"],
+      "tasks": ["BRG-003", "BRG-017"]
+    },
+    {
+      "id": "B04c",
+      "title": "Bridge inventories and exact artifacts",
+      "depends_on": ["B04b"],
+      "tasks": ["BRG-019"]
+    },
+    {
+      "id": "B05a",
+      "title": "Writer compatibility inventory",
+      "depends_on": ["B04c"],
+      "tasks": ["MIG-001"]
+    },
+    {
+      "id": "B06",
+      "title": "Compatibility gate",
+      "depends_on": ["B05a"],
+      "tasks": ["GATE-B"]
+    },
+    {
+      "id": "B20",
+      "title": "Future V3 onboarding",
+      "depends_on": ["B06"],
+      "tasks": ["ONB-001"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "BRG-014",
+      "batch": "B04a",
+      "title": "Separate operational setup from durable onboarding",
+      "status": "in_progress",
+      "depends_on": [],
+      "evidence": [
+        "scripts/onboarding.py",
+        "tests/test_onboarding.py"
+      ],
+      "external_readback_required": false
+    },
+    {
+      "id": "BRG-019",
+      "batch": "B04c",
+      "title": "Generate bridge inventories and exact-artifact checks",
+      "status": "pending",
+      "depends_on": ["BRG-003", "BRG-017"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "BRG-003",
+      "batch": "B04b",
+      "title": "Make vault binding explicit and deterministic",
+      "status": "pending",
+      "depends_on": ["BRG-014"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "BRG-017",
+      "batch": "B04b",
+      "title": "Enforce strict configuration parsing and diagnostics",
+      "status": "pending",
+      "depends_on": ["BRG-014"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "MIG-001",
+      "batch": "B05a",
+      "title": "Freeze and generate the canonical writer inventory",
+      "status": "pending",
+      "depends_on": ["BRG-003", "BRG-017", "BRG-019"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "GATE-B",
+      "batch": "B06",
+      "title": "Demonstrate V2 compatibility before migration",
+      "status": "blocked",
+      "depends_on": ["MIG-001"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "ONB-001",
+      "batch": "B20",
+      "title": "Build V3 guided onboarding",
+      "status": "future",
+      "depends_on": ["GATE-B"],
+      "evidence": [],
+      "external_readback_required": true
+    }
+  ]
+}

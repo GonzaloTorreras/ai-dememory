@@ -1,7 +1,7 @@
 # Operations Runbook
 
 This runbook covers normal local operation for the ai-dememory repository.
-It follows the unreleased 2.1.0 public source line. Stable 2.0.0 includes the
+It follows the unreleased 2.1.0rc1 public source line. Stable 2.0.0 includes the
 core local operations but not the wizard, resource intensities, server-enforced
 profile upgrades, or generated MCP idle leases.
 
