@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -16,7 +17,7 @@ for candidate in (ROOT, ROOT / "scripts", ROOT / "mcp" / "server"):
         sys.path.insert(0, str(candidate))
 
 from ai_dememory_tool import __version__  # noqa: E402
-from ai_dememory_tool.cli import build_mcp_config, main as cli_main  # noqa: E402
+from ai_dememory_tool.cli import build_mcp_config, find_memory_root, main as cli_main  # noqa: E402
 from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     CORE_MCP_TOOLS,
     MCP_PROFILE_NAMES,
@@ -82,6 +83,10 @@ class McpProfileTests(unittest.TestCase):
                 config = build_mcp_config(client, "installed", Path("C:/vault"), profile="core")
                 server = config if client == "generic" else config["mcpServers"]["ai-dememory"]
                 self.assertEqual(server["args"][-3:], ["--profile", "core", "--require-bound-root"])
+                self.assertIn(
+                    ["--require-version", __version__],
+                    [server["args"][index : index + 2] for index in range(len(server["args"]) - 1)],
+                )
 
     def test_server_filters_and_denies_tools_outside_profile(self) -> None:
         listed = list_tools(profile="core")
@@ -119,12 +124,94 @@ class McpProfileTests(unittest.TestCase):
             idle_timeout_seconds=600,
         )
 
+    def test_mcp_server_requires_the_expected_runtime_version_before_start(self) -> None:
+        with (
+            patch("memory_mcp.repo_root", return_value=ROOT),
+            patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
+        ):
+            self.assertEqual(
+                mcp_main(["--stdio", "--require-version", __version__]),
+                0,
+            )
+        run_stdio.assert_called_once()
+
+        error = io.StringIO()
+        with (
+            patch("sys.stderr", error),
+            patch("memory_mcp.run_stdio") as rejected_run,
+            self.assertRaises(SystemExit) as raised,
+        ):
+            mcp_main(["--stdio", "--require-version", "0.0.0"])
+        self.assertEqual(raised.exception.code, 2)
+        rejected_run.assert_not_called()
+        self.assertIn(f"expected 0.0.0, found {__version__}", error.getvalue())
+
+    def test_mcp_server_rejects_whitespace_root_bindings_before_start(self) -> None:
+        invalid_bindings = (
+            (
+                "explicit root separated",
+                ["--stdio", "--require-bound-root", "--root", " \t"],
+                str(ROOT),
+                "--root requires a non-empty vault path",
+            ),
+            (
+                "explicit root equals",
+                ["--stdio", "--require-bound-root", "--root= \t"],
+                str(ROOT),
+                "--root requires a non-empty vault path",
+            ),
+            (
+                "environment root",
+                ["--stdio", "--require-bound-root"],
+                " \t",
+                "AI_DEMEMORY_ROOT requires a non-empty vault path",
+            ),
+        )
+        for label, argv, environment_root, message in invalid_bindings:
+            with self.subTest(binding=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    patch("memory_mcp.repo_root") as root_resolver,
+                    patch("memory_mcp.run_stdio") as run_stdio,
+                    patch("sys.stderr", error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    mcp_main(argv)
+                self.assertEqual(raised.exception.code, 2)
+                root_resolver.assert_not_called()
+                run_stdio.assert_not_called()
+                self.assertIn(message, error.getvalue())
+
+        valid_bindings = (
+            ("explicit root", ["--stdio", "--require-bound-root", "--root", str(ROOT)], " \t"),
+            ("environment root", ["--stdio", "--require-bound-root"], str(ROOT)),
+        )
+        for label, argv, environment_root in valid_bindings:
+            with self.subTest(binding=f"valid {label}"):
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    patch("memory_mcp.repo_root", return_value=ROOT) as root_resolver,
+                    patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
+                ):
+                    self.assertEqual(mcp_main(argv), 0)
+                root_resolver.assert_called_once_with(str(ROOT) if label == "explicit root" else None)
+                run_stdio.assert_called_once_with(
+                    ROOT,
+                    profile="core",
+                    idle_timeout_seconds=600,
+                )
+
     def test_plugin_allowlist_matches_public_ceiling(self) -> None:
         plugin = json.loads((ROOT / "plugins" / "ai-dememory" / ".mcp.json").read_text(encoding="utf-8"))
         args = plugin["mcpServers"]["ai-dememory"]["args"]
         enabled = plugin["mcpServers"]["ai-dememory"]["enabled_tools"]
 
         self.assertEqual(args[-3:], ["--profile", "public", "--require-bound-root"])
+        self.assertIn(
+            ["--require-version", __version__],
+            [args[index : index + 2] for index in range(len(args) - 1)],
+        )
         self.assertEqual(enabled, list(PUBLIC_MCP_TOOLS))
 
     def test_public_profile_enforces_public_read_ceiling_server_side(self) -> None:
@@ -207,6 +294,159 @@ class McpProfileTests(unittest.TestCase):
         self.assertIn("dev            Advanced, CI", output.getvalue())
         self.assertNotIn("release-check  Run", output.getvalue())
         self.assertNotIn("publish-guard  Validate", output.getvalue())
+
+    def test_version_check_fails_closed_on_an_unexpected_installed_release(self) -> None:
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            self.assertEqual(cli_main(["version-check", __version__]), 0)
+        self.assertEqual(output.getvalue().strip(), f"ai-dememory {__version__}")
+
+        error = io.StringIO()
+        with patch("sys.stderr", error):
+            self.assertEqual(cli_main(["version-check", "0.0.0"]), 1)
+        self.assertIn(f"expected 0.0.0, found {__version__}", error.getvalue())
+
+    def test_mcp_config_requires_the_exact_release_before_emitting_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = io.StringIO()
+            with patch("sys.stdout", output):
+                self.assertEqual(
+                    cli_main(
+                        [
+                            "mcp-config",
+                            "--root",
+                            str(root),
+                            "--client",
+                            "codex",
+                            "--require-version",
+                            __version__,
+                        ]
+                    ),
+                    0,
+                )
+            self.assertIn("[mcp_servers.ai-dememory]", output.getvalue())
+
+            rejected_output = io.StringIO()
+            rejected_error = io.StringIO()
+            with (
+                patch("sys.stdout", rejected_output),
+                patch("sys.stderr", rejected_error),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                cli_main(
+                    [
+                        "mcp-config",
+                        "--root",
+                        str(root),
+                        "--client",
+                        "codex",
+                        "--require-version",
+                        "0.0.0",
+                    ]
+                )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(rejected_output.getvalue(), "")
+        self.assertIn(f"expected 0.0.0, found {__version__}", rejected_error.getvalue())
+
+    def test_mcp_config_rejects_command_args_that_override_security_controls(self) -> None:
+        rejected = (
+            ["--root", "C:/evil"],
+            ["--root=C:/evil"],
+            ["--profile", "admin"],
+            ["--require-version=0.0.0"],
+            ["mcp"],
+        )
+        for command_args in rejected:
+            with self.subTest(command_args=command_args):
+                with self.assertRaisesRegex(ValueError, "cannot override reserved MCP argument"):
+                    build_mcp_config(
+                        "generic",
+                        "installed",
+                        Path("C:/safe"),
+                        command="py",
+                        command_args=command_args,
+                    )
+
+        rendered = build_mcp_config(
+            "generic",
+            "installed",
+            Path("C:/safe"),
+            command="py",
+            command_args=["-3", "scripts/ai_dememory.py"],
+        )
+        self.assertEqual(rendered["args"][:2], ["-3", "scripts/ai_dememory.py"])
+
+    def test_cli_and_mcp_reject_abbreviated_or_duplicate_security_controls(self) -> None:
+        error = io.StringIO()
+        with patch("sys.stderr", error), patch(
+            "ai_dememory_tool.cli.run_packaged_command"
+        ) as run:
+            self.assertEqual(
+                cli_main(["--root", "C:/safe", "mcp", "--root", "C:/evil"]),
+                2,
+            )
+            run.assert_not_called()
+        self.assertIn("--root may be specified at most once", error.getvalue())
+
+        with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit) as raised:
+            cli_main(
+                [
+                    "mcp-config",
+                    "--client",
+                    "generic",
+                    "--require-version",
+                    __version__,
+                    "--ro",
+                    "C:/evil",
+                ]
+            )
+        self.assertEqual(raised.exception.code, 2)
+
+        for argv in (
+            ["--stdio", "--require-v", __version__],
+            ["--stdio", "--profile", "public", "--profile", "admin"],
+            ["--stdio", "--idle-timeout-seconds", "600", "--idle-timeout-seconds", "0"],
+        ):
+            with self.subTest(argv=argv), patch("sys.stderr", io.StringIO()), self.assertRaises(
+                SystemExit
+            ) as raised:
+                mcp_main(argv)
+            self.assertEqual(raised.exception.code, 2)
+
+    def test_root_resolution_expands_home_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ,
+            {"AI_DEMEMORY_ROOT": "~/vault", "USERPROFILE": temporary, "HOME": temporary},
+            clear=False,
+        ):
+            self.assertEqual(find_memory_root(), (Path(temporary) / "vault").resolve())
+
+    def test_global_root_is_not_resolved_before_sensitive_version_gate(self) -> None:
+        commands = (
+            ["mcp-config", "--client", "generic", "--require-version", "0.0.0"],
+            ["setup", "plan", "--require-version", "0.0.0", "--json"],
+            ["setup", "wizard", "--require-version", "0.0.0", "--json"],
+            ["mcp", "--stdio", "--require-version", "0.0.0"],
+        )
+        for command in commands:
+            error = io.StringIO()
+            with (
+                self.subTest(command=command),
+                patch("sys.stderr", error),
+                patch("ai_dememory_tool.cli.Path.resolve", side_effect=AssertionError("resolved before gate")),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                cli_main(["--root", "//attacker/share", *command])
+            self.assertEqual(raised.exception.code, 2)
+            self.assertNotIn("resolved before gate", error.getvalue())
+            self.assertIn("version mismatch", error.getvalue())
+
+    def test_docker_mcp_config_rejects_option_shaped_image(self) -> None:
+        for image in ("--privileged", "--volume=/:/host", " ai-dememory:local"):
+            with self.subTest(image=image), self.assertRaises(ValueError):
+                build_mcp_config("generic", "docker", Path("C:/safe"), image=image)
 
     def test_dev_help_lists_maintainer_commands(self) -> None:
         output = io.StringIO()

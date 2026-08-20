@@ -2,7 +2,7 @@
 
 Status: active working plan
 Owner: Codex operational owner; repository owner gates production and release
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 ## Executive Decision
 
@@ -28,9 +28,11 @@ sources:
 
 The public and former private repositories had competing authority, and active
 documentation described both personal-memory storage and package distribution.
-The source declares 2.1.0rc1 while the latest published stable package remains
-2.0.0. Release documentation also treated automated technical approval as
-authorization to merge and publish.
+At the start of this modernization the source declared 2.1.0rc1 while PyPI
+still served 2.0.0; the candidate has since completed exact TestPyPI and
+post-install verification and the stable branch now converges source, package
+and user documentation on 2.1.0. Earlier release documentation also treated
+automated technical approval as authorization to merge and publish.
 
 ADRs 0252, 0253, and 0255 now separate readiness from authorization, make the
 public remote canonical, make the source/package/vault boundary explicit, and
@@ -425,6 +427,7 @@ home, installation, architecture, and security-model routes are dependency-free.
 The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting now
 provide the reviewed reporting path. Pages validation and manual delivery are
 isolated by ADR 0259; Pages enablement and dispatch remain separate
-approval-gated production operations. The documentation also treats published 2.0.0
-and unreleased 2.1.0rc1 as different capability contracts, so a stable PyPI install
-is never followed by source-only wizard, profile, or idle-lease instructions.
+approval-gated production operations. During candidate preparation the
+documentation kept published 2.0.0 and source-only 2.1 behavior separate; after
+the verified RC, the stable 2.1.0 documentation can now describe the wizard,
+profiles and idle leases without sending package users to mutable source installs.

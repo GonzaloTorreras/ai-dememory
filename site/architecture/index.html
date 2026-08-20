@@ -34,7 +34,7 @@
             <span>Canonical: Markdown</span>
             <span>Generated: SQLite FTS</span>
             <span>Runtime: Python 3.11+</span>
-            <span>Detailed controls: source 2.1.0rc1, unreleased</span>
+            <span>Detailed controls: 2.1.0 release line</span>
           </div>
         </div>
       </header>
@@ -55,7 +55,7 @@
             <h2>The system boundary</h2>
             <p>The public repository distributes code and fixtures. An isolated installed tool operates against one explicitly bound private vault. No generated index is authoritative.</p>
             <div class="callout">
-              <p><strong>Release lens:</strong> canonical Markdown, local MCP, setup planning, and client configuration exist in stable 2.0.0. Server-enforced resource profiles, the wizard, and generated idle leases below describe the unreleased 2.1.0rc1 source line.</p>
+              <p><strong>Release lens:</strong> the 2.1.0 release line includes canonical Markdown, local MCP, setup planning, server-enforced resource profiles, the wizard, and generated idle leases.</p>
             </div>
             <ol class="diagram-outline">
               <li><strong>AI client:</strong> Codex, Claude, or another local MCP-capable host requests context.</li>
@@ -141,7 +141,7 @@
 
           <section class="content-section" id="process-lifecycle">
             <h2>Processes have an owner and an exit</h2>
-            <p>In the current 2.1.0 source line, generated MCP servers self-expire and package-owned descendants run inside an independently reaped process group or tree.</p>
+            <p>In the 2.1.0 release line, generated MCP servers self-expire and package-owned descendants run inside an independently reaped process group or tree.</p>
             <div class="process-flow" aria-label="MCP process lifecycle from client launch to complete process-tree cleanup">
               <div class="process-state"><strong>Client launches</strong><span>explicit vault + server profile</span></div>
               <div class="process-state"><strong>Server binds</strong><span>root validation before tools</span></div>

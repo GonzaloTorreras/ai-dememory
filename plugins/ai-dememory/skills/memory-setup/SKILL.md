@@ -11,9 +11,9 @@ files, or promote memory.
 
 ## First Run
 
-1. Run `ai-dememory setup plan --json`.
+1. Run `ai-dememory setup plan --require-version 2.1.0 --json`.
 2. For a human-guided first run, launch:
-   `ai-dememory setup wizard --intensity <minimal|balanced|active> --model-policy <off|advisory|proposals>`.
+   `ai-dememory setup wizard --require-version 2.1.0 --intensity <minimal|balanced|active> --model-policy <off|advisory|proposals>`.
 3. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
    write, and `plan_sha256`. Confirm only after that preview; the wizard applies
    the exact same in-memory operating policy and fingerprint without asking for

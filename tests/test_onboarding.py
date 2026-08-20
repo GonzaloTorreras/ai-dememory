@@ -9,9 +9,10 @@ import sys
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
+from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from ai_dememory_tool import cli as unified_cli
 
 
@@ -22,6 +23,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import onboarding  # noqa: E402
+from command_render import render_copy_command  # noqa: E402
 from onboarding import (  # noqa: E402
     apply_onboarding,
     apply_operational_setup,
@@ -221,10 +223,25 @@ class OnboardingTests(unittest.TestCase):
         claude = integrations["mcp_configs"]["claude"]["mcpServers"]["ai-dememory"]
         codex_hook = integrations["hook_configs"]["codex"]["hooks"]["UserPromptSubmit"][0]["hooks"][0]
         self.assertTrue(integrations["vault_bound"])
+        self.assertEqual(integrations["generated_by_version"], PACKAGE_VERSION)
+        schedule_command = integrations["schedule_plan_command"]
+        self.assertEqual(
+            schedule_command[:5],
+            ["ai-dememory", "--root", str(root.resolve()), "schedule", "plan"],
+        )
+        self.assertEqual(schedule_command.count("--root"), 1)
         self.assertEqual(codex["env"]["AI_DEMEMORY_ROOT"], str(root.resolve()))
+        self.assertIn(
+            ["--require-version", PACKAGE_VERSION],
+            [codex["args"][index : index + 2] for index in range(len(codex["args"]) - 1)],
+        )
         self.assertEqual(codex["args"][-3:], ["--profile", "core", "--require-bound-root"])
         self.assertIn(["--idle-timeout-seconds", "600"], [codex["args"][index : index + 2] for index in range(len(codex["args"]) - 1)])
         self.assertEqual(claude["env"]["AI_DEMEMORY_ROOT"], str(root.resolve()))
+        self.assertIn(
+            ["--require-version", PACKAGE_VERSION],
+            [claude["args"][index : index + 2] for index in range(len(claude["args"]) - 1)],
+        )
         self.assertEqual(claude["args"][-3:], ["--profile", "core", "--require-bound-root"])
         self.assertIn("--public-only", codex_hook["command"])
         self.assertIn(str(root.resolve()), codex_hook["command"])
@@ -394,6 +411,68 @@ class OnboardingTests(unittest.TestCase):
         self.assertFalse(memories_exist)
         self.assertIn('intensity = "balanced"', config)
 
+    def test_guided_next_actions_gate_generated_mcp_configuration(self) -> None:
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(output):
+            onboarding.print_guided_next_actions(
+                {
+                    "root": str(Path(tmp).resolve()),
+                    "clients": ["codex", "claude", "generic"],
+                    "setup_scope": "operational",
+                }
+            )
+
+        rendered = output.getvalue()
+        root = str(Path(tmp).resolve())
+        for client in ("codex", "claude", "generic"):
+            self.assertIn(
+                render_copy_command(
+                    [
+                        "ai-dememory",
+                        "--root",
+                        root,
+                        "mcp-config",
+                        "--client",
+                        client,
+                        "--require-version",
+                        PACKAGE_VERSION,
+                    ]
+                ),
+                rendered,
+            )
+
+    def test_copy_command_renderer_quotes_shell_metacharacters(self) -> None:
+        argv = [
+            "ai-dememory",
+            "--root",
+            "C:\\vault$(Write-Output PWNED);`x",
+            "mcp-config",
+            "it's-safe",
+        ]
+        self.assertEqual(
+            render_copy_command(argv, windows=True),
+            "& 'ai-dememory' '--root' 'C:\\vault$(Write-Output PWNED);`x' "
+            "'mcp-config' 'it''s-safe'",
+        )
+        import shlex
+
+        self.assertEqual(shlex.split(render_copy_command(argv, windows=False)), argv)
+
+    def test_copy_command_renderer_escapes_powershell_smart_quotes(self) -> None:
+        for delimiter in ("\u2018", "\u2019", "\u201a", "\u201b"):
+            argv = ["ai-dememory", "--root", f"C:\\vault{delimiter}; Write-Output PWNED"]
+            with self.subTest(delimiter=delimiter):
+                rendered = render_copy_command(argv, windows=True)
+                self.assertEqual(
+                    rendered,
+                    "& 'ai-dememory' '--root' "
+                    f"'C:\\vault{delimiter * 2}; Write-Output PWNED'",
+                )
+
+                import shlex
+
+                self.assertEqual(shlex.split(render_copy_command(argv, windows=False)), argv)
+
     def test_guided_wizard_decline_writes_nothing_and_is_incomplete(self) -> None:
         prompted_answers = [
             "minimal",
@@ -557,12 +636,50 @@ class OnboardingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
-                exit_code = unified_cli.main(["--root", tmp, "setup", "wizard", "--json"])
+                exit_code = unified_cli.main(
+                    [
+                        "--root",
+                        tmp,
+                        "setup",
+                        "wizard",
+                        "--require-version",
+                        PACKAGE_VERSION,
+                        "--json",
+                    ]
+                )
             payload = json.loads(output.getvalue())
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["setup_scope"], "operational")
+
+    def test_setup_wizard_version_gate_fails_before_emitting_a_plan(self) -> None:
+        output = io.StringIO()
+        error = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("sys.stdout", output),
+                patch("sys.stderr", error),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                unified_cli.main(
+                    [
+                        "--root",
+                        tmp,
+                        "setup",
+                        "wizard",
+                        "--require-version",
+                        "0.0.0",
+                        "--json",
+                    ]
+                )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn(
+            f"version mismatch: expected 0.0.0, found {PACKAGE_VERSION}",
+            error.getvalue(),
+        )
 
     def test_guided_json_rejects_personal_baseline_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -613,12 +730,14 @@ class OnboardingTests(unittest.TestCase):
                 "ai_dememory_tool.cli.run_packaged_command",
                 return_value=onboarding.GUIDED_DECLINED_EXIT_CODE,
             ) as runner, redirect_stdout(output):
-                exit_code = unified_cli.init_vault([str(target), "--wizard"])
+                exit_code = unified_cli.init_vault(
+                    [str(target), "--wizard", "--require-version", PACKAGE_VERSION]
+                )
 
         self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
         runner.assert_called_once_with(
             "onboard",
-            ["--root", str(target.resolve())],
+            ["--root", str(target.resolve()), "--require-version", PACKAGE_VERSION],
             onboarding_mode="operational",
         )
         self.assertNotIn("Then run `ai-dememory doctor`", output.getvalue())
@@ -635,7 +754,9 @@ class OnboardingTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=False), patch.object(
                 onboarding.sys, "stdin", InteractiveStdin()
             ), patch("builtins.input", side_effect=prompted_answers), redirect_stdout(output):
-                exit_code = unified_cli.init_vault([str(target), "--wizard"])
+                exit_code = unified_cli.init_vault(
+                    [str(target), "--wizard", "--require-version", PACKAGE_VERSION]
+                )
 
             config = (target / ".ai-dememory.toml").read_text(encoding="utf-8")
             personal_memory_exists = (target / "memories/durable/onboarding-values.md").exists()
@@ -647,6 +768,41 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
         self.assertIn('intensity = "balanced"', config)
         self.assertFalse(personal_memory_exists)
+
+    def test_init_wizard_requires_exact_version_before_creating_vault(self) -> None:
+        for argv in (
+            ["vault", "--wizard"],
+            ["vault", "--wizard", "--require-version", "0.0.0"],
+        ):
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / "vault"
+                args = [str(target), *argv[1:]]
+                error = io.StringIO()
+                with redirect_stderr(error), patch(
+                    "ai_dememory_tool.cli.copy_template_tree",
+                    side_effect=AssertionError("must fail before copying"),
+                ):
+                    exit_code = unified_cli.init_vault(args)
+                self.assertEqual(exit_code, 1)
+                self.assertFalse(target.exists())
+                self.assertIn("version mismatch", error.getvalue())
+
+        for argv in (
+            ["--wiz", "--require-version", PACKAGE_VERSION],
+            [
+                "--wizard",
+                "--require-version",
+                PACKAGE_VERSION,
+                "--require-version",
+                PACKAGE_VERSION,
+            ],
+        ):
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / "vault"
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                    unified_cli.init_vault([str(target), *argv])
+                self.assertEqual(raised.exception.code, 2)
+                self.assertFalse(target.exists())
 
     def test_apply_requires_matching_preview_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other_tmp:

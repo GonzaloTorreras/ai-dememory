@@ -969,6 +969,20 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 codex_provider_plan.get("configure_dry_run_command", [])[-2:] == ["--dry-run", "--json"],
                 "providers_plan must include configure dry-run command",
             )
+            provider_command_prefix = ["ai-dememory", "--root", str(fixture_root.resolve())]
+            for command_name in (
+                "configure_dry_run_command",
+                "configure_command",
+                "disable_command",
+                "import_dry_run_command",
+                "import_command",
+            ):
+                provider_command = codex_provider_plan.get(command_name, [])
+                assert_condition(
+                    provider_command[:3] == provider_command_prefix
+                    and provider_command.count("--root") == 1,
+                    f"providers_plan {command_name} must bind the fixture vault root exactly once",
+                )
             checks.append("fixture memory.providers_plan")
 
             setup = tool_call(
@@ -991,14 +1005,20 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 setup.get("suggests_generated_archive_retention") is True,
                 "setup_plan should flag archive retention commands",
             )
+            setup_root = str(setup.get("root") or "")
+            assert_condition(
+                setup_root == str(fixture_root.resolve()),
+                "setup_plan should bind the fixture vault root",
+            )
+            expected_command_prefix = ["ai-dememory", "--root", setup_root]
             assert_condition(
                 setup["commands"].get("schedule_cron")
-                == ["ai-dememory", "schedule", "cron", "--intensity", "balanced"],
+                == [*expected_command_prefix, "schedule", "cron", "--intensity", "balanced"],
                 "setup_plan should include installed cron export command",
             )
             assert_condition(
-                setup["commands"].get("docker_schedule_cron", [])[:3]
-                == ["ai-dememory", "schedule", "cron"]
+                setup["commands"].get("docker_schedule_cron", [])[:5]
+                == [*expected_command_prefix, "schedule", "cron"]
                 and "--mode" in setup["commands"].get("docker_schedule_cron", []),
                 "setup_plan should include Docker cron export command",
             )
@@ -1090,6 +1110,19 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
             assert_condition(
                 "indexes/memory.sqlite" in setup_health["maintenance_preflight"].get("daily_artifacts", []),
                 "setup_health maintenance preflight missing artifact targets",
+            )
+            assert_condition(
+                setup_health["maintenance_preflight"].get("daily_dry_run_command", [])
+                == [
+                    *expected_command_prefix,
+                    "maintenance",
+                    "run",
+                    "--profile",
+                    "daily",
+                    "--dry-run",
+                    "--json",
+                ],
+                "setup_health maintenance preview must bind the fixture vault root",
             )
             assert_condition("artifact_freshness" in setup_health, "setup_health missing artifact freshness")
             assert_condition(

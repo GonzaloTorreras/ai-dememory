@@ -15,6 +15,13 @@ import stat
 import sys
 from typing import Any
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.path:
+    # Direct source-checkout commands must use the matching local package.
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from ai_dememory_tool.argument_safety import reject_duplicate_options  # noqa: E402
+from command_render import render_copy_command
 from config_file import CONFIG_NAME, load_config, set_section
 from memorylib import (
     path_is_link_like,
@@ -147,10 +154,11 @@ def provider_plan_reason(candidate: ProviderCandidate) -> tuple[str, str]:
 
 
 def provider_setup_plan(root: Path, command: str = "ai-dememory") -> dict[str, Any]:
+    bound_command = [command, "--root", str(root.resolve())]
     providers: list[dict[str, Any]] = []
     for candidate in detect_providers(root):
         reason, next_action = provider_plan_reason(candidate)
-        configure_command = [command, "providers", "configure", candidate.name, "--path", candidate.path]
+        configure_command = [*bound_command, "providers", "configure", candidate.name, "--path", candidate.path]
         providers.append(
             {
                 "name": candidate.name,
@@ -165,8 +173,8 @@ def provider_setup_plan(root: Path, command: str = "ai-dememory") -> dict[str, A
                 "configure_dry_run_command": [*configure_command, "--dry-run", "--json"],
                 "configure_command": configure_command,
                 "disable_command": [*configure_command, "--disable"],
-                "import_dry_run_command": [command, "import-chats", candidate.name, "--dry-run", "--json"],
-                "import_command": [command, "import-chats", candidate.name],
+                "import_dry_run_command": [*bound_command, "import-chats", candidate.name, "--dry-run", "--json"],
+                "import_command": [*bound_command, "import-chats", candidate.name],
             }
         )
     return {
@@ -213,7 +221,7 @@ def configure_provider_preview(root: Path, name: str, path: Path, enabled: bool 
         "writes_files": False,
         "reads_provider_files": False,
         "writes_import_candidates": False,
-        "configure_command": ["ai-dememory", "providers", "configure", name, "--path", str(normalized)]
+        "configure_command": ["ai-dememory", "--root", str(root.resolve()), "providers", "configure", name, "--path", str(normalized)]
         + ([] if enabled else ["--disable"]),
         "next_action": "Run configure without --dry-run after reviewing the provider path.",
     }
@@ -743,14 +751,19 @@ def write_import_candidate(root: Path, provider: str, source_file: Path, text: s
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    detect = subparsers.add_parser("detect", help="Detect known provider directories.")
+    detect = subparsers.add_parser("detect", help="Detect known provider directories.", allow_abbrev=False)
     detect.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    plan = subparsers.add_parser("plan", help="Show reviewed provider setup commands without mutating config.")
+    plan = subparsers.add_parser(
+        "plan",
+        help="Show reviewed provider setup commands without mutating config.",
+        allow_abbrev=False,
+    )
     plan.add_argument(
         "--command",
         dest="cli_command",
@@ -759,14 +772,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     plan.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    configure = subparsers.add_parser("configure", help="Configure a provider import source.")
+    configure = subparsers.add_parser(
+        "configure", help="Configure a provider import source.", allow_abbrev=False
+    )
     configure.add_argument("provider", choices=sorted(default_provider_paths()))
     configure.add_argument("--path", required=True, help="Provider chat/session directory.")
     configure.add_argument("--disable", action="store_true", help="Store the provider as disabled.")
     configure.add_argument("--dry-run", action="store_true", help="Preview config without writing .ai-dememory.toml.")
     configure.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    import_cmd = subparsers.add_parser("import", help="Import provider files into inbox/imports/.")
+    import_cmd = subparsers.add_parser(
+        "import", help="Import provider files into inbox/imports/.", allow_abbrev=False
+    )
     import_cmd.add_argument("provider", choices=sorted(default_provider_paths()))
     import_cmd.add_argument("--path", default=None, help="Override provider path for this run.")
     import_cmd.add_argument("--limit", type=int, default=None, help="Maximum new candidates; defaults to the intensity profile.")
@@ -779,7 +796,9 @@ def main(argv: list[str] | None = None) -> int:
     import_cmd.add_argument("--dry-run", action="store_true", help="Preview import candidates without writing inbox files.")
     import_cmd.add_argument("--json", action="store_true", help="Emit JSON output.")
 
-    capture_cmd = subparsers.add_parser("capture", help="Capture explicit files or text into inbox/imports/.")
+    capture_cmd = subparsers.add_parser(
+        "capture", help="Capture explicit files or text into inbox/imports/.", allow_abbrev=False
+    )
     capture_cmd.add_argument("kind", choices=sorted(CAPTURE_KINDS))
     capture_source_group = capture_cmd.add_mutually_exclusive_group(required=True)
     capture_source_group.add_argument("--path", help="File or directory to capture.")
@@ -789,8 +808,30 @@ def main(argv: list[str] | None = None) -> int:
     capture_cmd.add_argument("--limit", type=int, default=MAX_FILES)
     capture_cmd.add_argument("--json", action="store_true", help="Emit JSON output.")
 
+    reject_duplicate_options(parser, argv, ("--root",))
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root_was_supplied = any(argument == "--root" or argument.startswith("--root=") for argument in argv)
+    if root_was_supplied and (not args.root or not args.root.strip()):
+        parser.error("--root requires a non-empty vault path")
+    explicit_root = args.root if args.root and args.root.strip() else None
+    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = configured_root if configured_root and configured_root.strip() else None
+    mutates_vault = args.command == "capture" or (
+        args.command in {"configure", "import"} and not args.dry_run
+    )
+    emits_bound_command = args.command == "plan" or (
+        args.command == "configure" and args.dry_run
+    )
+    if (
+        (mutates_vault or emits_bound_command)
+        and not explicit_root
+        and not configured_root
+    ):
+        parser.error(
+            f"provider {args.command} requires an explicit vault binding; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
+    root = repo_root(explicit_root)
 
     if args.command == "detect":
         candidates = detect_providers(root)
@@ -813,10 +854,16 @@ def main(argv: list[str] | None = None) -> int:
             for provider in plan_result["providers"]:
                 marker = provider["reason"]
                 print(f"- {provider['name']}: {marker} ({provider['path']})")
-                print(f"  preview: {' '.join(provider['configure_dry_run_command'])}")
-                print(f"  configure: {' '.join(provider['configure_command'])}")
+                print(
+                    "  preview: "
+                    + render_copy_command(provider["configure_dry_run_command"])
+                )
+                print(
+                    "  configure: "
+                    + render_copy_command(provider["configure_command"])
+                )
                 if provider["import_ready"]:
-                    print(f"  import: {' '.join(provider['import_command'])}")
+                    print("  import: " + render_copy_command(provider["import_command"]))
             print("Next: review paths, configure chosen providers, then import manually or through opt-in maintenance.")
         return 0
 

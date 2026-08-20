@@ -997,7 +997,20 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--json", action="store_true")
 
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    explicit_root = args.root if args.root and args.root.strip() else None
+    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = configured_root if configured_root and configured_root.strip() else None
+    if (
+        args.command == "run"
+        and not args.dry_run
+        and not explicit_root
+        and not configured_root
+    ):
+        parser.error(
+            "maintenance run requires an explicit vault binding; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
+    root = repo_root(explicit_root)
     if args.command == "status":
         data = maintenance_status(root)
         if args.json:

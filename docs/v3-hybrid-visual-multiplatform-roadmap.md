@@ -70,9 +70,9 @@ The machine-readable order is
 
 | Task | Purpose | Batch | State |
 | --- | --- | --- | --- |
-| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | V2.1 implementation |
-| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | next |
-| `BRG-017` | Strict config parsing and diagnostics | `B04b` | pending |
+| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | complete; RC verified |
+| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | current frontier |
+| `BRG-017` | Strict config parsing and diagnostics | `B04b` | current frontier |
 | `BRG-019` | Bridge inventories and exact-artifact tooling | `B04c` | pending |
 | `MIG-001` | Freeze and generate the canonical writer inventory | `B05a` | pending |
 | `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | blocked on evidence |
@@ -86,13 +86,15 @@ blocked until authenticated providers return exact readback.
 
 ### Phase 0: V2.1 stable baseline
 
-- Finish `BRG-014` and publish a TestPyPI RC before stable PyPI.
+- Keep the completed `BRG-014` implementation and its published, post-install
+  TestPyPI RC as prerequisite evidence for stable PyPI.
 - Verify Windows/macOS/Linux CI, package install, MCP lifecycle, and site docs.
 - Preserve Python-only production runtime and zero internal model calls.
 
 ### Phase 1: Compatibility and writer control
 
-- Implement `BRG-003`, `BRG-017`, `BRG-019`, and `MIG-001` as small PRs.
+- Implement the current `BRG-003` and `BRG-017` frontier first, then
+  `BRG-019` and `MIG-001`, as small PRs.
 - Generate CLI, MCP, and canonical-writer inventories.
 - Add exact-artifact, concurrent binding, crash recovery, and config strictness
   coverage without importing archive runtime wholesale.
@@ -101,6 +103,10 @@ blocked until authenticated providers return exact readback.
 
 - Establish cold/warm latency, peak RSS, provider throughput, recovery, and
   host-agent-token SLOs per intensity.
+- Use [the source-grounded query design](source-grounded-query-design.md) as
+  non-normative research input when this phase has a legal task owner; it does
+  not create acceptance evidence or executable work. Keep query-time synthesis
+  read-only and durable consolidation proposal-first.
 - Add incremental checkpoints, no-op maintenance, and stale-lock fencing.
 - Keep FTS baseline until a held-out corpus proves a vector experiment improves
   recall enough to justify its cost and migration burden.

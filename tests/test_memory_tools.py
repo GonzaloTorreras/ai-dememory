@@ -35,6 +35,7 @@ from export_context import export_context  # noqa: E402
 from capture_miss import capture_miss, main as capture_miss_main, render_miss_text  # noqa: E402
 from consolidate_memory import main as consolidate_main, build_report as build_consolidation_report  # noqa: E402
 from context_memory import assemble_context, context_defaults, main as context_main  # noqa: E402
+from command_render import render_copy_command  # noqa: E402
 from eval_recall import evaluate, load_fixtures  # noqa: E402
 import graph_memory  # noqa: E402
 from git_lessons import (  # noqa: E402
@@ -84,6 +85,7 @@ from install_smoke import (  # noqa: E402
     assert_roadmap_status,
     assert_publish_plan,
     assert_schedule_plan,
+    assert_setup_plan,
     assert_vault_template_export,
     docker_client_smoke_command,
     docker_maintenance_status_command,
@@ -248,7 +250,8 @@ from schedule_memory import (  # noqa: E402
 )
 from search_memory import search  # noqa: E402
 from secret_scan import scan_paths  # noqa: E402
-from setup_plan import main as setup_plan_main, setup_health, setup_plan  # noqa: E402
+from setup_plan import mcp_config_command, main as setup_plan_main, setup_health, setup_plan  # noqa: E402
+from onboarding import main as onboarding_main  # noqa: E402
 from sleep_consolidation import SleepError, apply_review_packets, build_sleep_plan, main as sleep_main, write_sleep_report  # noqa: E402
 from vector_gate import VectorReadiness, evaluate_vector_readiness, write_vector_report  # noqa: E402
 from validate_memory import main as validate_main, validate_repo, validate_repo_result  # noqa: E402
@@ -283,7 +286,19 @@ from review_memory import (  # noqa: E402
     write_review_recommendation_outcome_report,
     write_stale_false_positive_report,
 )
-from ai_dememory_tool.cli import build_mcp_config, copy_template_tree, export_vault_template, main as cli_main, mcp_config  # noqa: E402
+from ai_dememory_tool.cli import (  # noqa: E402
+    ambient_root_requires_explicit_binding,
+    build_mcp_config,
+    command_requires_explicit_vault_binding,
+    command_mutates_vault,
+    copy_template_tree,
+    export_vault_template,
+    find_memory_root,
+    is_tool_checkout,
+    is_within_tool_checkout,
+    main as cli_main,
+    mcp_config,
+)
 from ci_guard import (  # noqa: E402
     validate_ci_workflow,
     validate_ci_workflow_text,
@@ -400,12 +415,720 @@ class MemoryToolTests(unittest.TestCase):
                     "--stdio",
                     "--idle-timeout-seconds",
                     "600",
+                    "--require-version",
+                    PACKAGE_VERSION,
                     "--profile",
                     "core",
                     "--require-bound-root",
                 ],
             )
             self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
+
+    def test_mcp_config_rejects_an_ambient_tool_checkout_root(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+            patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            mcp_config(["--client", "codex"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("refuses an unconfigured or nested ambient root", error.getvalue())
+
+    def test_nested_vault_in_sparse_checkout_requires_an_explicit_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            checkout = base / "sparse-checkout"
+            nested = checkout / "selected-vault"
+            (nested / "memories").mkdir(parents=True)
+            (checkout / ".git").write_text(
+                "gitdir: //untrusted.invalid/share/metadata\n",
+                encoding="utf-8",
+            )
+            (nested / ".ai-dememory.toml").write_text(
+                "[memory]\ncanonical = \"markdown\"\n",
+                encoding="utf-8",
+            )
+
+            self.assertFalse((checkout / "docs" / "schema.md").exists())
+            self.assertFalse((checkout / "scripts").exists())
+            self.assertFalse(is_tool_checkout(checkout))
+            self.assertFalse(is_within_tool_checkout(nested))
+            self.assertTrue(ambient_root_requires_explicit_binding(nested))
+
+    def test_tool_checkout_recognizes_the_source_that_loaded_the_cli(self) -> None:
+        self.assertTrue(is_tool_checkout(ROOT))
+        self.assertTrue(ambient_root_requires_explicit_binding(ROOT))
+
+    def test_source_archive_is_detected_without_git_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source-archive"
+            (source / "ai_dememory_tool").mkdir(parents=True)
+            (source / "memories").mkdir()
+            (source / "ai_dememory_tool" / "cli.py").write_text(
+                "# source marker\n",
+                encoding="utf-8",
+            )
+            (source / "pyproject.toml").write_text(
+                '[project]\nname = "ai-dememory"\n',
+                encoding="utf-8",
+            )
+
+            self.assertTrue(is_tool_checkout(source))
+            self.assertTrue(ambient_root_requires_explicit_binding(source))
+
+    def test_installed_site_packages_is_not_a_source_checkout_or_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            site_packages = base / "site-packages"
+            package = site_packages / "ai_dememory_tool"
+            unrelated = base / "unrelated"
+            package.mkdir(parents=True)
+            unrelated.mkdir()
+            module = package / "cli.py"
+            module.write_text("# installed module\n", encoding="utf-8")
+
+            self.assertFalse(is_tool_checkout(site_packages))
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("ai_dememory_tool.cli.__file__", str(module)),
+                self.assertRaises(RuntimeError),
+            ):
+                find_memory_root(start=unrelated)
+
+    def test_non_file_vault_manifest_does_not_authorize_ambient_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            (vault / "memories").mkdir(parents=True)
+            (vault / ".ai-dememory.toml").mkdir()
+
+            self.assertTrue(ambient_root_requires_explicit_binding(vault))
+
+    def test_unrelated_git_vault_is_not_a_tool_checkout_even_with_mutable_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            nested = vault / "memories" / "projects"
+            (vault / ".git").mkdir(parents=True)
+            (vault / "docs").mkdir()
+            (vault / "scripts").mkdir()
+            nested.mkdir(parents=True)
+            (vault / ".ai-dememory.toml").write_text("version = 1\n", encoding="utf-8")
+            (vault / "docs" / "schema.md").write_text("# Private vault\n", encoding="utf-8")
+            (vault / ".git" / "config").write_text(
+                '[remote "origin"]\n'
+                "\turl = https://github.com/example/private-memory.git\n",
+                encoding="utf-8",
+            )
+
+            self.assertFalse(is_tool_checkout(vault))
+            self.assertFalse(is_within_tool_checkout(nested))
+            self.assertFalse(ambient_root_requires_explicit_binding(vault))
+
+    def test_unconfigured_legacy_vault_requires_deliberate_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "legacy-vault"
+            (vault / "memories").mkdir(parents=True)
+
+            self.assertTrue(ambient_root_requires_explicit_binding(vault))
+
+    def test_mcp_config_rejects_ambient_tool_checkout_descendants(self) -> None:
+        nested_roots = (
+            ROOT / "vault-template",
+            ROOT / "ai_dememory_tool" / "templates" / "vault",
+        )
+        for root in nested_roots:
+            with self.subTest(root=root):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    mcp_config(["--client", "generic"])
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("unconfigured or nested ambient root", error.getvalue())
+
+    def test_mcp_config_accepts_explicit_checkout_descendant_bindings(self) -> None:
+        root = ROOT / "vault-template"
+        bindings = (
+            ("argument", ["--client", "generic", "--root", str(root)], ""),
+            ("environment", ["--client", "generic"], str(root)),
+        )
+        for label, argv, environment_root in bindings:
+            with self.subTest(binding=label):
+                output = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(mcp_config(argv), 0)
+
+                config = json.loads(output.getvalue())
+                self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
+
+    def test_mcp_config_accepts_an_environment_bound_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_template_tree(root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
+                redirect_stdout(output),
+            ):
+                exit_code = mcp_config(["--client", "codex"])
+
+        self.assertEqual(exit_code, 0)
+        config = tomllib.loads(output.getvalue())["mcp_servers"]["ai-dememory"]
+        self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
+
+    def test_setup_and_onboarding_reject_ambient_tool_checkout_roots(self) -> None:
+        invocations = (
+            ("setup plan", ["setup", "plan", "--client", "codex", "--json"]),
+            ("setup wizard", ["setup", "wizard", "--json"]),
+            ("onboard", ["onboard", "--json"]),
+        )
+        roots = (
+            ROOT,
+            ROOT / "vault-template",
+            ROOT / "ai_dememory_tool" / "templates" / "vault",
+        )
+        for label, argv in invocations:
+            for root in roots:
+                with self.subTest(command=label, root=root):
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                        patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        cli_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn(
+                        "refuses an unconfigured or nested ambient root",
+                        error.getvalue(),
+                    )
+
+    def test_rootless_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
+        invocations = (
+            (
+                "providers configure",
+                ["providers", "configure", "codex", "--path", str(ROOT)],
+            ),
+            ("providers import", ["providers", "import", "codex", "--path", str(ROOT)]),
+            (
+                "providers capture",
+                ["providers", "capture", "text", "--text", "Review candidate."],
+            ),
+            ("import chats", ["import-chats", "codex", "--path", str(ROOT)]),
+            ("capture", ["capture", "text", "--text", "Review candidate."]),
+            ("maintenance", ["maintenance", "run"]),
+            ("schedule", ["schedule", "setup"]),
+            (
+                "schedule with a global command option",
+                ["schedule", "--command", "ai-dememory", "setup"],
+            ),
+            ("schedule status", ["schedule", "status"]),
+        )
+        roots = (
+            ROOT,
+            ROOT / "vault-template",
+            ROOT / "ai_dememory_tool" / "templates" / "vault",
+        )
+        for label, argv in invocations:
+            for root in roots:
+                with self.subTest(command=label, root=root):
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                        patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        cli_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn(
+                        "refuses an unconfigured or nested ambient root",
+                        error.getvalue(),
+                    )
+
+    def test_root_bound_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
+        invocations = (
+            ("providers plan", ["providers", "plan", "--json"]),
+            (
+                "providers configure preview",
+                ["providers", "configure", "codex", "--path", str(ROOT), "--dry-run"],
+            ),
+            ("schedule plan", ["schedule", "plan", "--json"]),
+            ("schedule cron", ["schedule", "cron", "--json"]),
+            ("schedule setup preview", ["schedule", "setup", "--dry-run"]),
+            ("schedule install preview", ["schedule", "install", "--dry-run"]),
+        )
+        for label, argv in invocations:
+            with self.subTest(command=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn(
+                    "refuses an unconfigured or nested ambient root",
+                    error.getvalue(),
+                )
+
+    def test_root_guard_classifies_mutating_and_root_bound_commands(self) -> None:
+        for command, argv in (
+            ("providers", ["detect"]),
+            ("import-chats", ["codex", "--dry-run"]),
+            ("maintenance", ["status"]),
+            ("maintenance", ["run", "--dry-run"]),
+            ("schedule", ["doctor"]),
+            ("schedule", ["remove", "--dry-run"]),
+        ):
+            with self.subTest(command=command, argv=argv):
+                self.assertFalse(command_mutates_vault(command, argv))
+                self.assertFalse(command_requires_explicit_vault_binding(command, argv))
+
+        for command, argv in (
+            ("providers", ["plan", "--json"]),
+            ("providers", ["configure", "codex", "--dry-run"]),
+            ("schedule", ["plan"]),
+            ("schedule", ["cron"]),
+            ("schedule", ["setup", "--dry-run"]),
+            ("schedule", ["install", "--dry-run"]),
+        ):
+            with self.subTest(command=command, argv=argv):
+                self.assertFalse(command_mutates_vault(command, argv))
+                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
+
+        for command, argv in (
+            ("providers", ["configure", "codex"]),
+            ("providers", ["import", "codex"]),
+            ("providers", ["capture", "text", "--text", "Review candidate."]),
+            ("import-chats", ["codex"]),
+            ("capture", ["text", "--text", "Review candidate."]),
+            ("maintenance", ["run"]),
+            ("schedule", ["install"]),
+            ("schedule", ["remove"]),
+            ("schedule", ["status"]),
+        ):
+            with self.subTest(command=command, argv=argv):
+                self.assertTrue(command_mutates_vault(command, argv))
+                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
+
+    def test_setup_accepts_deliberate_and_external_vault_bindings(self) -> None:
+        checkout_root = ROOT / "vault-template"
+        bindings = (
+            ("argument", ["setup", "--root", str(checkout_root), "plan", "--json"], ""),
+            ("environment", ["setup", "plan", "--json"], str(checkout_root)),
+        )
+        for label, argv, environment_root in bindings:
+            with self.subTest(binding=label):
+                output = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(cli_main(argv), 0)
+
+                self.assertEqual(Path(json.loads(output.getvalue())["root"]), checkout_root.resolve())
+
+        onboarding_output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+            redirect_stdout(onboarding_output),
+        ):
+            self.assertEqual(
+                cli_main(
+                    [
+                        "onboard",
+                        "--root",
+                        str(checkout_root),
+                        "--reviewed-by",
+                        "Unit Test",
+                        "--value",
+                        "Prefer safe work.",
+                        "--preference",
+                        "Run narrow tests first.",
+                        "--recommendation",
+                        "Recall reviewed memory.",
+                        "--json",
+                    ]
+                ),
+                0,
+            )
+
+        self.assertEqual(
+            Path(json.loads(onboarding_output.getvalue())["root"]),
+            checkout_root.resolve(),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            external_root = Path(tmp)
+            copy_template_tree(external_root)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("ai_dememory_tool.cli.find_memory_root", return_value=external_root),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(cli_main(["setup", "plan", "--json"]), 0)
+
+            self.assertEqual(Path(json.loads(output.getvalue())["root"]), external_root.resolve())
+
+            onboarding_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("ai_dememory_tool.cli.find_memory_root", return_value=external_root),
+                redirect_stdout(onboarding_output),
+            ):
+                self.assertEqual(
+                    cli_main(
+                        [
+                            "onboard",
+                            "--reviewed-by",
+                            "Unit Test",
+                            "--value",
+                            "Prefer safe work.",
+                            "--preference",
+                            "Run narrow tests first.",
+                            "--recommendation",
+                            "Recall reviewed memory.",
+                            "--json",
+                        ]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(
+                Path(json.loads(onboarding_output.getvalue())["root"]),
+                external_root.resolve(),
+            )
+
+    def test_direct_setup_and_onboarding_fail_without_a_vault_binding(self) -> None:
+        for label, target, argv, resolver in (
+            (
+                "setup plan",
+                setup_plan_main,
+                ["plan", "--client", "codex", "--json"],
+                "setup_plan.repo_root",
+            ),
+            (
+                "setup plan with empty root",
+                setup_plan_main,
+                ["--root=", "plan", "--client", "codex", "--json"],
+                "setup_plan.repo_root",
+            ),
+            (
+                "setup health",
+                setup_plan_main,
+                ["health", "--json"],
+                "setup_plan.repo_root",
+            ),
+            (
+                "onboarding",
+                onboarding_main,
+                ["--json"],
+                "onboarding.repo_root",
+            ),
+            (
+                "onboarding with empty root",
+                onboarding_main,
+                ["--root=", "--json"],
+                "onboarding.repo_root",
+            ),
+        ):
+            with self.subTest(entrypoint=label):
+                for environment_root in ("", " "):
+                    with self.subTest(environment_root=repr(environment_root)):
+                        output = io.StringIO()
+                        error = io.StringIO()
+                        with (
+                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                            patch(resolver) as root_resolver,
+                            redirect_stdout(output),
+                            redirect_stderr(error),
+                            self.assertRaises(SystemExit) as raised,
+                        ):
+                            target(argv)
+
+                        self.assertEqual(raised.exception.code, 2)
+                        self.assertEqual(output.getvalue(), "")
+                        root_resolver.assert_not_called()
+                        self.assertIn("requires an explicit vault binding", error.getvalue())
+
+    def test_direct_mutating_commands_fail_without_a_vault_binding(self) -> None:
+        invocations = (
+            (
+                "provider configure",
+                provider_main,
+                ["configure", "codex", "--path", str(ROOT)],
+                "provider_import.repo_root",
+            ),
+            (
+                "provider plan",
+                provider_main,
+                ["plan", "--json"],
+                "provider_import.repo_root",
+            ),
+            (
+                "provider configure preview",
+                provider_main,
+                ["configure", "codex", "--path", str(ROOT), "--dry-run", "--json"],
+                "provider_import.repo_root",
+            ),
+            (
+                "provider import",
+                provider_main,
+                ["import", "codex"],
+                "provider_import.repo_root",
+            ),
+            (
+                "provider capture",
+                provider_main,
+                ["capture", "text", "--text", "Review candidate."],
+                "provider_import.repo_root",
+            ),
+            (
+                "schedule setup",
+                schedule_main,
+                ["setup"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule install",
+                schedule_main,
+                ["install"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule remove",
+                schedule_main,
+                ["remove"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule status",
+                schedule_main,
+                ["status"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule plan",
+                schedule_main,
+                ["plan", "--json"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule cron",
+                schedule_main,
+                ["cron", "--json"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule setup preview",
+                schedule_main,
+                ["setup", "--dry-run", "--json"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "schedule install preview",
+                schedule_main,
+                ["install", "--dry-run", "--json"],
+                "schedule_memory.repo_root",
+            ),
+            (
+                "maintenance run",
+                maintenance_main,
+                ["run"],
+                "maintenance.repo_root",
+            ),
+        )
+        for label, target, argv, resolver in invocations:
+            with self.subTest(entrypoint=label):
+                for environment_root in ("", " "):
+                    with self.subTest(environment_root=repr(environment_root)):
+                        output = io.StringIO()
+                        error = io.StringIO()
+                        with (
+                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                            patch(resolver) as root_resolver,
+                            redirect_stdout(output),
+                            redirect_stderr(error),
+                            self.assertRaises(SystemExit) as raised,
+                        ):
+                            target(argv)
+
+                        self.assertEqual(raised.exception.code, 2)
+                        self.assertEqual(output.getvalue(), "")
+                        root_resolver.assert_not_called()
+                        self.assertIn("requires an explicit vault binding", error.getvalue())
+
+    def test_direct_provider_and_scheduler_reject_ambiguous_root_options_before_resolution(self) -> None:
+        invocations = (
+            ("provider detect", provider_main, ["detect", "--json"], "provider_import.repo_root"),
+            ("provider plan", provider_main, ["plan", "--json"], "provider_import.repo_root"),
+            (
+                "provider configure",
+                provider_main,
+                ["configure", "codex", "--path", "C:/provider"],
+                "provider_import.repo_root",
+            ),
+            ("provider import", provider_main, ["import", "codex"], "provider_import.repo_root"),
+            (
+                "provider capture",
+                provider_main,
+                ["capture", "text", "--text", "Reviewed candidate."],
+                "provider_import.repo_root",
+            ),
+            ("schedule plan", schedule_main, ["plan", "--json"], "schedule_memory.repo_root"),
+            ("schedule setup", schedule_main, ["setup"], "schedule_memory.repo_root"),
+            ("schedule install", schedule_main, ["install"], "schedule_memory.repo_root"),
+            ("schedule status", schedule_main, ["status"], "schedule_memory.repo_root"),
+            ("schedule remove", schedule_main, ["remove"], "schedule_memory.repo_root"),
+            ("schedule doctor", schedule_main, ["doctor", "--json"], "schedule_memory.repo_root"),
+            ("schedule cron", schedule_main, ["cron", "--json"], "schedule_memory.repo_root"),
+        )
+        invalid_prefixes = (
+            # With allow_abbrev=False, the value following --ro cannot become
+            # a root binding; argparse rejects it as an invalid command token.
+            ("abbreviation", ["--ro", "C:/vault-a"], "invalid choice: 'C:/vault-a'"),
+            (
+                "separate duplicates",
+                ["--root", "C:/vault-a", "--root", "C:/vault-b"],
+                "security-sensitive options may be specified at most once: --root",
+            ),
+            (
+                "equals duplicates",
+                ["--root=C:/vault-a", "--root=C:/vault-b"],
+                "security-sensitive options may be specified at most once: --root",
+            ),
+            ("empty equals", ["--root="], "--root requires a non-empty vault path"),
+            ("equals whitespace", ["--root= "], "--root requires a non-empty vault path"),
+            ("whitespace", ["--root", " "], "--root requires a non-empty vault path"),
+        )
+
+        for label, target, command, resolver in invocations:
+            for kind, prefix, message in invalid_prefixes:
+                with self.subTest(entrypoint=label, invalid_root=kind):
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                        patch(resolver) as root_resolver,
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        target([*prefix, *command])
+
+                    self.assertEqual(raised.exception.code, 2)
+                    root_resolver.assert_not_called()
+                    self.assertIn(message, error.getvalue())
+
+    def test_direct_setup_and_onboarding_accept_explicit_bindings(self) -> None:
+        onboarding_arguments = [
+            "--reviewed-by",
+            "Unit Test",
+            "--value",
+            "Prefer safe work.",
+            "--preference",
+            "Run narrow tests first.",
+            "--recommendation",
+            "Recall reviewed memory.",
+            "--json",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            setup_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
+                redirect_stdout(setup_output),
+            ):
+                self.assertEqual(
+                    setup_plan_main(["plan", "--client", "codex", "--json"]),
+                    0,
+                )
+
+            onboarding_outputs: list[io.StringIO] = []
+            for label, argv, environment_root in (
+                ("argument", ["--root", str(root), *onboarding_arguments], ""),
+                ("environment", onboarding_arguments, str(root)),
+            ):
+                with self.subTest(onboarding_binding=label):
+                    output = io.StringIO()
+                    onboarding_outputs.append(output)
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        redirect_stdout(output),
+                    ):
+                        self.assertEqual(onboarding_main(argv), 0)
+
+            health_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
+                patch("setup_plan.repo_root", return_value=root) as root_resolver,
+                patch("setup_plan.setup_health", return_value={"compatible": True}),
+                redirect_stdout(health_output),
+            ):
+                self.assertEqual(setup_plan_main(["health", "--json"]), 0)
+
+        self.assertEqual(Path(json.loads(setup_output.getvalue())["root"]), root.resolve())
+        for output in onboarding_outputs:
+            self.assertEqual(Path(json.loads(output.getvalue())["root"]), root.resolve())
+        root_resolver.assert_called_once_with(None)
+        self.assertEqual(json.loads(health_output.getvalue()), {"compatible": True})
+
+    def test_whitespace_root_argument_is_not_an_explicit_binding(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+            patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            cli_main(["--root", " ", "providers", "plan", "--json"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("refuses an unconfigured or nested ambient root", error.getvalue())
+
+    def test_direct_whitespace_root_argument_is_rejected_before_resolution(self) -> None:
+        output = io.StringIO()
+        direct_error = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+            patch("provider_import.repo_root") as root_resolver,
+            redirect_stdout(output),
+            redirect_stderr(direct_error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            provider_main(["--root", " ", "plan", "--json"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        root_resolver.assert_not_called()
+        self.assertIn("--root requires a non-empty vault path", direct_error.getvalue())
+
+    def test_cli_help_binds_the_mcp_config_example_to_a_vault(self) -> None:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(cli_main([]), 0)
+
+        self.assertIn(
+            "ai-dememory mcp-config --root ~/code/my-memory "
+            "--client codex --require-version 2.1.0",
+            output.getvalue(),
+        )
 
     def test_codex_mcp_config_is_toml_safe_for_unicode_and_quotes(self) -> None:
         root = Path('C:/vault/emoji-🧠/quoted-"root"')
@@ -423,6 +1146,8 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
+                "--require-version",
+                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -442,6 +1167,8 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
+                "--require-version",
+                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -474,6 +1201,10 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(data["command"], "docker")
             self.assertIn("ai-dememory:local", data["args"])
             self.assertIn(f"{root.resolve()}:/memory", data["args"])
+            self.assertIn(
+                ["--require-version", PACKAGE_VERSION],
+                [data["args"][index : index + 2] for index in range(len(data["args"]) - 1)],
+            )
             self.assertEqual(data["env"], {})
 
     def test_mcp_config_supports_checkout_command_args(self) -> None:
@@ -506,6 +1237,8 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
+                "--require-version",
+                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -7597,6 +8330,10 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(preview["writes_files"])
         self.assertFalse(preview["reads_provider_files"])
         self.assertFalse(preview["writes_import_candidates"])
+        self.assertEqual(
+            preview["configure_command"][:4],
+            ["ai-dememory", "--root", str(root.resolve()), "providers"],
+        )
         self.assertEqual(payload["values"]["path"], str(provider.resolve()))
         self.assertTrue(payload["path_exists"])
         self.assertFalse(config_exists)
@@ -7635,6 +8372,7 @@ class MemoryToolTests(unittest.TestCase):
             configure_provider(root, "codex", provider)
 
             plan = provider_setup_plan(root, command="ai-dememory")
+            custom_plan = provider_setup_plan(root, command="memory-wrapper")
             providers = {item["name"]: item for item in plan["providers"]}
             inbox_exists = (root / "inbox" / "imports").exists()
 
@@ -7644,15 +8382,186 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(providers["codex"]["reason"], "ready_for_import")
         self.assertEqual(
             providers["codex"]["configure_command"],
-            ["ai-dememory", "providers", "configure", "codex", "--path", str(provider.resolve())],
+            [
+                "ai-dememory",
+                "--root",
+                str(root.resolve()),
+                "providers",
+                "configure",
+                "codex",
+                "--path",
+                str(provider.resolve()),
+            ],
         )
         self.assertEqual(
             providers["codex"]["configure_dry_run_command"],
-            ["ai-dememory", "providers", "configure", "codex", "--path", str(provider.resolve()), "--dry-run", "--json"],
+            [
+                "ai-dememory",
+                "--root",
+                str(root.resolve()),
+                "providers",
+                "configure",
+                "codex",
+                "--path",
+                str(provider.resolve()),
+                "--dry-run",
+                "--json",
+            ],
         )
-        self.assertEqual(providers["codex"]["import_dry_run_command"], ["ai-dememory", "import-chats", "codex", "--dry-run", "--json"])
-        self.assertEqual(providers["codex"]["import_command"], ["ai-dememory", "import-chats", "codex"])
+        self.assertEqual(
+            providers["codex"]["import_dry_run_command"],
+            ["ai-dememory", "--root", str(root.resolve()), "import-chats", "codex", "--dry-run", "--json"],
+        )
+        self.assertEqual(
+            providers["codex"]["import_command"],
+            ["ai-dememory", "--root", str(root.resolve()), "import-chats", "codex"],
+        )
+        self.assertEqual(
+            custom_plan["providers"][0]["import_command"][:4],
+            ["memory-wrapper", "--root", str(root.resolve()), "import-chats"],
+        )
         self.assertFalse(inbox_exists)
+
+    def test_provider_plan_human_output_renders_quoted_bound_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault'$(Write-Output PWNED);"
+            provider_path = Path(tmp) / "provider"
+            root.mkdir()
+            provider_path.mkdir()
+            configure_provider(root, "codex", provider_path)
+            provider = next(
+                item
+                for item in provider_setup_plan(root)["providers"]
+                if item["name"] == "codex"
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = provider_main(["--root", str(root), "plan"])
+
+        rendered = output.getvalue()
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            "  preview: " + render_copy_command(provider["configure_dry_run_command"]),
+            rendered,
+        )
+        self.assertIn(
+            "  configure: " + render_copy_command(provider["configure_command"]),
+            rendered,
+        )
+        self.assertIn(
+            "  import: " + render_copy_command(provider["import_command"]),
+            rendered,
+        )
+
+    def test_provider_setup_plan_commands_keep_the_planned_root_when_run_elsewhere(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root_a = Path(tmp) / "vault-a"
+            root_b = Path(tmp) / "vault-b"
+            root_a.mkdir()
+            root_b.mkdir()
+            expected_root_a = str(root_a.resolve())
+            command = provider_setup_plan(root_a)["providers"][0]["configure_command"]
+            output = io.StringIO()
+            previous_cwd = Path.cwd()
+
+            try:
+                os.chdir(root_b)
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    redirect_stdout(output),
+                ):
+                    exit_code = cli_main(command[1:])
+            finally:
+                os.chdir(previous_cwd)
+
+            root_a_config = root_a / ".ai-dememory.toml"
+            root_b_config = root_b / ".ai-dememory.toml"
+            root_a_config_exists = root_a_config.exists()
+            root_b_config_exists = root_b_config.exists()
+
+        self.assertEqual(command[:4], ["ai-dememory", "--root", expected_root_a, "providers"])
+        self.assertEqual(command.count("--root"), 1)
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(root_a_config_exists)
+        self.assertFalse(root_b_config_exists)
+
+    def test_provider_mutations_keep_root_a_when_dispatched_from_root_b(self) -> None:
+        class CapturedModule:
+            dispatched: list[dict[str, object]] = []
+
+            @staticmethod
+            def main(argv: list[str]) -> int:
+                CapturedModule.dispatched.append(
+                    {
+                        "root": os.environ.get("AI_DEMEMORY_ROOT"),
+                        "argv": list(argv),
+                    }
+                )
+                return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root_a = parent / "vault-a"
+            root_b = parent / "vault-b"
+            root_a.mkdir()
+            root_b.mkdir()
+            plan = provider_setup_plan(root_a)
+            codex = next(item for item in plan["providers"] if item["name"] == "codex")
+            root_a_value = str(root_a.resolve())
+            commands = {
+                "configure": codex["configure_command"],
+                "import": codex["import_command"],
+                "capture": [
+                    "ai-dememory",
+                    "--root",
+                    root_a_value,
+                    "capture",
+                    "text",
+                    "--text",
+                    "Review candidate.",
+                ],
+            }
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(root_b)
+                with (
+                    patch("ai_dememory_tool.cli.configure_imports"),
+                    patch(
+                        "ai_dememory_tool.cli.importlib.import_module",
+                        return_value=CapturedModule,
+                    ),
+                ):
+                    for command in commands.values():
+                        with patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}):
+                            self.assertEqual(cli_main(command[1:]), 0)
+            finally:
+                os.chdir(original_cwd)
+
+        self.assertEqual(len(CapturedModule.dispatched), 3)
+        for action, dispatched in zip(("configure", "import", "capture"), CapturedModule.dispatched):
+            self.assertEqual(Path(str(dispatched["root"])), root_a.resolve())
+            self.assertEqual(dispatched["argv"][:2], ["--root", root_a_value])
+            self.assertEqual(dispatched["argv"][2], action)
+            self.assertNotEqual(Path(str(dispatched["root"])), root_b.resolve())
+
+    def test_mcp_provider_setup_plan_binds_commands_to_the_invocation_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            expected_root = str(root.resolve())
+            plan = call_tool("memory.providers_plan", {}, root)
+
+        for provider in plan["providers"]:
+            for key in (
+                "configure_dry_run_command",
+                "configure_command",
+                "disable_command",
+                "import_dry_run_command",
+                "import_command",
+            ):
+                command = provider[key]
+                self.assertEqual(command[:3], ["ai-dememory", "--root", expected_root])
+                self.assertEqual(command.count("--root"), 1)
 
     def test_provider_import_dry_run_reads_without_writing_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7737,33 +8646,64 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(plan["suggests_generated_reports"])
         self.assertTrue(plan["suggests_generated_archive_status"])
         self.assertTrue(plan["suggests_generated_archive_retention"])
-        self.assertEqual(setup_preview[:3], ["ai-dememory", "setup", "wizard"])
-        self.assertEqual(setup_preview[setup_preview.index("--root") + 1], str(root))
+        commands = plan["commands"]
+        root_prefix = ["ai-dememory", "--root", str(root)]
+        emitted_commands: list[list[str]] = []
+        for value in commands.values():
+            if isinstance(value, dict):
+                emitted_commands.extend(value.values())
+            elif isinstance(value, list) and value:
+                if all(isinstance(argument, str) for argument in value):
+                    emitted_commands.append(value)
+                else:
+                    emitted_commands.extend(value)
+        for provider in plan["provider_plan"]["providers"]:
+            for key in (
+                "configure_dry_run_command",
+                "configure_command",
+                "disable_command",
+                "import_dry_run_command",
+                "import_command",
+            ):
+                emitted_commands.append(provider[key])
+
+        self.assertGreater(len(emitted_commands), 20)
+        for emitted in emitted_commands:
+            self.assertIsInstance(emitted, list)
+            self.assertTrue(all(isinstance(argument, str) for argument in emitted))
+            self.assertEqual(emitted[:3], root_prefix)
+            self.assertEqual(emitted.count("--root"), 1)
+
+        self.assertEqual(setup_preview[:5], [*root_prefix, "setup", "wizard"])
+        self.assertEqual(
+            setup_preview[setup_preview.index("--require-version") + 1],
+            PACKAGE_VERSION,
+        )
         self.assertIn("--json", setup_preview)
         self.assertIn("--apply", setup_apply)
         self.assertIn("--expect-plan-sha256", setup_apply)
-        self.assertEqual(onboarding_preview[:2], ["ai-dememory", "onboard"])
+        self.assertEqual(onboarding_preview[:4], [*root_prefix, "onboard"])
         self.assertIn("<reviewed-onboarding.json>", onboarding_preview)
         self.assertNotIn("--apply", onboarding_preview)
         self.assertIn("--apply", onboarding_apply)
-        self.assertEqual(plan["commands"]["provider_plan"], ["ai-dememory", "providers", "plan", "--json"])
-        self.assertEqual(plan["commands"]["schedule_environment"], ["ai-dememory", "schedule", "doctor", "--json"])
+        self.assertEqual(commands["provider_plan"], [*root_prefix, "providers", "plan", "--json"])
+        self.assertEqual(commands["schedule_environment"], [*root_prefix, "schedule", "doctor", "--json"])
         self.assertEqual(
-            plan["commands"]["schedule_plan"],
-            ["ai-dememory", "schedule", "plan", "--intensity", "balanced", "--json"],
+            commands["schedule_plan"],
+            [*root_prefix, "schedule", "plan", "--intensity", "balanced", "--json"],
         )
         self.assertEqual(
-            plan["commands"]["schedule_cron"],
-            ["ai-dememory", "schedule", "cron", "--intensity", "balanced"],
+            commands["schedule_cron"],
+            [*root_prefix, "schedule", "cron", "--intensity", "balanced"],
         )
         self.assertEqual(
-            plan["commands"]["docker_schedule_environment"],
-            ["ai-dememory", "schedule", "doctor", "--json", "--mode", "docker"],
+            commands["docker_schedule_environment"],
+            [*root_prefix, "schedule", "doctor", "--json", "--mode", "docker"],
         )
         self.assertEqual(
-            plan["commands"]["docker_schedule_plan"],
+            commands["docker_schedule_plan"],
             [
-                "ai-dememory",
+                *root_prefix,
                 "schedule",
                 "plan",
                 "--json",
@@ -7776,9 +8716,9 @@ class MemoryToolTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            plan["commands"]["docker_schedule_cron"],
+            commands["docker_schedule_cron"],
             [
-                "ai-dememory",
+                *root_prefix,
                 "schedule",
                 "cron",
                 "--intensity",
@@ -7791,49 +8731,342 @@ class MemoryToolTests(unittest.TestCase):
         )
         self.assertEqual(
             generated_reports["recall_review_plan"],
-            ["ai-dememory", "recall-fixtures", "review-plan", "--write-report"],
+            [*root_prefix, "recall-fixtures", "review-plan", "--write-report"],
         )
         self.assertEqual(
             generated_reports["recall_review_packet"],
-            ["ai-dememory", "recall-fixtures", "packet", "--write-report"],
+            [*root_prefix, "recall-fixtures", "packet", "--write-report"],
         )
         self.assertEqual(
             generated_reports["manual_acceptance_plan"],
-            ["ai-dememory", "acceptance", "plan", "--write-report"],
+            [*root_prefix, "acceptance", "plan", "--write-report"],
         )
         self.assertEqual(
             generated_reports["manual_acceptance_packet"],
-            ["ai-dememory", "acceptance", "packet", "--write-report"],
+            [*root_prefix, "acceptance", "packet", "--write-report"],
         )
         self.assertEqual(
             generated_reports["hook_capture_review"],
-            ["ai-dememory", "hooks", "captures", "--write-report"],
+            [*root_prefix, "hooks", "captures", "--write-report"],
         )
-        self.assertEqual(generated_reports["release_evidence"], ["ai-dememory", "release-evidence", "--write-report"])
+        self.assertEqual(generated_reports["release_evidence"], [*root_prefix, "release-evidence", "--write-report"])
         self.assertEqual(
             generated_archive_status["recall_review_packets"],
-            ["ai-dememory", "recall-fixtures", "packet-archive-status", "--json"],
+            [*root_prefix, "recall-fixtures", "packet-archive-status", "--json"],
         )
         self.assertEqual(
             generated_archive_status["manual_acceptance_packets"],
-            ["ai-dememory", "acceptance", "packet-archive-status", "--json"],
+            [*root_prefix, "acceptance", "packet-archive-status", "--json"],
         )
         self.assertEqual(
             generated_archive_retention["recall_review_packets"],
-            ["ai-dememory", "recall-fixtures", "packet-archive-retention-plan", "--json"],
+            [*root_prefix, "recall-fixtures", "packet-archive-retention-plan", "--json"],
         )
         self.assertEqual(
             generated_archive_retention["manual_acceptance_packets"],
-            ["ai-dememory", "acceptance", "packet-archive-retention-plan", "--json"],
+            [*root_prefix, "acceptance", "packet-archive-retention-plan", "--json"],
         )
         self.assertEqual(len(mcp_configs), 2)
-        self.assertEqual(mcp_configs[0][:6], ["ai-dememory", "mcp-config", "--client", "codex", "--mode", "installed"])
+        self.assertEqual(mcp_configs[0][:8], [*root_prefix, "mcp-config", "--client", "codex", "--mode", "installed"])
         self.assertIn(["--profile", "core"], [
             mcp_configs[0][index : index + 2]
             for index in range(len(mcp_configs[0]) - 1)
         ])
+        for command in mcp_configs:
+            version_indexes = [
+                index
+                for index, argument in enumerate(command)
+                if argument == "--require-version"
+            ]
+            self.assertEqual(len(version_indexes), 1)
+            self.assertEqual(command[version_indexes[0] + 1], PACKAGE_VERSION)
         self.assertIn("--image", mcp_configs[1])
         self.assertIn("provider_plan", plan)
+        assert_setup_plan(
+            json.dumps(plan),
+            expected_version=PACKAGE_VERSION,
+            expected_root=root,
+        )
+        rootless = json.loads(json.dumps(plan))
+        rootless["commands"]["daily_maintenance"] = [
+            "ai-dememory",
+            "maintenance",
+            "run",
+            "--profile",
+            "daily",
+        ]
+        with self.assertRaisesRegex(InstallSmokeError, "global vault root"):
+            assert_setup_plan(
+                json.dumps(rootless),
+                expected_version=PACKAGE_VERSION,
+                expected_root=root,
+            )
+
+    def test_setup_plan_command_keeps_its_root_when_run_from_another_vault(self) -> None:
+        class CapturedModule:
+            dispatched: dict[str, object] = {}
+
+            @staticmethod
+            def main(argv: list[str]) -> int:
+                CapturedModule.dispatched = {
+                    "root": os.environ.get("AI_DEMEMORY_ROOT"),
+                    "argv": list(argv),
+                }
+                return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            vault_a = parent / "vault-a"
+            vault_b = parent / "vault-b"
+            copy_template_tree(vault_a)
+            copy_template_tree(vault_b)
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(parent)
+                plan = setup_plan(
+                    Path("vault-a"),
+                    client="codex",
+                    mode="both",
+                    image=PINNED_TEST_IMAGE,
+                )
+            finally:
+                os.chdir(original_cwd)
+
+            command = plan["commands"]["daily_maintenance"]
+            emitted_commands: list[list[str]] = []
+
+            def collect_generated_commands(value: object) -> None:
+                if isinstance(value, list):
+                    if value and value[0] == "ai-dememory":
+                        emitted_commands.append(value)
+                    else:
+                        for item in value:
+                            collect_generated_commands(item)
+                elif isinstance(value, dict):
+                    for item in value.values():
+                        collect_generated_commands(item)
+
+            collect_generated_commands(plan["commands"])
+            collect_generated_commands(plan["provider_plan"])
+
+            try:
+                os.chdir(vault_b)
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.configure_imports"),
+                    patch(
+                        "ai_dememory_tool.cli.importlib.import_module",
+                        return_value=CapturedModule,
+                    ),
+                ):
+                    exit_code = cli_main(command[1:])
+            finally:
+                os.chdir(original_cwd)
+
+        root_prefix = ["ai-dememory", "--root", str(vault_a.resolve())]
+        self.assertEqual(plan["root"], str(vault_a.resolve()))
+        self.assertGreater(len(emitted_commands), 20)
+        for emitted in emitted_commands:
+            self.assertEqual(emitted[:3], root_prefix)
+            self.assertEqual(emitted.count("--root"), 1)
+        self.assertEqual(command[:3], root_prefix)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(Path(str(CapturedModule.dispatched["root"])), vault_a.resolve())
+        self.assertEqual(
+            CapturedModule.dispatched["argv"],
+            ["--root", str(vault_a.resolve()), "run", "--profile", "daily"],
+        )
+        self.assertNotEqual(Path(str(CapturedModule.dispatched["root"])), vault_b.resolve())
+
+    def test_setup_plan_mcp_config_uses_the_global_root_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            vault_a = parent / "vault-a"
+            vault_b = parent / "vault-b"
+            copy_template_tree(vault_a)
+            copy_template_tree(vault_b)
+            output = io.StringIO()
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(parent)
+                direct_command = mcp_config_command(
+                    "ai-dememory",
+                    "codex",
+                    "installed",
+                    Path("vault-a"),
+                    PINNED_TEST_IMAGE,
+                    600,
+                    "core",
+                )
+                command = setup_plan(Path("vault-a"), client="codex")["commands"]["mcp_configs"][0]
+            finally:
+                os.chdir(original_cwd)
+
+            try:
+                os.chdir(vault_b)
+                with patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}), redirect_stdout(output):
+                    exit_code = cli_main(command[1:])
+            finally:
+                os.chdir(original_cwd)
+
+        config = tomllib.loads(output.getvalue())["mcp_servers"]["ai-dememory"]
+        root_prefix = ["ai-dememory", "--root", str(vault_a.resolve())]
+        self.assertEqual(direct_command[:3], root_prefix)
+        self.assertEqual(command[:3], root_prefix)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), vault_a.resolve())
+
+    def test_setup_plan_accepts_prebound_nested_provider_commands_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            vault.mkdir()
+            prebound = [
+                "ai-dememory",
+                "--root",
+                str(vault.resolve()),
+                "providers",
+                "configure",
+                "codex",
+                "--path",
+                str((Path(tmp) / "provider").resolve()),
+            ]
+            with patch(
+                "setup_plan.provider_setup_plan",
+                return_value={"providers": [{"configure_command": prebound}]},
+            ):
+                plan = setup_plan(vault)
+
+        emitted = plan["provider_plan"]["providers"][0]["configure_command"]
+        self.assertEqual(emitted, prebound)
+        self.assertEqual(emitted.count("--root"), 1)
+
+    def test_setup_plan_rejects_nested_provider_commands_bound_to_another_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_a = Path(tmp) / "vault-a"
+            vault_b = Path(tmp) / "vault-b"
+            vault_a.mkdir()
+            vault_b.mkdir()
+            wrong_root_command = [
+                "ai-dememory",
+                "--root",
+                str(vault_b),
+                "providers",
+                "configure",
+                "codex",
+                "--path",
+                str(Path(tmp) / "provider"),
+            ]
+            with (
+                patch(
+                    "setup_plan.provider_setup_plan",
+                    return_value={"providers": [{"configure_command": wrong_root_command}]},
+                ),
+                self.assertRaisesRegex(ValueError, "different vault root"),
+            ):
+                setup_plan(vault_a)
+
+    def test_setup_plan_rejects_nested_provider_commands_with_duplicate_root_bindings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            vault.mkdir()
+            duplicate_root_command = [
+                "ai-dememory",
+                "--root",
+                str(vault),
+                "providers",
+                "configure",
+                "codex",
+                "--path",
+                str(Path(tmp) / "provider"),
+                "--root",
+                str(vault),
+            ]
+            with (
+                patch(
+                    "setup_plan.provider_setup_plan",
+                    return_value={"providers": [{"configure_command": duplicate_root_command}]},
+                ),
+                self.assertRaisesRegex(ValueError, "exactly one global --root binding"),
+            ):
+                setup_plan(vault)
+
+    def test_setup_plan_direct_script_prefers_source_over_stale_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            shadow = Path(tmp) / "shadow" / "ai_dememory_tool"
+            shadow.mkdir(parents=True)
+            (shadow / "__init__.py").write_text(
+                '__version__ = "2.0.0"\n',
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(shadow.parent)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS / "setup_plan.py"),
+                    "--root",
+                    str(root),
+                    "plan",
+                    "--client",
+                    "codex",
+                    "--mode",
+                    "both",
+                    "--require-version",
+                    PACKAGE_VERSION,
+                    "--json",
+                ],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["generated_by_version"], PACKAGE_VERSION)
+        self.assertEqual(payload["mode"], "both")
+        self.assertEqual(len(payload["commands"]["mcp_configs"]), 2)
+        for command in payload["commands"]["mcp_configs"]:
+            index = command.index("--require-version")
+            self.assertEqual(command[index + 1], PACKAGE_VERSION)
+
+    def test_setup_plan_version_gate_fails_before_root_resolution(self) -> None:
+        output = io.StringIO()
+        error = io.StringIO()
+        with (
+            patch("setup_plan.repo_root") as root_resolver,
+            patch("sys.stdout", output),
+            patch("sys.stderr", error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            setup_plan_main(
+                ["plan", "--require-version", "0.0.0", "--json"]
+            )
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(output.getvalue(), "")
+        root_resolver.assert_not_called()
+        self.assertIn(
+            f"version mismatch: expected 0.0.0, found {PACKAGE_VERSION}",
+            error.getvalue(),
+        )
+
+    def test_release_smoke_direct_scripts_start_without_installed_package(self) -> None:
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        for script in ("install_smoke.py", "package_build_smoke.py"):
+            with self.subTest(script=script):
+                completed = subprocess.run(
+                    [sys.executable, str(SCRIPTS / script), "--help"],
+                    cwd=ROOT,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                self.assertIn("usage:", completed.stdout)
 
     def test_setup_plan_hides_mutating_docker_schedule_commands_for_mutable_tag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7843,6 +9076,23 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(plan["commands"]["docker_schedule_dry_run"], [])
         self.assertEqual(plan["commands"]["docker_schedule_cron"], [])
         self.assertIn("Resolve the Docker image", plan["next_actions"][0])
+
+    def test_setup_plan_rejects_option_shaped_docker_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for image in ("--privileged", "--volume=/:/host"):
+                with self.subTest(image=image), self.assertRaises(ValueError):
+                    setup_plan(Path(tmp), mode="docker", image=image)
+
+        for argv in (
+            ["plan", "--mo", "docker"],
+            ["plan", "--mode", "installed", "--mode", "docker"],
+            ["plan", "--image", "ai-dememory:local", "--image", "--privileged"],
+        ):
+            with self.subTest(argv=argv), patch("sys.stderr", io.StringIO()), self.assertRaises(
+                SystemExit
+            ) as raised:
+                setup_plan_main(argv)
+            self.assertEqual(raised.exception.code, 2)
 
     def test_setup_plan_human_output_includes_generated_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7854,32 +9104,75 @@ class MemoryToolTests(unittest.TestCase):
                 exit_code = setup_plan_main(["--root", str(root), "plan"])
 
         self.assertEqual(exit_code, 0)
+        command_prefix = ["ai-dememory", "--root", str(root)]
         self.assertIn("- generated_reports:", output.getvalue())
         self.assertIn(
-            "- schedule_plan: ai-dememory schedule plan --intensity balanced --json",
+            "- schedule_plan: "
+            + render_copy_command(
+                [*command_prefix, "schedule", "plan", "--intensity", "balanced", "--json"]
+            ),
             output.getvalue(),
         )
         self.assertIn(
-            "- schedule_cron: ai-dememory schedule cron --intensity balanced",
-            output.getvalue(),
-        )
-        self.assertIn("recall_review_packet: ai-dememory recall-fixtures packet --write-report", output.getvalue())
-        self.assertIn(
-            "recall_review_packets: ai-dememory recall-fixtures packet-archive-status --json",
-            output.getvalue(),
-        )
-        self.assertIn(
-            "recall_review_packets: ai-dememory recall-fixtures packet-archive-retention-plan --json",
-            output.getvalue(),
-        )
-        self.assertIn("manual_acceptance_plan: ai-dememory acceptance plan --write-report", output.getvalue())
-        self.assertIn("manual_acceptance_packet: ai-dememory acceptance packet --write-report", output.getvalue())
-        self.assertIn(
-            "manual_acceptance_packets: ai-dememory acceptance packet-archive-status --json",
+            "- schedule_cron: "
+            + render_copy_command(
+                [*command_prefix, "schedule", "cron", "--intensity", "balanced"]
+            ),
             output.getvalue(),
         )
         self.assertIn(
-            "manual_acceptance_packets: ai-dememory acceptance packet-archive-retention-plan --json",
+            "recall_review_packet: "
+            + render_copy_command(
+                [*command_prefix, "recall-fixtures", "packet", "--write-report"]
+            ),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "recall_review_packets: "
+            + render_copy_command(
+                [*command_prefix, "recall-fixtures", "packet-archive-status", "--json"]
+            ),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "recall_review_packets: "
+            + render_copy_command(
+                [
+                    *command_prefix,
+                    "recall-fixtures",
+                    "packet-archive-retention-plan",
+                    "--json",
+                ]
+            ),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "manual_acceptance_plan: "
+            + render_copy_command([*command_prefix, "acceptance", "plan", "--write-report"]),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "manual_acceptance_packet: "
+            + render_copy_command([*command_prefix, "acceptance", "packet", "--write-report"]),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "manual_acceptance_packets: "
+            + render_copy_command(
+                [*command_prefix, "acceptance", "packet-archive-status", "--json"]
+            ),
+            output.getvalue(),
+        )
+        self.assertIn(
+            "manual_acceptance_packets: "
+            + render_copy_command(
+                [
+                    *command_prefix,
+                    "acceptance",
+                    "packet-archive-retention-plan",
+                    "--json",
+                ]
+            ),
             output.getvalue(),
         )
 
@@ -8376,6 +9669,25 @@ class MemoryToolTests(unittest.TestCase):
         self.assertNotIn(f"'{volume_arg}'", run_line)
         self.assertIn("ai-dememory:test --root /memory maintenance run --profile daily", run_line)
         self.assertIn("--timeout-seconds 300", run_line)
+
+    def test_schedule_plan_human_output_uses_copy_safe_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault'$(Write-Output PWNED);"
+            root.mkdir()
+            plan = schedule_plan(root, target_platform="windows")
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = schedule_main(
+                    ["--root", str(root), "plan", "--platform", "windows"]
+                )
+
+        first_command = plan["commands"][0]
+        self.assertEqual(exit_code, 0)
+        self.assertIn(
+            f"- {first_command['name']}: "
+            + render_copy_command(first_command["command"], windows=True),
+            output.getvalue(),
+        )
 
     def test_schedule_cron_export_generates_installed_and_docker_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -9641,11 +10953,31 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn("indexes/memory.sqlite", health["maintenance_preflight"]["daily_artifacts"])
         self.assertEqual(
             payload["maintenance_preflight"]["daily_dry_run_command"],
-            ["ai-dememory", "maintenance", "run", "--profile", "daily", "--dry-run", "--json"],
+            [
+                "ai-dememory",
+                "--root",
+                str(root.resolve()),
+                "maintenance",
+                "run",
+                "--profile",
+                "daily",
+                "--dry-run",
+                "--json",
+            ],
         )
         self.assertEqual(
             mcp_health["maintenance_preflight"]["weekly_dry_run_command"],
-            ["ai-dememory", "maintenance", "run", "--profile", "weekly", "--dry-run", "--json"],
+            [
+                "ai-dememory",
+                "--root",
+                str(root.resolve()),
+                "maintenance",
+                "run",
+                "--profile",
+                "weekly",
+                "--dry-run",
+                "--json",
+            ],
         )
         self.assertTrue(any("quality/recall-fixtures.json" in action for action in health["recall_review"]["next_actions"]))
         self.assertTrue(health["core_ready"])
@@ -10929,7 +12261,15 @@ class MemoryToolTests(unittest.TestCase):
         self.assertNotIn("--apply", commands["onboarding preview"])
         self.assertEqual(
             commands["setup preview"],
-            ["setup", "wizard", "--intensity", "balanced", "--json"],
+            [
+                "setup",
+                "wizard",
+                "--require-version",
+                PACKAGE_VERSION,
+                "--intensity",
+                "balanced",
+                "--json",
+            ],
         )
         self.assertIn("--apply", commands["setup apply"])
         self.assertEqual(
@@ -10975,7 +12315,20 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(commands["mcp publish plan"], ["mcp", "--call", "memory.publish_plan", "--args", "{}"])
         self.assertEqual(commands["api smoke"], ["api-smoke"])
         self.assertEqual(commands["vault template export"], ["vault-template", "export", "{template_export}", "--json"])
-        self.assertEqual(commands["setup plan"], ["setup", "plan", "--json"])
+        self.assertEqual(
+            commands["setup plan"],
+            [
+                "setup",
+                "plan",
+                "--client",
+                "codex",
+                "--mode",
+                "both",
+                "--require-version",
+                PACKAGE_VERSION,
+                "--json",
+            ],
+        )
         self.assertEqual(commands["setup health"], ["setup", "health", "--json"])
         self.assertEqual(
             commands["plugin mcp config smoke"],

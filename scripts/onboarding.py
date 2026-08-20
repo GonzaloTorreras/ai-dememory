@@ -16,7 +16,10 @@ import sys
 import tempfile
 from typing import Any
 
+from ai_dememory_tool import __version__ as PACKAGE_VERSION
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.cli import build_mcp_config
+from command_render import render_copy_command
 from config_file import load_config_path
 from hook_event import hook_config
 from memorylib import path_is_link_like, repo_root, slugify
@@ -559,6 +562,8 @@ def integration_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
     schedule = answers["schedule"]
     schedule_plan_command = [
         "ai-dememory",
+        "--root",
+        str(root.expanduser().resolve()),
         "schedule",
         "plan",
         "--intensity",
@@ -572,6 +577,7 @@ def integration_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
     return {
         "vault_bound": True,
         "binding_source": "absolute_onboarding_root",
+        "generated_by_version": PACKAGE_VERSION,
         "cross_repo_ready": True,
         "mcp_profile": profile.mcp_profile,
         "mcp_configs": mcp_configs,
@@ -585,7 +591,7 @@ def integration_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
             schedule["mode"] != "docker" or immutable_docker_image(str(schedule["image"]))
         ),
         "next_actions": [
-            "Copy only the generated MCP config for the client you use.",
+            "Copy only the generated, runtime-version-gated MCP config for the client you use.",
             "Preview the vault-bound hook config before installing hooks.",
             "Review the schedule plan and fingerprint before an explicit scheduler apply.",
         ],
@@ -1161,7 +1167,8 @@ def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
             "Preview/apply operational vault configuration without personal memory."
             if operational
             else "Preview/apply an explicit reviewed personal baseline without operating policy."
-        )
+        ),
+        allow_abbrev=False,
     )
     parser.add_argument("--root", default=None, help="Memory vault root.")
     payload_name = "setup" if operational else "onboarding"
@@ -1185,6 +1192,14 @@ def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
     parser.add_argument("--intensity", choices=profile_names(), default=None, help=operational_help)
     parser.add_argument("--model-policy", choices=model_policy_names(), default=None, help=operational_help)
     parser.add_argument("--enable-auto-learning", action="store_true", help=operational_help)
+    if operational:
+        parser.add_argument(
+            "--require-version",
+            metavar="VERSION",
+            help="Fail before planning or applying unless this exact ai-dememory version is running.",
+        )
+    else:
+        parser.set_defaults(require_version=None)
     parser.add_argument("--apply", action="store_true", help="Apply a plan whose preview fingerprint was reviewed.")
     parser.add_argument("--expect-plan-sha256", default=None, help="Fingerprint returned by the reviewed preview.")
     parser.add_argument("--dry-run", action="store_true", help="Explicit preview alias; preview is the default.")
@@ -1253,25 +1268,76 @@ def print_human_result(result: dict[str, Any], *, include_apply_hint: bool = Tru
 
 
 def print_guided_next_actions(result: dict[str, Any]) -> None:
-    root = json.dumps(str(result["root"]), ensure_ascii=False)
+    root = str(result["root"])
     print("Next actions (nothing else was installed automatically):")
-    print(f"- ai-dememory --root {root} doctor")
-    print(f"- ai-dememory --root {root} index")
-    print(f"- ai-dememory --root {root} setup health --json")
+    print(f"- {render_copy_command(['ai-dememory', '--root', root, 'doctor'])}")
+    print(f"- {render_copy_command(['ai-dememory', '--root', root, 'index'])}")
+    print(
+        f"- {render_copy_command(['ai-dememory', '--root', root, 'setup', 'health', '--json'])}"
+    )
     clients = result.get("clients")
     if isinstance(clients, list):
         for client in clients:
             if client in {"codex", "claude", "generic"}:
-                print(f"- ai-dememory mcp-config --root {root} --client {client}")
+                print(
+                    "- "
+                    + render_copy_command(
+                        [
+                            "ai-dememory",
+                            "--root",
+                            root,
+                            "mcp-config",
+                            "--client",
+                            client,
+                            "--require-version",
+                            PACKAGE_VERSION,
+                        ]
+                    )
+                )
     print("- Review hook and scheduler previews separately before installing either one.")
     if result.get("setup_scope") == "operational":
-        print(f"- Optional durable baseline: ai-dememory --root {root} onboard")
+        print(
+            "- Optional durable baseline: "
+            + render_copy_command(["ai-dememory", "--root", root, "onboard"])
+        )
 
 
 def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
     operational_guided = mode == "operational"
     parser = build_parser(mode=mode)
+    argv = list(argv if argv is not None else sys.argv[1:])
+    reject_duplicate_options(
+        parser,
+        argv,
+        (
+            "--root",
+            "--input-json",
+            "--input-file",
+            "--stdin",
+            "--budget-tokens",
+            "--intensity",
+            "--model-policy",
+            "--require-version",
+            "--apply",
+            "--expect-plan-sha256",
+            "--dry-run",
+            "--json",
+        ),
+    )
     args = parser.parse_args(argv)
+    explicit_root = args.root if args.root and args.root.strip() else None
+    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = configured_root if configured_root and configured_root.strip() else None
+    if operational_guided and args.require_version is not None and args.require_version != PACKAGE_VERSION:
+        parser.error(
+            f"version mismatch: expected {args.require_version}, found {PACKAGE_VERSION}"
+        )
+    if not explicit_root and not configured_root:
+        entrypoint = "setup wizard" if operational_guided else "onboarding"
+        parser.error(
+            f"{entrypoint} requires an explicit vault binding; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
     if args.apply and args.dry_run:
         parser.error("--apply and --dry-run are mutually exclusive")
     if args.json and uses_interactive_answers(args) and not operational_guided:
@@ -1297,7 +1363,7 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
         and not any((args.input_json, args.input_file, args.stdin))
     )
     try:
-        root = repo_root(args.root)
+        root = repo_root(explicit_root)
         if operational_guided:
             reject_personal_setup_flags(args)
         else:

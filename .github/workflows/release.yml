@@ -128,9 +128,16 @@ jobs:
           python -m twine check dist/*
           python scripts/release_artifact_smoke.py --dist dist --version "$RELEASE_VERSION"
 
+      - name: Generate deterministic release notes from the exact changelog section
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: >-
+          python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --version-only
+          --release-notes RELEASE_NOTES.md
+
       - name: Generate checksums
         shell: bash
-        run: sha256sum dist/* | sort -k2 > SHA256SUMS
+        run: sha256sum dist/* RELEASE_NOTES.md | sort -k2 > SHA256SUMS
 
       - name: Attest built distributions
         uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
@@ -143,6 +150,7 @@ jobs:
           name: python-release-${{ needs.validate.outputs.tag }}
           path: |
             dist/
+            RELEASE_NOTES.md
             SHA256SUMS
           if-no-files-found: error
           retention-days: 30
@@ -262,8 +270,10 @@ jobs:
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         shell: bash
         run: |
+          test -s release-bundle/RELEASE_NOTES.md
           EXTRA=()
           if [[ "$PRERELEASE" == "true" ]]; then EXTRA+=(--prerelease); fi
           gh release create "$RELEASE_TAG" \
-            release-bundle/dist/* release-bundle/SHA256SUMS \
-            --verify-tag --generate-notes --title "ai-dememory $RELEASE_TAG" "${EXTRA[@]}"
+            release-bundle/dist/* release-bundle/RELEASE_NOTES.md release-bundle/SHA256SUMS \
+            --verify-tag --notes-file release-bundle/RELEASE_NOTES.md \
+            --title "ai-dememory $RELEASE_TAG" "${EXTRA[@]}"

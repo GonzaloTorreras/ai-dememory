@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import platform
 import re
@@ -19,8 +20,15 @@ import sys
 import tempfile
 from xml.sax.saxutils import escape
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.path:
+    # Direct source-checkout commands must use the matching local package.
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from ai_dememory_tool.argument_safety import reject_duplicate_options  # noqa: E402
 from config_file import load_config
 from config_file import set_section
+from command_render import render_copy_command
 from maintenance import review_due_summary
 from memorylib import path_is_link_like, repo_root, safe_write_text
 from process_control import run_owned_capture, run_owned_process
@@ -1550,29 +1558,59 @@ def add_schedule_options(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     parser.add_argument("--command", default="ai-dememory", help="Installed CLI command used by the scheduler.")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
-    plan = subparsers.add_parser("plan", help="Print a read-only scheduler setup plan.")
+    plan = subparsers.add_parser(
+        "plan", help="Print a read-only scheduler setup plan.", allow_abbrev=False
+    )
     plan.add_argument("--action", choices=("install", "status", "remove"), default="install")
     add_schedule_options(plan)
     plan.add_argument("--json", action="store_true")
     for name in ("setup", "install", "status", "remove"):
-        sub = subparsers.add_parser(name)
+        sub = subparsers.add_parser(name, allow_abbrev=False)
         add_schedule_options(sub, include_fingerprint=name in {"setup", "install"})
         sub.add_argument("--dry-run", action="store_true")
         sub.add_argument("--json", action="store_true")
-    doctor = subparsers.add_parser("doctor", help="Check scheduler command availability without running commands.")
+    doctor = subparsers.add_parser(
+        "doctor", help="Check scheduler command availability without running commands.", allow_abbrev=False
+    )
     doctor.add_argument("--platform", choices=("windows", "linux", "macos"), default=None)
     doctor.add_argument("--mode", choices=("installed", "docker"), default="installed")
     doctor.add_argument("--json", action="store_true")
-    cron = subparsers.add_parser("cron", help="Print crontab lines without installing them.")
+    cron = subparsers.add_parser(
+        "cron", help="Print crontab lines without installing them.", allow_abbrev=False
+    )
     add_schedule_options(cron, include_platform=False)
     cron.add_argument("--json", action="store_true")
 
+    reject_duplicate_options(parser, argv, ("--root",))
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root_was_supplied = any(argument == "--root" or argument.startswith("--root=") for argument in argv)
+    if root_was_supplied and (not args.root or not args.root.strip()):
+        parser.error("--root requires a non-empty vault path")
+    explicit_root = args.root if args.root and args.root.strip() else None
+    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = configured_root if configured_root and configured_root.strip() else None
+    mutates_vault = (
+        args.command_name in {"setup", "install", "remove", "status"}
+        and not args.dry_run
+    )
+    emits_bound_command = args.command_name in {"plan", "cron"} or (
+        args.command_name in {"setup", "install"} and args.dry_run
+    )
+    if (
+        (mutates_vault or emits_bound_command)
+        and not explicit_root
+        and not configured_root
+    ):
+        parser.error(
+            f"schedule {args.command_name} requires an explicit vault binding; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
+    root = repo_root(explicit_root)
     if args.command_name == "plan":
         values = schedule_cli_values(root, args)
         try:
@@ -1601,7 +1639,13 @@ def main(argv: list[str] | None = None) -> int:
             for error in result["validation_errors"]:
                 print(f"- invalid resource policy: {error}")
             for command_item in result["commands"]:
-                print(f"- {command_item['name']}: {command_line(command_item['command'])}")
+                print(
+                    f"- {command_item['name']}: "
+                    + render_copy_command(
+                        command_item["command"],
+                        windows=result["platform"] == "windows",
+                    )
+                )
             if result["cron_entries"]:
                 print("cron_entries:")
                 for entry in result["cron_entries"]:

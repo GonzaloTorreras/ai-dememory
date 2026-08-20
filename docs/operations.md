@@ -1,9 +1,33 @@
 # Operations Runbook
 
 This runbook covers normal local operation for the ai-dememory repository.
-It follows the unreleased 2.1.0rc1 public source line. Stable 2.0.0 includes the
-core local operations but not the wizard, resource intensities, server-enforced
-profile upgrades, or generated MCP idle leases.
+It follows the exact 2.1.0 package and matching source line, including
+the wizard, resource intensities, server-enforced profiles, and generated MCP
+idle leases.
+
+## After Installing Exact 2.1.0
+
+Upgrade a normal PyPI installation, then refresh every vault-bound client
+fragment because older MCP configuration does not carry the complete 2.1
+profile, root, allowlist, and idle-lease contract:
+
+```bash
+pipx install --force ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
+cd ~/code/my-memory
+ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory mcp-client-smoke
+```
+
+Inspect and replace the old host entry yourself; the generator does not edit
+host configuration. If the pipx environment came from a release candidate or a
+mutable Git checkout, rebuild it with `pipx uninstall ai-dememory` followed by
+`pipx install ai-dememory==2.1.0` and `ai-dememory version-check 2.1.0`.
+
+Generated private-vault configuration defaults to the reduced four-tool `core`
+profile. Explicit `admin` preserves the complete historical MCP surface for
+compatibility and broad maintenance, so opt into it only when that authority is
+actually required.
 
 ## Daily Use
 
@@ -11,7 +35,7 @@ From the repository root:
 
 ```bash
 python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py setup plan --json
+python3 scripts/ai_dememory.py setup plan --require-version 2.1.0 --json
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py search "topic or project" --limit 5
 python3 scripts/ai_dememory.py eval-recall
@@ -239,7 +263,7 @@ Configure providers explicitly:
 
 ```bash
 python3 scripts/ai_dememory.py providers detect
-python3 scripts/ai_dememory.py setup plan --json
+python3 scripts/ai_dememory.py setup plan --require-version 2.1.0 --json
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py providers plan --json
 python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex" --dry-run --json
@@ -263,7 +287,7 @@ reports whether it exists without reading provider files.
 
 ## Release Validation
 
-Before marking v2.0 ready for review, run the static checks:
+Before marking any V2 release ready for review, run the static checks:
 
 ```bash
 python3 scripts/ai_dememory.py doctor

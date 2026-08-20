@@ -9,9 +9,15 @@ import json
 from pathlib import Path
 import os
 import shutil
+import stat
 import sys
 
 from ai_dememory_tool import __version__
+from ai_dememory_tool.argument_safety import (
+    duplicate_options,
+    reject_duplicate_options,
+    validate_docker_image_argument,
+)
 from ai_dememory_tool.mcp_profiles import (
     DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
     MCP_PROFILE_NAMES,
@@ -24,6 +30,7 @@ LOCAL_COMMANDS = {
     "init": "Create a new private memory vault.",
     "mcp-config": "Print MCP client configuration for a memory vault.",
     "vault-template": "Export the private vault GitHub template tree.",
+    "version-check": "Fail unless the installed package matches an exact release.",
 }
 
 COMMANDS = {
@@ -124,8 +131,92 @@ DEV_COMMANDS = {
 }
 
 
+def _path_entry_status(path: Path) -> os.stat_result | None:
+    """Inspect one local directory entry without following its final link."""
+    try:
+        return path.lstat()
+    except (OSError, ValueError):
+        return None
+
+
+def _is_reparse_point(status: os.stat_result) -> bool:
+    attributes = getattr(status, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(reparse_flag and attributes & reparse_flag)
+
+
+def _is_local_regular_file(path: Path) -> bool:
+    status = _path_entry_status(path)
+    return bool(
+        status is not None
+        and stat.S_ISREG(status.st_mode)
+        and not _is_reparse_point(status)
+    )
+
+
+def _is_local_directory(path: Path) -> bool:
+    status = _path_entry_status(path)
+    return bool(
+        status is not None
+        and stat.S_ISDIR(status.st_mode)
+        and not _is_reparse_point(status)
+    )
+
+
+def _has_vault_manifest(path: Path) -> bool:
+    return _is_local_regular_file(path / ".ai-dememory.toml")
+
+
+def _has_git_marker(path: Path) -> bool:
+    # Presence is enough to make a nested ambient root ambiguous. Never open a
+    # .git pointer, config, include, UNC path, symlink, reparse point, or device.
+    return _path_entry_status(path / ".git") is not None
+
+
+def _is_source_project_tree(path: Path) -> bool:
+    """Recognize full or partial ai-dememory source trees without remote I/O."""
+    if not _is_local_regular_file(path / "pyproject.toml"):
+        return False
+    package_dir = path / "ai_dememory_tool"
+    scripts_dir = path / "scripts"
+    return (
+        _is_local_directory(package_dir)
+        and _is_local_regular_file(package_dir / "cli.py")
+    ) or (
+        _is_local_directory(scripts_dir)
+        and _is_local_regular_file(scripts_dir / "ai_dememory.py")
+    )
+
+
 def is_tool_checkout(path: Path) -> bool:
-    return (path / "docs" / "schema.md").exists() and (path / "scripts").exists()
+    """Return whether *path* has the local shape of an ai-dememory source tree."""
+    try:
+        resolved = path.expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return _is_source_project_tree(resolved)
+
+
+def is_within_tool_checkout(path: Path) -> bool:
+    """Return whether ``path`` resolves to a tool checkout or one of its descendants."""
+    try:
+        resolved = path.expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return any(is_tool_checkout(candidate) for candidate in (resolved, *resolved.parents))
+
+
+def ambient_root_requires_explicit_binding(path: Path) -> bool:
+    """Fail closed for unconfigured or nested roots used by persistent flows."""
+    try:
+        resolved = path.expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return True
+    if not _has_vault_manifest(resolved) or is_within_tool_checkout(resolved):
+        return True
+    # A standalone Git-backed vault is valid. A vault nested inside any other
+    # checkout is ambiguous and must be selected deliberately.
+    return any(_has_git_marker(parent) for parent in resolved.parents)
 
 
 def is_memory_vault(path: Path) -> bool:
@@ -133,11 +224,11 @@ def is_memory_vault(path: Path) -> bool:
 
 
 def find_memory_root(start: Path | None = None) -> Path:
-    env_root = os.environ.get("AI_DEMEMORY_ROOT")
+    env_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
     if env_root:
-        return Path(env_root).resolve()
+        return Path(env_root).expanduser().resolve()
 
-    current = (start or Path.cwd()).resolve()
+    current = (start or Path.cwd()).expanduser().resolve()
     for candidate in (current, *current.parents):
         if is_tool_checkout(candidate) or is_memory_vault(candidate):
             return candidate
@@ -170,6 +261,16 @@ def has_root_arg(argv: list[str]) -> bool:
     return any(arg == "--root" or arg.startswith("--root=") for arg in argv)
 
 
+def root_binding_value(value: str | None) -> str | None:
+    """Return a root value only when it names more than whitespace.
+
+    Keep nonblank values verbatim: spaces can be part of a valid path.  A
+    whitespace-only argument/environment value would otherwise resolve to the
+    current directory and turn an ambient checkout into an apparent binding.
+    """
+    return value if value is not None and value.strip() else None
+
+
 def root_arg_value(argv: list[str]) -> str | None:
     for index, arg in enumerate(argv):
         if arg == "--root":
@@ -181,6 +282,83 @@ def root_arg_value(argv: list[str]) -> str | None:
     return None
 
 
+def cli_argument_error(message: str) -> None:
+    print(f"ai-dememory: error: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def required_version_values(argv: list[str]) -> tuple[str, ...]:
+    """Read exact version gates without resolving the vault or importing tools."""
+    values: list[str] = []
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument == "--require-version":
+            if index + 1 >= len(argv):
+                cli_argument_error("--require-version requires a version")
+            values.append(argv[index + 1])
+            index += 2
+            continue
+        if argument.startswith("--require-version="):
+            values.append(argument.partition("=")[2])
+        index += 1
+    return tuple(values)
+
+
+def command_subcommand(argv: list[str]) -> str | None:
+    """Return the first command token after an optional global root binding."""
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument in {"--root", "--command"}:
+            index += 2
+            continue
+        if argument.startswith(("--root=", "--command=")):
+            index += 1
+            continue
+        if argument.startswith("-"):
+            return None
+        return argument
+    return None
+
+
+def command_mutates_vault(command: str, argv: list[str]) -> bool:
+    """Identify persistent packaged flows before ambient root discovery."""
+    if command in {"setup", "onboard", "capture"}:
+        return True
+    if command == "import-chats":
+        return "--dry-run" not in argv
+    subcommand = command_subcommand(argv)
+    if command == "providers":
+        return subcommand == "capture" or (
+            subcommand in {"configure", "import"} and "--dry-run" not in argv
+        )
+    if command == "maintenance":
+        return subcommand == "run" and "--dry-run" not in argv
+    if command == "schedule":
+        return subcommand in {"setup", "install", "remove", "status"} and "--dry-run" not in argv
+    return False
+
+
+def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
+    """Identify read-only previews that serialize an executable vault binding."""
+    subcommand = command_subcommand(argv)
+    if command == "providers":
+        return subcommand == "plan" or (
+            subcommand == "configure" and "--dry-run" in argv
+        )
+    if command == "schedule":
+        return subcommand in {"plan", "cron"} or (
+            subcommand in {"setup", "install"} and "--dry-run" in argv
+        )
+    return False
+
+
+def command_requires_explicit_vault_binding(command: str, argv: list[str]) -> bool:
+    """Require a binding before a command writes or prints a durable root."""
+    return command_mutates_vault(command, argv) or command_emits_bound_vault_command(command, argv)
+
+
 def run_packaged_command(
     command: str,
     argv: list[str],
@@ -189,8 +367,16 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    explicit_root = root_arg_value(argv)
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    if command in {"mcp", "setup"} or onboarding_mode == "operational":
+        version_gates = required_version_values(argv)
+        if len(version_gates) > 1:
+            cli_argument_error("--require-version may be specified at most once")
+        if version_gates and version_gates[0] != __version__:
+            cli_argument_error(
+                f"ai-dememory version mismatch: expected {version_gates[0]}, found {__version__}"
+            )
+    explicit_root = root_binding_value(root_arg_value(argv))
+    configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
     if (
         command == "mcp"
         and "--require-bound-root" in argv
@@ -216,6 +402,15 @@ def run_packaged_command(
             print("{}")
             return 0
         raise
+    if (
+        command_requires_explicit_vault_binding(command, argv)
+        and not (explicit_root or configured_root)
+        and ambient_root_requires_explicit_binding(root)
+    ):
+        cli_argument_error(
+            f"{command} refuses an unconfigured or nested ambient root; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
     os.environ["AI_DEMEMORY_ROOT"] = str(root)
     configure_imports()
     if not has_root_arg(argv):
@@ -250,13 +445,30 @@ def copy_template_tree(target: Path, force: bool = False) -> list[Path]:
 
 
 def init_vault(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=LOCAL_COMMANDS["init"])
+    parser = argparse.ArgumentParser(description=LOCAL_COMMANDS["init"], allow_abbrev=False)
     parser.add_argument("path", nargs="?", default=".", help="Vault directory to create.")
     parser.add_argument("--force", action="store_true", help="Add or overwrite template files in a non-empty directory.")
     wizard_group = parser.add_mutually_exclusive_group()
     wizard_group.add_argument("--wizard", action="store_true", help="Run the fingerprint-bound operational setup wizard after copying the vault.")
     wizard_group.add_argument("--no-wizard", action="store_true", help="Copy only; this is the default for non-interactive setup.")
+    parser.add_argument(
+        "--require-version",
+        metavar="VERSION",
+        help="With --wizard, fail before creating the vault unless this exact version is running.",
+    )
+    reject_duplicate_options(parser, argv, ("--require-version", "--wizard", "--no-wizard"))
     args = parser.parse_args(argv)
+
+    if args.wizard and args.require_version != __version__:
+        expected = args.require_version or "an explicit version"
+        print(
+            f"ai-dememory init --wizard version mismatch: expected {expected}, found {__version__}",
+            file=sys.stderr,
+        )
+        return 1
+    if args.require_version is not None and not args.wizard:
+        print("--require-version is valid only with --wizard", file=sys.stderr)
+        return 2
 
     target = Path(args.path).expanduser().resolve()
     try:
@@ -269,10 +481,13 @@ def init_vault(argv: list[str]) -> int:
     if args.wizard:
         return run_packaged_command(
             "onboard",
-            ["--root", str(target)],
+            ["--root", str(target), "--require-version", args.require_version],
             onboarding_mode="operational",
         )
-    print("Next: run `ai-dememory setup wizard`; it previews one config-only plan and asks before applying it.")
+    print(
+        "Next: run `ai-dememory setup wizard --require-version "
+        f"{__version__}`; it previews one config-only plan and asks before applying it."
+    )
     print("Then run `ai-dememory doctor` and `ai-dememory index`.")
     return 0
 
@@ -323,13 +538,21 @@ def vault_template(argv: list[str]) -> int:
 
 
 def mcp_config(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description=LOCAL_COMMANDS["mcp-config"])
+    parser = argparse.ArgumentParser(description=LOCAL_COMMANDS["mcp-config"], allow_abbrev=False)
     parser.add_argument("--client", choices=("generic", "codex", "claude"), default="generic")
     parser.add_argument("--mode", choices=("installed", "docker"), default="installed")
     parser.add_argument("--root", default=None, help="Vault root. Defaults to the current vault.")
     parser.add_argument("--command", default="ai-dememory", help="Command clients should launch.")
     parser.add_argument("--command-arg", action="append", default=[], help="Extra argument before `mcp --stdio`; repeatable.")
     parser.add_argument("--image", default="ai-dememory:local", help="Docker image for --mode docker.")
+    parser.add_argument(
+        "--require-version",
+        metavar="VERSION",
+        help=(
+            "Fail before emitting configuration unless this exact ai-dememory "
+            "version is running."
+        ),
+    )
     parser.add_argument(
         "--profile",
         choices=MCP_PROFILE_NAMES,
@@ -345,9 +568,39 @@ def mcp_config(argv: list[str]) -> int:
             f"Default: {DEFAULT_MCP_IDLE_TIMEOUT_SECONDS}; use 0 only for an intentionally persistent server."
         ),
     )
+    reject_duplicate_options(
+        parser,
+        argv,
+        (
+            "--client",
+            "--mode",
+            "--root",
+            "--command",
+            "--image",
+            "--require-version",
+            "--profile",
+            "--idle-timeout-seconds",
+        ),
+    )
     args = parser.parse_args(argv)
 
-    root = Path(args.root).resolve() if args.root else find_memory_root()
+    if args.require_version is not None and args.require_version != __version__:
+        parser.error(
+            f"version mismatch: expected {args.require_version}, found {__version__}"
+        )
+
+    explicit_root = root_binding_value(args.root)
+    configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
+    root = Path(explicit_root).expanduser().resolve() if explicit_root else find_memory_root()
+    if (
+        not explicit_root
+        and not configured_root
+        and ambient_root_requires_explicit_binding(root)
+    ):
+        parser.error(
+            "mcp-config refuses an unconfigured or nested ambient root; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
     try:
         output = build_mcp_config(
             args.client,
@@ -375,7 +628,27 @@ def build_mcp_config(
     profile: str | None = None,
     idle_timeout_seconds: int = DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
 ) -> dict[str, object] | str:
-    command_args = command_args or []
+    command_args = list(command_args or [])
+    if mode == "docker":
+        image = validate_docker_image_argument(image)
+    reserved_command_args = {
+        "mcp",
+        "--root",
+        "--stdio",
+        "--idle-timeout-seconds",
+        "--require-version",
+        "--profile",
+        "--require-bound-root",
+    }
+    for argument in command_args:
+        if argument in reserved_command_args or any(
+            argument.startswith(f"{flag}=")
+            for flag in reserved_command_args
+            if flag.startswith("--")
+        ):
+            raise ValueError(
+                f"--command-arg cannot override reserved MCP argument {argument!r}"
+            )
     resolved_profile = profile or "core"
     idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(idle_timeout_seconds)
     if mode == "docker":
@@ -394,6 +667,8 @@ def build_mcp_config(
                 "--stdio",
                 "--idle-timeout-seconds",
                 str(idle_timeout_seconds),
+                "--require-version",
+                __version__,
                 "--profile",
                 resolved_profile,
                 "--require-bound-root",
@@ -409,6 +684,8 @@ def build_mcp_config(
                 "--stdio",
                 "--idle-timeout-seconds",
                 str(idle_timeout_seconds),
+                "--require-version",
+                __version__,
                 "--profile",
                 resolved_profile,
                 "--require-bound-root",
@@ -457,11 +734,12 @@ def usage() -> str:
             "Examples:",
             "  ai-dememory init ~/code/my-memory",
             "  ai-dememory vault-template export ~/code/ai-dememory-vault-template",
-            "  ai-dememory mcp-config --client codex",
-            "  ai-dememory setup plan --json",
-            "  ai-dememory setup wizard",
-            "  ai-dememory setup wizard --json",
-            "  ai-dememory setup wizard --apply --expect-plan-sha256 <preview-sha256> --json",
+            "  ai-dememory version-check 2.1.0",
+            "  ai-dememory mcp-config --root ~/code/my-memory --client codex --require-version 2.1.0",
+            "  ai-dememory setup plan --require-version 2.1.0 --json",
+            "  ai-dememory setup wizard --require-version 2.1.0",
+            "  ai-dememory setup wizard --require-version 2.1.0 --json",
+            "  ai-dememory setup wizard --require-version 2.1.0 --apply --expect-plan-sha256 <preview-sha256> --json",
             "  ai-dememory onboard --input-file onboarding.json --json",
             "  ai-dememory onboard --input-file onboarding.json --apply --expect-plan-sha256 <preview-sha256> --json",
             "  ai-dememory turn-context \"fix portfolio tracker staging smoke\" --cwd D:/Github/portfolio-tracker --json",
@@ -506,7 +784,7 @@ def usage() -> str:
             "  ai-dememory hooks config --client claude",
             "  ai-dememory hooks list",
             "  ai-dememory hooks install --client all --dry-run",
-            "  ai-dememory mcp --stdio",
+            "  ai-dememory mcp --stdio --require-bound-root --require-version 2.1.0",
             "  ai-dememory dev --help",
         ]
     )
@@ -532,9 +810,14 @@ def dev_usage() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
-    root_override = pop_global_root(argv)
+    if duplicate_options(argv, ("--root",)):
+        print("--root may be specified at most once", file=sys.stderr)
+        return 2
+    root_override = root_binding_value(pop_global_root(argv))
     if root_override:
-        os.environ["AI_DEMEMORY_ROOT"] = str(Path(root_override).expanduser().resolve())
+        # Preserve the textual binding until the selected subcommand has
+        # validated any exact-version gate. Resolving a UNC path can perform I/O.
+        os.environ["AI_DEMEMORY_ROOT"] = root_override
     if not argv or argv[0] in {"-h", "--help", "help"}:
         print(usage())
         return 0
@@ -555,6 +838,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if command == "init":
         return init_vault(argv)
+    if command == "version-check":
+        parser = argparse.ArgumentParser(prog="ai-dememory version-check")
+        parser.add_argument("expected_version")
+        args = parser.parse_args(argv)
+        if args.expected_version != __version__:
+            print(
+                f"ai-dememory version mismatch: expected {args.expected_version}, found {__version__}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"ai-dememory {__version__}")
+        return 0
     if command == "vault-template":
         return vault_template(argv)
     if command == "mcp-config":

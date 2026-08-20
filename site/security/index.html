@@ -34,7 +34,7 @@
             <span>Private vault</span>
             <span>Server-enforced profiles</span>
             <span>Review-gated durability</span>
-            <span>Detailed controls: source 2.1.0rc1, unreleased</span>
+            <span>Detailed controls: 2.1.0 release line</span>
           </div>
         </div>
       </header>
@@ -55,7 +55,7 @@
             <h2>What the design protects</h2>
             <p>The primary security goals are to keep personal memory out of the public distribution repository, constrain which local data a client can retrieve, preserve provenance, and prevent unreviewed content from silently becoming durable truth.</p>
             <div class="callout">
-              <p>This page describes the current public source. Stable 2.0.0 has the local vault, MCP, review, and secret-scanning foundation; the wizard, resource profiles, server-enforced profile upgrades, and idle leases are unreleased 2.1.0rc1 controls.</p>
+              <p>The 2.1.0 release line includes the local vault, MCP, review and secret-scanning foundation together with the wizard, resource profiles, server-enforced profile upgrades, and idle leases described here.</p>
             </div>
             <ul class="checklist">
               <li>The vault root is explicit and separate from the source repository.</li>
@@ -123,7 +123,7 @@
           <section class="content-section" id="controls">
             <h2>Controls that carry authority</h2>
             <h3>Capability and root enforcement</h3>
-            <p>Generated MCP configuration names the exact vault, selects a server-enforced profile, and requires a bound root. The public-repository profile is narrower than the private-vault core profile.</p>
+            <p>Generated MCP configuration names the exact vault, selects a server-enforced profile, and requires a bound root. The public-repository profile is narrower than the reduced private-vault <code>core</code> default. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance, so it should not be the normal profile.</p>
 
             <h3>Review and provenance</h3>
             <p>Retrieved items include source, status, confidence, and path. Durable changes require a reviewer and exact preview fingerprint; pinned values are not automatically overwritten.</p>
@@ -132,7 +132,7 @@
             <p>Secret scanning blocks sensitive-looking content from versioned durable memory and generated reports. Treat this as defense in depth: review every candidate and never use memory as a credential store.</p>
 
             <h3>Local transports</h3>
-            <p>Prefer stdio MCP. The optional REST API defaults to loopback. Set an API key before any non-loopback bind; remote HTTP and OAuth are outside the current release design.</p>
+            <p>Prefer stdio MCP. The optional REST API defaults to loopback. Any non-loopback bind requires an API key plus both <code>--tls-cert</code> and <code>--tls-key</code>; remote OAuth is outside the current release design.</p>
 
             <h3>Process and resource containment</h3>
             <p>Profiles cap input, scanning, output, context, and background work. MCP idle leases terminate abandoned servers, while owned external process trees are reaped on timeout or shutdown.</p>

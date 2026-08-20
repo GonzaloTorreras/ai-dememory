@@ -98,9 +98,9 @@ def repo_root(path: str | Path | None = None) -> Path:
     global REPO_ROOT
     env_root = os.environ.get("AI_DEMEMORY_ROOT")
     if path:
-        REPO_ROOT = Path(path).resolve()
+        REPO_ROOT = Path(path).expanduser().resolve()
     elif env_root:
-        REPO_ROOT = Path(env_root).resolve()
+        REPO_ROOT = Path(env_root).expanduser().resolve()
     return REPO_ROOT
 
 
