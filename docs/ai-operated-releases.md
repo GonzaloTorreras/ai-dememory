@@ -25,9 +25,11 @@ tests, attestations, OIDC and post-index installation.
 
 ## Canonical flow
 
-1. Codex prepares a normal PR that changes `project.version` and adds a dated
-   `CHANGELOG.md` section. Product acceptance reports may accompany the PR but
-   do not gate package integrity.
+1. Codex prepares a normal PR that changes `project.version` and adds one dated,
+   non-empty `CHANGELOG.md` section for that exact version. The section is the
+   canonical GitHub Release body; its checked-in comparison link keeps the
+   published history traceable. Product acceptance reports may accompany the
+   PR but do not gate package integrity.
 2. CI runs compile, schema, secret, MCP, release, unit, install, package and
    Docker smokes. A fresh read-only reviewer checks the exact PR tuple.
 3. Codex presents the exact PR, head/base SHAs, CI and release evidence, obtains
@@ -51,14 +53,26 @@ tests, attestations, OIDC and post-index installation.
    when the tag was created with `GITHUB_TOKEN`.
 6. `release.yml` validates repository identity, the exact tag/commit tuple,
    tag syntax, tag-version-changelog alignment and ancestry from `origin/main`.
+   The guard rejects a missing, duplicated or empty exact-version section. Its
+   deliberately strict release-note grammar accepts only column-zero ATX `##`
+   boundaries. Indented or Setext H2 forms, fenced code, HTML comments and raw
+   HTML blocks fail closed; nested headings must use H3. This avoids parser
+   differentials and prevents text from an adjacent release entering the
+   generated notes.
 7. The workflow builds wheel and sdist once, runs `twine check`, installs and
-   executes both exact artifacts in isolated environments, generates SHA-256
-   checksums and records GitHub artifact attestations.
+   executes both exact artifacts in isolated environments, and extracts the
+   exact changelog section into a new, repository-contained
+   `RELEASE_NOTES.md` using exclusive creation. The release
+   bundle includes those notes and their SHA-256 checksum alongside the package
+   checksums and GitHub artifact attestations.
 8. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
    Publishing uses the tag, workflow filename and GitHub environment as the
    Trusted Publisher OIDC identity. No static package token is stored.
 9. The workflow installs the exact version from its target index, checks the
-   CLI and then creates the GitHub Release with artifacts and checksums.
+   CLI and then creates the GitHub Release with artifacts and checksums. It
+   passes the bundled file through `gh release create --notes-file`; GitHub's
+   generated-note heuristics cannot replace or silently expand the reviewed
+   changelog section.
 
 ## Release authorization
 

@@ -6,7 +6,7 @@ and public-origin QA remain separately gated
 
 Owner: Codex operational owner
 
-Updated: 2026-08-04
+Updated: 2026-08-05
 
 Product foundation: PR #10 merged into canonical `main` at
 `2e900acc021411193c5298addfece4c82fda69b4`. Documentation-plan baseline: PR
@@ -96,12 +96,12 @@ Non-goals for the first site:
    review gate visually unavoidable.
 3. **Three separate places:** public source repository, installed executable,
    and private vault. Never show them as one folder or one sync target.
-4. **Five-minute stable setup:** exact 2.0.0 PyPI, vault, health, setup-plan,
-   and MCP commands with no hidden side effects.
-5. **Unreleased 2.1 onboarding:** put the source install before its wizard,
-   then explain `minimal`, `balanced`, and `active` as bounded operating
-   envelopes. State separately that model policy does not let ai DeMemory call
-   a model or embeddings.
+4. **Five-minute stable setup:** exact 2.1.0 PyPI, vault, health, setup-plan,
+   wizard and MCP commands with no hidden side effects.
+5. **Bounded 2.1 onboarding:** explain `minimal`, `balanced`, and `active` as
+   bounded operating envelopes available in the stable package. State
+   separately that model policy does not let ai DeMemory call a model or
+   embeddings.
 6. **Privacy and autonomy:** proposal-only agent writes, explicit integration
    installation, generated indexes, and bounded process lifetime.
 7. **Technical doorway:** link to the full flow, contracts, and current status.
@@ -109,8 +109,7 @@ Non-goals for the first site:
 ### Guides: complete one job
 
 - Install and create a private vault.
-- Complete the stable 2.0.0 setup-plan/client path, or deliberately install the
-  2.1.0 source line before running its preview-first wizard.
+- Complete the stable 2.1.0 setup-plan, preview-first wizard and client path.
 - Connect Codex, Claude, or another MCP client.
 - Search, inspect evidence, and assemble bounded context.
 - Review a proposal and apply an explicit decision.

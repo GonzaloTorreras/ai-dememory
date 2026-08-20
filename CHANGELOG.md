@@ -5,10 +5,149 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
-## [2.1.0] - Unreleased
+## [2.1.0] - 2026-08-18
 
-Stable 2.1.0 remains reserved until the release-candidate artifact below has
-been published to and installed from TestPyPI with matching provenance.
+ai DeMemory 2.1.0 consolidates the complete public change set since 2.0.0 into
+a safer, lighter and more autonomous local-first V2. Python 3.11+ remains the
+only headless runtime; Node/TypeScript is reserved for a future optional visual
+plane and is not an installation or background-process dependency.
+
+### Setup, onboarding and memory safety
+
+- Add a one-session guided setup wizard with deterministic JSON preview/apply,
+  named `minimal`, `balanced` and `active` intensities, one confirmation, and
+  exact plan fingerprints. Operational setup writes only bounded policy;
+  optional reviewed onboarding writes durable values, preferences and
+  recommendations without rewriting that policy.
+- Expand read-only `setup health` into separate core, retrieval, manual
+  maintenance, verified automation, integration, autonomy and release
+  dimensions. Recall quality remains evidence-gated until real misses are
+  reviewed into the evaluation corpus.
+- Add prompt-aware and project-aware recall hooks while preserving each item's
+  sensitivity label. Public context, search and get now enforce a fail-closed
+  public-only ceiling before result limits and reject hostile overrides,
+  generated working state and unsafe query derivation.
+- Fence raw hook payloads before writing review artifacts, keep raw capture off
+  by default, and report truncated provider scans as incomplete coverage rather
+  than claiming a full import.
+- Keep Markdown canonical, private vaults explicitly bound and separate from
+  the public checkout and installed executable, and all durable promotion
+  review-first. Rootless setup, wizard and onboarding now reject the checkout
+  itself and tracked descendants before an ambient path can be promoted into
+  generated persistent commands. Local source-tree shape, a regular vault
+  manifest, and checkout nesting keep the boundary intact for sparse or
+  partially checked-out trees without opening Git metadata, while direct
+  setup-plan and onboarding entry points require `--root` or
+  `AI_DEMEMORY_ROOT`; deliberate bindings remain compatible. SQLite, vector
+  and report state remain disposable.
+
+### Bounded autonomy and resource use
+
+- Enforce hard ceilings for recall, import, secret scans, graph pagination,
+  reports, hook queues, scheduler cadence, Docker execution, timeouts and child
+  output. The package performs zero model or embedding calls itself and reports
+  host-model policy separately from runtime resource intensity.
+- Add transactional, vault-namespaced scheduler plans with fingerprints,
+  readback receipts, expiry, move/restore handling and compensation on failed
+  install or removal. Invalid resource policy and mutable Docker image tags fail
+  closed before unattended command generation and again before a host scheduler
+  write.
+- Prevent orphan processes with MCP idle leases and response deadlines,
+  non-interactive Git, Windows kill-on-close Job Objects, and POSIX owned
+  process sessions. Timeout, client disconnect and normal stdio shutdown now
+  terminate package-owned descendants.
+
+### MCP, compatibility and security
+
+- Introduce server-enforced `public`, `core`, `working`, `review` and `admin`
+  MCP profiles. Generated private-vault clients default to the four-tool
+  `core` surface; the public plugin is capped at three public-only tools;
+  `admin` preserves the full historical surface for explicit compatibility.
+- Refuse to generate a persistent MCP client fragment when rootless discovery
+  lands on or anywhere inside the public tool checkout. The stable help now
+  names the vault root; explicit `--root` and `AI_DEMEMORY_ROOT` bindings remain
+  compatible.
+- Stream secret scanning and index restoration, bound MCP frames and queues,
+  preserve path/symlink/vault containment across Windows, Linux and macOS, and
+  expand isolated wheel, sdist, Docker and MCP lifecycle coverage.
+- Harden the local REST API with bounded request concurrency, bodies and graph
+  pages, strict `Host`/`Origin` checks and explicit POST mutation intent.
+  Non-loopback binds now fail closed unless API-key authentication and TLS
+  certificate/key are supplied.
+- Publish a repository security policy with private vulnerability reporting.
+  The public repository is now the only source and release authority; former
+  private work is sanitized research input, never a merge or evidence source.
+
+### Documentation and maintainability
+
+- Add an accessible, dependency-free documentation site covering quick start,
+  architecture, trust boundaries, MCP profiles and resource envelopes, plus a
+  guarded, manually dispatched and artifact-verified GitHub Pages workflow.
+- Separate the user CLI from advanced maintainer commands, stabilize installed
+  imports, adopt PEP 639 license metadata, and keep existing direct command
+  forms compatible.
+- Add a public development-continuity contract and executable V3 task DAG.
+  This completes V2 task `BRG-014`; it does not claim that the future visual or
+  shared-memory V3 work is implemented.
+- Record a [source-grounded query design](docs/source-grounded-query-design.md)
+  inspired by NotebookLM/Gemini Notebook: an explicit bounded corpus per query,
+  evidence-first retrieval, resolvable citations and layered answers, with
+  query-time synthesis kept read-only and durable consolidation kept proposal-
+  and review-first. This is design input for future measured V3 evaluation,
+  not a shipped internal model or cloud dependency.
+
+### Release integrity and upgrade notes
+
+- Split immutable tag creation from package publication. Both paths require an
+  exact tag/SHA confirmation; publication uses environment-gated OIDC, builds
+  wheel and sdist once, records checksums and attestations, installs from the
+  target index, and only then creates the GitHub Release.
+- Centralize PEP 440 tag validation, protect existing `v*` tags against rewrite
+  and deletion, and use independent, exact-head review receipts suitable for a
+  solo-maintainer repository. Superseded ambient auto-approval behavior is not
+  part of the final release.
+- Derive the GitHub Release body and attached notes deterministically from the
+  complete dated changelog section. Extraction fails closed on ambiguous
+  Markdown, including every Python-only non-CommonMark line separator and any
+  later top-level H1 boundary, and confines exclusive output to a
+  repository-contained path.
+- Install or upgrade with the exact `ai-dememory==2.1.0` artifact, then require
+  `ai-dememory version-check 2.1.0` to succeed before regenerating client
+  configuration with
+  `ai-dememory --root <vault> mcp-config --client codex --profile core
+  --require-version 2.1.0`. The generator and setup wizard enforce that version
+  atomically before resolving the vault or emitting configuration, and every
+  generated MCP server command repeats the gate at runtime so Docker cannot
+  launch a mismatched image.
+  Setup-plan, direct `init --wizard` and MCP server commands inherit the same
+  exact-version gate, and profile examples bind an explicit vault root.
+- Reject option abbreviations, duplicate singleton controls, later root
+  overrides, reserved MCP argument injection and Docker image values that could
+  be interpreted as runtime options. Generated human commands quote every
+  argument for PowerShell or POSIX shells, including every Unicode single-quote
+  delimiter recognized by Windows PowerShell.
+- Make the documentation guard fail closed on unsafe or ambiguous install/MCP
+  examples across supported shells and rendered Markdown/HTML. It audits
+  user-revealable, ARIA and no-script content, normalizes wrapped or
+  path-qualified Docker launchers, recursively inspects bounded shell-string
+  wrappers without letting an earlier malformed wrapper hide later commands,
+  rejects opaque or over-depth shell execution and inline HTML event handlers,
+  forbids opaque `iframe[srcdoc]` documents, and keeps stable
+  non-loopback API guidance aligned with the runtime API-key and TLS boundary.
+  Direct setup and
+  release-smoke scripts resolve identity from the source project or installed
+  distribution without assuming either import path.
+  Choose `--profile admin` only when the complete legacy tool surface is
+  intentionally required.
+
+The exact 2.1.0rc1 wheel and sdist were published with OIDC, installed from
+[TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.0rc1/), exercised
+through the wizard and MCP initialize/ping flow, and released with checksums and
+attestations before this stable preparation. See the
+[complete public comparison](https://github.com/GonzaloTorreras/ai-dememory/compare/v2.0.0...v2.1.0)
+for commit-level history and the
+[2.1.0rc1 technical changelog](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/CHANGELOG.md#210rc1---2026-08-05)
+for the detailed implementation record.
 
 ## [2.1.0rc1] - 2026-08-05
 

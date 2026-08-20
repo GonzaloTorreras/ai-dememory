@@ -50,18 +50,22 @@ requirements are satisfied. Planning status is not runtime completion.
 
 ## Current Frontier
 
-The release frontier is `BRG-014` in batch `B04a`: separate operational setup
-from optional durable onboarding while preserving exact fingerprints and
-rollback. This V2-compatible slice must finish before the 2.1 release
-candidate. It does not complete V3 `ONB-001`.
+`BRG-014` in batch `B04a` is complete: operational setup and optional durable
+onboarding are separate, fingerprint-bound flows, and the exact release
+candidate passed TestPyPI publication, post-index installation, wizard and MCP
+lifecycle verification. This is a V2-compatible result and does not complete
+V3 `ONB-001`.
 
-After 2.1.0, the first legal implementation sequence is:
+The stable 2.1.0 release branch closes only package identity, cumulative release
+notes and user-facing documentation. The next legal implementation frontier is
+batch `B04b`:
 
 1. `BRG-003`: explicit, deterministic vault/root resolution.
 2. `BRG-017`: strict configuration parsing and unknown-key diagnostics.
-3. `BRG-019`: bridge inventories and exact-artifact tooling.
-4. `MIG-001`: generated canonical-writer inventory and freeze.
-5. `GATE-B`: compatibility evidence; no declaration without external readback.
+3. After both complete, `BRG-019`: bridge inventories and exact-artifact tooling.
+4. Then `MIG-001`: generated canonical-writer inventory and freeze.
+5. Finally `GATE-B`: compatibility evidence; no declaration without external
+   readback.
 
 Do not add a new task when an existing ID covers the work. Update
 `contracts/planning/v3-execution-sequence.json` when dependencies, status, or

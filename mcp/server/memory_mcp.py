@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import quote, unquote
 
 from ai_dememory_tool import __version__
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.mcp_profiles import (
     DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
     MCP_PROFILE_NAMES,
@@ -4437,8 +4438,19 @@ def run_stdio(
     return 0
 
 
+def root_binding_value(value: str | None) -> str | None:
+    """Return a root value only when it names more than whitespace.
+
+    Keep nonblank values verbatim: spaces can be part of a valid path. A
+    whitespace-only binding would otherwise resolve to the current directory
+    and make an ambient checkout appear explicitly bound.
+    """
+    return value if value is not None and value.strip() else None
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     parser.add_argument("--stdio", action="store_true", help="Run JSON-RPC stdio server.")
     parser.add_argument(
@@ -4460,6 +4472,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--require-version",
+        metavar="VERSION",
+        help="Fail before serving MCP unless this exact ai-dememory version is running.",
+    )
+    parser.add_argument(
         "--require-bound-root",
         action="store_true",
         help="Fail unless --root or AI_DEMEMORY_ROOT explicitly binds the vault.",
@@ -4467,15 +4484,41 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-tools", action="store_true", help="Print tool definitions.")
     parser.add_argument("--call", help="Call one tool directly by name.")
     parser.add_argument("--args", default="{}", help="JSON arguments for --call.")
+    reject_duplicate_options(
+        parser,
+        argv,
+        (
+            "--root",
+            "--stdio",
+            "--profile",
+            "--idle-timeout-seconds",
+            "--require-version",
+            "--require-bound-root",
+            "--list-tools",
+            "--call",
+            "--args",
+        ),
+    )
     args = parser.parse_args(argv)
 
-    if args.require_bound_root and not (args.root or os.environ.get("AI_DEMEMORY_ROOT")):
+    if args.require_version is not None and args.require_version != __version__:
+        parser.error(
+            f"version mismatch: expected {args.require_version}, found {__version__}"
+        )
+    explicit_root = root_binding_value(args.root)
+    configured_root_raw = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = root_binding_value(configured_root_raw)
+    if args.root is not None and explicit_root is None:
+        parser.error("--root requires a non-empty vault path")
+    if explicit_root is None and configured_root_raw not in (None, "") and configured_root is None:
+        parser.error("AI_DEMEMORY_ROOT requires a non-empty vault path")
+    if args.require_bound_root and not (explicit_root or configured_root):
         parser.error("--require-bound-root needs --root or AI_DEMEMORY_ROOT")
     try:
         idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(args.idle_timeout_seconds)
     except ValueError as exc:
         parser.error(str(exc))
-    root = repo_root(args.root)
+    root = repo_root(explicit_root)
     selected_profile = args.profile or ("core" if args.stdio else "admin")
     if args.stdio:
         return run_stdio(root, profile=selected_profile, idle_timeout_seconds=idle_timeout_seconds)

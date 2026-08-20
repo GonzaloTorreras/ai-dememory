@@ -15,11 +15,14 @@ import sys
 import tempfile
 from typing import Any
 
-from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from process_control import run_owned_capture
 
 from build_artifacts import cleanup_created_build_paths, snapshot_generated_build_paths
 from memorylib import repo_root
+from runtime_identity import current_package_version
+
+
+PACKAGE_VERSION = current_package_version()
 
 
 MCP_INIT = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25"}}
@@ -604,6 +607,103 @@ def assert_operational_setup(stdout: str, *, applied: bool) -> None:
         raise InstallSmokeError("operational setup crossed an integration apply boundary")
 
 
+def assert_setup_plan(
+    stdout: str,
+    *,
+    expected_version: str,
+    expected_root: Path,
+) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"setup plan did not return JSON: {exc}") from exc
+    commands = data.get("commands")
+    if data.get("mode") != "both" or data.get("client") != "codex":
+        raise InstallSmokeError("setup plan did not preserve the requested client and both runtime modes")
+    if Path(str(data.get("root"))).resolve() != expected_root.resolve():
+        raise InstallSmokeError("setup plan did not bind the expected absolute vault root")
+    if not isinstance(commands, dict):
+        raise InstallSmokeError("setup plan did not return a commands object")
+
+    def require_global_root(command: object, label: str) -> list[str]:
+        if not isinstance(command, list) or not all(isinstance(argument, str) for argument in command):
+            raise InstallSmokeError(f"setup plan returned a malformed command for {label}")
+        root_indexes = [
+            index
+            for index, argument in enumerate(command)
+            if argument == "--root" or argument.startswith("--root=")
+        ]
+        if len(command) < 3 or root_indexes != [1] or command[1] != "--root":
+            raise InstallSmokeError(
+                f"setup plan {label} must use exactly one global vault root at argv positions 1-2"
+            )
+        if Path(command[2]).resolve() != expected_root.resolve():
+            raise InstallSmokeError(f"setup plan {label} selected the wrong vault root")
+        return command
+
+    generated_commands: list[tuple[str, object]] = []
+    for name, value in commands.items():
+        if isinstance(value, dict):
+            generated_commands.extend(
+                (f"commands.{name}.{nested_name}", nested_value)
+                for nested_name, nested_value in value.items()
+            )
+        elif isinstance(value, list):
+            if not value:
+                continue
+            if all(isinstance(argument, str) for argument in value):
+                generated_commands.append((f"commands.{name}", value))
+            else:
+                generated_commands.extend(
+                    (f"commands.{name}[{index}]", nested_value)
+                    for index, nested_value in enumerate(value)
+                )
+        else:
+            raise InstallSmokeError(f"setup plan returned an unsupported command group for {name}")
+
+    provider_plan = data.get("provider_plan")
+    providers = provider_plan.get("providers") if isinstance(provider_plan, dict) else None
+    if not isinstance(providers, list):
+        raise InstallSmokeError("setup plan did not return a provider command plan")
+    for index, provider in enumerate(providers):
+        if not isinstance(provider, dict):
+            raise InstallSmokeError("setup plan returned a malformed provider command plan")
+        for key in (
+            "configure_dry_run_command",
+            "configure_command",
+            "disable_command",
+            "import_dry_run_command",
+            "import_command",
+        ):
+            generated_commands.append((f"provider_plan.providers[{index}].{key}", provider.get(key)))
+
+    for label, command in generated_commands:
+        require_global_root(command, label)
+
+    mcp_configs = commands.get("mcp_configs")
+    if not isinstance(mcp_configs, list) or len(mcp_configs) != 2:
+        raise InstallSmokeError("setup plan did not return one installed and one Docker MCP command")
+    observed_modes: set[str] = set()
+    for command in mcp_configs:
+        if not isinstance(command, list) or not all(isinstance(argument, str) for argument in command):
+            raise InstallSmokeError("setup plan returned a malformed MCP configuration command")
+        version_indexes = [
+            index
+            for index, argument in enumerate(command)
+            if argument == "--require-version"
+        ]
+        if len(version_indexes) != 1 or version_indexes[0] + 1 >= len(command):
+            raise InstallSmokeError("setup plan MCP configuration is missing one atomic version gate")
+        if command[version_indexes[0] + 1] != expected_version:
+            raise InstallSmokeError("setup plan MCP configuration version gate does not match the installed package")
+        mode_indexes = [index for index, argument in enumerate(command) if argument == "--mode"]
+        if len(mode_indexes) != 1 or mode_indexes[0] + 1 >= len(command):
+            raise InstallSmokeError("setup plan MCP configuration is missing one runtime mode")
+        observed_modes.add(command[mode_indexes[0] + 1])
+    if observed_modes != {"installed", "docker"}:
+        raise InstallSmokeError("setup plan MCP commands did not cover installed and Docker modes")
+
+
 def assert_turn_context(stdout: str) -> None:
     try:
         data = json.loads(stdout)
@@ -666,8 +766,14 @@ def assert_hook_dispatch(stdout: str) -> None:
 def package_smoke_commands() -> list[tuple[str, list[str]]]:
     return [
         ("doctor", ["doctor"]),
-        ("setup preview", ["setup", "wizard", "--intensity", "balanced", "--json"]),
-        ("setup apply", ["setup", "wizard", "--intensity", "balanced", "--apply", "--json"]),
+        (
+            "setup preview",
+            ["setup", "wizard", "--require-version", PACKAGE_VERSION, "--intensity", "balanced", "--json"],
+        ),
+        (
+            "setup apply",
+            ["setup", "wizard", "--require-version", PACKAGE_VERSION, "--intensity", "balanced", "--apply", "--json"],
+        ),
         (
             "onboarding preview",
             [
@@ -812,15 +918,42 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
         ),
         ("api smoke", ["api-smoke"]),
         ("vault template export", ["vault-template", "export", "{template_export}", "--json"]),
-        ("mcp config", ["mcp-config", "--client", "codex"]),
-        ("setup plan", ["setup", "plan", "--json"]),
+        (
+            "mcp config",
+            ["mcp-config", "--client", "codex", "--require-version", PACKAGE_VERSION],
+        ),
+        (
+            "setup plan",
+            [
+                "setup",
+                "plan",
+                "--client",
+                "codex",
+                "--mode",
+                "both",
+                "--require-version",
+                PACKAGE_VERSION,
+                "--json",
+            ],
+        ),
         ("setup health", ["setup", "health", "--json"]),
         ("mcp client config smoke", ["mcp-client-smoke", "--command", "{ai_dememory}"]),
         (
             "plugin mcp config smoke",
             ["mcp-client-smoke", "--config", "{plugin_mcp}", "--command", "{ai_dememory}"],
         ),
-        ("docker mcp config", ["mcp-config", "--client", "codex", "--mode", "docker"]),
+        (
+            "docker mcp config",
+            [
+                "mcp-config",
+                "--client",
+                "codex",
+                "--mode",
+                "docker",
+                "--require-version",
+                PACKAGE_VERSION,
+            ],
+        ),
         ("hooks codex", ["hooks", "config", "--client", "codex"]),
         ("hooks claude", ["hooks", "config", "--client", "claude"]),
         ("hooks review help", ["hooks", "review", "--help"]),
@@ -1079,6 +1212,25 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         run_step(steps, "install package", [str(pip), "install", package], cwd=root, env=install_env)
         version_result = run_step(steps, "installed version", [str(ai_dememory), "--version"])
         expected_installed_version = installed_cli_version(version_result.stdout)
+        if expected_installed_version != PACKAGE_VERSION:
+            raise InstallSmokeError(
+                "installed package version mismatch: "
+                f"expected {PACKAGE_VERSION}, found {expected_installed_version}"
+            )
+        run_step(
+            steps,
+            "installed exact-version check",
+            [str(ai_dememory), "version-check", PACKAGE_VERSION],
+        )
+        mismatch = run_step(
+            steps,
+            "installed version mismatch fails closed",
+            [str(ai_dememory), "version-check", "0.0.0"],
+            allowed_returncodes={1},
+        )
+        expected_mismatch = f"expected 0.0.0, found {expected_installed_version}"
+        if expected_mismatch not in mismatch.stderr:
+            raise InstallSmokeError("installed version-check mismatch did not report exact versions")
         run_step(steps, "init vault", [str(ai_dememory), "init", str(vault)])
         write_install_smoke_memory(vault)
         sample.write_text("# Install Smoke\n\nCapture this non-secret note.\n", encoding="utf-8")
@@ -1125,6 +1277,12 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             if name == "setup preview":
                 assert_operational_setup(completed.stdout, applied=False)
                 setup_plan_sha256 = str(json.loads(completed.stdout).get("plan_sha256") or "")
+            if name == "setup plan":
+                assert_setup_plan(
+                    completed.stdout,
+                    expected_version=expected_installed_version,
+                    expected_root=vault,
+                )
             if name == "setup apply":
                 assert_operational_setup(completed.stdout, applied=True)
                 setup_config_text = (vault / ".ai-dememory.toml").read_text(encoding="utf-8")

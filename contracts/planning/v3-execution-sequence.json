@@ -3,7 +3,7 @@
   "contract_version": 1,
   "planning_status": "c0_public_baseline",
   "updated_at": "2026-08-05",
-  "current_frontier": ["BRG-014"],
+  "current_frontier": ["BRG-003", "BRG-017"],
   "batches": [
     {
       "id": "B04a",
@@ -47,11 +47,12 @@
       "id": "BRG-014",
       "batch": "B04a",
       "title": "Separate operational setup from durable onboarding",
-      "status": "in_progress",
+      "status": "complete",
       "depends_on": [],
       "evidence": [
         "scripts/onboarding.py",
-        "tests/test_onboarding.py"
+        "tests/test_onboarding.py",
+        "docs/install.md"
       ],
       "external_readback_required": false
     },
@@ -68,7 +69,7 @@
       "id": "BRG-003",
       "batch": "B04b",
       "title": "Make vault binding explicit and deterministic",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["BRG-014"],
       "evidence": [],
       "external_readback_required": false
@@ -77,7 +78,7 @@
       "id": "BRG-017",
       "batch": "B04b",
       "title": "Enforce strict configuration parsing and diagnostics",
-      "status": "pending",
+      "status": "in_progress",
       "depends_on": ["BRG-014"],
       "evidence": [],
       "external_readback_required": false

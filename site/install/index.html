@@ -32,8 +32,8 @@
           <p>Install the isolated Python application, create a separate private vault, then inspect the setup plan before enabling anything autonomous.</p>
           <div class="page-meta">
             <span>Python 3.11+</span>
-            <span>Stable package: 2.0.0</span>
-            <span>Source line: 2.1.0rc1, unreleased</span>
+            <span>Release line: 2.1.0</span>
+            <span>Source/release line: 2.1.0</span>
           </div>
         </div>
       </header>
@@ -41,24 +41,26 @@
       <div class="container page-layout">
         <nav class="page-toc" aria-label="On this page">
           <strong>On this page</strong>
-          <a href="#install-tool">Install stable</a>
-          <a href="#create-vault">Create a stable vault</a>
-          <a href="#source">Opt into source 2.1</a>
-          <a href="#choose-intensity">Choose 2.1 intensity</a>
-          <a href="#wizard">Review the 2.1 wizard</a>
+          <a href="#install-tool">Install exact 2.1.0</a>
+          <a href="#create-vault">Create a private vault</a>
+          <a href="#upgrade">Upgrade to 2.1.0</a>
+          <a href="#choose-intensity">Choose an intensity</a>
+          <a href="#wizard">Review the wizard</a>
           <a href="#connect-client">Connect a client</a>
         </nav>
 
         <div>
           <section class="content-section" id="install-tool">
-            <h2>1. Install stable 2.0.0</h2>
-            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. This command installs the stable PyPI release.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.0.0">
-              <pre tabindex="0"><code>pipx install ai-dememory</code></pre>
+            <h2>1. Install exact 2.1.0</h2>
+            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. The exact pin fails instead of silently selecting an older release when 2.1.0 is not yet available.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+              <pre tabindex="0"><code>pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0</code></pre>
             </div>
             <p>Equivalent with uv:</p>
-            <div class="code-block" data-copy-block data-release="stable-2.0.0">
-              <pre tabindex="0"><code>uv tool install ai-dememory</code></pre>
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+              <pre tabindex="0"><code>uv tool install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0</code></pre>
             </div>
             <div class="callout callout-safe">
               <p>Installation is passive. It does not create a vault, scan provider folders, install hooks or scheduled jobs, or start a model.</p>
@@ -68,13 +70,13 @@
           <section class="content-section" id="create-vault">
             <h2>2. Create and verify a private vault</h2>
             <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.0.0">
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
               <pre tabindex="0"><code>ai-dememory init ~/code/my-memory
 cd ~/code/my-memory
 ai-dememory doctor
 ai-dememory index
 ai-dememory graph
-ai-dememory setup plan --json
+ai-dememory setup plan --require-version 2.1.0 --json
 ai-dememory setup health --json</code></pre>
             </div>
             <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. Run the remaining commands from inside that vault.</p>
@@ -85,17 +87,27 @@ ai-dememory setup health --json</code></pre>
             </ul>
           </section>
 
-          <section class="content-section" id="source">
-            <h2>3. Opt into source 2.1 deliberately</h2>
-            <p>PyPI currently serves stable 2.0.0. The public source declares 2.1.0rc1 but remains unreleased until its immutable tag, release workflow, verification, and explicit authorization exist.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.0rc1">
-              <pre tabindex="0"><code>pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git</code></pre>
+          <section class="content-section" id="upgrade">
+            <h2>3. Replace or repair with exact 2.1.0</h2>
+            <p>Upgrade a normal PyPI installation, verify the selected version, then regenerate and smoke-test every vault-bound MCP fragment.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+              <pre tabindex="0"><code>pipx install --force ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
+cd ~/code/my-memory
+ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory mcp-client-smoke</code></pre>
             </div>
-            <p>Use this instead of the PyPI command in a clean pipx environment when you intentionally want the development line. The following intensity, model-policy, wizard, and idle-lease behavior is 2.1 source functionality.</p>
+            <p>Use the exact <code>pipx install --force ai-dememory==2.1.0</code> command above to repair an environment that already tracks PyPI. If it came from a release candidate or mutable Git checkout, rebuild it against the immutable stable artifact:</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+              <pre tabindex="0"><code>pipx uninstall ai-dememory
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0</code></pre>
+            </div>
+            <p>Inspect the generated MCP output and replace the prior host entry yourself. The command does not silently edit Codex, Claude, or another client, and the emitted server command repeats the exact-version gate so a stale Docker image fails before serving MCP.</p>
           </section>
 
           <section class="content-section" id="choose-intensity">
-            <h2>4. Choose a bounded 2.1 intensity</h2>
+            <h2>4. Choose a bounded intensity</h2>
             <p>Intensity controls local work and context envelopes. It does not select a language model and is not a promise of fixed machine cost.</p>
             <table class="profile-table">
               <caption>Built-in operating profiles</caption>
@@ -132,7 +144,7 @@ ai-dememory setup health --json</code></pre>
                 </tr>
               </tbody>
             </table>
-            <p><strong>Balanced is recommended for a first 2.1 source installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
+            <p><strong>Balanced is recommended for a first verified 2.1.0 installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
 
             <h3>Model policy is separate</h3>
             <ul>
@@ -146,18 +158,19 @@ ai-dememory setup health --json</code></pre>
           </section>
 
           <section class="content-section" id="wizard">
-            <h2>5. Review and confirm the 2.1 setup wizard</h2>
+            <h2>5. Review and confirm the setup wizard</h2>
             <p>Start with a machine-readable plan, then use the interactive wizard. It exposes the config-only operating policy, caps, planned file, and an exact fingerprint before asking once whether to apply that same in-memory plan.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.0rc1">
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
               <pre tabindex="0"><code>ai-dememory setup plan \
+  --require-version 2.1.0 \
   --intensity balanced \
   --model-policy off --json
-ai-dememory setup wizard
+ai-dememory setup wizard --require-version 2.1.0
 ai-dememory setup health --json
 # Optional, separate reviewed personal memory
 ai-dememory onboard</code></pre>
             </div>
-            <p>Answering no writes nothing and reports that setup is incomplete. <code>setup wizard --json</code> previews safe operational defaults without prompting. Personal values and project profiles belong only to the optional <code>ai-dememory onboard</code> flow. Both machine-readable contracts stay passive: apply still requires the exact preview fingerprint via <code>--expect-plan-sha256</code>, and changed input requires a fresh preview.</p>
+            <p>Answering no writes nothing and reports that setup is incomplete. <code>setup wizard --require-version 2.1.0 --json</code> previews safe operational defaults without prompting. Personal values and project profiles belong only to the optional <code>ai-dememory onboard</code> flow. Both machine-readable contracts stay passive: apply still requires the exact preview fingerprint via <code>--expect-plan-sha256</code>, and changed input requires a fresh preview.</p>
             <div class="callout callout-safe">
               <p>The wizard applies only <code>.ai-dememory.toml</code>. It does not create personal memory or install MCP configuration, hooks, provider imports, or scheduler jobs. Each remains a separate, inspectable step.</p>
             </div>
@@ -166,11 +179,12 @@ ai-dememory onboard</code></pre>
           <section class="content-section" id="connect-client">
             <h2>6. Connect an AI client</h2>
             <p>Generate vault-bound configuration from inside your vault, inspect it, and smoke-test the installed client path.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.0.0">
-              <pre tabindex="0"><code>ai-dememory mcp-config --client codex
+            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+              <pre tabindex="0"><code>ai-dememory version-check 2.1.0
+ai-dememory mcp-config --client codex --require-version 2.1.0
 ai-dememory mcp-client-smoke</code></pre>
             </div>
-            <p>These commands exist in stable 2.0.0. The current 2.1 source additionally makes the default <code>core</code> profile a four-tool server-enforced boundary, requires the bound vault, and generates a 600-second balanced idle lease so an abandoned MCP process exits.</p>
+            <p>The verified 2.1.0 executable makes <code>core</code> the reduced four-tool, server-enforced default, requires the bound vault, repeats the 2.1.0 runtime gate, and generates a 600-second balanced idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
             <p><a href="../architecture/#process-lifecycle">See the process lifecycle</a> or read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-mcp.md">full MCP guide on GitHub</a>.</p>
           </section>
         </div>

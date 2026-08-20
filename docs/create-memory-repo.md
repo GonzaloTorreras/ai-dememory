@@ -54,7 +54,12 @@ For users who prefer GitHub UI setup:
 5. Mark the repository as a GitHub template.
 6. Users click "Use this template".
 7. Users create a private repository from the template.
-8. Users clone their private repo and install the tool with `pipx`.
+8. Users clone their private repo and install the exact release with:
+
+   ```bash
+   pipx install ai-dememory==2.1.0
+   ai-dememory version-check 2.1.0
+   ```
 
 The export command copies the same template used by `ai-dememory init`. It
 does not create a GitHub repository, push commits, mark a repository as a
@@ -81,7 +86,8 @@ Do not commit:
 Generate client config from inside the vault:
 
 ```bash
-ai-dememory mcp-config --client codex
+ai-dememory version-check 2.1.0
+ai-dememory mcp-config --client codex --require-version 2.1.0
 ```
 
 Use the generated `AI_DEMEMORY_ROOT` path so the MCP server reads the user's

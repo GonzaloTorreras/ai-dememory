@@ -188,7 +188,7 @@ python3 scripts/ai_dememory.py review recommendation-outcomes --json
 python3 scripts/ai_dememory.py review recommendation-outcomes --limit 50 --offset 50 --invalid-offset 50 --json
 python3 scripts/ai_dememory.py conflict resolve --id conf_example --keep mem_example --recommendation-id rec_example --reviewer you
 python3 scripts/ai_dememory.py api --host 127.0.0.1 --port 8765
-python3 scripts/ai_dememory.py mcp --stdio
+python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
 ```
 
 Direct script entry points remain available:
@@ -220,7 +220,7 @@ python3 scripts/context_memory.py codex --budget 2000
 python3 scripts/graph_memory.py --json
 python3 scripts/http_api.py --host 127.0.0.1 --port 8765
 python3 scripts/provider_import.py detect
-python3 scripts/setup_plan.py plan --json
+python3 scripts/setup_plan.py --root ~/code/my-memory plan --json
 python3 scripts/provider_import.py capture markdown --path ./notes.md
 python3 scripts/git_lessons.py --git --days 7 --repo .
 python3 scripts/git_lessons.py --git --days 7 --repo . --write

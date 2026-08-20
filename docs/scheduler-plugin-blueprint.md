@@ -60,7 +60,7 @@ review-only generated receipts.
 The Codex plugin is a workflow bundle around the installed CLI:
 
 - `.codex-plugin/plugin.json` describes the plugin.
-- `.mcp.json` launches `ai-dememory mcp --stdio`.
+- `.mcp.json` launches the packaged, version-gated stdio MCP server.
 - `hooks/hooks.json` captures small session-event metadata.
 - skills guide setup, recall, working sessions, inbox review, and maintenance.
 
@@ -98,10 +98,11 @@ Hooks must not:
 
 Recommended local setup:
 
-1. Install the CLI with `pipx install ai-dememory` or
-   `uv tool install ai-dememory`.
+1. Install the exact CLI with `pipx install ai-dememory==2.1.0` or
+   `uv tool install ai-dememory==2.1.0`, then require
+   `ai-dememory version-check 2.1.0` to succeed.
 2. Create or select a private vault with `ai-dememory init <vault>`.
-3. Run `ai-dememory setup plan --json`.
+3. Run `ai-dememory setup plan --require-version 2.1.0 --json`.
 4. Run `ai-dememory setup health --json`.
 5. Generate MCP config for the chosen client.
 6. Preview hooks with `ai-dememory hooks install --client all --dry-run`.

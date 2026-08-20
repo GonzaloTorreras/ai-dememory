@@ -6,10 +6,24 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
+import sys
 from typing import Any
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.path:
+    # A direct source-checkout command must not mix with an older installed
+    # ai_dememory_tool package that happens to appear earlier on sys.path.
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from ai_dememory_tool.argument_safety import (  # noqa: E402
+    reject_duplicate_options,
+    validate_docker_image_argument,
+)
+
 from context_memory import context_defaults_status
+from command_render import render_copy_command
 from maintenance import generated_packet_archive_summary, maintenance_artifact_targets, maintenance_status
 from hook_event import hook_status_summary
 from manual_acceptance import acceptance_plan
@@ -25,6 +39,7 @@ from resource_policy import (
     profile_names,
     resolved_resource_policy,
 )
+from runtime_identity import current_package_version
 from schedule_memory import immutable_docker_image, schedule_environment, schedule_status
 from validate_memory import validate_repo_result
 from vector_gate import evaluate_vector_readiness
@@ -34,8 +49,61 @@ CLIENTS = ("codex", "claude", "generic")
 MODES = ("installed", "docker", "both")
 
 
+PACKAGE_VERSION = current_package_version()
+
+
 def selected_clients(client: str) -> list[str]:
     return list(CLIENTS) if client == "all" else [client]
+
+
+def _root_bound_command(command: str, root: Path, *arguments: str) -> list[str]:
+    """Build one generated CLI command with its sole global vault binding."""
+    if any(argument == "--root" or argument.startswith("--root=") for argument in arguments):
+        raise ValueError("generated command arguments must not contain a second --root binding")
+    return [command, "--root", str(root.expanduser().resolve()), *arguments]
+
+
+def _bind_nested_plan_commands(value: Any, *, command: str, root: Path) -> Any:
+    """Bind command arrays returned by a nested setup-plan producer to *root*.
+
+    ``provider_setup_plan`` is intentionally reusable on its own, but its
+    command arrays become part of this root-bound setup plan when embedded
+    here.  Only arrays whose executable is the configured command are changed;
+    explanatory lists and other metadata remain untouched.
+    """
+    if isinstance(value, list):
+        if value and all(isinstance(item, str) for item in value):
+            if value[0] == command:
+                root_indexes = [
+                    index
+                    for index, argument in enumerate(value)
+                    if argument == "--root" or argument.startswith("--root=")
+                ]
+                if not root_indexes:
+                    return _root_bound_command(command, root, *value[1:])
+                if len(value) < 3 or root_indexes != [1] or value[1] != "--root":
+                    raise ValueError(
+                        "nested generated command must use exactly one global --root binding"
+                    )
+                try:
+                    nested_root = Path(value[2]).expanduser().resolve()
+                    expected_root = root.expanduser().resolve()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ValueError("nested generated command has an invalid --root binding") from exc
+                if nested_root != expected_root:
+                    raise ValueError("nested generated command is bound to a different vault root")
+                return list(value)
+            return list(value)
+        return [
+            _bind_nested_plan_commands(item, command=command, root=root)
+            for item in value
+        ]
+    if isinstance(value, dict):
+        return {
+            key: _bind_nested_plan_commands(item, command=command, root=root)
+            for key, item in value.items()
+        }
+    return value
 
 
 def mcp_config_command(
@@ -47,20 +115,21 @@ def mcp_config_command(
     idle_timeout_seconds: int,
     profile: str,
 ) -> list[str]:
-    args = [
+    args = _root_bound_command(
         command,
+        root,
         "mcp-config",
         "--client",
         client,
         "--mode",
         mode,
-        "--root",
-        str(root),
         "--idle-timeout-seconds",
         str(idle_timeout_seconds),
         "--profile",
         profile,
-    ]
+        "--require-version",
+        PACKAGE_VERSION,
+    )
     if mode == "docker":
         args.extend(["--image", image])
     return args
@@ -75,30 +144,32 @@ def setup_plan(
     intensity: str = DEFAULT_INTENSITY,
     model_policy: str = DEFAULT_MODEL_POLICY,
 ) -> dict[str, Any]:
+    root = root.expanduser().resolve()
+    if mode in {"docker", "both"}:
+        image = validate_docker_image_argument(image)
     clients = selected_clients(client)
     modes = ["installed", "docker"] if mode == "both" else [mode]
     resource_policy = resolved_resource_policy(root, intensity=intensity, model_policy=model_policy)
     idle_timeout_seconds = int(resource_policy["resources"]["mcp_idle_timeout_seconds"])
     docker_schedule_installable = immutable_docker_image(image)
+    plan_command = lambda *arguments: _root_bound_command(command, root, *arguments)
     commands: dict[str, Any] = {
-        "setup_preview": [
-            command,
+        "setup_preview": plan_command(
             "setup",
             "wizard",
-            "--root",
-            str(root),
+            "--require-version",
+            PACKAGE_VERSION,
             "--intensity",
             intensity,
             "--model-policy",
             model_policy,
             "--json",
-        ],
-        "setup_apply": [
-            command,
+        ),
+        "setup_apply": plan_command(
             "setup",
             "wizard",
-            "--root",
-            str(root),
+            "--require-version",
+            PACKAGE_VERSION,
             "--intensity",
             intensity,
             "--model-policy",
@@ -107,47 +178,39 @@ def setup_plan(
             "--expect-plan-sha256",
             "<preview plan_sha256>",
             "--json",
-        ],
-        "optional_onboarding_preview": [
-            command,
+        ),
+        "optional_onboarding_preview": plan_command(
             "onboard",
-            "--root",
-            str(root),
             "--input-file",
             "<reviewed-onboarding.json>",
             "--json",
-        ],
-        "optional_onboarding_apply": [
-            command,
+        ),
+        "optional_onboarding_apply": plan_command(
             "onboard",
-            "--root",
-            str(root),
             "--input-file",
             "<reviewed-onboarding.json>",
             "--apply",
             "--expect-plan-sha256",
             "<preview plan_sha256>",
             "--json",
-        ],
-        "doctor": [command, "doctor"],
-        "index": [command, "index"],
-        "graph": [command, "graph"],
-        "provider_plan": [command, "providers", "plan", "--json"],
-        "hook_install_dry_run": [command, "hooks", "install", "--client", "all", "--dry-run"],
-        "schedule_environment": [command, "schedule", "doctor", "--json"],
-        "schedule_plan": [command, "schedule", "plan", "--intensity", intensity, "--json"],
-        "schedule_dry_run": [command, "schedule", "setup", "--intensity", intensity, "--dry-run"],
-        "schedule_cron": [command, "schedule", "cron", "--intensity", intensity],
-        "docker_schedule_environment": [
-            command,
+        ),
+        "doctor": plan_command("doctor"),
+        "index": plan_command("index"),
+        "graph": plan_command("graph"),
+        "provider_plan": plan_command("providers", "plan", "--json"),
+        "hook_install_dry_run": plan_command("hooks", "install", "--client", "all", "--dry-run"),
+        "schedule_environment": plan_command("schedule", "doctor", "--json"),
+        "schedule_plan": plan_command("schedule", "plan", "--intensity", intensity, "--json"),
+        "schedule_dry_run": plan_command("schedule", "setup", "--intensity", intensity, "--dry-run"),
+        "schedule_cron": plan_command("schedule", "cron", "--intensity", intensity),
+        "docker_schedule_environment": plan_command(
             "schedule",
             "doctor",
             "--json",
             "--mode",
             "docker",
-        ],
-        "docker_schedule_plan": [
-            command,
+        ),
+        "docker_schedule_plan": plan_command(
             "schedule",
             "plan",
             "--json",
@@ -157,9 +220,8 @@ def setup_plan(
             intensity,
             "--image",
             image,
-        ],
-        "docker_schedule_dry_run": [
-            command,
+        ),
+        "docker_schedule_dry_run": plan_command(
             "schedule",
             "setup",
             "--dry-run",
@@ -169,9 +231,8 @@ def setup_plan(
             "docker",
             "--image",
             image,
-        ] if docker_schedule_installable else [],
-        "docker_schedule_cron": [
-            command,
+        ) if docker_schedule_installable else [],
+        "docker_schedule_cron": plan_command(
             "schedule",
             "cron",
             "--intensity",
@@ -180,25 +241,25 @@ def setup_plan(
             "docker",
             "--image",
             image,
-        ] if docker_schedule_installable else [],
-        "daily_maintenance": [command, "maintenance", "run", "--profile", "daily"],
-        "weekly_maintenance": [command, "maintenance", "run", "--profile", "weekly"],
-        "acceptance_plan": [command, "acceptance", "plan", "--json"],
+        ) if docker_schedule_installable else [],
+        "daily_maintenance": plan_command("maintenance", "run", "--profile", "daily"),
+        "weekly_maintenance": plan_command("maintenance", "run", "--profile", "weekly"),
+        "acceptance_plan": plan_command("acceptance", "plan", "--json"),
         "generated_reports": {
-            "recall_review_plan": [command, "recall-fixtures", "review-plan", "--write-report"],
-            "recall_review_packet": [command, "recall-fixtures", "packet", "--write-report"],
-            "manual_acceptance_plan": [command, "acceptance", "plan", "--write-report"],
-            "manual_acceptance_packet": [command, "acceptance", "packet", "--write-report"],
-            "hook_capture_review": [command, "hooks", "captures", "--write-report"],
-            "release_evidence": [command, "release-evidence", "--write-report"],
+            "recall_review_plan": plan_command("recall-fixtures", "review-plan", "--write-report"),
+            "recall_review_packet": plan_command("recall-fixtures", "packet", "--write-report"),
+            "manual_acceptance_plan": plan_command("acceptance", "plan", "--write-report"),
+            "manual_acceptance_packet": plan_command("acceptance", "packet", "--write-report"),
+            "hook_capture_review": plan_command("hooks", "captures", "--write-report"),
+            "release_evidence": plan_command("release-evidence", "--write-report"),
         },
         "generated_archive_status": {
-            "recall_review_packets": [command, "recall-fixtures", "packet-archive-status", "--json"],
-            "manual_acceptance_packets": [command, "acceptance", "packet-archive-status", "--json"],
+            "recall_review_packets": plan_command("recall-fixtures", "packet-archive-status", "--json"),
+            "manual_acceptance_packets": plan_command("acceptance", "packet-archive-status", "--json"),
         },
         "generated_archive_retention": {
-            "recall_review_packets": [command, "recall-fixtures", "packet-archive-retention-plan", "--json"],
-            "manual_acceptance_packets": [command, "acceptance", "packet-archive-retention-plan", "--json"],
+            "recall_review_packets": plan_command("recall-fixtures", "packet-archive-retention-plan", "--json"),
+            "manual_acceptance_packets": plan_command("acceptance", "packet-archive-retention-plan", "--json"),
         },
     }
     commands["mcp_configs"] = [
@@ -215,13 +276,18 @@ def setup_plan(
         for selected in clients
     ]
     commands["hook_configs"] = [
-        [command, "hooks", "config", "--client", selected, "--root", str(root)]
+        plan_command("hooks", "config", "--client", selected)
         for selected in clients
         if selected in {"codex", "claude"}
     ]
-    provider_plan = provider_setup_plan(root, command=command)
+    provider_plan = _bind_nested_plan_commands(
+        provider_setup_plan(root, command=command),
+        command=command,
+        root=root,
+    )
     result = {
         "root": str(root),
+        "generated_by_version": PACKAGE_VERSION,
         "client": client,
         "mode": mode,
         "intensity": intensity,
@@ -496,8 +562,26 @@ def setup_health_maintenance_preflight(root: Path, maintenance: dict[str, Any]) 
             "enabled": provider_readiness.get("enabled_count", 0),
             "import_ready": provider_readiness.get("import_ready_count", 0),
         },
-        "daily_dry_run_command": ["ai-dememory", "maintenance", "run", "--profile", "daily", "--dry-run", "--json"],
-        "weekly_dry_run_command": ["ai-dememory", "maintenance", "run", "--profile", "weekly", "--dry-run", "--json"],
+        "daily_dry_run_command": _root_bound_command(
+            "ai-dememory",
+            root,
+            "maintenance",
+            "run",
+            "--profile",
+            "daily",
+            "--dry-run",
+            "--json",
+        ),
+        "weekly_dry_run_command": _root_bound_command(
+            "ai-dememory",
+            root,
+            "maintenance",
+            "run",
+            "--profile",
+            "weekly",
+            "--dry-run",
+            "--json",
+        ),
         "daily_artifacts": maintenance_artifact_targets(root, "daily"),
         "weekly_artifacts": maintenance_artifact_targets(root, "weekly"),
     }
@@ -577,25 +661,66 @@ def setup_health_recall_review(root: Path) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    argv = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help="Vault root. Defaults to the current vault or checkout.")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
-    plan = subparsers.add_parser("plan", help="Print a read-only local setup plan.")
+    plan = subparsers.add_parser("plan", help="Print a read-only local setup plan.", allow_abbrev=False)
     plan.add_argument("--client", choices=(*CLIENTS, "all"), default="all")
     plan.add_argument("--mode", choices=MODES, default="installed")
     plan.add_argument("--command", default="ai-dememory", help="CLI command to include in generated command arrays.")
     plan.add_argument("--image", default="ai-dememory:local", help="Docker image for Docker command examples.")
     plan.add_argument("--intensity", choices=profile_names(), default=DEFAULT_INTENSITY)
     plan.add_argument("--model-policy", choices=model_policy_names(), default=DEFAULT_MODEL_POLICY)
+    plan.add_argument(
+        "--require-version",
+        metavar="VERSION",
+        help="Fail before resolving the vault or emitting a plan unless this exact ai-dememory version is running.",
+    )
     plan.add_argument("--json", action="store_true", help="Emit JSON output.")
-    health = subparsers.add_parser("health", help="Print read-only local setup health.")
+    health = subparsers.add_parser("health", help="Print read-only local setup health.", allow_abbrev=False)
     health.add_argument("--platform", choices=("windows", "linux", "macos"), default=None)
     health.add_argument("--mode", choices=("installed", "docker"), default="installed")
     health.add_argument("--json", action="store_true", help="Emit JSON output.")
 
+    reject_duplicate_options(
+        parser,
+        argv,
+        (
+            "--root",
+            "--client",
+            "--mode",
+            "--command",
+            "--image",
+            "--intensity",
+            "--model-policy",
+            "--require-version",
+            "--platform",
+        ),
+    )
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    explicit_root = args.root if args.root and args.root.strip() else None
+    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
+    configured_root = configured_root if configured_root and configured_root.strip() else None
+    if (
+        args.command_name == "plan"
+        and args.require_version is not None
+        and args.require_version != PACKAGE_VERSION
+    ):
+        parser.error(
+            f"version mismatch: expected {args.require_version}, found {PACKAGE_VERSION}"
+        )
+    if (
+        args.command_name in {"plan", "health"}
+        and not explicit_root
+        and not configured_root
+    ):
+        parser.error(
+            f"setup {args.command_name} requires an explicit vault binding; "
+            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+        )
+    root = repo_root(explicit_root)
 
     if args.command_name == "plan":
         result = setup_plan(
@@ -614,12 +739,14 @@ def main(argv: list[str] | None = None) -> int:
             print("Package, plugin, and plan commands are passive; review before installing hooks or schedules.")
             for name, value in result["commands"].items():
                 if isinstance(value, list) and value and all(isinstance(item, str) for item in value):
-                    print(f"- {name}: {' '.join(value)}")
+                    print(f"- {name}: {render_copy_command(value)}")
                 elif isinstance(value, dict):
                     print(f"- {name}:")
                     for report_name, report_command in value.items():
                         if isinstance(report_command, list) and all(isinstance(item, str) for item in report_command):
-                            print(f"  - {report_name}: {' '.join(report_command)}")
+                            print(
+                                f"  - {report_name}: {render_copy_command(report_command)}"
+                            )
             print("Next: run the commands for the client and provider paths you choose.")
         return 0
 

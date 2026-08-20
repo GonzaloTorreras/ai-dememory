@@ -20,7 +20,8 @@ Publish `ai-dememory` as a Python application package with the
 `ai-dememory` console script. Users install with:
 
 ```bash
-pipx install ai-dememory
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
 This keeps application dependencies isolated and makes upgrades simple.
@@ -28,16 +29,22 @@ This keeps application dependencies isolated and makes upgrades simple.
 `uv` users can install the same package with:
 
 ```bash
-uv tool install ai-dememory
+uv tool install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
-### Development snapshot: GitHub URL install
+### Development snapshot: reviewed local checkout
 
 For unreleased commits:
 
 ```bash
-pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
+git clone https://github.com/GonzaloTorreras/ai-dememory.git
+cd ai-dememory
+pipx install .
 ```
+
+Review the selected commit before the local install. Stable user instructions
+never execute a mutable VCS URL or an ephemeral package runner.
 
 ### Vault creation: CLI template
 
@@ -89,13 +96,14 @@ server.
 ## Setup UX Target
 
 ```bash
-pipx install ai-dememory
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ai-dememory init ~/code/my-memory
 cd ~/code/my-memory
 ai-dememory doctor
 ai-dememory doctor --json --summary
 ai-dememory index
-ai-dememory mcp-config --client codex
+ai-dememory mcp-config --client codex --require-version 2.1.0
 ai-dememory eval-recall
 ```
 

@@ -8,17 +8,26 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-The checked-in plugin configuration targets the unreleased 2.1.0rc1 source line;
-its server profile, required-root flag, and idle lease are not compatible with
-stable 2.0.0. Install the matching source package in a clean pipx environment:
+The checked-in plugin configuration targets stable 2.1.0. Install the matching
+PyPI package in an isolated environment:
 
 ```bash
-pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
-Stable 2.0.0 users can still generate and install its simpler client config with
-`ai-dememory mcp-config --client codex`, but should not copy the checked-in 2.1
-plugin MCP fragment.
+When upgrading an existing installation, replace it with the exact release and
+fail closed before regenerating the vault-specific fragment:
+
+```bash
+pipx install --force ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
+cd ~/code/my-memory
+ai-dememory mcp-config --client codex --require-version 2.1.0
+```
+
+Replace the old host entry only after inspection. The generator does not
+silently edit Codex configuration.
 
 Then initialize or select a vault:
 
@@ -38,7 +47,7 @@ explicit opt-in actions.
 The plugin MCP config launches:
 
 ```bash
-ai-dememory mcp --stdio --idle-timeout-seconds 600 --profile public --require-bound-root
+ai-dememory mcp --stdio --idle-timeout-seconds 600 --require-version 2.1.0 --profile public --require-bound-root
 ```
 
 The checked-in template deliberately has no private vault path and therefore
@@ -79,6 +88,11 @@ injection regardless of client arguments. This keeps a public-repository agent
 from recalling private/internal vault state. See
 [MCP tool profiles](mcp-tool-profiles.md) for private-vault `core`, additive
 `working`/`review`, and explicit `admin` profiles.
+
+For private vaults, reduced four-tool `core` is the generated default. The
+explicit `admin` profile preserves the complete historical MCP surface for
+compatibility and broad maintenance work; do not use it as the normal plugin or
+private-vault default.
 
 The broader review/admin server inventory remains available for clients that
 opt in:

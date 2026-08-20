@@ -13,4 +13,4 @@ RUN python -m pip install --no-cache-dir .
 
 VOLUME ["/memory"]
 ENTRYPOINT ["ai-dememory"]
-CMD ["mcp", "--stdio"]
+CMD ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"]

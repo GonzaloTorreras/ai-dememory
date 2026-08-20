@@ -3,10 +3,9 @@
 This repository is the ai-dememory tool distribution repo. Users should install
 the tool, then create a separate private memory vault.
 
-PyPI currently serves stable `ai-dememory` 2.0.0. The public source tree declares
-2.1.0rc1, but those bytes are an unreleased development line until the immutable
-tag, canonical release workflow, post-index verification, and explicit release
-authorization are complete.
+The current release line is `ai-dememory` 2.1.0. Treat it as available only
+after the exact pinned install and fail-closed version check succeed; never
+substitute an older package for the documented capability line.
 
 ## Recommended User Install
 
@@ -20,27 +19,62 @@ distribution, release, and publishing commands live under
 aliases for existing automation.
 
 ```bash
-pipx install ai-dememory
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
 Equivalent `uv` tool install:
 
 ```bash
-uv tool install ai-dememory
+uv tool install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
-Upgrade later with:
+## Upgrade To Stable 2.1.0
+
+Replace or repair a normal PyPI installation with the exact release and verify
+it before using any 2.1-only command:
 
 ```bash
-pipx upgrade ai-dememory
+pipx install --force ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
+
+If the environment came from a release candidate or a mutable Git checkout,
+replace it explicitly with the immutable artifact instead of carrying that
+origin forward:
+
+```bash
+pipx uninstall ai-dememory
+pipx install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
+```
+
+After upgrading, regenerate each vault-bound MCP fragment and smoke-test the
+installed command:
+
+```bash
+ai-dememory version-check 2.1.0
+cd ~/code/my-memory
+ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory mcp-client-smoke
+```
+
+Repeat `mcp-config` for every configured client and replace the old host entry
+after inspection. The generator prints configuration; it does not silently edit
+the host. `--require-version 2.1.0` is checked atomically before vault
+resolution or stdout and embedded again in the emitted MCP server command, so
+neither a stale host executable nor a stale Docker image can serve the
+replacement fragment. This refresh carries the stable 2.1.0 bound-root requirement,
+server-enforced profile, allowlist, and idle lease into existing setups.
 
 If `pipx` is not available, use a virtual environment:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python3 -m pip install ai-dememory
+python3 -m pip install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
 PowerShell:
@@ -48,23 +82,14 @@ PowerShell:
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-py -3 -m pip install ai-dememory
+py -3 -m pip install ai-dememory==2.1.0
+ai-dememory version-check 2.1.0
 ```
 
-## From GitHub: Unreleased 2.1.0rc1
+## Contributor Install From A Local Checkout
 
-PyPI is the normal installation source. To test an unreleased development
-snapshot, install directly from GitHub:
-
-```bash
-pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git
-```
-
-Use this path, rather than the stable PyPI install, to evaluate `setup wizard`,
-resource intensity/model policy, generated MCP idle leases, and other 2.1.0rc1
-source behavior. Stable 2.0.0 does not contain those capabilities.
-
-Or from a local checkout:
+Stable users should install from PyPI. Contributors working in a reviewed local
+checkout can install that checkout into an isolated environment:
 
 ```bash
 pipx install .
@@ -87,9 +112,9 @@ cd ~/code/my-memory
 ai-dememory doctor
 ai-dememory index
 ai-dememory graph
-ai-dememory setup plan --json
+ai-dememory setup plan --require-version 2.1.0 --json
 ai-dememory setup health --json
-ai-dememory mcp-config --client codex
+ai-dememory mcp-config --client codex --require-version 2.1.0
 ai-dememory mcp-client-smoke
 ```
 
@@ -113,21 +138,24 @@ provider folders, run the wizard, or enable hook recall/capture.
 For a reviewable first-run checklist, use:
 
 ```bash
-ai-dememory setup plan --json
+ai-dememory setup plan --require-version 2.1.0 --json
 ```
 
-That command is available in stable 2.0.0 and remains passive.
+That command is available in stable 2.1.0 and remains passive.
 
-## Unreleased 2.1.0rc1 Wizard And Profiles
+## Stable 2.1.0 Wizard And Profiles
 
-This section describes the current public source line, not the stable 2.0.0
-package. Install from GitHub or a local checkout as described above before
-running these commands.
+The 2.1.0 release line includes the config-only wizard, bounded resource
+profiles, and separate optional onboarding described below; use it only after
+the exact version check succeeds.
 
-Then run `ai-dememory setup wizard` to review operational policy and limits.
+Then run `ai-dememory setup wizard --require-version 2.1.0` to review
+operational policy and limits without allowing a stale executable to emit the
+plan.
 The interactive command plans only `.ai-dememory.toml`, prints the exact
 fingerprint, and asks once whether to apply that same in-memory plan. A decline
-returns an incomplete status and writes nothing. `setup wizard --json` provides
+returns an incomplete status and writes nothing. `setup wizard
+--require-version 2.1.0 --json` provides
 the same deterministic, non-interactive preview with safe defaults. Changed
 answers or config drift always require a fresh preview.
 
@@ -170,6 +198,10 @@ The setup plan returns command arrays for MCP config, provider planning, hook
 config, scheduler dry-run, reviewed cron export, maintenance, and manual
 acceptance planning. It does not write files, install hooks, install schedules,
 read provider chat files, or write import candidates. It also includes a
+single exact generator `--require-version` gate in every generated MCP command,
+bound to the package version that produced the plan, plus the same gate inside
+every emitted MCP runtime command. Its wizard preview/apply arrays are gated as
+well. It also includes a
 `generated_reports` command group for optional recall review, manual acceptance
 plan, manual acceptance packet, recall review packet, hook capture review, and
 release evidence handoff reports; those commands create generated files only
@@ -220,22 +252,28 @@ canonical package workflow. `ready` is a deprecated alias for `core_ready`.
 Generate client config from inside the vault:
 
 ```bash
-ai-dememory mcp-config --client codex
-ai-dememory mcp-config --client claude
-ai-dememory mcp-config --client generic
+ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory mcp-config --client claude --require-version 2.1.0
+ai-dememory mcp-config --client generic --require-version 2.1.0
 ```
+
+Stable 2.1.0 generates the reduced four-tool, server-enforced `core` profile by
+default. The explicit `admin` profile preserves the complete historical MCP
+surface for compatibility and broad maintenance work; it is not the recommended
+default. Regenerate and re-install the client fragment after an upgrade rather
+than leaving an older unprofiled configuration in place.
 
 Run the server directly for a smoke test:
 
 ```bash
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | ai-dememory mcp --stdio
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | ai-dememory --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
 ```
 
 Docker is also supported for local stdio usage:
 
 ```bash
 docker build -t ai-dememory:local .
-ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory
+ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory --require-version 2.1.0
 ai-dememory mcp-client-smoke --mode docker --image ai-dememory:local --root ~/code/my-memory
 ```
 

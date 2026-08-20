@@ -86,7 +86,7 @@ animation, hover, or generated raster text.
 | Reviewed lifecycle | Show that review precedes durable storage. | Four-step activity flow; review is green and structurally boxed, not color-only. | Ordered vertical list. | Native ordered list is the canonical reading path; icons are decorative. |
 | Three-place separation | Prevent repository/tool/vault collapse. | Three explicit locations separated by inequality markers. | Three stacked sections retaining the same order. | Visible `not the same place` text and no reliance on arrows. |
 | Technical request flow | Trace one memory-bearing recall request. | C4/component flow: client -> delivery -> policy -> service -> Markdown/FTS -> provenance response. | Numbered sequence; SVG-like connector treatment removed. | Text outline names nodes, protocol, revalidation, and response fields. |
-| Resource envelopes | Compare unreleased 2.1 bounded policy presets without claiming measured cost or stable availability. | Directly labelled comparison table; balanced is recommended through border and text. | Rows become stacked definition blocks. | Header associations, captions, explicit `recommended` text, and a visible release boundary. |
+| Resource envelopes | Compare the 2.1.0 release-line bounded policy presets without claiming measured machine cost. | Directly labelled comparison table; balanced is recommended through border and text. | Rows become stacked definition blocks. | Header associations, captions, explicit `recommended` text, and a visible release boundary. |
 | Process lifecycle | Explain why abandoned MCP descendants terminate. | State/activity flow from client start to EOF/idle/deadline and process-tree exit. | Vertical state path. | Text fallback lists all exit triggers and host/package ownership boundary. |
 
 Fresh-pass status: local specialist pass using the software-architecture,
@@ -99,7 +99,7 @@ review remains required before PR readiness.
 | --- | --- |
 | Home mental model | `docs/architecture.md`, `README.md` |
 | Installation | `docs/install.md`, `pyproject.toml` |
-| Stable/source capability boundary | `README.md`, `docs/install.md`, audited `v2.0.0` tag behavior |
+| Stable capability boundary | `README.md`, `docs/install.md`, the 2.1.0 release contract and verified RC evidence |
 | Intensity/model policy | `docs/adr/0257-bounded-autonomy-and-resource-profiles.md`, `scripts/resource_policy.py` |
 | MCP setup | `docs/local-mcp.md`, `docs/mcp-tool-profiles.md` |
 | Python/Node boundary | `docs/adr/0254-python-node-runtime-boundary.md` |
@@ -108,8 +108,8 @@ review remains required before PR readiness.
 | Pages delivery boundary | `docs/adr/0259-manual-github-pages-deployment.md`, `.github/workflows/pages-validate.yml`, `.github/workflows/pages.yml`, `scripts/ci_guard.py`, `scripts/pages_artifact_guard.py` |
 
 The structural guard verifies that every listed source exists, keeps stable
-2.0.0 command blocks free of 2.1-only features, derives profile numbers and
-idle leases from `scripts/resource_policy.py`, and keeps the approved
+2.1.0 command blocks free of mutable VCS install paths, derives profile numbers
+and idle leases from `scripts/resource_policy.py`, and keeps the approved
 `SECURITY.md` plus private-reporting route aligned with the security page.
 
 ## Local Preview
