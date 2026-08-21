@@ -1,8 +1,11 @@
 # Operations Runbook
 
 This runbook covers normal local operation for the ai-dememory repository.
-It follows the 2.1.0 package line, including the wizard, resource intensities,
-server-enforced profiles, and generated MCP idle leases.
+
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The candidate keeps the same bounded
+profiles and idle leases while removing the generated compatibility pin.
 
 ## After Installing Exact 2.1.0
 
@@ -25,6 +28,10 @@ mutable Git checkout, rebuild it with `pipx uninstall ai-dememory` followed by
 `ai-dememory version-check 2.1.0` remains available for CI or support
 diagnostics; normal install, wizard, and client configuration paths do not
 need it.
+
+For the source candidate, use the same operational steps only after its package
+exists; its wizard-first command omits the legacy stable pin. Do not substitute
+an unreleased source version into a PyPI installation command.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for

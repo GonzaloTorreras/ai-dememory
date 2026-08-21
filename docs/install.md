@@ -3,13 +3,38 @@
 This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
-## First Run: Two Commands
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. This guide shows both contracts so the
+current source branch cannot be mistaken for the published package.
+
+## Published Stable 2.1.0: Legacy First Run
 
 Use `pipx` for normal CLI use: it keeps the Python application isolated while
 putting `ai-dememory` on your `PATH`.
 
 ```bash
 pipx install ai-dememory==2.1.0
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+```
+
+This is the shortest truthful wizard-first path for the published package. Its
+trailing compatibility gate is legacy 2.1.0 behavior. The exact tagged
+[v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md)
+keeps the full historical detail. `version-check` is a CI/support diagnostic,
+not an installation prerequisite.
+
+`uv` users can replace the first command with
+`uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
+`D:\Memory\my-vault`.
+
+## Source Candidate 2.1.1rc1: Wizard-First Behavior
+
+The reviewed source candidate removes the persistent `--require-version` pin
+from new setup and MCP configuration. Once its separate tag and package
+publication have completed, its first run will be:
+
+```bash
 ai-dememory init ~/code/my-memory --wizard
 ```
 
@@ -18,9 +43,10 @@ fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
 import chats, create personal memory, install hooks or schedules, or edit a
 client configuration. `balanced` is the recommended first-run intensity.
 
-`uv` users can replace the first command with
-`uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
-`D:\Memory\my-vault`.
+Do not infer an installation command from this candidate example: 2.1.1rc1 is
+not installable from a package index until it is tagged and published. The
+branch describes the candidate behavior; the next stable release will provide
+the actual immutable package command.
 
 ## Connect An AI Client (Optional)
 
@@ -33,9 +59,11 @@ host application's configuration on your behalf.
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-The generated runtime command contains the bound vault, a reduced `core`
-profile, and an idle lease. First-run users do not need to type those internal
-arguments themselves.
+That invocation is the same in 2.1.0 and the source candidate. Stable 2.1.0
+then persists the gate inside the generated runtime configuration; the candidate
+omits that generated pin. The generated runtime command contains the bound vault,
+a reduced `core` profile, and an idle lease. First-run users do not need to type
+those internal arguments themselves.
 
 ## Upgrade Or Diagnose
 
@@ -53,13 +81,13 @@ If `pipx` is unavailable, use a virtual environment or see the
 checkout and the development instructions in `DEVELOPMENT.md`; local/editable
 installs are not a normal user path.
 
-## What The Wizard Configures
+## What The Candidate Wizard Configures
 
-The interactive wizard changes operational policy only. Personal values,
-preferences, recommendations, and project profiles stay in the separate,
+The candidate interactive wizard changes operational policy only. Personal
+values, preferences, recommendations, and project profiles stay in the separate,
 optional `onboard` review/apply flow. For automation, the machine-readable
-`setup plan --json` preview remains available, but it is not needed
-before an interactive first run.
+`setup plan --json` preview remains available, but it is not needed before an
+interactive first run.
 
 | Intensity | Recall per eligible turn | Scheduled cadence after explicit setup | Provider candidates/run | File/scan ceilings |
 | --- | ---: | --- | ---: | --- |

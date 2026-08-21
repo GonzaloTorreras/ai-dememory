@@ -699,6 +699,23 @@ def plugin_skill_safety_issues(skill: str, text: str) -> list[str]:
     ]
 
 
+def plugin_mcp_version_pin_issues(server: dict[str, object]) -> list[str]:
+    """Reject an obsolete version gate in a persistent public plugin config."""
+    args = server.get("args")
+    if not isinstance(args, list):
+        return []
+    if any(
+        isinstance(arg, str)
+        and (arg == "--require-version" or arg.startswith("--require-version="))
+        for arg in args
+    ):
+        return [
+            "plugin MCP args must not emit obsolete persistent --require-version; "
+            "use ai-dememory version-check only for one-off diagnostics"
+        ]
+    return []
+
+
 def check_codex_plugin(root: Path) -> ReleaseCheck:
     plugin_root = root / "plugins" / "ai-dememory"
     errors: list[str] = []
@@ -766,6 +783,7 @@ def check_codex_plugin(root: Path) -> ReleaseCheck:
             if not isinstance(server, dict):
                 errors.append("plugin MCP ai-dememory server must be an object")
             else:
+                errors.extend(plugin_mcp_version_pin_issues(server))
                 enabled_tools = server.get("enabled_tools")
                 if not isinstance(enabled_tools, list) or not all(isinstance(tool, str) for tool in enabled_tools):
                     errors.append("plugin MCP enabled_tools must be a list of strings")

@@ -1,5 +1,10 @@
 # MCP Tool Profiles
 
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. Profile authority and bounded idle
+leases are shared; the candidate removes only the emitted version pin.
+
 The MCP server retains all 74 tools under explicit `admin` for compatibility,
 embedding, and advanced administration. Generated clients should not advertise
 or be able to call that entire surface by default. Every private-vault client
@@ -18,8 +23,9 @@ Profiles are additive:
 | `review` | 44 | 49,798 | 12,450 | `working` plus graph and review-first proposal, provenance, hook, import, conflict, and recommendation workflows. |
 | `admin` | 74 | 81,084 | 20,271 | Explicit unfiltered server surface, including maintenance, imports, indexing, release, and acceptance tooling. |
 
-These measurements come from the 2.1.0 server definitions and are guarded by
-the reproducible inventory command below; rerun it whenever a schema changes.
+These measurements come from the published 2.1.0 server definitions and are
+guarded by the reproducible inventory command below; rerun it whenever a schema
+changes or before claiming the same numbers for the source candidate.
 
 `admin` intentionally omits `enabled_tools` from generated Codex TOML. It is
 still passed to the server explicitly as the backwards-compatible escape hatch.

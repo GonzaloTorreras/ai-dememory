@@ -9,11 +9,13 @@ future vector indexes are generated from Markdown and can be rebuilt.
 
 ## Status
 
-- Current release line: `ai-dememory` 2.1.0. Availability is confirmed only
-  when the exact pinned install succeeds from PyPI; before that, stop rather
-  than falling back to an older package.
-- Current public source version: 2.1.0 on `main`; tag, package, and release
-  availability are verified separately by the immutable release workflow.
+- Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
+  only package line available from PyPI; confirm it with the exact pinned
+  install rather than falling back to an older package.
+- Source candidate 2.1.1rc1 is unreleased and not installable from a package
+  index until it is tagged and published. Its source behavior, tag, package,
+  and release availability are verified separately by the immutable release
+  workflow.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Runtime boundary: Python 3.11+ remains authoritative; Node is not a headless
@@ -37,23 +39,42 @@ enablement plus an exact-main dispatch remain separate production operations.
 
 ## Quick Start
 
-### First run: install, then use the wizard
+### Published stable 2.1.0: legacy first run
 
-Install the exact public package, then create a separate private vault and let
-the interactive wizard preview its bounded operational setup:
+The currently published package uses its version-gated setup flow. Install the
+exact public package and create a separate private vault:
 
 ```bash
 pipx install ai-dememory==2.1.0
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+```
+
+The wizard previews its plan, shows resource limits, and asks before it writes
+the vault's operational config. It never imports chats, creates personal memory,
+installs hooks or schedules, or edits a client configuration.
+
+The complete, immutable stable instructions live in the
+[v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md).
+Its generated MCP configuration later persists the same compatibility pin; that
+historical behavior is the specific patch correction in this candidate.
+
+`uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
+line. On Windows, use a private path such as `D:\Memory\my-vault` instead of the
+example path.
+
+### Source candidate 2.1.1rc1: wizard-first behavior, not an install route
+
+The candidate removes the persistent compatibility pin from newly generated
+configuration and makes the first run a single wizard-first command:
+
+```bash
 ai-dememory init ~/code/my-memory --wizard
 ```
 
-The wizard previews its plan, shows the resource limits, and asks before it
-writes the vault's operational config. It never imports chats, creates personal
-memory, installs hooks or schedules, or edits a client configuration.
-
-`uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
-line. On Windows, use a private path such as `D:\Memory\my-vault` instead of
-the example path.
+This describes the reviewed source candidate only. Do not try to install
+`2.1.1rc1` from PyPI or TestPyPI yet: no candidate package is installable until
+it is tagged and published. Once that separate release evidence exists, the
+next stable guide will replace the legacy 2.1.0 path above.
 
 ### Connect a client when you are ready
 

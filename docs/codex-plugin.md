@@ -8,8 +8,14 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-The checked-in plugin configuration targets stable 2.1.0. Install the matching
-PyPI package in an isolated environment:
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The checked-in plugin configuration
+follows the source candidate and must not be presented as a stable 2.1.0
+runtime contract.
+
+For published 2.1.0 compatibility, install the matching PyPI package in an
+isolated environment:
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -18,8 +24,12 @@ pipx install ai-dememory==2.1.0
 Create or select a private vault through the wizard:
 
 ```bash
-ai-dememory init ~/code/my-memory --wizard
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
+
+The candidate simplifies this first-run command to
+`ai-dememory init ~/code/my-memory --wizard` only after the candidate is
+tagged and published.
 
 When upgrading an existing installation, replace it with the selected release:
 

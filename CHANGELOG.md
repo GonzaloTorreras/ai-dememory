@@ -7,6 +7,16 @@ accepted by the release identity guard.
 
 ## [Unreleased]
 
+No changes are queued outside the 2.1.1 release line.
+
+## [2.1.1] - Unreleased
+
+This stable release entry is intentionally reserved. The candidate below has
+not been tagged or published from this change, and 2.1.0 remains the current
+published stable release.
+
+## [2.1.1rc1] - 2026-08-21
+
 ### Fixed
 
 - Stop persisting `--require-version` into generated MCP client configuration,
@@ -24,6 +34,8 @@ accepted by the release identity guard.
   run `ai-dememory init <vault> --wizard`. MCP configuration, diagnostics,
   indexing, hooks, schedulers, and advanced setup planning are now clearly
   optional follow-up actions rather than first-run prerequisites.
+
+[Compare v2.1.0...v2.1.1rc1](https://github.com/GonzaloTorreras/ai-dememory/compare/v2.1.0...v2.1.1rc1)
 
 ## [2.1.0] - 2026-08-18
 

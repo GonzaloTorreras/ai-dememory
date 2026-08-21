@@ -224,6 +224,7 @@ from release_check import (  # noqa: E402
     EXPECTED_PLUGIN_MCP_TOOLS,
     check_pr_gate,
     check_codex_plugin,
+    load_json as release_load_json,
     plugin_version_for_package,
     plugin_skill_safety_issues,
 )
@@ -11189,6 +11190,33 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn(f"{len(EXPECTED_PLUGIN_MCP_TOOLS)} tools", result.detail)
         self.assertIn(f"{len(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)} server-only tools classified", result.detail)
         self.assertIn("5 skills", result.detail)
+
+    def test_release_check_rejects_persistent_plugin_mcp_version_pin(self) -> None:
+        mcp_path = ROOT / "plugins" / "ai-dememory" / ".mcp.json"
+        original_mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
+        variants = (
+            ("separate argument", ["--require-version", "0.0.0"]),
+            ("equals argument", ["--require-version=0.0.0"]),
+        )
+        for label, extra_args in variants:
+            with self.subTest(variant=label):
+                pinned_mcp = json.loads(json.dumps(original_mcp))
+                pinned_mcp["mcpServers"]["ai-dememory"]["args"].extend(extra_args)
+
+                def load_json_with_persistent_version_pin(
+                    path: Path,
+                    errors: list[str],
+                    config_label: str,
+                ) -> dict[str, object] | None:
+                    if path == mcp_path:
+                        return pinned_mcp
+                    return release_load_json(path, errors, config_label)
+
+                with patch("release_check.load_json", side_effect=load_json_with_persistent_version_pin):
+                    result = check_codex_plugin(ROOT)
+
+                self.assertEqual(result.status, "fail")
+                self.assertIn("must not emit obsolete persistent --require-version", result.detail)
 
     def test_plugin_version_maps_release_candidates_to_exact_semver(self) -> None:
         self.assertEqual(plugin_version_for_package("2.1.0rc1"), "2.1.0-rc.1")

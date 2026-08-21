@@ -51,7 +51,7 @@ SOURCE_PATHS = (
 
 REQUIRED_COMMANDS = (
     "pipx install ai-dememory==2.1.0",
-    "ai-dememory init ~/code/my-memory --wizard",
+    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
 )
 
 STABLE_RELEASE_CONTRACTS = {
@@ -59,14 +59,21 @@ STABLE_RELEASE_CONTRACTS = {
         "required": (
             "pipx install ai-dememory==2.1.0",
             "pipx install --force ai-dememory==2.1.0",
-            "ai-dememory init ~/code/my-memory --wizard",
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
         ),
         "source_only": (
-            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
+            "ai-dememory init ~/code/my-memory --wizard",
         ),
     },
 }
+
+SOURCE_CANDIDATE_REQUIRED_COMMANDS = (
+    "ai-dememory init ~/code/my-memory --wizard",
+)
+SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER = (
+    "not installable from a package index until it is tagged and published"
+)
 
 RELEASE_SCOPE_DOCS = (
     "README.md",
@@ -101,18 +108,33 @@ STABLE_PACKAGE_COMMAND_RE = re.compile(
 STABLE_DOC_REQUIRED_COMMANDS = {
     "README.md": (
         "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
     ),
     "docs/install.md": (
         "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
     ),
-    "docs/local-mcp.md": ("pipx install ai-dememory==2.1.0",),
-    "docs/mcp-client-config.md": ("pipx install --force ai-dememory==2.1.0",),
+    "docs/local-mcp.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+    ),
+    "docs/mcp-client-config.md": (
+        "pipx install --force ai-dememory==2.1.0",
+        "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+    ),
     "docs/codex-plugin.md": ("pipx install ai-dememory==2.1.0",),
-    "docs/operations.md": ("pipx install --force ai-dememory==2.1.0",),
-    "docs/distribution.md": ("pipx install ai-dememory==2.1.0",),
-    "docs/create-memory-repo.md": ("pipx install ai-dememory==2.1.0",),
+    "docs/operations.md": (
+        "pipx install --force ai-dememory==2.1.0",
+        "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+    ),
+    "docs/distribution.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+    ),
+    "docs/create-memory-repo.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+    ),
 }
 
 EXPLICIT_ROOT_MCP_DOCS = {"docs/mcp-tool-profiles.md"}
@@ -120,12 +142,12 @@ EXPLICIT_ROOT_MCP_DOCS = {"docs/mcp-tool-profiles.md"}
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
         "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
     ),
     "install/index.html": (
         "pipx install ai-dememory==2.1.0",
         "pipx install --force ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
 }
@@ -222,15 +244,15 @@ CSS_RESOURCE_REFERENCE_RE = re.compile(
 CSS_URL_FUNCTION_RE = re.compile(r"url\s*\(\s*(?P<target>[^)]*)\s*\)", re.IGNORECASE)
 CSS_NON_URL_RESOURCE_FUNCTION_RE = re.compile(r"(?:image-set|image)\s*\(", re.IGNORECASE)
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
-    markers = [stable_version]
+    markers = [f"published stable {stable_version}"]
     if source_version != stable_version:
-        markers.append(f"unreleased {source_version}")
+        markers.append(f"source candidate {source_version} is unreleased")
     return tuple(markers)
 
 
 def site_release_lens(stable_version: str, source_version: str) -> str:
     if source_version != stable_version:
-        return f"Source line: {source_version}, unreleased"
+        return f"Source candidate: {source_version}, unreleased"
     return f"Source/release line: {source_version}"
 
 
@@ -2649,15 +2671,35 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
 
     install = (site_root / "install/index.html").read_text(encoding="utf-8")
     release_lens = site_release_lens(stable_version, source_version)
-    for expected, label in (
+    install_expectations = [
         (f"Release line: {stable_version}", "release line version"),
         (release_lens, "source version"),
         (f"Python {requires_python.removeprefix('>=')}+", "Python requirement"),
         (f"pipx install --force ai-dememory=={stable_version}", "exact stable upgrade command"),
-        ("ai-dememory init ~/code/my-memory --wizard", "wizard-first vault command"),
-        ("ai-dememory --root ~/code/my-memory mcp-config --client codex", "optional MCP client command"),
+        (
+            f"ai-dememory init ~/code/my-memory --wizard --require-version {stable_version}",
+            "legacy wizard-first vault command",
+        ),
+        (
+            "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+            "optional legacy MCP client command",
+        ),
         ("complete historical MCP surface", "admin compatibility warning"),
-    ):
+    ]
+    if source_version != stable_version:
+        install_expectations.extend(
+            [
+                (
+                    SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER,
+                    "unpublished candidate availability warning",
+                ),
+                (
+                    "ai-dememory init ~/code/my-memory --wizard",
+                    "candidate wizard-first vault command",
+                ),
+            ]
+        )
+    for expected, label in install_expectations:
         if expected not in install:
             errors.append(f"install/index.html: stale or missing {label}: {expected!r}")
 
@@ -2720,7 +2762,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             if command not in stable_commands:
                 errors.append(f"site: required first-run command is missing: {command!r}")
         for marker in contract["source_only"]:
-            if marker in stable_text:
+            if marker in stable_commands:
                 errors.append(f"site: stable {stable_version} command block contains source-only marker {marker!r}")
         for block in release_block_texts.get(stable_label, []):
             errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
@@ -2728,11 +2770,24 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         if source_version != stable_version:
             source_label = f"source-{source_version}"
             source_text = "\n".join(release_blocks.get(source_label, []))
-            for marker in (
-                "ai-dememory setup wizard",
-                "--intensity",
-                "--model-policy",
-            ):
+            source_commands = {
+                command
+                for block in release_block_texts.get(source_label, [])
+                for command in _executable_command_lines(block)
+            }
+            if not source_text:
+                errors.append(f"site: no command block is labelled {source_label!r}")
+            for command in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
+                if command not in source_commands:
+                    errors.append(
+                        f"site: source {source_version} command block is missing {command!r}"
+                    )
+            for command in source_commands:
+                if _tokens_contain_package_install(_preferred_shell_tokens(command)):
+                    errors.append(
+                        f"site: source {source_version} command blocks must not advertise an unpublished package install: {command!r}"
+                    )
+            for marker in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
                 if marker not in source_text:
                     errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
 

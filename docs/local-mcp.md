@@ -3,14 +3,18 @@
 `ai-dememory` is local-first. The MCP server uses stdio and reads a private
 memory vault through `AI_DEMEMORY_ROOT`.
 
-## Install And Create A Vault
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The published server instructions below
+retain its historical compatibility gate.
 
-Install the tool and let the wizard create the vault and choose its bounded
-operating policy:
+## Published Stable 2.1.0: Install And Create A Vault
+
+Install the tool and create the private vault:
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory init ~/code/my-memory --wizard
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
 Connecting a client is separate and optional. Generate the fragment for the
@@ -24,7 +28,7 @@ PowerShell:
 
 ```powershell
 pipx install ai-dememory==2.1.0
-ai-dememory init D:\Github\my-memory --wizard
+ai-dememory init D:\Github\my-memory --wizard --require-version 2.1.0
 ai-dememory --root D:\Github\my-memory mcp-config --client codex
 ```
 
@@ -34,7 +38,7 @@ idle lease:
 ```toml
 [mcp_servers.ai-dememory]
 command = "ai-dememory"
-args = ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"]
+args = ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"]
 enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.doctor"]
 
 [mcp_servers.ai-dememory.env]
@@ -58,6 +62,15 @@ checkout, replace it with `pipx uninstall ai-dememory` followed by
 
 `ai-dememory version-check 2.1.0` remains an explicit CI or support diagnostic;
 it is not a required installation or configuration step.
+
+## Source Candidate 2.1.1rc1: No Persistent Gate
+
+The candidate keeps root binding, server-enforced profiles, allowlists, and idle
+leases, while removing the generated `--require-version` pin. After it is
+tagged and published, its wizard-first route is
+`ai-dememory init ~/code/my-memory --wizard` and its generated configuration
+uses the normal vault-bound MCP configuration form. Those are source-candidate
+semantics, not an unpublished package install path.
 
 This is the shape accepted by Codex in `~/.codex/config.toml` or a trusted
 project's `.codex/config.toml`. Claude and generic output modes use JSON.

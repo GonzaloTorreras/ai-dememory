@@ -33,7 +33,7 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Release line: 2.1.0</span>
-            <span>Source/release line: 2.1.0</span>
+            <span>Source candidate: 2.1.1rc1, unreleased</span>
           </div>
         </div>
       </header>
@@ -41,9 +41,10 @@
       <div class="container page-layout">
         <nav class="page-toc" aria-label="On this page">
           <strong>On this page</strong>
-          <a href="#install-tool">Install exact 2.1.0</a>
-          <a href="#create-vault">Create a vault with the wizard</a>
-          <a href="#choose-intensity">Choose an intensity</a>
+          <a href="#install-tool">Install published 2.1.0</a>
+          <a href="#create-vault">Use the stable wizard</a>
+          <a href="#candidate">See the source candidate</a>
+          <a href="#choose-intensity">Choose a candidate intensity</a>
           <a href="#connect-client">Connect a client (optional)</a>
           <a href="#upgrade">Update or diagnose</a>
         </nav>
@@ -65,12 +66,12 @@
           </section>
 
           <section class="content-section" id="create-vault">
-            <h2>2. Create a private vault with the wizard</h2>
-            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. The wizard creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>.</p>
+            <h2>2. Use the published 2.1.0 wizard</h2>
+            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. Published 2.1.0 creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>.</p>
             <div class="code-block" data-copy-block data-release="stable-2.1.0">
-              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
+              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code></pre>
             </div>
-            <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
+            <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The trailing exact-version gate is a 2.1.0 compatibility detail, not a separate diagnostic step. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
             <ul class="checklist">
               <li>Markdown remains canonical and human-editable.</li>
               <li>The SQLite full-text index is generated and rebuildable.</li>
@@ -78,9 +79,18 @@
             </ul>
           </section>
 
+          <section class="content-section" id="candidate">
+            <h2>3. Source candidate 2.1.1rc1: the simplified wizard</h2>
+            <p>Source candidate 2.1.1rc1 is unreleased and not installable from a package index until it is tagged and published. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.1rc1">
+              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
+            </div>
+            <p>This is a behavior preview, not a package-install command. A tagged, published artifact and post-index verification are separate release steps.</p>
+          </section>
+
           <section class="content-section" id="choose-intensity">
-            <h2>3. Choose a bounded intensity</h2>
-            <p>The wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
+            <h2>4. Choose a bounded candidate intensity</h2>
+            <p>The candidate wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
             <table class="profile-table">
               <caption>Built-in operating profiles</caption>
               <thead>
@@ -116,7 +126,7 @@
                 </tr>
               </tbody>
             </table>
-            <p><strong>Balanced is recommended for a first installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
+            <p><strong>Balanced is recommended for a first candidate installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
 
             <h3>Model policy is separate</h3>
             <ul>
@@ -130,17 +140,17 @@
           </section>
 
           <section class="content-section" id="connect-client">
-            <h2>4. Connect an AI client (optional)</h2>
+            <h2>5. Connect an AI client (optional)</h2>
             <p>Generate vault-bound configuration only when you are ready to connect Codex, Claude, or another client. Inspect it before copying it into the host configuration. The wizard stops here because it cannot safely choose or edit a host application's settings on your behalf.</p>
             <div class="code-block" data-copy-block data-release="stable-2.1.0">
               <pre tabindex="0"><code>ai-dememory --root ~/code/my-memory mcp-config --client codex</code></pre>
             </div>
-            <p>The generated configuration binds the vault, makes <code>core</code> the reduced four-tool server-enforced default, and uses a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
+            <p>In published 2.1.0, the generated runtime configuration persists the historical exact-version pin; the candidate removes that generated pin. Both bind the vault, make <code>core</code> the reduced four-tool server-enforced default, and use a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
             <p><a href="../architecture/#process-lifecycle">See the process lifecycle</a> or read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-mcp.md">full MCP guide on GitHub</a>.</p>
           </section>
 
           <section class="content-section" id="upgrade">
-            <h2>5. Update or diagnose an installation</h2>
+            <h2>6. Update or diagnose a stable installation</h2>
             <p>Repair an existing pipx installation with the same immutable package pin. Use the normal version output when diagnosing a PATH or package issue.</p>
             <div class="code-block" data-copy-block data-release="stable-2.1.0">
               <pre tabindex="0"><code>pipx install --force ai-dememory==2.1.0
