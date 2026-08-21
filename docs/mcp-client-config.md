@@ -5,31 +5,41 @@ installed command against an explicit private vault. A source checkout may be
 the command working directory for development only; it must not also be the
 vault.
 
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The stable generated configuration below
+retains its historical runtime pin; the candidate removes that emitted pin.
+
 The 2.1.0 release line includes the server-enforced profiles, required-root flag,
 enabled-tool allowlist, and generated idle leases shown below. See
 [Local MCP server setup](local-mcp.md) for the complete installed-tool flow.
 
 ## Preferred Command
 
-Generate config from inside a memory vault:
+Create the vault with the wizard, then generate config only for a client you
+intend to connect:
 
 ```bash
-ai-dememory version-check 2.1.0
-ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
+
+The source candidate makes only the first line simpler:
+`ai-dememory init ~/code/my-memory --wizard`. It is an unreleased behavior,
+not a package installation instruction.
 
 After upgrading, run the generator again from every private vault, inspect its
 output, replace the previous host entry, and verify the installed launch path:
 
 ```bash
 pipx install --force ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-cd ~/code/my-memory
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
+ai-dememory --root ~/code/my-memory mcp-config --client codex
+ai-dememory --root ~/code/my-memory mcp-client-smoke
 ```
 
 The generator prints configuration; it does not silently edit the host.
+`ai-dememory version-check 2.1.0` remains available for CI or support
+diagnostics, not routine setup.
 
 Every client defaults to the server-enforced `--profile core`. Use
 `--profile working` for session writes, `--profile review` for inbox/review
@@ -74,7 +84,7 @@ For a Docker-backed local stdio server:
 
 ```bash
 docker build -t ai-dememory:local .
-ai-dememory mcp-config --client codex --mode docker --root /path/to/vault --require-version 2.1.0
+ai-dememory mcp-config --client codex --mode docker --root /path/to/vault
 ```
 
 Generic JSON form from an editable install:
@@ -82,7 +92,7 @@ Generic JSON form from an editable install:
 ```json
 {
   "command": "ai-dememory",
-  "args": ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"],
+  "args": ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "env": {
     "AI_DEMEMORY_ROOT": "D:\\memory-vault"
   }
@@ -94,7 +104,7 @@ Without editable install:
 ```json
 {
   "command": "py",
-  "args": ["-3", "scripts\\ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"],
+  "args": ["-3", "scripts\\ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "cwd": "D:\\Github\\ai-dememory",
   "env": {
     "AI_DEMEMORY_ROOT": "D:\\memory-vault"
@@ -113,7 +123,7 @@ For WSL/Linux paths:
 ```json
 {
   "command": "python3",
-  "args": ["scripts/ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"],
+  "args": ["scripts/ai_dememory.py", "mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
   "cwd": "/home/user/code/ai-dememory",
   "env": {
     "AI_DEMEMORY_ROOT": "/home/user/memory-vault"
@@ -131,8 +141,7 @@ python3 scripts/ai_dememory.py --root /home/user/memory-vault mcp-client-smoke \
 
 Adapt field names to the host application's MCP configuration format. The
 important contract is command, args, working directory, `AI_DEMEMORY_ROOT`, the
-server profile, exact runtime `--require-version`, and `--require-bound-root`.
-An unbound or version-mismatched generated configuration
+server profile, and `--require-bound-root`. An unbound generated configuration
 must fail closed instead of falling back to the public source checkout or an
 unintended vault.
 `ai-dememory mcp-client-smoke --config <file>` honors a `cwd` field when a

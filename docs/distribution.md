@@ -12,6 +12,11 @@ Users should not fork `ai-dememory` to store memory. Forking mixes private data
 with upstream tool code, complicates upgrades, and makes accidental disclosure
 more likely.
 
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. A reviewed local checkout is contributor
+development, not a substitute for an immutable candidate package.
+
 ## Recommended Channels
 
 ### Primary: PyPI package
@@ -21,7 +26,6 @@ Publish `ai-dememory` as a Python application package with the
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
 ```
 
 This keeps application dependencies isolated and makes upgrades simple.
@@ -30,7 +34,6 @@ This keeps application dependencies isolated and makes upgrades simple.
 
 ```bash
 uv tool install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
 ```
 
 ### Development snapshot: reviewed local checkout
@@ -51,10 +54,12 @@ never execute a mutable VCS URL or an ephemeral package runner.
 The package includes a vault template and exposes:
 
 ```bash
-ai-dememory init ./my-memory
+ai-dememory init ./my-memory --wizard --require-version 2.1.0
 ```
 
-This is the default setup path.
+This is the concise wizard-first setup path for the published 2.1.0 package.
+The source candidate removes the trailing legacy pin only after it has been
+tagged and published.
 
 ### Optional: GitHub template repo
 
@@ -97,15 +102,25 @@ server.
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory doctor --json --summary
-ai-dememory index
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory eval-recall
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
+
+The wizard chooses a bounded resource policy and writes the vault-local
+configuration. Connecting a client is a separate, optional action because the
+generated fragment must be inspected before it is copied into host config:
+
+```bash
+ai-dememory --root ~/code/my-memory mcp-config --client codex
+```
+
+`ai-dememory --version` is the ordinary confirmation after an install or
+upgrade. The `version-check` subcommand remains available for CI or
+support diagnostics; it is not part of first-run setup.
+
+When 2.1.1rc1 has passed its separate tag and publication gates, the next
+first-run form will be `ai-dememory init ~/code/my-memory --wizard`. Until then,
+that source-candidate behavior is intentionally not paired with an index install
+command.
 
 ## Stable Release Requirements
 

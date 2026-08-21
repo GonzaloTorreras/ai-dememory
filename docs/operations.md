@@ -1,28 +1,37 @@
 # Operations Runbook
 
 This runbook covers normal local operation for the ai-dememory repository.
-It follows the exact 2.1.0 package and matching source line, including
-the wizard, resource intensities, server-enforced profiles, and generated MCP
-idle leases.
+
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The candidate keeps the same bounded
+profiles and idle leases while removing the generated compatibility pin.
 
 ## After Installing Exact 2.1.0
 
-Upgrade a normal PyPI installation, then refresh every vault-bound client
-fragment because older MCP configuration does not carry the complete 2.1
-profile, root, allowlist, and idle-lease contract:
+If a vault already uses an MCP client, upgrade the normal PyPI installation,
+then refresh that vault-bound client fragment because older MCP configuration
+does not carry the complete 2.1 profile, root, allowlist, and idle-lease
+contract:
 
 ```bash
 pipx install --force ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-cd ~/code/my-memory
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
+ai-dememory --root ~/code/my-memory mcp-config --client codex
+ai-dememory --root ~/code/my-memory mcp-client-smoke
 ```
 
 Inspect and replace the old host entry yourself; the generator does not edit
 host configuration. If the pipx environment came from a release candidate or a
 mutable Git checkout, rebuild it with `pipx uninstall ai-dememory` followed by
-`pipx install ai-dememory==2.1.0` and `ai-dememory version-check 2.1.0`.
+`pipx install ai-dememory==2.1.0`.
+
+`ai-dememory version-check 2.1.0` remains available for CI or support
+diagnostics; normal install, wizard, and client configuration paths do not
+need it.
+
+For the source candidate, use the same operational steps only after its package
+exists; its wizard-first command omits the legacy stable pin. Do not substitute
+an unreleased source version into a PyPI installation command.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for
@@ -35,7 +44,7 @@ From the repository root:
 
 ```bash
 python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py setup plan --require-version 2.1.0 --json
+python3 scripts/ai_dememory.py setup plan --json
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py search "topic or project" --limit 5
 python3 scripts/ai_dememory.py eval-recall
@@ -263,7 +272,7 @@ Configure providers explicitly:
 
 ```bash
 python3 scripts/ai_dememory.py providers detect
-python3 scripts/ai_dememory.py setup plan --require-version 2.1.0 --json
+python3 scripts/ai_dememory.py setup plan --json
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py providers plan --json
 python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex" --dry-run --json

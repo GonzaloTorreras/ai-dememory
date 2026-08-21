@@ -26,9 +26,6 @@ from scripts.ai_release_guard import (  # noqa: E402
 from scripts.published_artifact_guard import compare, local_digests  # noqa: E402
 from scripts.eval_recall import summary  # noqa: E402
 from scripts.release_artifact_smoke import validate_wheel_namespaces  # noqa: E402
-from ai_dememory_tool import __version__  # noqa: E402
-
-
 class AiReleaseGuardTests(unittest.TestCase):
     def test_docker_build_context_is_source_allowlisted(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -43,7 +40,7 @@ class AiReleaseGuardTests(unittest.TestCase):
             self.assertNotIn(f"!{private_root}/", dockerignore)
         self.assertIn(
             'CMD ["mcp", "--stdio", "--idle-timeout-seconds", "600", '
-            f'"--require-version", "{__version__}", "--profile", "core", '
+            '"--profile", "core", '
             '"--require-bound-root"]',
             dockerfile,
         )

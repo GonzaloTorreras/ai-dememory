@@ -4471,11 +4471,10 @@ def main(argv: list[str] | None = None) -> int:
             f"Default: {DEFAULT_MCP_IDLE_TIMEOUT_SECONDS}; 0 disables the idle lease."
         ),
     )
-    parser.add_argument(
-        "--require-version",
-        metavar="VERSION",
-        help="Fail before serving MCP unless this exact ai-dememory version is running.",
-    )
+    # Earlier generated configurations included this option. Keep accepting it
+    # so upgrading the package does not strand an existing MCP client
+    # configuration, but do not advertise or enforce it for new ones.
+    parser.add_argument("--require-version", metavar="VERSION", help=argparse.SUPPRESS)
     parser.add_argument(
         "--require-bound-root",
         action="store_true",
@@ -4501,10 +4500,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.require_version is not None and args.require_version != __version__:
-        parser.error(
-            f"version mismatch: expected {args.require_version}, found {__version__}"
-        )
     explicit_root = root_binding_value(args.root)
     configured_root_raw = os.environ.get("AI_DEMEMORY_ROOT")
     configured_root = root_binding_value(configured_root_raw)

@@ -11,19 +11,21 @@ files, or promote memory.
 
 ## First Run
 
-1. Run `ai-dememory setup plan --require-version 2.1.0 --json`.
-2. For a human-guided first run, launch:
-   `ai-dememory setup wizard --require-version 2.1.0 --intensity <minimal|balanced|active> --model-policy <off|advisory|proposals>`.
-3. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
+1. For a human-guided first run, launch
+   `ai-dememory init <vault> --wizard`. The wizard creates the vault, previews
+   the available intensity and model-policy choices, and records only the
+   selected vault-local policy.
+2. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
    write, and `plan_sha256`. Confirm only after that preview; the wizard applies
    the exact same in-memory operating policy and fingerprint without asking for
    it again. It never creates personal memory.
-4. If the user explicitly wants reviewed personal or project memory, use the
+3. If the user explicitly wants reviewed personal or project memory, use the
    separate `ai-dememory onboard` preview. Setup and onboarding each keep the
    two-step JSON/stdin/input-file/dry-run contract: preview first, then apply
    the same input with `--apply --expect-plan-sha256 <sha> --json`.
-5. Run `ai-dememory doctor`, `ai-dememory index`, and
-   `ai-dememory setup health --json`.
+4. Run `ai-dememory --root <vault> index` after reviewed notes exist.
+   `ai-dememory --root <vault> doctor` and `ai-dememory --root <vault> setup
+   health --json` are optional diagnostics, not first-run gates.
 
 Prefer `balanced` unless the user or host constraints justify another profile:
 
@@ -41,9 +43,10 @@ durable memory.
 
 ## Integrations
 
-- Copy only the wizard-previewed, absolute-vault-bound MCP config for the
-  selected client. Generated servers enforce `core` by default and fail closed
-  without `AI_DEMEMORY_ROOT` or `--root`.
+- Generate and inspect an absolute-vault-bound MCP config only if the selected
+  client needs it: `ai-dememory --root <vault> mcp-config --client <client>`.
+  Generated servers enforce `core` by default and fail closed without
+  `AI_DEMEMORY_ROOT` or `--root`.
 - Generate hooks with
   `ai-dememory hooks config --client <codex|claude> --root <vault>`.
   Hook recall is public-only by default and capture metadata is off unless the

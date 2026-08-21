@@ -287,24 +287,6 @@ def cli_argument_error(message: str) -> None:
     raise SystemExit(2)
 
 
-def required_version_values(argv: list[str]) -> tuple[str, ...]:
-    """Read exact version gates without resolving the vault or importing tools."""
-    values: list[str] = []
-    index = 0
-    while index < len(argv):
-        argument = argv[index]
-        if argument == "--require-version":
-            if index + 1 >= len(argv):
-                cli_argument_error("--require-version requires a version")
-            values.append(argv[index + 1])
-            index += 2
-            continue
-        if argument.startswith("--require-version="):
-            values.append(argument.partition("=")[2])
-        index += 1
-    return tuple(values)
-
-
 def command_subcommand(argv: list[str]) -> str | None:
     """Return the first command token after an optional global root binding."""
     index = 0
@@ -367,14 +349,6 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command in {"mcp", "setup"} or onboarding_mode == "operational":
-        version_gates = required_version_values(argv)
-        if len(version_gates) > 1:
-            cli_argument_error("--require-version may be specified at most once")
-        if version_gates and version_gates[0] != __version__:
-            cli_argument_error(
-                f"ai-dememory version mismatch: expected {version_gates[0]}, found {__version__}"
-            )
     explicit_root = root_binding_value(root_arg_value(argv))
     configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
     if (
@@ -454,18 +428,11 @@ def init_vault(argv: list[str]) -> int:
     parser.add_argument(
         "--require-version",
         metavar="VERSION",
-        help="With --wizard, fail before creating the vault unless this exact version is running.",
+        help=argparse.SUPPRESS,
     )
     reject_duplicate_options(parser, argv, ("--require-version", "--wizard", "--no-wizard"))
     args = parser.parse_args(argv)
 
-    if args.wizard and args.require_version != __version__:
-        expected = args.require_version or "an explicit version"
-        print(
-            f"ai-dememory init --wizard version mismatch: expected {expected}, found {__version__}",
-            file=sys.stderr,
-        )
-        return 1
     if args.require_version is not None and not args.wizard:
         print("--require-version is valid only with --wizard", file=sys.stderr)
         return 2
@@ -481,12 +448,11 @@ def init_vault(argv: list[str]) -> int:
     if args.wizard:
         return run_packaged_command(
             "onboard",
-            ["--root", str(target), "--require-version", args.require_version],
+            ["--root", str(target)],
             onboarding_mode="operational",
         )
     print(
-        "Next: run `ai-dememory setup wizard --require-version "
-        f"{__version__}`; it previews one config-only plan and asks before applying it."
+        "Next: run `ai-dememory setup wizard`; it previews one config-only plan and asks before applying it."
     )
     print("Then run `ai-dememory doctor` and `ai-dememory index`.")
     return 0
@@ -548,10 +514,7 @@ def mcp_config(argv: list[str]) -> int:
     parser.add_argument(
         "--require-version",
         metavar="VERSION",
-        help=(
-            "Fail before emitting configuration unless this exact ai-dememory "
-            "version is running."
-        ),
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--profile",
@@ -583,11 +546,6 @@ def mcp_config(argv: list[str]) -> int:
         ),
     )
     args = parser.parse_args(argv)
-
-    if args.require_version is not None and args.require_version != __version__:
-        parser.error(
-            f"version mismatch: expected {args.require_version}, found {__version__}"
-        )
 
     explicit_root = root_binding_value(args.root)
     configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
@@ -667,8 +625,6 @@ def build_mcp_config(
                 "--stdio",
                 "--idle-timeout-seconds",
                 str(idle_timeout_seconds),
-                "--require-version",
-                __version__,
                 "--profile",
                 resolved_profile,
                 "--require-bound-root",
@@ -684,8 +640,6 @@ def build_mcp_config(
                 "--stdio",
                 "--idle-timeout-seconds",
                 str(idle_timeout_seconds),
-                "--require-version",
-                __version__,
                 "--profile",
                 resolved_profile,
                 "--require-bound-root",
@@ -732,60 +686,15 @@ def usage() -> str:
         [
             "",
             "Examples:",
-            "  ai-dememory init ~/code/my-memory",
+            "  ai-dememory init ~/code/my-memory --wizard",
+            "  ai-dememory --root ~/code/my-memory mcp-config --client codex",
+            "  ai-dememory --root ~/code/my-memory index",
+            "  ai-dememory --root ~/code/my-memory search ai-dememory --limit 3",
+            "  ai-dememory --root ~/code/my-memory doctor",
             "  ai-dememory vault-template export ~/code/ai-dememory-vault-template",
-            "  ai-dememory version-check 2.1.0",
-            "  ai-dememory mcp-config --root ~/code/my-memory --client codex --require-version 2.1.0",
-            "  ai-dememory setup plan --require-version 2.1.0 --json",
-            "  ai-dememory setup wizard --require-version 2.1.0",
-            "  ai-dememory setup wizard --require-version 2.1.0 --json",
-            "  ai-dememory setup wizard --require-version 2.1.0 --apply --expect-plan-sha256 <preview-sha256> --json",
-            "  ai-dememory onboard --input-file onboarding.json --json",
-            "  ai-dememory onboard --input-file onboarding.json --apply --expect-plan-sha256 <preview-sha256> --json",
-            "  ai-dememory turn-context \"fix portfolio tracker staging smoke\" --cwd D:/Github/portfolio-tracker --json",
-            "  ai-dememory setup health --json",
-            "  ai-dememory doctor",
-            "  ai-dememory validate",
-            "  ai-dememory validate --json",
-            "  ai-dememory secret-scan",
-            "  ai-dememory index",
-            "  ai-dememory graph --json",
-            "  ai-dememory search ai-dememory --limit 3",
-            "  ai-dememory search ai-dememory --why",
-            "  ai-dememory context ai-dememory --budget 2000",
-            "  ai-dememory working snapshot --title \"Current task\" --notes \"...\"",
-            "  ai-dememory working status --json",
-            "  ai-dememory working handoff --title \"Session handoff\" --notes \"...\"",
-            "  ai-dememory review false-positives",
-            "  ai-dememory review false-positives --due-only",
-            "  ai-dememory review stale-false-positives",
-            "  ai-dememory review conflicts",
-            "  ai-dememory review modes",
-            "  ai-dememory review configure-mode --mode balanced --reviewer you",
-            "  ai-dememory review plan --kind conflict",
-            "  ai-dememory review configure-mode --mode assisted --reviewer you",
-            "  ai-dememory review configure-mode --mode autonomous_proposals --reviewer you",
-            "  ai-dememory api --host 127.0.0.1 --port 8765",
-            "  ai-dememory providers detect",
-            "  ai-dememory providers plan --json",
-            "  ai-dememory providers configure codex --path ~/.codex",
-            "  ai-dememory import-chats codex",
-            "  ai-dememory capture markdown --path notes.md",
-            "  ai-dememory capture text --stdin --title \"Session note\"",
-            "  ai-dememory learn --git --days 7 --repo .",
-            "  ai-dememory learn --git --days 7 --repo . --write",
-            "  ai-dememory maintenance run --profile daily",
-            "  ai-dememory schedule doctor --json",
-            "  ai-dememory schedule plan --json",
-            "  ai-dememory schedule setup --dry-run",
-            "  ai-dememory schedule setup --dry-run --mode docker --image sha256:<64-hex-image-id>",
-            "  ai-dememory schedule cron --mode docker --image sha256:<64-hex-image-id>",
-            "  ai-dememory hooks config --client codex",
-            "  ai-dememory hooks config --client claude",
-            "  ai-dememory hooks list",
-            "  ai-dememory hooks install --client all --dry-run",
-            "  ai-dememory mcp --stdio --require-bound-root --require-version 2.1.0",
-            "  ai-dememory dev --help",
+            "",
+            "Use `ai-dememory <command> --help` for a focused command reference.",
+            "Use `ai-dememory dev --help` for CI, release, and maintainer tools.",
         ]
     )
     return "\n".join(lines)
@@ -816,7 +725,7 @@ def main(argv: list[str] | None = None) -> int:
     root_override = root_binding_value(pop_global_root(argv))
     if root_override:
         # Preserve the textual binding until the selected subcommand has
-        # validated any exact-version gate. Resolving a UNC path can perform I/O.
+        # validated its arguments. Resolving a UNC path can perform I/O.
         os.environ["AI_DEMEMORY_ROOT"] = root_override
     if not argv or argv[0] in {"-h", "--help", "help"}:
         print(usage())
@@ -824,6 +733,15 @@ def main(argv: list[str] | None = None) -> int:
     if argv[0] == "--version":
         print(f"ai-dememory {__version__}")
         return 0
+    if argv[0] == "--require-version" or argv[0].startswith("--require-version="):
+        print(
+            "--require-version is a legacy subcommand option, not a top-level command. "
+            "It is no longer needed for installation, the wizard, or generated MCP configuration. "
+            "Use `ai-dememory --version` or `ai-dememory version-check <expected-version>` "
+            "for an explicit diagnostic.",
+            file=sys.stderr,
+        )
+        return 2
 
     command = argv.pop(0)
     onboarding_mode: str | None = None

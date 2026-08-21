@@ -127,8 +127,6 @@ def mcp_config_command(
         str(idle_timeout_seconds),
         "--profile",
         profile,
-        "--require-version",
-        PACKAGE_VERSION,
     )
     if mode == "docker":
         args.extend(["--image", image])
@@ -157,8 +155,6 @@ def setup_plan(
         "setup_preview": plan_command(
             "setup",
             "wizard",
-            "--require-version",
-            PACKAGE_VERSION,
             "--intensity",
             intensity,
             "--model-policy",
@@ -168,8 +164,6 @@ def setup_plan(
         "setup_apply": plan_command(
             "setup",
             "wizard",
-            "--require-version",
-            PACKAGE_VERSION,
             "--intensity",
             intensity,
             "--model-policy",
@@ -673,11 +667,9 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--image", default="ai-dememory:local", help="Docker image for Docker command examples.")
     plan.add_argument("--intensity", choices=profile_names(), default=DEFAULT_INTENSITY)
     plan.add_argument("--model-policy", choices=model_policy_names(), default=DEFAULT_MODEL_POLICY)
-    plan.add_argument(
-        "--require-version",
-        metavar="VERSION",
-        help="Fail before resolving the vault or emitting a plan unless this exact ai-dememory version is running.",
-    )
+    # Earlier configurations and runbooks may still pass this option. It is
+    # parsed only for upgrade compatibility and is never emitted in a new plan.
+    plan.add_argument("--require-version", metavar="VERSION", help=argparse.SUPPRESS)
     plan.add_argument("--json", action="store_true", help="Emit JSON output.")
     health = subparsers.add_parser("health", help="Print read-only local setup health.", allow_abbrev=False)
     health.add_argument("--platform", choices=("windows", "linux", "macos"), default=None)
@@ -703,14 +695,6 @@ def main(argv: list[str] | None = None) -> int:
     explicit_root = args.root if args.root and args.root.strip() else None
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
     configured_root = configured_root if configured_root and configured_root.strip() else None
-    if (
-        args.command_name == "plan"
-        and args.require_version is not None
-        and args.require_version != PACKAGE_VERSION
-    ):
-        parser.error(
-            f"version mismatch: expected {args.require_version}, found {PACKAGE_VERSION}"
-        )
     if (
         args.command_name in {"plan", "health"}
         and not explicit_root

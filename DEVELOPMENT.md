@@ -51,14 +51,17 @@ requirements are satisfied. Planning status is not runtime completion.
 ## Current Frontier
 
 `BRG-014` in batch `B04a` is complete: operational setup and optional durable
-onboarding are separate, fingerprint-bound flows, and the exact release
+onboarding are separate, fingerprint-bound flows, and the prior exact release
 candidate passed TestPyPI publication, post-index installation, wizard and MCP
-lifecycle verification. This is a V2-compatible result and does not complete
-V3 `ONB-001`.
+lifecycle verification. Stable `v2.1.0` remains the public baseline. The
+backward-compatible maintenance correction is now being prepared as
+`2.1.1rc1`: it removes the persistent `--require-version` pin from generated
+configuration while continuing to accept legacy configuration. The candidate
+is not tagged or published yet; it must complete its own TestPyPI and
+post-index evidence before a separate `2.1.1` stable release. This work does
+not advance the V3 plan or complete V3 `ONB-001`.
 
-The stable 2.1.0 release branch closes only package identity, cumulative release
-notes and user-facing documentation. The next legal implementation frontier is
-batch `B04b`:
+The next legal product implementation frontier is batch `B04b`:
 
 1. `BRG-003`: explicit, deterministic vault/root resolution.
 2. `BRG-017`: strict configuration parsing and unknown-key diagnostics.

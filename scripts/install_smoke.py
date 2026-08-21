@@ -610,7 +610,6 @@ def assert_operational_setup(stdout: str, *, applied: bool) -> None:
 def assert_setup_plan(
     stdout: str,
     *,
-    expected_version: str,
     expected_root: Path,
 ) -> None:
     try:
@@ -687,15 +686,10 @@ def assert_setup_plan(
     for command in mcp_configs:
         if not isinstance(command, list) or not all(isinstance(argument, str) for argument in command):
             raise InstallSmokeError("setup plan returned a malformed MCP configuration command")
-        version_indexes = [
-            index
-            for index, argument in enumerate(command)
-            if argument == "--require-version"
-        ]
-        if len(version_indexes) != 1 or version_indexes[0] + 1 >= len(command):
-            raise InstallSmokeError("setup plan MCP configuration is missing one atomic version gate")
-        if command[version_indexes[0] + 1] != expected_version:
-            raise InstallSmokeError("setup plan MCP configuration version gate does not match the installed package")
+        if "--require-version" in command:
+            raise InstallSmokeError(
+                "setup plan MCP configuration must not emit the legacy version gate"
+            )
         mode_indexes = [index for index, argument in enumerate(command) if argument == "--mode"]
         if len(mode_indexes) != 1 or mode_indexes[0] + 1 >= len(command):
             raise InstallSmokeError("setup plan MCP configuration is missing one runtime mode")
@@ -768,11 +762,11 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
         ("doctor", ["doctor"]),
         (
             "setup preview",
-            ["setup", "wizard", "--require-version", PACKAGE_VERSION, "--intensity", "balanced", "--json"],
+            ["setup", "wizard", "--intensity", "balanced", "--json"],
         ),
         (
             "setup apply",
-            ["setup", "wizard", "--require-version", PACKAGE_VERSION, "--intensity", "balanced", "--apply", "--json"],
+            ["setup", "wizard", "--intensity", "balanced", "--apply", "--json"],
         ),
         (
             "onboarding preview",
@@ -920,7 +914,7 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
         ("vault template export", ["vault-template", "export", "{template_export}", "--json"]),
         (
             "mcp config",
-            ["mcp-config", "--client", "codex", "--require-version", PACKAGE_VERSION],
+            ["mcp-config", "--client", "codex"],
         ),
         (
             "setup plan",
@@ -931,8 +925,6 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
                 "codex",
                 "--mode",
                 "both",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--json",
             ],
         ),
@@ -950,8 +942,6 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
                 "codex",
                 "--mode",
                 "docker",
-                "--require-version",
-                PACKAGE_VERSION,
             ],
         ),
         ("hooks codex", ["hooks", "config", "--client", "codex"]),
@@ -1280,7 +1270,6 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             if name == "setup plan":
                 assert_setup_plan(
                     completed.stdout,
-                    expected_version=expected_installed_version,
                     expected_root=vault,
                 )
             if name == "setup apply":

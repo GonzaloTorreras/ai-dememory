@@ -10,8 +10,11 @@ from scripts.docs_site_guard import (
     REPO_ROOT,
     SITE_ROOT,
     NESTED_SHELL_MAX_DEPTH,
+    RELEASE_SCOPE_DOCS,
     STABLE_INSTALL_DOCS,
     STABLE_RELEASE_CONTRACTS,
+    SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER,
+    SOURCE_CANDIDATE_REQUIRED_COMMANDS,
     _stable_command_errors,
     audit_site,
     release_scope_markers,
@@ -20,34 +23,56 @@ from scripts.docs_site_guard import (
 
 
 class DocumentationSiteGuardTests(unittest.TestCase):
-    def test_stable_2_1_contract_pins_artifact_checks_version_and_blocks_mutable_vcs(self) -> None:
+    def test_stable_2_1_contract_keeps_the_legacy_wizard_gate_separate_from_source(self) -> None:
         contract = STABLE_RELEASE_CONTRACTS["2.1.0"]
 
-        self.assertIn("ai-dememory setup wizard --require-version 2.1.0", contract["required"])
-        self.assertIn(
-            "ai-dememory setup plan --require-version 2.1.0 --json",
-            contract["required"],
-        )
         self.assertIn("pipx install ai-dememory==2.1.0", contract["required"])
-        self.assertIn("ai-dememory version-check 2.1.0", contract["required"])
         self.assertIn(
-            "ai-dememory mcp-config --client codex --require-version 2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
             contract["required"],
         )
         self.assertIn(
-            "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
+            "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+            contract["required"],
+        )
+        self.assertIn(
+            "ai-dememory init ~/code/my-memory --wizard",
             contract["source_only"],
         )
 
     def test_release_scope_supports_source_equal_to_stable(self) -> None:
-        self.assertEqual(release_scope_markers("2.1.0", "2.1.0"), ("2.1.0",))
+        self.assertEqual(
+            release_scope_markers("2.1.0", "2.1.0"),
+            ("published stable 2.1.0",),
+        )
         self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/release line: 2.1.0")
 
-    def test_stable_user_docs_pin_install_and_include_fail_closed_version_check(self) -> None:
+    def test_release_scope_distinguishes_the_unpublished_patch_candidate(self) -> None:
+        self.assertEqual(
+            release_scope_markers("2.1.0", "2.1.1rc1"),
+            ("published stable 2.1.0", "source candidate 2.1.1rc1 is unreleased"),
+        )
+        self.assertEqual(
+            site_release_lens("2.1.0", "2.1.1rc1"),
+            "Source candidate: 2.1.1rc1, unreleased",
+        )
+
+    def test_stable_user_docs_pin_the_legacy_artifact_and_keep_candidate_scope_explicit(self) -> None:
         for relative in STABLE_INSTALL_DOCS:
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
                 self.assertEqual([], _stable_command_errors(text, "2.1.0", relative))
+
+        for relative in RELEASE_SCOPE_DOCS:
+            with self.subTest(scope_path=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
+                self.assertIn("published stable 2.1.0", text)
+                self.assertIn("source candidate 2.1.1rc1 is unreleased", text)
+
+        install = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
+        self.assertIn(SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER, install)
+        for command in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
+            self.assertIn(command, install)
 
     def test_checked_in_site_passes_guard(self) -> None:
         self.assertEqual([], audit_site())
@@ -525,15 +550,15 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertEqual([], audit_site(REPO_ROOT, copied))
 
-    def test_guard_rejects_missing_stable_wizard_command(self) -> None:
+    def test_guard_rejects_missing_legacy_and_candidate_wizard_commands(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
             for page in copied.rglob("*.html"):
                 page.write_text(
                     page.read_text(encoding="utf-8").replace(
-                        "ai-dememory setup wizard --require-version 2.1.0",
-                        "ai-dememory setup plan --json",
+                        "ai-dememory init ~/code/my-memory --wizard",
+                        "ai-dememory init ~/code/my-memory",
                     ),
                     encoding="utf-8",
                 )
@@ -541,7 +566,15 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             self.assertTrue(
                 any(
                     "stable 2.1.0 command block is missing "
-                    "'ai-dememory setup wizard --require-version 2.1.0'" in error
+                    "'ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0'"
+                    in error
+                    for error in errors
+                )
+            )
+            self.assertTrue(
+                any(
+                    "source 2.1.1rc1 command block is missing "
+                    "'ai-dememory init ~/code/my-memory --wizard'" in error
                     for error in errors
                 )
             )
@@ -560,7 +593,9 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 encoding="utf-8",
             )
             errors = audit_site(REPO_ROOT, copied)
-            self.assertTrue(any("stable 2.1.0 command block contains source-only" in error for error in errors))
+            self.assertTrue(
+                any("stable package command is not allowlisted" in error for error in errors)
+            )
 
     def test_guard_rejects_mutable_vcs_install_in_any_stable_doc(self) -> None:
         errors = _stable_command_errors(
@@ -596,7 +631,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
                     "</main>",
-                    "<pre>ai-dememory mcp-config --client codex</pre>\n</main>",
+                    "<pre>ai-dememory mcp --stdio</pre>\n</main>",
                     1,
                 ),
                 encoding="utf-8",
@@ -606,13 +641,13 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    "site/index.html" in error and "atomic gate" in error
+                    "site/index.html" in error and "direct MCP server" in error
                     for error in errors
                 )
             )
 
     def test_guard_validates_commands_in_user_reachable_html_states(self) -> None:
-        unsafe_command = "ai-dememory mcp-config --client codex"
+        unsafe_command = "ai-dememory mcp --stdio"
         forms = (
             f'<div aria-hidden="true"><pre>{unsafe_command}</pre></div>',
             f"<details><summary>More</summary><pre>{unsafe_command}</pre></details>",
@@ -638,7 +673,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
                 self.assertTrue(
                     any(
-                        "site/index.html" in error and "atomic gate" in error
+                        "site/index.html" in error and "direct MCP server" in error
                         for error in errors
                     )
                 )
@@ -721,23 +756,6 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         )
                     )
                 )
-
-    def test_guard_rejects_missing_fail_closed_version_check(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            copied = Path(temporary) / "site"
-            shutil.copytree(SITE_ROOT, copied)
-            for page in copied.rglob("*.html"):
-                page.write_text(
-                    page.read_text(encoding="utf-8").replace(
-                        "ai-dememory version-check 2.1.0",
-                        "ai-dememory --version",
-                    ),
-                    encoding="utf-8",
-                )
-
-            errors = audit_site(REPO_ROOT, copied)
-
-            self.assertTrue(any("exact check" in error for error in errors))
 
     def test_guard_rejects_non_exact_package_variants(self) -> None:
         commands = (
@@ -835,29 +853,23 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 )
             )
 
-    def test_guard_rejects_wrong_or_missing_atomic_mcp_version_gate(self) -> None:
-        fixtures = (
+    def test_guard_allows_mcp_config_without_runtime_version_gate(self) -> None:
+        for command in (
             "ai-dememory mcp-config --client codex",
-            "ai-dememory\tmcp-config --client codex",
             "ai-dememory mcp-config --client codex --require-version 2.1.0rc1",
-            "ai-dememory mcp-config --client codex; echo --require-version 2.1.0",
-            "ai-dememory mcp-config --client codex && echo --require-version 2.1.0",
-            "ai-dememory mcp-config --client codex & echo --require-version 2.1.0",
-            "ai-dememory mcp-config --client codex\t# --require-version 2.1.0",
             'ai-dememory --root "/tmp/My Vault" mcp-config --client codex',
-            "ai-dememory mcp-config --client codex --require-version 2.1.0 | Out-File config.toml",
-            "ai-dememory mcp-config --client codex --require-version 2.1.0 --require-version 2.1.0",
-        )
-        for command in fixtures:
+        ):
+            with self.subTest(command=command):
+                self.assertEqual([], _stable_command_errors(command, "2.1.0", "fixture"))
+
+        for command in (
+            "ai-dememory mcp-config --client codex; echo reviewed",
+            "ai-dememory mcp-config --client codex && echo reviewed",
+            "ai-dememory mcp-config --client codex | Out-File config.toml",
+        ):
             with self.subTest(command=command):
                 errors = _stable_command_errors(command, "2.1.0", "fixture")
-                self.assertTrue(
-                    any(
-                        "atomic gate" in error
-                        or "shell chaining or redirection" in error
-                        for error in errors
-                    )
-                )
+                self.assertTrue(any("shell chaining or redirection" in error for error in errors))
 
     def test_guard_rejects_shell_whitespace_wrappers_and_hidden_continuations(self) -> None:
         fixtures = {
@@ -866,8 +878,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "no-break-space": "ai-dememory\u00a0mcp-config --client codex",
             "figure-space": "ai-dememory\u2007mcp-config --client codex",
             "narrow-no-break-space": "ai-dememory\u202fmcp-config --client codex",
-            "powershell-call": "& ai-dememory mcp-config --client codex --require-version 2.1.0",
-            "powershell-continuation": "ai-dememory `\n  mcp-config --client codex",
+            "powershell-call": "& ai-dememory mcp-config --client codex",
             "bash-package-continuation": (
                 "pipx install \\\n  ai-dememory\nai-dememory version-check 2.1.0"
             ),
@@ -883,8 +894,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         for marker in (
                             "unsupported shell whitespace",
                             "PowerShell call operator",
-                            "atomic gate",
                             "not allowlisted",
+                            "shell chaining or redirection",
                         )
                     )
                 )
@@ -953,7 +964,6 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         for marker in (
                             "shell chaining or redirection",
                             "PowerShell call operator",
-                            "atomic gate",
                             "explicit vault",
                             "not an analyzable ai-dememory command",
                             "literal shell syntax",
@@ -962,25 +972,22 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 )
 
     def test_guard_validates_sensitive_commands_inside_inline_code(self) -> None:
-        rejected = (
+        allowed = (
             "Use `ai-dememory mcp-config --client codex` after review.",
             "Use <code>ai-dememory mcp-config --client codex</code> after review.",
             "`ai-dememory setup wizard`",
             "`ai-dememory setup plan --json`",
+        )
+        for text in allowed:
+            with self.subTest(text=text):
+                self.assertEqual([], _stable_command_errors(text, "2.1.0", "fixture"))
+
+        rejected = (
             "`ai-dememory version-check 0.0.0`",
         )
         for text in rejected:
             with self.subTest(text=text):
                 self.assertTrue(_stable_command_errors(text, "2.1.0", "fixture"))
-
-        self.assertEqual(
-            [],
-            _stable_command_errors(
-                "Use `ai-dememory mcp-config --client codex --require-version 2.1.0` after review.",
-                "2.1.0",
-                "fixture",
-            ),
-        )
 
     def test_guard_rejects_wrapped_exact_version_checks(self) -> None:
         errors = _stable_command_errors(
@@ -1193,78 +1200,36 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     )
                 )
 
-    def test_guard_requires_atomic_version_gate_on_setup_wizard(self) -> None:
-        rejected = (
-            "ai-dememory setup wizard",
-            "ai-dememory setup wizard --require-version 2.1.0rc1",
-            "ai-dememory setup wizard && echo --require-version 2.1.0",
-            "custom-wrapper ai-dememory setup wizard --require-version 2.1.0",
-            'custom-wrapper ai-dememory setup "wizard" --require-version 2.1.0',
-        )
-        for command in rejected:
-            with self.subTest(command=command):
-                errors = _stable_command_errors(command, "2.1.0", "fixture")
-                self.assertTrue(any("setup wizard" in error for error in errors))
-
-        self.assertEqual(
-            [],
-            _stable_command_errors(
-                "ai-dememory --root ~/vault setup wizard --require-version 2.1.0",
-                "2.1.0",
-                "fixture",
-            ),
-        )
-
-    def test_guard_requires_atomic_version_gate_on_setup_plan(self) -> None:
-        rejected = (
-            "ai-dememory setup plan --json",
-            "ai-dememory setup plan --json --require-version 2.1.0rc1",
-            "ai-dememory setup plan --json && echo --require-version 2.1.0",
-            "custom-wrapper ai-dememory setup plan --json --require-version 2.1.0",
-            'custom-wrapper ai-dememory setup "plan" --json --require-version 2.1.0',
-        )
-        for command in rejected:
-            with self.subTest(command=command):
-                errors = _stable_command_errors(command, "2.1.0", "fixture")
-                self.assertTrue(any("setup plan" in error for error in errors))
-
-        self.assertEqual(
-            [],
-            _stable_command_errors(
-                "ai-dememory --root ~/vault setup plan --json --require-version 2.1.0",
-                "2.1.0",
-                "fixture",
-            ),
-        )
-
-    def test_guard_requires_atomic_version_gate_on_init_wizard(self) -> None:
-        rejected = (
+    def test_guard_allows_wizard_and_plan_without_runtime_version_gate(self) -> None:
+        for command in (
+            "ai-dememory --root ~/vault setup wizard",
+            "ai-dememory --root ~/vault setup wizard --require-version 2.1.0rc1",
+            "ai-dememory --root ~/vault setup plan --json",
+            "ai-dememory --root ~/vault setup plan --json --require-version 2.1.0rc1",
             "ai-dememory init ~/vault --wizard",
-            "ai-dememory init --wizard ~/vault",
             "ai-dememory init ~/vault --wizard --require-version 0.0.0",
-        )
-        for command in rejected:
+        ):
+            with self.subTest(command=command):
+                self.assertEqual([], _stable_command_errors(command, "2.1.0", "fixture"))
+
+        for command in (
+            "ai-dememory setup wizard && echo reviewed",
+            "ai-dememory setup plan --json && echo reviewed",
+            "ai-dememory init ~/vault --wizard && echo reviewed",
+        ):
             with self.subTest(command=command):
                 errors = _stable_command_errors(command, "2.1.0", "fixture")
-                self.assertTrue(any("init --wizard" in error for error in errors))
-        self.assertEqual(
-            [],
-            _stable_command_errors(
-                "ai-dememory init ~/vault --wizard --require-version 2.1.0",
-                "2.1.0",
-                "fixture",
-            ),
-        )
+                self.assertTrue(any("must not contain shell chaining" in error for error in errors))
 
-    def test_guard_requires_atomic_version_gate_on_direct_mcp_server(self) -> None:
+    def test_guard_requires_root_and_lease_on_direct_mcp_server(self) -> None:
         rejected = (
             "ai-dememory mcp --stdio",
             "AI_DEMEMORY_ROOT=~/vault ai-dememory mcp --stdio",
             "printf x | ai-dememory mcp --stdio",
             "ai-dememory --root ~/vault mcp --stdio",
-            "ai-dememory --root /good mcp --stdio --require-version 2.1.0",
-            "/tmp/ai-dememory --root /good mcp --stdio --require-version 2.1.0",
-            "C:/Tools/ai-dememory.exe --root C:/good mcp --stdio --require-version 2.1.0",
+            "ai-dememory --root /good mcp --stdio",
+            "/tmp/ai-dememory --root /good mcp --stdio",
+            "C:/Tools/ai-dememory.exe --root C:/good mcp --stdio",
         )
         for command in rejected:
             with self.subTest(command=command):
@@ -1273,17 +1238,17 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         self.assertEqual(
             [],
             _stable_command_errors(
-                "printf x | ai-dememory --root ~/vault mcp --stdio --require-bound-root --require-version 2.1.0",
+                "printf x | ai-dememory --root ~/vault mcp --stdio --require-bound-root",
                 "2.1.0",
                 "fixture",
             ),
         )
 
         rejected_operators = (
-            "ai-dememory mcp --stdio --require-version 2.1.0 && echo pwn",
-            "echo ok && ai-dememory mcp --stdio --require-version 2.1.0",
-            "ai-dememory mcp --stdio --require-version 2.1.0 > out.txt",
-            "printf x | ai-dememory mcp --stdio --require-version 2.1.0 | cat",
+            "ai-dememory mcp --stdio && echo pwn",
+            "echo ok && ai-dememory mcp --stdio",
+            "ai-dememory mcp --stdio > out.txt",
+            "printf x | ai-dememory mcp --stdio | cat",
         )
         for command in rejected_operators:
             with self.subTest(command=command):
@@ -1291,8 +1256,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 self.assertTrue(any("only one stdin pipe" in error for error in errors))
 
         rejected_environment_wrappers = (
-            "PATH=/tmp/evil ai-dememory --root /good mcp --stdio --require-version 2.1.0",
-            "env PATH=/tmp/evil ai-dememory --root /good mcp --stdio --require-version 2.1.0",
+            "PATH=/tmp/evil ai-dememory --root /good mcp --stdio",
+            "env PATH=/tmp/evil ai-dememory --root /good mcp --stdio",
         )
         for command in rejected_environment_wrappers:
             with self.subTest(command=command):
@@ -1300,8 +1265,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 self.assertTrue(any("not an analyzable" in error for error in errors))
 
         rejected_unbounded_lease = (
-            "ai-dememory --root /good mcp --stdio --require-bound-root --require-version 2.1.0 --idle-timeout-seconds 0",
-            "ai-dememory --root /good mcp --stdio --require-bound-root --require-version 2.1.0 --idle-timeout-seconds=-1",
+            "ai-dememory --root /good mcp --stdio --require-bound-root --idle-timeout-seconds 0",
+            "ai-dememory --root /good mcp --stdio --require-bound-root --idle-timeout-seconds=-1",
         )
         for command in rejected_unbounded_lease:
             with self.subTest(command=command):
@@ -1501,10 +1466,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
 
     def test_profile_guide_requires_an_explicit_vault_root_for_every_mcp_config(self) -> None:
-        without_root = (
-            "ai-dememory mcp-config --client codex "
-            "--require-version 2.1.0"
-        )
+        without_root = "ai-dememory mcp-config --client codex"
         errors = _stable_command_errors(
             without_root,
             "2.1.0",
@@ -1513,10 +1475,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
         self.assertTrue(any("explicit vault" in error for error in errors))
 
-        with_root = (
-            "ai-dememory --root ~/code/my-memory mcp-config --client codex "
-            "--require-version 2.1.0"
-        )
+        with_root = "ai-dememory --root ~/code/my-memory mcp-config --client codex"
         self.assertEqual(
             [],
             _stable_command_errors(
@@ -1529,16 +1488,13 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
         rejected_overrides = (
             (
-                "ai-dememory --root safe mcp-config --root evil --client codex "
-                "--require-version 2.1.0"
+                "ai-dememory --root safe mcp-config --root evil --client codex"
             ),
             (
-                "ai-dememory --root=safe mcp-config --root=evil --client codex "
-                "--require-version 2.1.0"
+                "ai-dememory --root=safe mcp-config --root=evil --client codex"
             ),
             (
-                "ai-dememory mcp-config --root safe --client codex "
-                "--require-version 2.1.0"
+                "ai-dememory mcp-config --root safe --client codex"
             ),
         )
         for command in rejected_overrides:
@@ -1575,9 +1531,14 @@ python3 -m pip install -e .
     def test_install_commands_remain_available_without_javascript(self) -> None:
         install = (SITE_ROOT / "install/index.html").read_text(encoding="utf-8")
         self.assertIn("pipx install ai-dememory==2.1.0", install)
-        self.assertIn("ai-dememory version-check 2.1.0", install)
-        self.assertIn("ai-dememory mcp-config --client codex --require-version 2.1.0", install)
-        self.assertIn("ai-dememory setup wizard --require-version 2.1.0", install)
+        self.assertIn(
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            install,
+        )
+        self.assertIn("ai-dememory init ~/code/my-memory --wizard", install)
+        self.assertIn("ai-dememory --root ~/code/my-memory mcp-config --client codex", install)
+        self.assertIn(SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER, install)
+        self.assertNotIn("pipx install ai-dememory==2.1.1rc1", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
 

@@ -9,11 +9,13 @@ future vector indexes are generated from Markdown and can be rebuilt.
 
 ## Status
 
-- Current release line: `ai-dememory` 2.1.0. Availability is confirmed only
-  when the exact pinned install succeeds from PyPI; before that, stop rather
-  than falling back to an older package.
-- Current public source version: 2.1.0 on `main`; tag, package, and release
-  availability are verified separately by the immutable release workflow.
+- Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
+  only package line available from PyPI; confirm it with the exact pinned
+  install rather than falling back to an older package.
+- Source candidate 2.1.1rc1 is unreleased and not installable from a package
+  index until it is tagged and published. Its source behavior, tag, package,
+  and release availability are verified separately by the immutable release
+  workflow.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Runtime boundary: Python 3.11+ remains authoritative; Node is not a headless
@@ -37,60 +39,67 @@ enablement plus an exact-main dispatch remain separate production operations.
 
 ## Quick Start
 
-### Exact 2.1.0 from PyPI
+### Published stable 2.1.0: legacy first run
 
-Install the exact tool, fail closed if another version is selected, create a
-private vault, inspect its passive setup plan, and generate local client
-configuration:
+The currently published package uses its version-gated setup flow. Install the
+exact public package and create a separate private vault:
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory index
-ai-dememory setup plan --require-version 2.1.0 --json
-ai-dememory setup wizard --require-version 2.1.0
-ai-dememory setup health --json
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
-`uv` users can install the same tool with
-`uv tool install ai-dememory==2.1.0`, followed by the same `version-check`.
+The wizard previews its plan, shows resource limits, and asks before it writes
+the vault's operational config. It never imports chats, creates personal memory,
+installs hooks or schedules, or edits a client configuration.
 
-Upgrade an existing PyPI installation, verify the resolved version, then
-regenerate and smoke-test each vault-bound MCP configuration:
+The complete, immutable stable instructions live in the
+[v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md).
+Its generated MCP configuration later persists the same compatibility pin; that
+historical behavior is the specific patch correction in this candidate.
+
+`uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
+line. On Windows, use a private path such as `D:\Memory\my-vault` instead of the
+example path.
+
+### Source candidate 2.1.1rc1: wizard-first behavior, not an install route
+
+The candidate removes the persistent compatibility pin from newly generated
+configuration and makes the first run a single wizard-first command:
+
+```bash
+ai-dememory init ~/code/my-memory --wizard
+```
+
+This describes the reviewed source candidate only. Do not try to install
+`2.1.1rc1` from PyPI or TestPyPI yet: no candidate package is installable until
+it is tagged and published. Once that separate release evidence exists, the
+next stable guide will replace the legacy 2.1.0 path above.
+
+### Connect a client when you are ready
+
+Client configuration remains a separate, explicit action: it is the one step
+that must be inspected and copied into Codex, Claude, or another host.
+
+```bash
+ai-dememory --root ~/code/my-memory mcp-config --client codex
+```
+
+The generated fragment binds the vault, uses the reduced `core` profile, and
+sets an idle lease. You do not need to type those internal arguments during
+first-run setup.
+
+### Update or diagnose an installation
+
+For an existing pipx install, repair it with the same immutable package pin.
+`--version` is the normal diagnostic when you need to confirm what is on PATH;
+`version-check` remains available for CI and compatibility diagnostics, not as a
+required user ritual.
 
 ```bash
 pipx install --force ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-cd ~/code/my-memory
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
+ai-dememory --version
 ```
-
-The exact `--force` install also repairs an existing pipx environment. If the
-environment came from a release candidate or mutable Git checkout, rebuild it
-explicitly against 2.1.0 instead:
-
-```bash
-pipx uninstall ai-dememory
-pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-```
-
-Regenerating the MCP fragment is important because stable 2.1.0 emits the bound
-root, server-enforced profile, enabled-tool allowlist, and idle lease together.
-The generator's and wizard's `--require-version 2.1.0` gates are atomic: they
-validate the running package before resolving the vault or printing
-configuration. Every MCP command array returned by `setup plan --json` carries
-the same generator gate, and every emitted MCP server command carries a second
-runtime gate. A Docker client therefore refuses to start an image whose package
-identity differs.
-Inspect the generated output and replace the previous entry in the host; the
-command does not edit the host configuration for you.
 
 If you want a reusable private GitHub vault template repo instead of creating a
 single local vault, export the packaged vault template:
@@ -103,48 +112,12 @@ Review the exported files, push them to a separate private repository, then mark
 that repository as a GitHub template. Keep the tool distribution repo separate
 from private memory vault repos.
 
-### 2.1.0 setup and optional onboarding
+For the profiles, optional reviewed onboarding, hooks, providers, schedules,
+Docker, and machine-readable automation, see the focused
+[installation guide](docs/install.md). Those are not prerequisites for a first
+vault.
 
-The 2.1.0 release line includes the preview-first wizard and bounded resource
-profiles; require the exact version check above before using them:
-
-```bash
-ai-dememory version-check 2.1.0
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory setup plan --require-version 2.1.0 --intensity balanced --model-policy off --json
-ai-dememory setup wizard --require-version 2.1.0
-# Optional: create reviewed personal/project memory in a separate plan
-ai-dememory onboard
-```
-
-The initial wizard is preview-first and configuration-only. It asks for one
-bounded operating envelope, prints a reviewable summary and exact fingerprint,
-then asks whether to apply that same in-memory plan to `.ai-dememory.toml`.
-Declining leaves setup incomplete and writes nothing. `setup wizard --json`
-returns the same passive operational preview without prompting. Personal values,
-preferences, recommendations, and project profiles are never requested or
-created by setup; add them only through the separate `ai-dememory onboard`
-preview/apply contract. Every JSON, stdin, input-file, and `--dry-run` apply is
-bound to the exact reviewed fingerprint.
-
-| Intensity | Automatic recall | Local jobs after explicit install | Import cap/run | MCP profile |
-| --- | ---: | ---: | ---: | --- |
-| `minimal` | 0 tokens per turn; manual recall remains available | 1 weekly | 5 | `core` |
-| `balanced` | up to 1,200 tokens per eligible turn | 8/week | 20 | `core` |
-| `active` | up to 2,400 tokens per eligible turn | 8/week | 50 | `working` |
-
-`balanced` is the default. `active` is the maximum bounded profile, not an
-unlimited mode. Separately choose host-model policy `off`,
-`advisory`, or `proposals`. ai-dememory itself makes zero model and embedding
-calls in all profiles; `advisory` and `proposals` only authorize bounded work by
-an already active host agent, whose normal token usage still applies. No policy
-automatically promotes durable memory. Installation and the wizard do not
-create personal memory or install MCP configuration, hooks, provider imports,
-or scheduler jobs. After a
-confirmed interactive apply, the wizard prints the exact vault-local health,
-index, MCP-config, and optional onboarding commands to run next.
+## Contributor workflows
 
 Run from the repository root. On Windows PowerShell, use `py -3` if `python3`
 is not available.
@@ -159,7 +132,7 @@ python3 scripts/ai_dememory.py search ai-dememory --limit 3
 python3 scripts/ai_dememory.py search ai-dememory --why
 python3 scripts/ai_dememory.py context ai-dememory --budget 2000
 python3 scripts/ai_dememory.py graph --json
-python3 scripts/ai_dememory.py setup plan --require-version 2.1.0 --json
+python3 scripts/ai_dememory.py setup plan --json
 python3 scripts/ai_dememory.py setup health --json
 python3 scripts/ai_dememory.py recall-fixtures packet --limit 50 --pending-offset 50 --invalid-offset 50 --write-report
 python3 scripts/ai_dememory.py providers detect
@@ -775,7 +748,7 @@ python3 scripts/consolidate_memory.py --dry-run
 Run as a stdio MCP server:
 
 ```bash
-python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
+python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root
 ```
 
 In stable 2.1.0, the stdio server exits after 600 seconds without an MCP message
@@ -797,8 +770,8 @@ unrelated Node/Python tool servers owned by the host application.
 PowerShell direct smoke examples:
 
 ```powershell
-'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root --require-version 2.1.0
-'{"jsonrpc":"2.0","id":2,"method":"ping"}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root --require-version 2.1.0
+'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root
+'{"jsonrpc":"2.0","id":2,"method":"ping"}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root
 ```
 
 Do not expose the stdio server as a network service without a separate

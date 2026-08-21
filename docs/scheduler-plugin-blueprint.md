@@ -3,6 +3,11 @@
 This blueprint defines the v2 implementation boundary for recurring local
 maintenance and the Codex plugin surface.
 
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. It preserves the passive installation
+and scheduler boundaries below while simplifying only newly generated setup.
+
 ## Scheduler Contract
 
 Package, Docker image, and plugin installation remain passive. They may install
@@ -60,7 +65,7 @@ review-only generated receipts.
 The Codex plugin is a workflow bundle around the installed CLI:
 
 - `.codex-plugin/plugin.json` describes the plugin.
-- `.mcp.json` launches the packaged, version-gated stdio MCP server.
+- `.mcp.json` launches the packaged, bounded stdio MCP server.
 - `hooks/hooks.json` captures small session-event metadata.
 - skills guide setup, recall, working sessions, inbox review, and maintenance.
 
@@ -98,18 +103,24 @@ Hooks must not:
 
 Recommended local setup:
 
-1. Install the exact CLI with `pipx install ai-dememory==2.1.0` or
-   `uv tool install ai-dememory==2.1.0`, then require
-   `ai-dememory version-check 2.1.0` to succeed.
-2. Create or select a private vault with `ai-dememory init <vault>`.
-3. Run `ai-dememory setup plan --require-version 2.1.0 --json`.
-4. Run `ai-dememory setup health --json`.
-5. Generate MCP config for the chosen client.
-6. Preview hooks with `ai-dememory hooks install --client all --dry-run`.
-7. Preview maintenance with `ai-dememory schedule plan --json`, then use
+1. Install the selected CLI with `pipx install ai-dememory==2.1.0` or
+   `uv tool install ai-dememory==2.1.0`.
+2. Create or select a private vault with
+   `ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0`.
+   The wizard previews and records the bounded resource policy without enabling
+   any integrations.
+3. Generate MCP config for a chosen client only when the user wants that
+   integration, then inspect the fragment before copying it into host config.
+4. Use `ai-dememory setup health --json` as an optional read-only diagnostic.
+5. Preview hooks with `ai-dememory hooks install --client all --dry-run`.
+6. Preview maintenance with `ai-dememory schedule plan --json`, then use
    `ai-dememory schedule setup --dry-run` or reviewed cron export from the
-   setup-plan `schedule_cron` commands when a human wants shell-ready output.
-8. Install only the reviewed hook or schedule pieces the user wants.
+   scheduler plan when a human wants shell-ready output.
+7. Install only the reviewed hook or schedule pieces the user wants.
+
+After the candidate has a tagged, published package, its first-run command
+becomes `ai-dememory init ~/code/my-memory --wizard`; do not add that unpublished
+candidate to an installation command or host scheduler configuration.
 
 MCP clients should use `memory.setup_plan` and `memory.setup_health` for this
 flow. Both tools are read-only and report explicit side-effect flags so plugin

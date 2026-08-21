@@ -3,10 +3,15 @@
 User memory belongs in a private vault repository, not in the tool distribution
 repo.
 
+**Release scope:** Published stable 2.1.0 is the only package available from
+PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
+index until it is tagged and published. The candidate removes the stable setup
+pin only after its release process completes.
+
 ## CLI Path
 
 ```bash
-ai-dememory init ~/code/my-memory
+ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 cd ~/code/my-memory
 git init
 git add README.md .ai-dememory.toml .ai-dememory-ignore.toml .gitignore memories inbox templates quality working
@@ -27,15 +32,16 @@ git branch -M main
 git push -u origin main
 ```
 
-Run:
+The wizard creates the vault and records its reviewed operating policy. After
+you add the first reviewed notes, build the disposable search index:
 
 ```bash
-ai-dememory vault-setup-guard
-ai-dememory doctor
-ai-dememory validate
-ai-dememory secret-scan
-ai-dememory index
+ai-dememory --root ~/code/my-memory index
 ```
+
+After 2.1.1rc1 has been tagged and published, the candidate's corresponding
+first-run command is `ai-dememory init ~/code/my-memory --wizard`; it is not an
+unpublished package installation instruction.
 
 ## GitHub Template Path
 
@@ -54,11 +60,10 @@ For users who prefer GitHub UI setup:
 5. Mark the repository as a GitHub template.
 6. Users click "Use this template".
 7. Users create a private repository from the template.
-8. Users clone their private repo and install the exact release with:
+8. Users clone their private repo and install the selected release with:
 
    ```bash
    pipx install ai-dememory==2.1.0
-   ai-dememory version-check 2.1.0
    ```
 
 The export command copies the same template used by `ai-dememory init`. It
@@ -83,11 +88,10 @@ Do not commit:
 
 ## MCP Setup
 
-Generate client config from inside the vault:
+Generate optional client config for the vault:
 
 ```bash
-ai-dememory version-check 2.1.0
-ai-dememory mcp-config --client codex --require-version 2.1.0
+ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
 Use the generated `AI_DEMEMORY_ROOT` path so the MCP server reads the user's

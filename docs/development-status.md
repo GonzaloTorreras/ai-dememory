@@ -1,164 +1,106 @@
 # Development Status
 
-Updated: 2026-08-18
+Updated: 2026-08-21
 
-This is a reproducible public-repository handoff, not release evidence by
-itself. The lead integrator updates it only when state or verified evidence
-changes.
+This is a concise public-repository handoff, not release evidence by itself.
+The lead integrator updates it when a verified checkout, frontier, blocker, or
+reproducible evidence changes.
 
-## Canonical Checkout
+## Canonical Baseline
 
 - Public remote: `https://github.com/GonzaloTorreras/ai-dememory.git`
-- Base and current public `main`:
-  `c5ee8b55b12d266342ef7db7b4fa10d4459154ec`
-- Active release branch: `codex/release-2.1.0-stable`
-- Published stable package at branch start: `2.0.0`
-- Verified candidate: `2.1.0rc1` on TestPyPI and GitHub Releases
-- Target: cumulative stable `2.1.0` on PyPI
+- Public `main` and annotated tag `v2.1.0`:
+  `f43e55d824e7b085b5a7f8518e6dad9d5ddaef99`
+- Current published release line in user documentation: `2.1.0`
+- Current source-only patch candidate: `2.1.1rc1`. It is neither tagged nor
+  published; its package-index evidence must be collected independently.
+- Python 3.11+ remains the only headless runtime. Node is not an installation
+  or background-process dependency.
+- The former private checkout is historical input only. Private vaults,
+  receipts, credentials, paths, and personal memory are not public source or
+  release evidence.
 
-The former private checkout is historical input only. Its push URL is disabled
-and none of its memories, receipts, pins, paths or release evidence is reusable.
+The exact tagged baseline was verified locally from the canonical `origin/main`
+remote. A future release must still perform its own external package-index,
+GitHub-release, CI, and Pages readback; this file does not substitute for those
+checks.
 
-## Active Scope
+## Current Maintenance Correction
 
-- Completed product task: `BRG-014`
-- Completed batch: `B04a`
-- Release objective: promote the verified V2.1 behavior as exact stable
-  `2.1.0`, with deterministic notes covering the net public history since
-  `v2.0.0`
-- Owned paths: stable version identities, changelog and release-note contract,
-  user documentation/site, planning frontier and this durable handoff
-- Compatibility: release-only closure; no V3 runtime or external-gate claim
+This branch prepares a 2.1.1 release candidate that corrects an unintended
+2.1.0 compatibility contract without changing the V3 execution DAG.
 
-Required invariants:
+- Planning mapping: compatible maintenance remediation of completed `BRG-014`
+  in `B04a`; it does not advance `B04b` or claim a V3 milestone.
+- Problem: release preparation made `--require-version` look like a normal
+  setup command and persisted an exact semver pin into generated MCP commands.
+  A later patch package would then abort before MCP started.
+- Resolution: new generated configuration, plans, plugin defaults, and Docker
+  defaults omit the pin. Legacy configuration that still contains it is accepted
+  as a no-op. `version-check` remains an explicit CI/support diagnostic.
+- Release coupling: `2.1.0` remains the published stable package and retains
+  its historical explicit wizard version flag. The new wizard-first command is
+  scoped to source candidate `2.1.1rc1`; it cannot be presented as an
+  installable PyPI path until the exact candidate is tagged and published.
+  The documentation and static site must show those two release lenses
+  separately.
+- Candidate first-run UX: `ai-dememory init ~/code/my-memory --wizard` after
+  installing the future 2.1.1 release artifact. Client configuration remains
+  an optional, inspect-before-copy action.
+- Preserved safeguards: explicit vault binding, `--require-bound-root`,
+  server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
+  and bounded resource policy.
 
-- Python 3.11+ remains the only domain and headless runtime; Node is not an
-  installation or background dependency;
-- Markdown remains canonical and real vault data remains outside the public
-  repository and installed executable;
-- setup policy and optional reviewed durable onboarding stay separate;
-- public/core MCP defaults remain bounded while explicit `admin` preserves the
-  historical complete surface;
-- a release body is generated deterministically from the exact dated changelog
-  section and links the complete public comparison;
-- tag creation and package publication remain separate exact-tuple workflows;
-- stable publication requires the already completed TestPyPI RC evidence,
-  exact-head review, green CI, immutable tag, OIDC, post-index installation and
-  GitHub Release assets.
+## Evidence So Far
 
-## Historical Reconciliation
+- Static documentation/site guard and the Pages artifact guard pass against the
+  current worktree.
+- `python -m unittest discover -s tests` passes: 800 tests, 53 explicitly
+  environment-conditioned skips. The suite's intentional negative `--guided`
+  parser case writes an argparse error while still passing its assertion.
+- `ai_release_guard.py --tag v2.1.1rc1 --version-only`, strict release checks,
+  and an isolated `install_smoke.py --package .` pass for the exact candidate.
+  The smoke exercises the installed package, wizard, MCP, hook, maintenance,
+  and public-only retrieval paths without publishing an artifact.
+- Fresh independent compatibility and security reviews found no source-security
+  or legacy-configuration blocker. They confirmed root binding,
+  `--require-bound-root`, server-enforced profiles/allowlists, and idle leases
+  remain intact.
+- The independent reviewer records one hard release gate: this branch is not
+  mergeable as documentation-only work because its user instructions describe
+  behavior absent from published 2.1.0. The correction must become the next
+  package patch. It is now versioned as `2.1.1rc1`, but its exact source,
+  package, documentation and install evidence must still be rerun together.
+- The review was a scoped manual read-only diff review; no sealed external
+  security-scan artifact was produced for this maintenance correction.
+- Draft PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21)
+  records the exact branch/base, evidence, rollback, and hard merge gate.
+- No package, tag, GitHub Release, PyPI publication, Pages deployment, vault
+  mutation, or host configuration write is part of this maintenance correction.
 
-The historical worktree contained 460 dirty entries at audit time: 373 tracked
-and 87 untracked. It must not be merged wholesale.
+## Resolved Historical Drift
 
-- Public net history since 2.0.0 includes contextual recall, bounded autonomy,
-  process cleanup, MCP profiles, one-session setup, public documentation,
-  security policy, Pages delivery, release hardening and continuity contracts.
-- Superseded auto-approval behavior is omitted from product claims; the later
-  exact-head solo-maintainer receipt model is the effective control.
-- Planning-only V3 and MemPalace-derived ideas remain research until their
-  public task dependencies and evidence gates complete.
-- Excluded material remains excluded: private `memories/**`, `inbox/**`, local
-  reports, paths, hashes/receipts tied to an archive, credentials and stale
-  release identity.
+The previous status snapshot still described an unfinished `2.1.0rc1` to stable
+promotion, a release branch, and pre-tag gates. Those statements are historical
+and no longer describe `origin/main`; they have been removed rather than carried
+forward as an active checklist. The dated release record and historical ADRs
+remain intact.
 
-## Verified Release-Candidate Evidence
+## Next Legal Action
 
-- PR [#17](https://github.com/GonzaloTorreras/ai-dememory/pull/17)
-  consolidated the public V2.1 implementation and merged as
-  `640322c560e19c10be9b168a17f28116b04f3312` after independent review, exact
-  CI and Pages checks.
-- PR [#18](https://github.com/GonzaloTorreras/ai-dememory/pull/18) corrected
-  the personal-repository tag trust model and merged as
-  `6be35adcefee80fee24f1226f83e208cc40f24cc`.
-- PR [#19](https://github.com/GonzaloTorreras/ai-dememory/pull/19) centralized
-  PEP 440 tag validation and merged as
-  `c5ee8b55b12d266342ef7db7b4fa10d4459154ec`; main CI run `31006201172`
-  passed and its tree matched reviewed head `6102f7e001412fd1acce28b082e33436679ae8c4`.
-- Annotated immutable tag `v2.1.0rc1` points exactly to `c5ee8b55...`.
-- Release workflow
-  [31006564196](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/31006564196)
-  passed validation, 654-test/runtime coverage, isolated wheel/sdist smoke,
-  Docker smoke, build-once checksums, artifact attestation, environment-gated
-  TestPyPI OIDC publication, post-index installation and GitHub prerelease
-  creation.
-- TestPyPI serves `ai_dememory-2.1.0rc1-py3-none-any.whl` with SHA-256
-  `7cb32d37a436f4c5a52684de5849e00abb06c6733db1d5fe6594353a073038ff` and
-  `ai_dememory-2.1.0rc1.tar.gz` with SHA-256
-  `cacd5339844ff4617a34525f8b5e335a3fdbeb9e560d7031a7d5a9d8ffde96db`.
-- A second clean Windows environment installed `2.1.0rc1` directly from
-  TestPyPI with cache disabled, produced a non-writing balanced wizard plan,
-  negotiated MCP `2025-11-25`, returned server version `2.1.0rc1`, answered
-  ping and left zero package-owned processes.
-
-## Verified Stable-Branch Evidence
-
-- The cumulative 2.1.0 changelog, exact package/plugin identities, deterministic
-  release-note parser, user docs and static Pages content are complete on this
-  branch. The documentation/site guard passes its source-derived release,
-  profile, link, security and payload-budget contracts. The NotebookLM/Gemini
-  Notebook analysis is recorded only as non-normative source-grounded query
-  research; it does not change the task DAG or claim a shipped V3 runtime.
-- Native discovery completes 755 tests with 51 environment-specific skips and
-  no failures. Focused evidence also passes for the core memory tools (535 with
-  45 skips), release identity (35), stable docs/site commands (54),
-  onboarding/wizard (45), MCP profiles/lifecycle (21), planning contract (5)
-  and the Pages artifact contract (14); isolated bytecode compilation passes.
-- A clean temporary build produced exactly
-  `ai_dememory-2.1.0-py3-none-any.whl` and `ai_dememory-2.1.0.tar.gz`; both pass
-  namespace validation, isolated artifact installation and `twine check`.
-  Their local pre-publication SHA-256 values are respectively
-  `f8aaa7ad50a1576bd051ef32b47ce37bb898fcb4daaebeca602e19b4ba5dd8ec`
-  and `54a2009490f727edebb2842f2167a4b21b02a4568acec784bb749631b28ff378`;
-  CI must build once and establish the release-canonical hashes. Generated
-  source metadata is removed afterward. Setuptools still emits non-fatal
-  package-data discovery warnings for data-only template directories; both
-  artifact smokes confirm that the packaged vault template remains complete.
-- A no-cache clean virtual environment installed the exact 2.1.0 wheel, passed
-  exact-version and mismatch checks, applied the fingerprint-bound balanced
-  wizard and reviewed onboarding, validated `setup plan` for installed and
-  Docker MCP modes, exercised the installed CLI/MCP initialize and ping path,
-  and cleaned its temporary vault and package-owned runtime. Separate isolated
-  smokes installed and executed both the exact wheel and sdist.
-- `release_check.py`, the version-only stable identity guard, CI guard and
-  canonical publisher guard pass. The tag-bound `v2.1.0` identity check remains
-  deliberately unavailable until the reviewed commit is tagged. The expected
-  pre-PR warnings remain: the disposable demo index is intentionally absent, no
-  PR URL is bound yet, and the checkout is not yet a committed Pages artifact.
-- Exact scans `02ba69b2-fb72-4245-ba8a-80be51495a4c` and
-  `4803d9c7-198a-4903-98de-22014dca58a9` first exposed the ambient root and
-  sibling setup/onboarding provenance gaps. The completed fifth frozen scan
-  `f9d74a4e-764c-423f-a3c9-5ba2e1d36152` then reported five findings on its old
-  digest: PowerShell Unicode-quote injection, opaque documentation-shell
-  parsing, mutable checkout markers, direct-entrypoint provenance and inline
-  HTML event handlers. The current diff closes those shared boundaries:
-  generated PowerShell argv escapes every recognized single-quote delimiter;
-  ambient persistent flows require a regular vault manifest and reject source
-  or nested checkout ambiguity without opening Git metadata; direct setup and
-  onboarding require a deliberate root; and the documentation guard normalizes
-  path/quote forms, fails closed on indirect shell execution and rejects `on*`
-  attributes. Focused tests and fresh independent read-only slice reviews are
-  clean. These remediations invalidate the fifth digest, so the complete staged
-  diff still requires one final exact scan; its receipt belongs in the PR
-  handoff to avoid a self-referential documentation change.
-- Docker Desktop is not running in this Windows session, so a local container
-  smoke was not repeated. The prior exact RC workflow passed Docker smoke; the
-  stable PR must repeat it in GitHub CI before merge.
-
-## Remaining Stable Gates
-
-1. Record a final exact scan of the complete staged diff in the PR handoff; no
-   reportable finding may remain.
-2. Obtain a fresh independent read-only final review, push the branch, open the
-   approve-ready PR, and require exact-head GitHub CI plus Pages validation.
-3. Merge with the expected head SHA and require green `main` CI before creating
-   annotated tag `v2.1.0`.
-4. Exercise the `pypi` Trusted Publisher identity, install exact `2.1.0` from
-   PyPI without cache, verify wizard/MCP/process cleanup, and confirm immutable
-   GitHub Release assets, hashes, attestations and cumulative notes.
-
-## Next Legal Product Work
-
-After stable post-publication verification, batch `B04b` is the first legal
-frontier: `BRG-003` and `BRG-017` may proceed as small, independently reviewed
-changes. `BRG-019`, `MIG-001`, `GATE-B` and `ONB-001` remain dependency-gated.
+1. Keep draft PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21)
+   in draft while the `2.1.1rc1` source/package/documentation contract is
+   validated and independently reviewed.
+2. Keep 2.1.0 stable instructions and `2.1.1rc1` candidate instructions
+   distinct. Do not change public stable install references to 2.1.1 until the
+   RC has been tagged, published to TestPyPI, and passed its exact-index
+   installation evidence.
+3. After a green exact-head PR and fresh review, obtain explicit approval
+   before merging. A later exact-tag authorization and a separate publication
+   authorization remain required for the candidate.
+4. Do not merge, tag, publish, deploy, or alter external configuration without
+   the approval required by `AGENTS.md`.
+5. After this small V2 correction, the next product frontier remains `B04b`:
+   `BRG-003` (deterministic vault/root binding) and `BRG-017` (strict config
+   parsing). `BRG-019`, `MIG-001`, `GATE-B`, and `ONB-001` remain gated by their
+   declared dependencies and evidence.

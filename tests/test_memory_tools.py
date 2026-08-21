@@ -224,6 +224,7 @@ from release_check import (  # noqa: E402
     EXPECTED_PLUGIN_MCP_TOOLS,
     check_pr_gate,
     check_codex_plugin,
+    load_json as release_load_json,
     plugin_version_for_package,
     plugin_skill_safety_issues,
 )
@@ -415,8 +416,6 @@ class MemoryToolTests(unittest.TestCase):
                     "--stdio",
                     "--idle-timeout-seconds",
                     "600",
-                    "--require-version",
-                    PACKAGE_VERSION,
                     "--profile",
                     "core",
                     "--require-bound-root",
@@ -1125,8 +1124,7 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(cli_main([]), 0)
 
         self.assertIn(
-            "ai-dememory mcp-config --root ~/code/my-memory "
-            "--client codex --require-version 2.1.0",
+            "ai-dememory --root ~/code/my-memory mcp-config --client codex",
             output.getvalue(),
         )
 
@@ -1146,8 +1144,6 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -1167,8 +1163,6 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -1201,10 +1195,7 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(data["command"], "docker")
             self.assertIn("ai-dememory:local", data["args"])
             self.assertIn(f"{root.resolve()}:/memory", data["args"])
-            self.assertIn(
-                ["--require-version", PACKAGE_VERSION],
-                [data["args"][index : index + 2] for index in range(len(data["args"]) - 1)],
-            )
+            self.assertNotIn("--require-version", data["args"])
             self.assertEqual(data["env"], {})
 
     def test_mcp_config_supports_checkout_command_args(self) -> None:
@@ -1237,8 +1228,6 @@ class MemoryToolTests(unittest.TestCase):
                 "--stdio",
                 "--idle-timeout-seconds",
                 "600",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--profile",
                 "core",
                 "--require-bound-root",
@@ -8675,10 +8664,7 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(emitted.count("--root"), 1)
 
         self.assertEqual(setup_preview[:5], [*root_prefix, "setup", "wizard"])
-        self.assertEqual(
-            setup_preview[setup_preview.index("--require-version") + 1],
-            PACKAGE_VERSION,
-        )
+        self.assertNotIn("--require-version", setup_preview)
         self.assertIn("--json", setup_preview)
         self.assertIn("--apply", setup_apply)
         self.assertIn("--expect-plan-sha256", setup_apply)
@@ -8773,18 +8759,11 @@ class MemoryToolTests(unittest.TestCase):
             for index in range(len(mcp_configs[0]) - 1)
         ])
         for command in mcp_configs:
-            version_indexes = [
-                index
-                for index, argument in enumerate(command)
-                if argument == "--require-version"
-            ]
-            self.assertEqual(len(version_indexes), 1)
-            self.assertEqual(command[version_indexes[0] + 1], PACKAGE_VERSION)
+            self.assertNotIn("--require-version", command)
         self.assertIn("--image", mcp_configs[1])
         self.assertIn("provider_plan", plan)
         assert_setup_plan(
             json.dumps(plan),
-            expected_version=PACKAGE_VERSION,
             expected_root=root,
         )
         rootless = json.loads(json.dumps(plan))
@@ -8798,7 +8777,6 @@ class MemoryToolTests(unittest.TestCase):
         with self.assertRaisesRegex(InstallSmokeError, "global vault root"):
             assert_setup_plan(
                 json.dumps(rootless),
-                expected_version=PACKAGE_VERSION,
                 expected_root=root,
             )
 
@@ -9013,8 +8991,6 @@ class MemoryToolTests(unittest.TestCase):
                     "codex",
                     "--mode",
                     "both",
-                    "--require-version",
-                    PACKAGE_VERSION,
                     "--json",
                 ],
                 cwd=ROOT,
@@ -9029,29 +9005,21 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "both")
         self.assertEqual(len(payload["commands"]["mcp_configs"]), 2)
         for command in payload["commands"]["mcp_configs"]:
-            index = command.index("--require-version")
-            self.assertEqual(command[index + 1], PACKAGE_VERSION)
+            self.assertNotIn("--require-version", command)
 
-    def test_setup_plan_version_gate_fails_before_root_resolution(self) -> None:
+    def test_setup_plan_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
         output = io.StringIO()
-        error = io.StringIO()
-        with (
-            patch("setup_plan.repo_root") as root_resolver,
-            patch("sys.stdout", output),
-            patch("sys.stderr", error),
-            self.assertRaises(SystemExit) as raised,
-        ):
-            setup_plan_main(
-                ["plan", "--require-version", "0.0.0", "--json"]
+        with tempfile.TemporaryDirectory() as tmp, patch("sys.stdout", output):
+            expected_root = str(Path(tmp).resolve())
+            exit_code = setup_plan_main(
+                ["--root", tmp, "plan", "--require-version", "0.0.0", "--json"]
             )
 
-        self.assertEqual(raised.exception.code, 2)
-        self.assertEqual(output.getvalue(), "")
-        root_resolver.assert_not_called()
-        self.assertIn(
-            f"version mismatch: expected 0.0.0, found {PACKAGE_VERSION}",
-            error.getvalue(),
-        )
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["root"], expected_root)
+        for command in payload["commands"]["mcp_configs"]:
+            self.assertNotIn("--require-version", command)
 
     def test_release_smoke_direct_scripts_start_without_installed_package(self) -> None:
         env = dict(os.environ)
@@ -11223,6 +11191,33 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn(f"{len(EXPECTED_PLUGIN_MCP_SERVER_ONLY_TOOLS)} server-only tools classified", result.detail)
         self.assertIn("5 skills", result.detail)
 
+    def test_release_check_rejects_persistent_plugin_mcp_version_pin(self) -> None:
+        mcp_path = ROOT / "plugins" / "ai-dememory" / ".mcp.json"
+        original_mcp = json.loads(mcp_path.read_text(encoding="utf-8"))
+        variants = (
+            ("separate argument", ["--require-version", "0.0.0"]),
+            ("equals argument", ["--require-version=0.0.0"]),
+        )
+        for label, extra_args in variants:
+            with self.subTest(variant=label):
+                pinned_mcp = json.loads(json.dumps(original_mcp))
+                pinned_mcp["mcpServers"]["ai-dememory"]["args"].extend(extra_args)
+
+                def load_json_with_persistent_version_pin(
+                    path: Path,
+                    errors: list[str],
+                    config_label: str,
+                ) -> dict[str, object] | None:
+                    if path == mcp_path:
+                        return pinned_mcp
+                    return release_load_json(path, errors, config_label)
+
+                with patch("release_check.load_json", side_effect=load_json_with_persistent_version_pin):
+                    result = check_codex_plugin(ROOT)
+
+                self.assertEqual(result.status, "fail")
+                self.assertIn("must not emit obsolete persistent --require-version", result.detail)
+
     def test_plugin_version_maps_release_candidates_to_exact_semver(self) -> None:
         self.assertEqual(plugin_version_for_package("2.1.0rc1"), "2.1.0-rc.1")
         self.assertEqual(plugin_version_for_package("2.1.0"), "2.1.0")
@@ -12264,8 +12259,6 @@ class MemoryToolTests(unittest.TestCase):
             [
                 "setup",
                 "wizard",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--intensity",
                 "balanced",
                 "--json",
@@ -12324,8 +12317,6 @@ class MemoryToolTests(unittest.TestCase):
                 "codex",
                 "--mode",
                 "both",
-                "--require-version",
-                PACKAGE_VERSION,
                 "--json",
             ],
         )
