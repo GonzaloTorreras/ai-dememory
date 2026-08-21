@@ -64,6 +64,8 @@ changing the V3 execution DAG.
   package patch and its install references must match that released identity.
 - The review was a scoped manual read-only diff review; no sealed external
   security-scan artifact was produced for this maintenance correction.
+- Draft PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21)
+  records the exact branch/base, evidence, rollback, and hard merge gate.
 - No package, tag, GitHub Release, PyPI publication, Pages deployment, vault
   mutation, or host configuration write is part of this maintenance correction.
 
@@ -77,8 +79,8 @@ remain intact.
 
 ## Next Legal Action
 
-1. Push and open a **draft** PR with the exact head, full-suite evidence,
-   rollback, and the patch-release coupling as a hard merge gate.
+1. Keep draft PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21)
+   in draft until its patch-release coupling is complete.
 2. Before any merge, prepare the next patch release identity, update every
    stable install reference to that identity, and repeat the release evidence
    for the exact candidate.
