@@ -21,7 +21,6 @@ Publish `ai-dememory` as a Python application package with the
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
 ```
 
 This keeps application dependencies isolated and makes upgrades simple.
@@ -30,7 +29,6 @@ This keeps application dependencies isolated and makes upgrades simple.
 
 ```bash
 uv tool install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
 ```
 
 ### Development snapshot: reviewed local checkout
@@ -51,7 +49,7 @@ never execute a mutable VCS URL or an ephemeral package runner.
 The package includes a vault template and exposes:
 
 ```bash
-ai-dememory init ./my-memory
+ai-dememory init ./my-memory --wizard
 ```
 
 This is the default setup path.
@@ -97,15 +95,20 @@ server.
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory doctor --json --summary
-ai-dememory index
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory eval-recall
+ai-dememory init ~/code/my-memory --wizard
 ```
+
+The wizard chooses a bounded resource policy and writes the vault-local
+configuration. Connecting a client is a separate, optional action because the
+generated fragment must be inspected before it is copied into host config:
+
+```bash
+ai-dememory --root ~/code/my-memory mcp-config --client codex
+```
+
+`ai-dememory --version` is the ordinary confirmation after an install or
+upgrade. The `version-check` subcommand remains available for CI or
+support diagnostics; it is not part of first-run setup.
 
 ## Stable Release Requirements
 

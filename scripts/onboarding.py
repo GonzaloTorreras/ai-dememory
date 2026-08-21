@@ -1193,11 +1193,9 @@ def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
     parser.add_argument("--model-policy", choices=model_policy_names(), default=None, help=operational_help)
     parser.add_argument("--enable-auto-learning", action="store_true", help=operational_help)
     if operational:
-        parser.add_argument(
-            "--require-version",
-            metavar="VERSION",
-            help="Fail before planning or applying unless this exact ai-dememory version is running.",
-        )
+        # Keep old generated wizard commands working after an upgrade.  New
+        # wizard and plan output intentionally omits this compatibility flag.
+        parser.add_argument("--require-version", metavar="VERSION", help=argparse.SUPPRESS)
     else:
         parser.set_defaults(require_version=None)
     parser.add_argument("--apply", action="store_true", help="Apply a plan whose preview fingerprint was reviewed.")
@@ -1289,8 +1287,6 @@ def print_guided_next_actions(result: dict[str, Any]) -> None:
                             "mcp-config",
                             "--client",
                             client,
-                            "--require-version",
-                            PACKAGE_VERSION,
                         ]
                     )
                 )
@@ -1328,10 +1324,6 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
     explicit_root = args.root if args.root and args.root.strip() else None
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
     configured_root = configured_root if configured_root and configured_root.strip() else None
-    if operational_guided and args.require_version is not None and args.require_version != PACKAGE_VERSION:
-        parser.error(
-            f"version mismatch: expected {args.require_version}, found {PACKAGE_VERSION}"
-        )
     if not explicit_root and not configured_root:
         entrypoint = "setup wizard" if operational_guided else "onboarding"
         parser.error(

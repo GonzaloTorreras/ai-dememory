@@ -146,17 +146,11 @@
         <div class="container install-grid">
           <div class="code-block" data-copy-block data-release="stable-2.1.0">
             <pre tabindex="0"><code>pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory index
-ai-dememory setup plan --require-version 2.1.0 --json
-ai-dememory setup wizard --require-version 2.1.0</code></pre>
+ai-dememory init ~/code/my-memory --wizard</code></pre>
           </div>
           <div class="install-copy">
-            <h2 id="install-heading">Start exact, with a passive plan</h2>
-            <p>This path pins release line 2.1.0 and fails closed if the artifact is not yet available, before exposing the preview-first wizard or MCP configuration. The installation guide also covers upgrades and client refresh.</p>
+            <h2 id="install-heading">Start with the guided setup</h2>
+            <p>Install the exact public release, then let the wizard preview the bounded local policy and ask before writing it. Connecting an AI client, imports, hooks, and schedules remain separate choices.</p>
             <a class="text-link" href="install/">Read the installation guide <span aria-hidden="true">→</span></a>
           </div>
         </div>

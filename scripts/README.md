@@ -9,8 +9,8 @@ For a local command, install the checkout in editable mode:
 python3 -m pip install -e .
 ai-dememory validate
 ai-dememory doctor
-ai-dememory init ~/code/my-memory
-ai-dememory mcp-config --client codex
+ai-dememory init ~/code/my-memory --wizard
+ai-dememory --root ~/code/my-memory mcp-config --client codex
 ai-dememory mcp-client-smoke
 ai-dememory verify-mcp
 ai-dememory mcp-inventory --check-docs
@@ -188,7 +188,7 @@ python3 scripts/ai_dememory.py review recommendation-outcomes --json
 python3 scripts/ai_dememory.py review recommendation-outcomes --limit 50 --offset 50 --invalid-offset 50 --json
 python3 scripts/ai_dememory.py conflict resolve --id conf_example --keep mem_example --recommendation-id rec_example --reviewer you
 python3 scripts/ai_dememory.py api --host 127.0.0.1 --port 8765
-python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
+python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root
 ```
 
 Direct script entry points remain available:

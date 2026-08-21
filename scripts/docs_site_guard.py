@@ -51,12 +51,7 @@ SOURCE_PATHS = (
 
 REQUIRED_COMMANDS = (
     "pipx install ai-dememory==2.1.0",
-    "ai-dememory version-check 2.1.0",
-    "ai-dememory init ~/code/my-memory",
-    "ai-dememory doctor",
-    "ai-dememory setup wizard --require-version 2.1.0",
-    "ai-dememory mcp-config --client codex --require-version 2.1.0",
-    "ai-dememory mcp-client-smoke",
+    "ai-dememory init ~/code/my-memory --wizard",
 )
 
 STABLE_RELEASE_CONTRACTS = {
@@ -64,15 +59,8 @@ STABLE_RELEASE_CONTRACTS = {
         "required": (
             "pipx install ai-dememory==2.1.0",
             "pipx install --force ai-dememory==2.1.0",
-            "ai-dememory version-check 2.1.0",
-            "ai-dememory init ~/code/my-memory",
-            "ai-dememory doctor",
-            "ai-dememory index",
-            "ai-dememory setup plan --require-version 2.1.0 --json",
-            "ai-dememory setup wizard --require-version 2.1.0",
-            "ai-dememory setup health --json",
-            "ai-dememory mcp-config --client codex --require-version 2.1.0",
-            "ai-dememory mcp-client-smoke",
+            "ai-dememory init ~/code/my-memory --wizard",
+            "ai-dememory --root ~/code/my-memory mcp-config --client codex",
         ),
         "source_only": (
             "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
@@ -111,8 +99,14 @@ STABLE_PACKAGE_COMMAND_RE = re.compile(
 )
 
 STABLE_DOC_REQUIRED_COMMANDS = {
-    "README.md": ("pipx install ai-dememory==2.1.0",),
-    "docs/install.md": ("pipx install ai-dememory==2.1.0",),
+    "README.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard",
+    ),
+    "docs/install.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard",
+    ),
     "docs/local-mcp.md": ("pipx install ai-dememory==2.1.0",),
     "docs/mcp-client-config.md": ("pipx install --force ai-dememory==2.1.0",),
     "docs/codex-plugin.md": ("pipx install ai-dememory==2.1.0",),
@@ -126,13 +120,13 @@ EXPLICIT_ROOT_MCP_DOCS = {"docs/mcp-tool-profiles.md"}
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
         "pipx install ai-dememory==2.1.0",
-        "ai-dememory version-check 2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "install/index.html": (
         "pipx install ai-dememory==2.1.0",
         "pipx install --force ai-dememory==2.1.0",
-        "ai-dememory version-check 2.1.0",
-        "ai-dememory mcp-config --client codex --require-version 2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard",
+        "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
 }
 
@@ -1898,17 +1892,6 @@ def _stable_command_errors(
                 f"{label}: required executable stable command is missing: {required!r}"
             )
     exact_check = f"ai-dememory version-check {stable_version}"
-    package_commands = [
-        command
-        for _, command in validation_commands
-        if STABLE_PACKAGE_COMMAND_RE.search(command)
-    ]
-    if package_commands and exact_check not in commands:
-        errors.append(
-            f"{label}: stable package commands require executable exact check {exact_check!r}"
-        )
-
-    required_flag = f"--require-version {stable_version}"
     for line_number, command in validation_commands:
         try:
             tokens = _preferred_shell_tokens(command)
@@ -1997,16 +1980,6 @@ def _stable_command_errors(
                 f"{label}:{line_number}: MCP configuration command must not contain shell chaining or redirection: {command!r}"
             )
         for segment in mcp_segments:
-            normalized_segment = _ai_dememory_tokens(segment)
-            version_gates = [
-                normalized_segment[index + 1]
-                for index, token in enumerate(normalized_segment[:-1])
-                if token == "--require-version"
-            ]
-            if version_gates != [stable_version]:
-                errors.append(
-                    f"{label}:{line_number}: MCP configuration command must include atomic gate {required_flag!r}: {command!r}"
-                )
             if require_explicit_mcp_root:
                 global_root_values = _mcp_global_root_values(segment)
                 all_root_values = _all_root_values(segment)
@@ -2026,17 +1999,6 @@ def _stable_command_errors(
             errors.append(
                 f"{label}:{line_number}: executable line mentions setup wizard but is not an analyzable ai-dememory command: {command!r}"
             )
-        for segment in wizard_segments:
-            normalized_segment = _ai_dememory_tokens(segment)
-            version_gates = [
-                normalized_segment[index + 1]
-                for index, token in enumerate(normalized_segment[:-1])
-                if token == "--require-version"
-            ]
-            if version_gates != [stable_version]:
-                errors.append(
-                    f"{label}:{line_number}: setup wizard command must include atomic gate {required_flag!r}: {command!r}"
-                )
         if plan_segments and operators:
             errors.append(
                 f"{label}:{line_number}: setup plan command must not contain shell chaining or redirection: {command!r}"
@@ -2045,17 +2007,6 @@ def _stable_command_errors(
             errors.append(
                 f"{label}:{line_number}: executable line mentions setup plan but is not an analyzable ai-dememory command: {command!r}"
             )
-        for segment in plan_segments:
-            normalized_segment = _ai_dememory_tokens(segment)
-            version_gates = [
-                normalized_segment[index + 1]
-                for index, token in enumerate(normalized_segment[:-1])
-                if token == "--require-version"
-            ]
-            if version_gates != [stable_version]:
-                errors.append(
-                    f"{label}:{line_number}: setup plan command must include atomic gate {required_flag!r}: {command!r}"
-                )
         if mentions_direct_mcp and not direct_mcp_segments:
             errors.append(
                 f"{label}:{line_number}: executable line mentions a direct MCP server but is not an analyzable ai-dememory command: {command!r}"
@@ -2071,15 +2022,6 @@ def _stable_command_errors(
             )
         for segment in direct_mcp_segments:
             normalized_segment = _ai_dememory_tokens(segment)
-            version_gates = [
-                normalized_segment[index + 1]
-                for index, token in enumerate(normalized_segment[:-1])
-                if token == "--require-version"
-            ]
-            if version_gates != [stable_version]:
-                errors.append(
-                    f"{label}:{line_number}: direct MCP server command must include atomic gate {required_flag!r}: {command!r}"
-                )
             if normalized_segment.count("--require-bound-root") != 1:
                 errors.append(
                     f"{label}:{line_number}: direct MCP server command must include exactly one --require-bound-root: {command!r}"
@@ -2110,17 +2052,6 @@ def _stable_command_errors(
             errors.append(
                 f"{label}:{line_number}: init --wizard command must not contain shell chaining or redirection: {command!r}"
             )
-        for segment in init_wizard_segments:
-            normalized_segment = _ai_dememory_tokens(segment)
-            version_gates = [
-                normalized_segment[index + 1]
-                for index, token in enumerate(normalized_segment[:-1])
-                if token == "--require-version"
-            ]
-            if version_gates != [stable_version]:
-                errors.append(
-                    f"{label}:{line_number}: init --wizard command must include atomic gate {required_flag!r}: {command!r}"
-                )
         sensitive_segments = (
             *mcp_segments,
             *wizard_segments,
@@ -2723,8 +2654,8 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         (release_lens, "source version"),
         (f"Python {requires_python.removeprefix('>=')}+", "Python requirement"),
         (f"pipx install --force ai-dememory=={stable_version}", "exact stable upgrade command"),
-        (f"ai-dememory version-check {stable_version}", "exact version check"),
-        (f"--require-version {stable_version}", "atomic MCP version gate"),
+        ("ai-dememory init ~/code/my-memory --wizard", "wizard-first vault command"),
+        ("ai-dememory --root ~/code/my-memory mcp-config --client codex", "optional MCP client command"),
         ("complete historical MCP surface", "admin compatibility warning"),
     ):
         if expected not in install:

@@ -231,17 +231,11 @@ class OnboardingTests(unittest.TestCase):
         )
         self.assertEqual(schedule_command.count("--root"), 1)
         self.assertEqual(codex["env"]["AI_DEMEMORY_ROOT"], str(root.resolve()))
-        self.assertIn(
-            ["--require-version", PACKAGE_VERSION],
-            [codex["args"][index : index + 2] for index in range(len(codex["args"]) - 1)],
-        )
+        self.assertNotIn("--require-version", codex["args"])
         self.assertEqual(codex["args"][-3:], ["--profile", "core", "--require-bound-root"])
         self.assertIn(["--idle-timeout-seconds", "600"], [codex["args"][index : index + 2] for index in range(len(codex["args"]) - 1)])
         self.assertEqual(claude["env"]["AI_DEMEMORY_ROOT"], str(root.resolve()))
-        self.assertIn(
-            ["--require-version", PACKAGE_VERSION],
-            [claude["args"][index : index + 2] for index in range(len(claude["args"]) - 1)],
-        )
+        self.assertNotIn("--require-version", claude["args"])
         self.assertEqual(claude["args"][-3:], ["--profile", "core", "--require-bound-root"])
         self.assertIn("--public-only", codex_hook["command"])
         self.assertIn(str(root.resolve()), codex_hook["command"])
@@ -434,8 +428,6 @@ class OnboardingTests(unittest.TestCase):
                         "mcp-config",
                         "--client",
                         client,
-                        "--require-version",
-                        PACKAGE_VERSION,
                     ]
                 ),
                 rendered,
@@ -642,8 +634,6 @@ class OnboardingTests(unittest.TestCase):
                         tmp,
                         "setup",
                         "wizard",
-                        "--require-version",
-                        PACKAGE_VERSION,
                         "--json",
                     ]
                 )
@@ -653,16 +643,12 @@ class OnboardingTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["setup_scope"], "operational")
 
-    def test_setup_wizard_version_gate_fails_before_emitting_a_plan(self) -> None:
+    def test_setup_wizard_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
         output = io.StringIO()
         error = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
-            with (
-                patch("sys.stdout", output),
-                patch("sys.stderr", error),
-                self.assertRaises(SystemExit) as raised,
-            ):
-                unified_cli.main(
+            with patch("sys.stdout", output), patch("sys.stderr", error):
+                exit_code = unified_cli.main(
                     [
                         "--root",
                         tmp,
@@ -674,12 +660,9 @@ class OnboardingTests(unittest.TestCase):
                     ]
                 )
 
-        self.assertEqual(raised.exception.code, 2)
-        self.assertEqual(output.getvalue(), "")
-        self.assertIn(
-            f"version mismatch: expected 0.0.0, found {PACKAGE_VERSION}",
-            error.getvalue(),
-        )
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(json.loads(output.getvalue())["ok"])
+        self.assertEqual(error.getvalue(), "")
 
     def test_guided_json_rejects_personal_baseline_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -731,13 +714,13 @@ class OnboardingTests(unittest.TestCase):
                 return_value=onboarding.GUIDED_DECLINED_EXIT_CODE,
             ) as runner, redirect_stdout(output):
                 exit_code = unified_cli.init_vault(
-                    [str(target), "--wizard", "--require-version", PACKAGE_VERSION]
+                    [str(target), "--wizard"]
                 )
 
         self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
         runner.assert_called_once_with(
             "onboard",
-            ["--root", str(target.resolve()), "--require-version", PACKAGE_VERSION],
+            ["--root", str(target.resolve())],
             onboarding_mode="operational",
         )
         self.assertNotIn("Then run `ai-dememory doctor`", output.getvalue())
@@ -755,7 +738,7 @@ class OnboardingTests(unittest.TestCase):
                 onboarding.sys, "stdin", InteractiveStdin()
             ), patch("builtins.input", side_effect=prompted_answers), redirect_stdout(output):
                 exit_code = unified_cli.init_vault(
-                    [str(target), "--wizard", "--require-version", PACKAGE_VERSION]
+                    [str(target), "--wizard"]
                 )
 
             config = (target / ".ai-dememory.toml").read_text(encoding="utf-8")
@@ -769,23 +752,26 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn('intensity = "balanced"', config)
         self.assertFalse(personal_memory_exists)
 
-    def test_init_wizard_requires_exact_version_before_creating_vault(self) -> None:
-        for argv in (
-            ["vault", "--wizard"],
-            ["vault", "--wizard", "--require-version", "0.0.0"],
-        ):
-            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as tmp:
-                target = Path(tmp) / "vault"
-                args = [str(target), *argv[1:]]
-                error = io.StringIO()
-                with redirect_stderr(error), patch(
-                    "ai_dememory_tool.cli.copy_template_tree",
-                    side_effect=AssertionError("must fail before copying"),
-                ):
-                    exit_code = unified_cli.init_vault(args)
-                self.assertEqual(exit_code, 1)
-                self.assertFalse(target.exists())
-                self.assertIn("version mismatch", error.getvalue())
+    def test_init_wizard_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "vault"
+            expected_root = str(target.resolve())
+            with patch(
+                "ai_dememory_tool.cli.run_packaged_command",
+                return_value=onboarding.GUIDED_DECLINED_EXIT_CODE,
+            ) as runner:
+                exit_code = unified_cli.init_vault(
+                    [str(target), "--wizard", "--require-version", "0.0.0"]
+                )
+            target_created = target.exists()
+
+        self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
+        self.assertTrue(target_created)
+        runner.assert_called_once_with(
+            "onboard",
+            ["--root", expected_root],
+            onboarding_mode="operational",
+        )
 
         for argv in (
             ["--wiz", "--require-version", PACKAGE_VERSION],

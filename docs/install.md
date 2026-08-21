@@ -1,173 +1,65 @@
 # Installation
 
-This repository is the ai-dememory tool distribution repo. Users should install
-the tool, then create a separate private memory vault.
+This repository distributes the `ai-dememory` tool. Personal memory belongs in
+a separate private vault, never in this public repository.
 
-The current release line is `ai-dememory` 2.1.0. Treat it as available only
-after the exact pinned install and fail-closed version check succeed; never
-substitute an older package for the documented capability line.
+## First Run: Two Commands
 
-## Recommended User Install
-
-Use `pipx` for normal CLI use because it installs Python applications in
-isolated environments while keeping their commands on `PATH`.
-
-Normal `ai-dememory --help` foregrounds vault, recall, working-memory, review,
-and setup workflows. Advanced quality tooling plus maintainer-only CI,
-distribution, release, and publishing commands live under
-`ai-dememory dev --help`. Their historical top-level forms remain compatibility
-aliases for existing automation.
+Use `pipx` for normal CLI use: it keeps the Python application isolated while
+putting `ai-dememory` on your `PATH`.
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
+ai-dememory init ~/code/my-memory --wizard
 ```
 
-Equivalent `uv` tool install:
+The wizard previews the bounded operational setup, shows its limits and exact
+fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
+import chats, create personal memory, install hooks or schedules, or edit a
+client configuration. `balanced` is the recommended first-run intensity.
+
+`uv` users can replace the first command with
+`uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
+`D:\Memory\my-vault`.
+
+## Connect An AI Client (Optional)
+
+Connecting Codex, Claude, or another client is deliberately separate: inspect
+the generated fragment before copying it into the host configuration.
+The wizard stops before this boundary because it cannot safely choose or edit a
+host application's configuration on your behalf.
 
 ```bash
-uv tool install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
+ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-## Upgrade To Stable 2.1.0
+The generated runtime command contains the bound vault, a reduced `core`
+profile, and an idle lease. First-run users do not need to type those internal
+arguments themselves.
 
-Replace or repair a normal PyPI installation with the exact release and verify
-it before using any 2.1-only command:
+## Upgrade Or Diagnose
+
+Repair an existing pipx install with the same immutable package pin. Use the
+standard `--version` output only when diagnosing a PATH or package issue;
+`version-check` remains available for CI and compatibility diagnostics.
 
 ```bash
 pipx install --force ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
+ai-dememory --version
 ```
 
-If the environment came from a release candidate or a mutable Git checkout,
-replace it explicitly with the immutable artifact instead of carrying that
-origin forward:
+If `pipx` is unavailable, use a virtual environment or see the
+[distribution guide](distribution.md). Contributors should use a reviewed local
+checkout and the development instructions in `DEVELOPMENT.md`; local/editable
+installs are not a normal user path.
 
-```bash
-pipx uninstall ai-dememory
-pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-```
+## What The Wizard Configures
 
-After upgrading, regenerate each vault-bound MCP fragment and smoke-test the
-installed command:
-
-```bash
-ai-dememory version-check 2.1.0
-cd ~/code/my-memory
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
-```
-
-Repeat `mcp-config` for every configured client and replace the old host entry
-after inspection. The generator prints configuration; it does not silently edit
-the host. `--require-version 2.1.0` is checked atomically before vault
-resolution or stdout and embedded again in the emitted MCP server command, so
-neither a stale host executable nor a stale Docker image can serve the
-replacement fragment. This refresh carries the stable 2.1.0 bound-root requirement,
-server-enforced profile, allowlist, and idle lease into existing setups.
-
-If `pipx` is not available, use a virtual environment:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python3 -m pip install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-```
-
-PowerShell:
-
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-py -3 -m pip install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-```
-
-## Contributor Install From A Local Checkout
-
-Stable users should install from PyPI. Contributors working in a reviewed local
-checkout can install that checkout into an isolated environment:
-
-```bash
-pipx install .
-```
-
-For contributor development, prefer editable install:
-
-```bash
-python3 -m pip install -e .
-python3 -m unittest discover -s tests -t .
-```
-
-## Create A Vault
-
-After installing:
-
-```bash
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-ai-dememory index
-ai-dememory graph
-ai-dememory setup plan --require-version 2.1.0 --json
-ai-dememory setup health --json
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-client-smoke
-```
-
-The generated vault is the repo users should keep private and sync with GitHub.
-Do not store personal memory in the tool distribution checkout.
-
-To create a reusable private GitHub vault template repository instead of a
-single vault, export the packaged template:
-
-```bash
-ai-dememory vault-template export ~/code/ai-dememory-vault-template
-```
-
-Review the files, push them to a separate private repository, and mark that
-repository as a GitHub template. The export command does not create or publish
-the GitHub repository.
-
-Package installation is passive. It does not install scheduler jobs, scan
-provider folders, run the wizard, or enable hook recall/capture.
-
-For a reviewable first-run checklist, use:
-
-```bash
-ai-dememory setup plan --require-version 2.1.0 --json
-```
-
-That command is available in stable 2.1.0 and remains passive.
-
-## Stable 2.1.0 Wizard And Profiles
-
-The 2.1.0 release line includes the config-only wizard, bounded resource
-profiles, and separate optional onboarding described below; use it only after
-the exact version check succeeds.
-
-Then run `ai-dememory setup wizard --require-version 2.1.0` to review
-operational policy and limits without allowing a stale executable to emit the
-plan.
-The interactive command plans only `.ai-dememory.toml`, prints the exact
-fingerprint, and asks once whether to apply that same in-memory plan. A decline
-returns an incomplete status and writes nothing. `setup wizard
---require-version 2.1.0 --json` provides
-the same deterministic, non-interactive preview with safe defaults. Changed
-answers or config drift always require a fresh preview.
-
-Personal values, preferences, recommendations, and project profiles are a
-separate optional action. Preview them with `ai-dememory onboard`; that command
-creates only reviewed memory and never rewrites the operational config.
-Machine-readable setup and onboarding flows remain deliberately passive:
-`--json`, stdin, input files, and `--dry-run` require a separate
-`--apply --expect-plan-sha256 <preview fingerprint>` invocation with the same
-input.
-
-The wizard also asks for two independent policies:
+The interactive wizard changes operational policy only. Personal values,
+preferences, recommendations, and project profiles stay in the separate,
+optional `onboard` review/apply flow. For automation, the machine-readable
+`setup plan --json` preview remains available, but it is not needed
+before an interactive first run.
 
 | Intensity | Recall per eligible turn | Scheduled cadence after explicit setup | Provider candidates/run | File/scan ceilings |
 | --- | ---: | --- | ---: | --- |
@@ -175,250 +67,50 @@ The wizard also asks for two independent policies:
 | `balanced` | up to 1,200 tokens | daily + weekly | 20 | 64 KiB / 2,500 entries |
 | `active` | up to 2,400 tokens | daily + weekly | 50 | 128 KiB / 10,000 entries |
 
-`balanced` is recommended for a first installation. `active` is the maximum
-bounded envelope, not an unlimited mode. Host-model policy is
-separate: `off` permits deterministic local tools only, `advisory` lets the
-already active host agent recommend, and `proposals` lets it create
-review-first inbox proposals. ai-dememory runtime model calls and embedding
-calls are zero in every option; host-agent token consumption is external and
-still applies. No option creates personal memory, installs integrations,
-captures raw payloads, or promotes durable memory during the wizard. A
-confirmed apply changes only the displayed operational config, then prints
-commands for health, indexing, MCP configuration, and optional onboarding;
-hooks and schedules keep their own preview/apply boundaries.
+`active` is a maximum bounded envelope, not an unlimited mode. Host-model
+policy is separate: `off` permits deterministic local tools only, `advisory`
+lets an already active host agent recommend, and `proposals` lets it create
+review-first inbox proposals. ai-dememory makes zero model and embedding calls
+in every option.
 
-## Optional Integrations And Setup Planning
+To create a reusable private GitHub vault template instead of a single vault,
+use `ai-dememory vault-template export ~/code/ai-dememory-vault-template` and
+follow [Create A Memory Repo](create-memory-repo.md).
 
-Hook installation is separate and trust-gated. Generate a fragment with
-`ai-dememory hooks config --client codex` or `--client claude`, inspect it, and
-enable it only in a trusted repository. `hook-event dispatch` uses stdin JSON
-and stdout JSON; invalid payloads or unavailable indexes fail open with `{}`.
+## Start Using The Vault
 
-The setup plan returns command arrays for MCP config, provider planning, hook
-config, scheduler dry-run, reviewed cron export, maintenance, and manual
-acceptance planning. It does not write files, install hooks, install schedules,
-read provider chat files, or write import candidates. It also includes a
-single exact generator `--require-version` gate in every generated MCP command,
-bound to the package version that produced the plan, plus the same gate inside
-every emitted MCP runtime command. Its wizard preview/apply arrays are gated as
-well. It also includes a
-`generated_reports` command group for optional recall review, manual acceptance
-plan, manual acceptance packet, recall review packet, hook capture review, and
-release evidence handoff reports; those commands create generated files only
-when the user runs them.
-It also includes `generated_archive_status` commands for read-only recall and
-manual acceptance packet archive inspection, and `generated_archive_retention`
-commands for previewing generated packet archive cleanup candidates without
-deleting files.
-When recall review packet archives are enabled, use
-`ai-dememory recall-fixtures packet-archive-status --json` to list generated
-recall packet snapshots without promoting fixtures or writing files.
-Use `ai-dememory recall-fixtures packet-archive-retention-plan --json` to
-preview cleanup candidates without deleting files.
-When manual acceptance packet archives are enabled, use
-`ai-dememory acceptance packet-archive-status --json` to list generated packet
-snapshots without recording evidence or writing files.
-Use `ai-dememory acceptance packet-archive-retention-plan --json` to preview
-cleanup candidates without deleting files.
-
-For a combined read-only local status summary, use:
+The wizard is intentionally configuration-only. It does not scan a provider
+folder, create durable personal memory, or build an index. When you add
+reviewed Markdown that you want to recall, build the disposable local index:
 
 ```bash
-ai-dememory setup health --json
+ai-dememory --root ~/code/my-memory index
 ```
 
-Setup health combines validation status, context config status, manual
-acceptance readiness, recall review status, vector readiness, scheduler
-environment/status, provider readiness, maintenance preflight commands and
-artifact targets, generated artifact state, generated packet archive cleanup
-counts, lock state, and review queues. It does not run commands, read provider
-files, write files, or delete archives.
+Run `ai-dememory --root ~/code/my-memory doctor` or
+`ai-dememory --root ~/code/my-memory setup health --json` only when you need a
+diagnostic; neither is a prerequisite for the first run.
 
-Readiness is dimensional: `core_ready` covers canonical validation and context
-configuration; `retrieval_evaluated` requires fresh reviewed recall evidence;
-`manual_maintenance_ready` covers a valid one-shot maintenance preflight;
-`automation_ready` additionally requires a configured, fresh,
-fingerprint-valid scheduler receipt that has been checked against the host;
-`maintenance_ready` is the compatibility automation dimension;
-`integrations_ready` covers configured provider/hook surfaces without malformed
-captures; `autonomy_ready` combines verified automation, integrations, and a
-valid bounded resource policy; and `release_ready` requires every release
-dimension plus manual acceptance and clear review queues. This is a local
-sign-off signal surfaced to the release owner, not a field consumed by the
-canonical package workflow. `ready` is a deprecated alias for `core_ready`.
+## Advanced Guides (Not Part Of Installation)
 
-## Run As A Local MCP Server
+These capabilities are deliberately separate from the wizard because they can
+connect another application, read optional provider data, start a local server,
+or create maintenance automation. Use the focused guide only when you choose
+that capability:
 
-Generate client config from inside the vault:
+- [Local MCP and Docker](local-mcp.md): inspectable client fragments, direct
+  server smoke tests, and profiles.
+- [MCP client configuration](mcp-client-config.md): Codex, Claude, and generic
+  host setup.
+- [Local REST API](local-api.md): localhost API and its network-binding
+  safeguards.
+- [Hook integrations](hooks.md): trust-gated lifecycle hooks.
+- [Scheduler and maintenance](scheduler.md): dry runs, provider imports, and
+  resource-bounded schedules.
+- [Operations runbook](operations.md): diagnostics, maintenance, and upgrade
+  procedures for an existing vault.
+- [Distribution guide](distribution.md): contributor, package, and release
+  procedures. Publishing is intentionally not an installation task.
 
-```bash
-ai-dememory mcp-config --client codex --require-version 2.1.0
-ai-dememory mcp-config --client claude --require-version 2.1.0
-ai-dememory mcp-config --client generic --require-version 2.1.0
-```
-
-Stable 2.1.0 generates the reduced four-tool, server-enforced `core` profile by
-default. The explicit `admin` profile preserves the complete historical MCP
-surface for compatibility and broad maintenance work; it is not the recommended
-default. Regenerate and re-install the client fragment after an upgrade rather
-than leaving an older unprofiled configuration in place.
-
-Run the server directly for a smoke test:
-
-```bash
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | ai-dememory --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
-```
-
-Docker is also supported for local stdio usage:
-
-```bash
-docker build -t ai-dememory:local .
-ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory --require-version 2.1.0
-ai-dememory mcp-client-smoke --mode docker --image ai-dememory:local --root ~/code/my-memory
-```
-
-See `docs/local-mcp.md` for MCP client and Docker examples.
-
-## Run The Local REST API
-
-For local scripts and dashboards that cannot use MCP stdio:
-
-```bash
-ai-dememory api --host 127.0.0.1 --port 8765
-```
-
-Set `AI_DEMEMORY_API_KEY` before binding to a non-loopback address. See
-`docs/local-api.md`.
-
-## Optional Maintenance And Provider Imports
-
-Preview scheduler setup:
-
-```bash
-ai-dememory schedule plan --json
-ai-dememory schedule plan --intensity minimal --json
-ai-dememory schedule setup --dry-run
-IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
-ai-dememory schedule plan --json --mode docker --image "$IMAGE_ID"
-ai-dememory schedule setup --dry-run --mode docker --image "$IMAGE_ID"
-ai-dememory schedule cron
-```
-
-The plan includes the resolved vault root, exact command, vault-specific task
-namespace, effective intensity, wall-clock/tree-cleanup policy, and
-`plan_sha256`. Installation recomputes the exact projection before applying it,
-then reads back and fingerprints the definitions it created.
-`ai-dememory schedule status` refreshes verification only when the live
-definitions still match, and cached host verification expires after five
-minutes. Docker schedules require an immutable image ID/digest and add
-`--network none` plus intensity-specific CPU, memory, and PID limits; installed
-host mode does not claim native CPU/memory quotas.
-
-Detect and configure chat/session providers:
-
-```bash
-ai-dememory providers detect
-ai-dememory providers plan --json
-ai-dememory providers configure codex --path "$HOME/.codex" --dry-run --json
-ai-dememory providers configure codex --path "$HOME/.codex"
-ai-dememory import-chats codex --dry-run --json
-ai-dememory import-chats codex
-```
-
-Use the provider configure dry-run to review the selected folder before writing
-`.ai-dememory.toml`. It normalizes the path and reports whether the folder
-exists without reading provider chat files.
-Bounded imports report `coverage_blocked` and a suggested larger scan window
-when a truncated prefix contains only previously imported files.
-
-Run maintenance manually:
-
-```bash
-ai-dememory maintenance run --profile daily --dry-run --json
-ai-dememory maintenance run --profile daily
-ai-dememory maintenance run --profile weekly
-```
-
-The maintenance dry-run previews enabled provider imports and generated
-artifacts without writing inbox files, indexes, reports, or scheduler state.
-Weekly maintenance also writes the generated sleep consolidation report at
-`reports/sleep-plan.md` and the frontmatter-only hook capture review report at
-`reports/hook-captures.md`.
-
-See `docs/scheduler.md` and `docs/codex-plugin.md`.
-
-## Publish Checklist
-
-Before publishing a package:
-
-- Confirm Apache-2.0 is the intended published license and that package
-  metadata includes the license file.
-- Run `ai-dememory install-smoke` from the distribution checkout to install the
-  package in a fresh virtual environment and exercise a temporary private vault.
-  This smoke includes provenance, acceptance status, generated MCP config,
-  acceptance planning, doctor profile summary, CLI auto context from generated
-  working memory, recall fixture promotion from a reviewed miss, lifecycle
-  mark-seen and outcome receipts, working status, maintenance artifact status,
-  vault template export, checked-in plugin MCP config launch, MCP
-  enabled-tool verification, MCP release-evidence unavailability from a plain
-  vault, and direct MCP `initialize`/`notifications/initialized`/`ping` with
-  response-id matching, explicit missing-response diagnostics, and unexpected
-  or invalid response-id rejection, including duplicates and result-less
-  responses, plus non-object result and protocolVersion diagnostics.
-  It removes generated package build metadata it creates during local install
-  without deleting generated paths that already existed before the smoke.
-- Run `ai-dememory package-build-smoke` from the distribution checkout to build
-  wheel and source distributions into temporary storage and run `twine check`
-  without leaving `dist/` artifacts in the repository.
-  The smoke fails fast if stale generated `build/`, `dist/`, or
-  `ai_dememory.egg-info/` paths already exist, so those artifacts must be
-  removed before release validation.
-- Run `ai-dememory mcp-client-smoke` from a configured vault to verify the
-  generated installed-CLI MCP config launches, sends
-  `notifications/initialized`, and responds to `initialize` and `ping`.
-  Existing config-file smoke also verifies any `enabled_tools` entries against
-  paginated `tools/list` output while matching responses by JSON-RPC id and
-  skipping response-less server notifications.
-- Verify `ai-dememory init`, `vault-template export`, `doctor`, `index`,
-  `search`, `graph`, `mcp-config`, `providers detect`, `maintenance status`,
-  `schedule plan --json`, `schedule setup --dry-run`, `eval-recall`,
-  `api-smoke`, and `mcp --stdio` work outside the tool checkout.
-  Install smoke validates that `schedule plan --json` includes scheduler
-  commands, cron entries, and false side-effect flags.
-- Run `ai-dememory install-smoke --skip-package --docker --image
-  ai-dememory:local` to verify the Docker image against a bind-mounted vault
-  and generated Docker MCP client config
-  `initialize`/`notifications/initialized`/`ping` with response-id matching.
-  Docker smoke also
-  verifies `memory.release_evidence` reports unavailable from the plain mounted
-  vault instead of fabricating distribution checkout evidence, and validates
-  Docker `schedule plan --json`, `maintenance status` generated artifact and
-  generated packet archive cleanup visibility, plus vault template export from
-  the image.
-- Run `ai-dememory dev publish-guard`, package/install smokes, and the release
-  guard before merging the release PR.
-- Merge the release PR only after strict exact-tuple CI, a fresh `READY`
-  read-only review, the owner-account receipt, and an `expected_head_sha`
-  recheck. Obtain explicit user authorization separately for the exact release
-  tag and consequent package publication.
-- After the reviewed merge, wait for CI on the exact main commit. Then, with
-  the tag authorization, manually dispatch
-  `.github/workflows/tag-release.yml` with `tag=v<version>`,
-  `approved_sha=<40-character-main-sha>`, and
-  `confirm=release-<tag>@<approved_sha>`. The workflow refuses a stale main
-  commit, missing successful push CI, identity drift, or a conflicting tag,
-  then stops after tag creation. Separately dispatch
-  `.github/workflows/release.yml` with `intent=publish`, the same `tag` and
-  `approved_sha`, and `confirm=publish-<tag>@<approved_sha>`. This second exact
-  tuple is the publication authorization. Prerelease tags publish to TestPyPI,
-  stable tags to PyPI, followed by post-index installation and GitHub Release
-  verification.
-- Never reuse or rewrite a published tag. Recovery uses the guarded
-  `workflow_dispatch` path with `intent=recover` and
-  `confirm=recover-<tag>@<approved_sha>` for the same immutable tuple; package
-  rollback is yank plus fix-forward with a new version.
-
-References:
-
-- Python Packaging User Guide: https://packaging.python.org/
-- pipx documentation: https://pipx.pypa.io/
+For repository development, use [DEVELOPMENT.md](../DEVELOPMENT.md) rather than
+the end-user installation path.

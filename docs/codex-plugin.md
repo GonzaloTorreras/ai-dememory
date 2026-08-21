@@ -13,29 +13,29 @@ PyPI package in an isolated environment:
 
 ```bash
 pipx install ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
 ```
 
-When upgrading an existing installation, replace it with the exact release and
-fail closed before regenerating the vault-specific fragment:
+Create or select a private vault through the wizard:
+
+```bash
+ai-dememory init ~/code/my-memory --wizard
+```
+
+When upgrading an existing installation, replace it with the selected release:
 
 ```bash
 pipx install --force ai-dememory==2.1.0
-ai-dememory version-check 2.1.0
-cd ~/code/my-memory
-ai-dememory mcp-config --client codex --require-version 2.1.0
+```
+
+Generate the optional, vault-specific Codex fragment only when you want to use
+the plugin MCP server:
+
+```bash
+ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
 Replace the old host entry only after inspection. The generator does not
 silently edit Codex configuration.
-
-Then initialize or select a vault:
-
-```bash
-ai-dememory init ~/code/my-memory
-cd ~/code/my-memory
-ai-dememory doctor
-```
 
 The scheduler/plugin implementation boundary is documented in
 [scheduler-plugin-blueprint.md](scheduler-plugin-blueprint.md). Plugin install
@@ -47,7 +47,7 @@ explicit opt-in actions.
 The plugin MCP config launches:
 
 ```bash
-ai-dememory mcp --stdio --idle-timeout-seconds 600 --require-version 2.1.0 --profile public --require-bound-root
+ai-dememory mcp --stdio --idle-timeout-seconds 600 --profile public --require-bound-root
 ```
 
 The checked-in template deliberately has no private vault path and therefore
