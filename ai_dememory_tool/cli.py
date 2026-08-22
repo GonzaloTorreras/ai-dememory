@@ -459,14 +459,25 @@ def init_vault(argv: list[str]) -> int:
     doctor_command = render_copy_command(
         ["ai-dememory", "--root", str(target), "doctor"]
     )
+    health_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "setup", "health", "--json"]
+    )
     index_command = render_copy_command(
         ["ai-dememory", "--root", str(target), "index"]
     )
+    print("Vault creation is complete; no further command is required.")
     print(
-        "Next: run "
-        f"`{setup_command}`; it previews one config-only plan and asks before applying it."
+        "Optional configuration: run "
+        f"`{setup_command}` to preview one config-only plan before any explicit apply."
     )
-    print(f"Then run `{doctor_command}` and `{index_command}`.")
+    print(
+        "Optional diagnostics (not setup steps): "
+        f"`{doctor_command}` or `{health_command}`."
+    )
+    print(
+        "Optional search: after you add or review Markdown that you want searchable, "
+        f"run `{index_command}`."
+    )
     return 0
 
 
