@@ -817,36 +817,41 @@ class MemoryToolTests(unittest.TestCase):
             )
 
     def test_direct_setup_and_onboarding_fail_without_a_vault_binding(self) -> None:
-        for label, target, argv, resolver in (
+        for label, target, argv, resolver, expected_message in (
             (
                 "setup plan",
                 setup_plan_main,
                 ["plan", "--client", "codex", "--json"],
                 "setup_plan.repo_root",
+                "requires an explicit vault binding",
             ),
             (
                 "setup plan with empty root",
                 setup_plan_main,
                 ["--root=", "plan", "--client", "codex", "--json"],
                 "setup_plan.repo_root",
+                "--root requires a non-empty vault path",
             ),
             (
                 "setup health",
                 setup_plan_main,
                 ["health", "--json"],
                 "setup_plan.repo_root",
+                "requires an explicit vault binding",
             ),
             (
                 "onboarding",
                 onboarding_main,
                 ["--json"],
                 "onboarding.repo_root",
+                "requires an explicit vault binding",
             ),
             (
                 "onboarding with empty root",
                 onboarding_main,
                 ["--root=", "--json"],
                 "onboarding.repo_root",
+                "--root requires a non-empty vault path",
             ),
         ):
             with self.subTest(entrypoint=label):
@@ -866,7 +871,7 @@ class MemoryToolTests(unittest.TestCase):
                         self.assertEqual(raised.exception.code, 2)
                         self.assertEqual(output.getvalue(), "")
                         root_resolver.assert_not_called()
-                        self.assertIn("requires an explicit vault binding", error.getvalue())
+                        self.assertIn(expected_message, error.getvalue())
 
     def test_direct_mutating_commands_fail_without_a_vault_binding(self) -> None:
         invocations = (
@@ -1089,18 +1094,147 @@ class MemoryToolTests(unittest.TestCase):
         root_resolver.assert_called_once_with(None)
         self.assertEqual(json.loads(health_output.getvalue()), {"compatible": True})
 
-    def test_whitespace_root_argument_is_not_an_explicit_binding(self) -> None:
-        error = io.StringIO()
-        with (
-            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-            patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
-            redirect_stderr(error),
-            self.assertRaises(SystemExit) as raised,
-        ):
-            cli_main(["--root", " ", "providers", "plan", "--json"])
+    def test_empty_root_arguments_reject_before_ambient_vault_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ambient_root = Path(tmp) / "ambient-vault"
+            copy_template_tree(ambient_root)
+            unified_invocations = (
+                (
+                    "global equals",
+                    ["--root=", "setup", "plan", "--client", "codex", "--json"],
+                ),
+                (
+                    "global whitespace",
+                    ["--root", " \t", "setup", "plan", "--client", "codex", "--json"],
+                ),
+                (
+                    "post-command equals",
+                    ["setup", "--root=", "plan", "--client", "codex", "--json"],
+                ),
+                (
+                    "post-command whitespace",
+                    ["setup", "--root", " \t", "plan", "--client", "codex", "--json"],
+                ),
+            )
+            for label, argv in unified_invocations:
+                with self.subTest(entrypoint=f"unified {label}"):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(ambient_root)}),
+                        patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        cli_main(argv)
 
-        self.assertEqual(raised.exception.code, 2)
-        self.assertIn("refuses an unconfigured or nested ambient root", error.getvalue())
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    root_resolver.assert_not_called()
+                    self.assertIn("--root requires a non-empty vault path", error.getvalue())
+
+            direct_invocations = (
+                (
+                    "mcp config",
+                    mcp_config,
+                    ["--client", "generic"],
+                    "ai_dememory_tool.cli.find_memory_root",
+                ),
+                (
+                    "setup plan",
+                    setup_plan_main,
+                    ["plan", "--client", "codex", "--json"],
+                    "setup_plan.repo_root",
+                ),
+                (
+                    "onboarding",
+                    onboarding_main,
+                    ["--json"],
+                    "onboarding.repo_root",
+                ),
+                (
+                    "maintenance dry run",
+                    maintenance_main,
+                    ["run", "--dry-run", "--json"],
+                    "maintenance.repo_root",
+                ),
+            )
+            for label, target, suffix, resolver in direct_invocations:
+                for root_option in (("--root=",), ("--root", " \t")):
+                    with self.subTest(entrypoint=label, root_option=root_option):
+                        output = io.StringIO()
+                        error = io.StringIO()
+                        with (
+                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(ambient_root)}),
+                            patch(resolver) as root_resolver,
+                            redirect_stdout(output),
+                            redirect_stderr(error),
+                            self.assertRaises(SystemExit) as raised,
+                        ):
+                            target([*root_option, *suffix])
+
+                        self.assertEqual(raised.exception.code, 2)
+                        self.assertEqual(output.getvalue(), "")
+                        root_resolver.assert_not_called()
+                        self.assertIn("--root requires a non-empty vault path", error.getvalue())
+
+    def test_unified_root_binding_prefers_explicit_vault_over_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            explicit_root = Path(tmp) / "explicit-vault"
+            ambient_root = Path(tmp) / "ambient-vault"
+            copy_template_tree(explicit_root)
+            copy_template_tree(ambient_root)
+            invocations = (
+                (
+                    "global explicit root",
+                    [
+                        "--root",
+                        str(explicit_root),
+                        "setup",
+                        "plan",
+                        "--client",
+                        "codex",
+                        "--json",
+                    ],
+                    explicit_root,
+                ),
+                (
+                    "post-command explicit root",
+                    [
+                        "setup",
+                        "--root",
+                        str(explicit_root),
+                        "plan",
+                        "--client",
+                        "codex",
+                        "--json",
+                    ],
+                    explicit_root,
+                ),
+                (
+                    "environment root",
+                    ["setup", "plan", "--client", "codex", "--json"],
+                    ambient_root,
+                ),
+            )
+            for label, argv, expected_root in invocations:
+                with self.subTest(binding=label):
+                    output = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(ambient_root)}),
+                        redirect_stdout(output),
+                    ):
+                        self.assertEqual(cli_main(argv), 0)
+                        self.assertEqual(
+                            os.environ["AI_DEMEMORY_ROOT"],
+                            str(expected_root.resolve()),
+                        )
+
+                    self.assertEqual(
+                        Path(json.loads(output.getvalue())["root"]),
+                        expected_root.resolve(),
+                    )
 
     def test_direct_whitespace_root_argument_is_rejected_before_resolution(self) -> None:
         output = io.StringIO()
