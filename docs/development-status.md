@@ -102,6 +102,20 @@ API onboarding hint and documentation boundaries.
   absolute root from `--root` or `AI_DEMEMORY_ROOT` (with `~` expanded),
   reject duplicate/relative bindings, avoid opening an API socket before
   binding, and leave unbound hook dispatch as the documented `{}` no-op.
+- PR [#33](https://github.com/GonzaloTorreras/ai-dememory/pull/33) was merged
+  at `72d18eb271895e6fad7252e7b137ade33129644d` after a fresh exact-head
+  functional/security review found no actionable P0/P1/P2 issue. CI run
+  [32597614409](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32597614409)
+  and Pages validation
+  [32597614438](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32597614438)
+  passed.
+- This fourth `BRG-003` increment makes the `setup` and `onboard` execution
+  paths select their vault only through the strict runtime resolver, before
+  generic CLI CWD/package discovery. They reject blank and relative bindings,
+  prefer an explicit absolute `--root` over the environment, and preserve
+  `setup wizard` plus `init --wizard`, including both post-command root
+  spellings. Packaged vault templates and active setup/maintenance guidance now
+  show the same root-bound onboarding command.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
@@ -155,8 +169,11 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. Continue `BRG-003` with a read-only inventory of remaining direct runtime
-   fallback paths before selecting the smallest compatible follow-up. Do not
-   claim structural vault validation merely from an absolute path.
+4. Continue `BRG-003` with the already-inventoried `maintenance run` execution
+   boundary only: preserve `maintenance status` compatibility, resolve a
+   strict root for both real and dry runs before locks/processes, and retain
+   generated scheduler commands that already bind a root. Do not claim
+   structural vault validation merely from an absolute path. Providers/import,
+   scheduler, and dual-path commands remain separate compatibility slices.
    `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`, `GATE-B`, and
    `ONB-001` remain gated by their declared dependencies and evidence.

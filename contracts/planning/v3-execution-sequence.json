@@ -81,6 +81,7 @@
         "scripts/setup_plan.py",
         "scripts/maintenance.py",
         "tests/test_memory_tools.py",
+        "tests/test_onboarding.py",
         "tests/test_mcp_profiles.py",
         "tests/test_harness_hooks.py",
         "tests/test_vault_binding.py"
