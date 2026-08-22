@@ -10,10 +10,11 @@ from scripts.docs_site_guard import (
     REPO_ROOT,
     SITE_ROOT,
     NESTED_SHELL_MAX_DEPTH,
+    PUBLISHED_PRERELEASE_CONTRACTS,
     RELEASE_SCOPE_DOCS,
+    STABLE_DOC_REQUIRED_COMMANDS,
     STABLE_INSTALL_DOCS,
     STABLE_RELEASE_CONTRACTS,
-    SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER,
     SOURCE_CANDIDATE_REQUIRED_COMMANDS,
     _stable_command_errors,
     audit_site,
@@ -40,6 +41,21 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             contract["source_only"],
         )
 
+    def test_all_stable_wizard_guides_require_the_legacy_gate(self) -> None:
+        command = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+        for relative in (
+            "README.md",
+            "docs/install.md",
+            "docs/local-mcp.md",
+            "docs/mcp-client-config.md",
+            "docs/codex-plugin.md",
+            "docs/distribution.md",
+            "docs/create-memory-repo.md",
+            "docs/scheduler-plugin-blueprint.md",
+        ):
+            with self.subTest(path=relative):
+                self.assertIn(command, STABLE_DOC_REQUIRED_COMMANDS[relative])
+
     def test_release_scope_supports_source_equal_to_stable(self) -> None:
         self.assertEqual(
             release_scope_markers("2.1.0", "2.1.0"),
@@ -47,30 +63,50 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
         self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/release line: 2.1.0")
 
-    def test_release_scope_distinguishes_the_unpublished_patch_candidate(self) -> None:
+    def test_release_scope_distinguishes_the_published_testpypi_prerelease(self) -> None:
         self.assertEqual(
             release_scope_markers("2.1.0", "2.1.1rc1"),
-            ("published stable 2.1.0", "source candidate 2.1.1rc1 is unreleased"),
+            ("published stable 2.1.0", "testpypi prerelease 2.1.1rc1"),
         )
         self.assertEqual(
             site_release_lens("2.1.0", "2.1.1rc1"),
-            "Source candidate: 2.1.1rc1, unreleased",
+            "TestPyPI prerelease: 2.1.1rc1",
+        )
+
+    def test_release_scope_keeps_an_unregistered_future_candidate_unpublished(self) -> None:
+        self.assertEqual(
+            release_scope_markers("2.1.0", "2.1.2rc1"),
+            ("published stable 2.1.0", "source candidate 2.1.2rc1 is unreleased"),
+        )
+        self.assertEqual(
+            site_release_lens("2.1.0", "2.1.2rc1"),
+            "Source candidate: 2.1.2rc1, unreleased",
         )
 
     def test_stable_user_docs_pin_the_legacy_artifact_and_keep_candidate_scope_explicit(self) -> None:
         for relative in STABLE_INSTALL_DOCS:
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-                self.assertEqual([], _stable_command_errors(text, "2.1.0", relative))
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(
+                        text,
+                        "2.1.0",
+                        relative,
+                        source_version="2.1.1rc1",
+                    ),
+                )
 
         for relative in RELEASE_SCOPE_DOCS:
             with self.subTest(scope_path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8").lower()
                 self.assertIn("published stable 2.1.0", text)
-                self.assertIn("source candidate 2.1.1rc1 is unreleased", text)
+                self.assertIn("testpypi prerelease 2.1.1rc1", text)
 
         install = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
-        self.assertIn(SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER, install)
+        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        self.assertIn("TestPyPI Prerelease 2.1.1rc1", install)
+        self.assertIn(prerelease["package_command"], install)
         for command in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
             self.assertIn(command, install)
 
@@ -594,7 +630,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             )
             errors = audit_site(REPO_ROOT, copied)
             self.assertTrue(
-                any("stable package command is not allowlisted" in error for error in errors)
+                any("package command is not allowlisted" in error for error in errors)
             )
 
     def test_guard_rejects_mutable_vcs_install_in_any_stable_doc(self) -> None:
@@ -756,6 +792,464 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         )
                     )
                 )
+
+    def test_guard_rejects_nested_markup_inside_release_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "ai-dememory init ~/code/my-memory --wizard</code>",
+                    "ai-dememory init ~/code/my-memory --wizard"
+                    "<span hidden>\npython -m pip install $PKG</span></code>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("release command blocks must not contain nested markup" in error for error in errors),
+                errors,
+            )
+
+    def test_guard_rejects_comment_tokens_inside_release_commands(self) -> None:
+        comment_forms = (
+            "<!-->\npython -m pip install example-package\n-->",
+            "<!--->\npython -m pip install example-package\n-->",
+        )
+        for comment in comment_forms:
+            with self.subTest(comment=comment), tempfile.TemporaryDirectory() as temporary:
+                copied = Path(temporary) / "site"
+                shutil.copytree(SITE_ROOT, copied)
+                home = copied / "index.html"
+                home.write_text(
+                    home.read_text(encoding="utf-8").replace(
+                        "ai-dememory init ~/code/my-memory --wizard</code>",
+                        "ai-dememory init ~/code/my-memory --wizard"
+                        f"\n{comment}</code>",
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+
+                errors = audit_site(REPO_ROOT, copied)
+
+                self.assertTrue(
+                    any("release command blocks must not contain HTML comments" in error for error in errors),
+                    errors,
+                )
+
+    def test_guard_rejects_comment_tokens_in_auditable_content(self) -> None:
+        markup = "<p><!-->p\\ip install example-package\n--></p>"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("HTML comments are forbidden in auditable site content" in error for error in errors),
+                errors,
+            )
+
+    def test_guard_rejects_declarative_shadow_dom_command_content(self) -> None:
+        markup = (
+            "<div><template shadowrootmode=\"open\"><p><code>"
+            "python -m pip install --index-url https://test.pypi.org/simple/ "
+            "ai-dememory==2.1.2rc1"
+            "</code></p></template></div>"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("declarative Shadow DOM attributes are forbidden" in error for error in errors),
+                errors,
+            )
+
+    def test_guard_rejects_css_generated_command_content(self) -> None:
+        markup = (
+            "<style>.release-bypass::before { content: \"python -m pip install "
+            "--index-url https://test.pypi.org/simple/ ai-dememory==2.1.2rc1\"; "
+            "white-space: pre; }</style><span class=\"release-bypass\"></span>"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("CSS generated content is not allowlisted" in error for error in errors),
+                errors,
+            )
+
+    def test_guard_rejects_css_comments_in_auditable_content(self) -> None:
+        markup = (
+            "<style>.release-bypass::before { content/**/: \"python -m pip install "
+            "example-package\"; white-space: pre; }</style><span class=\"release-bypass\"></span>"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("CSS comments are forbidden in the audited static site" in error for error in errors),
+                errors,
+            )
+
+    def test_guard_rejects_unallowlisted_css_data_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            install = copied / "install/index.html"
+            install.write_text(
+                install.read_text(encoding="utf-8").replace(
+                    'data-label="Recall"',
+                    'data-label="python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.2rc1"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "data-label renders through reviewed CSS and is not allowlisted" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_hidden_content_inside_copyable_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    "<div class=\"code-block\" data-copy-block><pre tabindex=\"0\"><code>echo safe"
+                    "<span hidden>\npython -m pip install example-package</span></code></pre></div>"
+                    "</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "copyable command blocks must carry a nonempty data-release marker" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_untracked_visible_pre_blocks(self) -> None:
+        commands = (
+            "pypy3 -m pip install $PKG",
+            'zsh -c "python -m pip install $PKG"',
+            "pipenv run pip install $PKG",
+            "poetry run pip install $PKG",
+            "conda run -n review python -m pip install $PKG",
+            "pipx run $PKG",
+            "uvx $PKG",
+            "conda install ai-dememory==2.1.1rc1",
+            "pipenv install ai-dememory==2.1.1rc1",
+            "poetry add ai-dememory==2.1.1rc1",
+            "pdm add ai-dememory==2.1.1rc1",
+            "p^ip install example-package",
+            "p%EMPTY%ip install example-package",
+            "p!EMPTY!ip install example-package",
+            "pi\\\np install example-package",
+            "p^\nip install example-package",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            injected_blocks = "".join(
+                f"<pre><code>{command}</code></pre>" for command in commands
+            )
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{injected_blocks}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            marker = "preformatted command blocks must use a canonical tracked data-release command block"
+            self.assertTrue(any(marker in error for error in errors), errors)
+
+    def test_guard_rejects_untracked_pre_in_user_reachable_or_alternate_states(self) -> None:
+        command = (
+            "<pre><code>python -m pip install --index-url https://test.pypi.org/simple/ "
+            "--requirement requirements.txt</code></pre>"
+        )
+        markup = "".join(
+            (
+                f"<details><summary>Optional installer</summary>{command}</details>",
+                f'<div aria-hidden="true">{command}</div>',
+                f'<div class="visually-hidden">{command}</div>',
+                f"<noscript>{command}</noscript>",
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "preformatted command blocks must use a canonical tracked data-release command block"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_untracked_installer_text_outside_release_blocks(self) -> None:
+        markup = "".join(
+            (
+                "<p>p^ip install example-package</p>",
+                "<p><code>python -m pip install --index-url https://test.pypi.org/simple/ "
+                "$PKG</code></p>",
+                "<div style=\"white-space: pre\">pi\\\np install example-package</div>",
+                "<p>conda install ai-dememory==2.1.1rc1</p>",
+            )
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "untracked package installer text is forbidden" in error
+                    for error in errors
+                ),
+                errors,
+            )
+            self.assertTrue(
+                any(
+                    "dynamic or fragmented shell syntax is forbidden in untracked auditable site content"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_fragmented_untracked_installer_text(self) -> None:
+        commands = (
+            "p\\ip install example-package",
+            "p\\i\\p install example-package",
+            'p"i"p install example-package',
+            "p''ip install example-package",
+            'python -m p""ip install --requirement requirements.txt',
+            'bash -c "p\\ip install example-package"',
+            "pi\\\np in\\\nstall example-package",
+            "p${EMPTY}ip in${EMPTY}stall example-package",
+            "p{,}ip in{,}stall example-package",
+            "uvx $PKG",
+            "npx $PKG",
+            "bunx $PKG",
+        )
+        markup = "".join(f"<p><code>{command}</code></p>" for command in commands)
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "untracked package installer text is forbidden" in error
+                    for error in errors
+                ),
+                errors,
+            )
+            self.assertTrue(
+                any(
+                    "dynamic or fragmented shell syntax is forbidden in untracked auditable site content"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_untracked_ai_dememory_package_routes(self) -> None:
+        commands = (
+            "npm install ai-dememory",
+            "pnpm add ai-dememory",
+            "yarn add ai-dememory",
+            "bun add ai-dememory",
+            "winget install ai-dememory",
+            "choco install ai-dememory",
+            "scoop install ai-dememory",
+            "rye add ai-dememory",
+            "npx ai-dememory",
+            "npm exec ai-dememory",
+            "pnpm dlx ai-dememory",
+            "bunx ai-dememory",
+            "uvx ai-dememory",
+        )
+        markup = "".join(f"<p><code>{command}</code></p>" for command in commands)
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    f"{markup}</main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "untracked package installer text is forbidden" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_nonliteral_commands_in_stable_release_blocks(self) -> None:
+        commands = (
+            "p^ip install example-package",
+            "p%EMPTY%ip install example-package",
+            "pi\\\np install example-package",
+        )
+        command_lines = "\n".join(commands)
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+                    f"\n{command_lines}</code>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "stable 2.1.0 command block contains an unapproved literal command"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_unknown_copyable_release_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    "<div class=\"code-block\" data-copy-block data-release=\"unreviewed\">"
+                    "<pre tabindex=\"0\"><code>echo safe</code></pre></div></main>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any("unknown release marker 'unreviewed'" in error for error in errors),
+                errors,
+            )
 
     def test_guard_rejects_non_exact_package_variants(self) -> None:
         commands = (
@@ -1516,6 +2010,63 @@ python3 -m pip install -e .
             _stable_command_errors(source_commands, "2.1.0", "source fixture"),
         )
 
+    def test_guard_allows_only_the_registered_testpypi_prerelease_install(self) -> None:
+        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        self.assertEqual(
+            [],
+            _stable_command_errors(
+                prerelease["package_command"],
+                "2.1.0",
+                "fixture",
+                source_version="2.1.1rc1",
+            ),
+        )
+        errors = _stable_command_errors(
+            "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.2rc1",
+            "2.1.0",
+            "fixture",
+            source_version="2.1.2rc1",
+        )
+        self.assertTrue(any("not allowlisted" in error for error in errors))
+
+    def test_guard_rejects_indirect_package_sources_in_prerelease_blocks(self) -> None:
+        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        indirect_commands = (
+            "python -m pip install --index-url https://test.pypi.org/simple/ $PKG",
+            "python -m pip install --index-url https://test.pypi.org/simple/ --requirement requirements.txt",
+            "pipx install $PKG",
+            "uv tool install $PKG",
+            "pypy3 -m pip install $PKG",
+            'zsh -c "python -m pip install $PKG"',
+            "pipenv run pip install $PKG",
+            "poetry run pip install $PKG",
+            "conda run -n review python -m pip install $PKG",
+        )
+        indirect_lines = "\n".join(indirect_commands)
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    prerelease["package_command"],
+                    f"{prerelease['package_command']}\n{indirect_lines}",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "source 2.1.1rc1 command block must contain only the approved prerelease install and wizard commands"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
     def test_guard_rejects_resource_profile_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
@@ -1537,7 +2088,10 @@ python3 -m pip install -e .
         )
         self.assertIn("ai-dememory init ~/code/my-memory --wizard", install)
         self.assertIn("ai-dememory --root ~/code/my-memory mcp-config --client codex", install)
-        self.assertIn(SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER, install)
+        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        self.assertIn(prerelease["install_marker"], install)
+        self.assertIn(prerelease["package_command"], install)
+        self.assertIn("Use an isolated virtual environment for this TestPyPI evaluation", install)
         self.assertNotIn("pipx install ai-dememory==2.1.1rc1", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))

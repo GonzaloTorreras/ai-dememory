@@ -33,7 +33,7 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Release line: 2.1.0</span>
-            <span>Source candidate: 2.1.1rc1, unreleased</span>
+            <span>TestPyPI prerelease: 2.1.1rc1</span>
           </div>
         </div>
       </header>
@@ -43,8 +43,8 @@
           <strong>On this page</strong>
           <a href="#install-tool">Install published 2.1.0</a>
           <a href="#create-vault">Use the stable wizard</a>
-          <a href="#candidate">See the source candidate</a>
-          <a href="#choose-intensity">Choose a candidate intensity</a>
+          <a href="#candidate">See the TestPyPI prerelease</a>
+          <a href="#choose-intensity">Choose a prerelease intensity</a>
           <a href="#connect-client">Connect a client (optional)</a>
           <a href="#upgrade">Update or diagnose</a>
         </nav>
@@ -80,17 +80,18 @@
           </section>
 
           <section class="content-section" id="candidate">
-            <h2>3. Source candidate 2.1.1rc1: the simplified wizard</h2>
-            <p>Source candidate 2.1.1rc1 is unreleased and not installable from a package index until it is tagged and published. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
+            <h2>3. TestPyPI prerelease 2.1.1rc1: the simplified wizard</h2>
+            <p>TestPyPI prerelease 2.1.1rc1 is available for evaluation. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
             <div class="code-block" data-copy-block data-release="source-2.1.1rc1">
-              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
+              <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
+ai-dememory init ~/code/my-memory --wizard</code></pre>
             </div>
-            <p>This is a behavior preview, not a package-install command. A tagged, published artifact and post-index verification are separate release steps.</p>
+            <p>Use an isolated virtual environment for this TestPyPI evaluation. It is an explicit evaluation route, not a PyPI stable upgrade; its immutable tag, package build, and exact-index installation have already been verified.</p>
           </section>
 
           <section class="content-section" id="choose-intensity">
-            <h2>4. Choose a bounded candidate intensity</h2>
-            <p>The candidate wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
+            <h2>4. Choose a bounded prerelease intensity</h2>
+            <p>The prerelease wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
             <table class="profile-table">
               <caption>Built-in operating profiles</caption>
               <thead>

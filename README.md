@@ -12,10 +12,10 @@ future vector indexes are generated from Markdown and can be rebuilt.
 - Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
   only package line available from PyPI; confirm it with the exact pinned
   install rather than falling back to an older package.
-- Source candidate 2.1.1rc1 is unreleased and not installable from a package
-  index until it is tagged and published. Its source behavior, tag, package,
-  and release availability are verified separately by the immutable release
-  workflow.
+- TestPyPI prerelease 2.1.1rc1 is an evaluation release, tagged at
+  `a5140a81e4d153c8e7f41b0f2a88649030942c51`. It is not a PyPI stable release;
+  its source behavior, tag, package, and index installation were verified by
+  the immutable release workflow.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Runtime boundary: Python 3.11+ remains authoritative; Node is not a headless
@@ -39,10 +39,12 @@ enablement plus an exact-main dispatch remain separate production operations.
 
 ## Quick Start
 
-### Published stable 2.1.0: legacy first run
+### Published stable 2.1.0: legacy compatibility route
 
-The currently published package uses its version-gated setup flow. Install the
-exact public package and create a separate private vault:
+The currently published package requires its version-gated wizard. The trailing
+`--require-version 2.1.0` is a required option for this legacy package, not a
+second command or a diagnostic ritual. Install the exact public package and
+create a separate private vault:
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -55,26 +57,30 @@ installs hooks or schedules, or edits a client configuration.
 
 The complete, immutable stable instructions live in the
 [v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md).
-Its generated MCP configuration later persists the same compatibility pin; that
-historical behavior is the specific patch correction in this candidate.
+The compatibility gate is omitted from newly generated configuration in the
+next release line; it remains accepted only so already-generated 2.1.0 client
+configuration does not strand an upgrade.
 
 `uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
 line. On Windows, use a private path such as `D:\Memory\my-vault` instead of the
 example path.
 
-### Source candidate 2.1.1rc1: wizard-first behavior, not an install route
+### TestPyPI prerelease 2.1.1rc1: wizard-first evaluation
 
-The candidate removes the persistent compatibility pin from newly generated
-configuration and makes the first run a single wizard-first command:
+The TestPyPI prerelease removes the persistent compatibility pin from newly
+generated configuration. For an evaluation install in an isolated Python
+environment, use the exact package, then make the first run a single
+wizard-first command:
 
 ```bash
+# inside an isolated virtual environment
+python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
 ai-dememory init ~/code/my-memory --wizard
 ```
 
-This describes the reviewed source candidate only. Do not try to install
-`2.1.1rc1` from PyPI or TestPyPI yet: no candidate package is installable until
-it is tagged and published. Once that separate release evidence exists, the
-next stable guide will replace the legacy 2.1.0 path above.
+This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
+next stable guide will replace the legacy 2.1.0 path only after a separately
+prepared, reviewed, tagged, and published `2.1.1` release.
 
 ### Connect a client when you are ready
 

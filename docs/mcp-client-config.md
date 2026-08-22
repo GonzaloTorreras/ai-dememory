@@ -6,15 +6,15 @@ the command working directory for development only; it must not also be the
 vault.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
-index until it is tagged and published. The stable generated configuration below
-retains its historical runtime pin; the candidate removes that emitted pin.
+PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
+release. The stable generated configuration below retains its historical runtime
+pin; the prerelease removes that emitted pin.
 
 The 2.1.0 release line includes the server-enforced profiles, required-root flag,
 enabled-tool allowlist, and generated idle leases shown below. See
 [Local MCP server setup](local-mcp.md) for the complete installed-tool flow.
 
-## Preferred Command
+## Published Stable 2.1.0 Compatibility Command
 
 Create the vault with the wizard, then generate config only for a client you
 intend to connect:
@@ -24,9 +24,9 @@ ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-The source candidate makes only the first line simpler:
-`ai-dememory init ~/code/my-memory --wizard`. It is an unreleased behavior,
-not a package installation instruction.
+The TestPyPI prerelease makes only the first line simpler:
+`ai-dememory init ~/code/my-memory --wizard`. Follow
+[Installation](install.md) for its exact evaluation package route.
 
 After upgrading, run the generator again from every private vault, inspect its
 output, replace the previous host entry, and verify the installed launch path:

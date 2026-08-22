@@ -4,9 +4,9 @@
 memory vault through `AI_DEMEMORY_ROOT`.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
-index until it is tagged and published. The published server instructions below
-retain its historical compatibility gate.
+PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
+release. The published server instructions below retain their historical
+compatibility gate.
 
 ## Published Stable 2.1.0: Install And Create A Vault
 
@@ -63,14 +63,14 @@ checkout, replace it with `pipx uninstall ai-dememory` followed by
 `ai-dememory version-check 2.1.0` remains an explicit CI or support diagnostic;
 it is not a required installation or configuration step.
 
-## Source Candidate 2.1.1rc1: No Persistent Gate
+## TestPyPI Prerelease 2.1.1rc1: No Persistent Gate
 
-The candidate keeps root binding, server-enforced profiles, allowlists, and idle
-leases, while removing the generated `--require-version` pin. After it is
-tagged and published, its wizard-first route is
-`ai-dememory init ~/code/my-memory --wizard` and its generated configuration
-uses the normal vault-bound MCP configuration form. Those are source-candidate
-semantics, not an unpublished package install path.
+The prerelease keeps root binding, server-enforced profiles, allowlists, and
+idle leases while simplifying generated configuration. Its wizard-first route
+is `ai-dememory init ~/code/my-memory --wizard` and its generated configuration
+uses the normal vault-bound MCP form. Install the exact
+TestPyPI evaluation package through [Installation](install.md); do not treat it
+as a PyPI stable upgrade.
 
 This is the shape accepted by Codex in `~/.codex/config.toml` or a trusted
 project's `.codex/config.toml`. Claude and generic output modes use JSON.

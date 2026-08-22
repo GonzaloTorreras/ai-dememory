@@ -12,8 +12,8 @@ No changes are queued outside the 2.1.1 release line.
 ## [2.1.1] - Unreleased
 
 This stable release entry is intentionally reserved. The candidate below has
-not been tagged or published from this change, and 2.1.0 remains the current
-published stable release.
+been tagged and published to TestPyPI; 2.1.0 remains the current published
+stable PyPI release.
 
 ## [2.1.1rc1] - 2026-08-21
 

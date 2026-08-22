@@ -156,11 +156,13 @@ ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code></pre>
         </div>
         <div class="container install-grid">
           <div class="code-block" data-copy-block data-release="source-2.1.1rc1">
-            <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
+            <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
+ai-dememory init ~/code/my-memory --wizard</code></pre>
           </div>
           <div class="install-copy">
-            <h2>Source candidate: simpler first run</h2>
-            <p>Source candidate 2.1.1rc1 is unreleased. It removes the persistent gate from newly generated setup, but is not installable from a package index until it is tagged and published.</p>
+            <h2>TestPyPI prerelease: simpler first run</h2>
+            <p>TestPyPI prerelease 2.1.1rc1 is available for evaluation. Run it inside an isolated virtual environment, then install that exact package before using its simpler wizard; 2.1.0 remains the stable PyPI route.</p>
+            <a class="text-link" href="install/#candidate">Read the prerelease route <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
