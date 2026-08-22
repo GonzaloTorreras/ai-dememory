@@ -41,4 +41,3 @@ class RuntimeVaultBindingTests(unittest.TestCase):
             with self.subTest(explicit_root=explicit_root, environment=environment):
                 with self.assertRaisesRegex(VaultBindingError, message):
                     resolve_runtime_vault(explicit_root, environ=environment)
-
