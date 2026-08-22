@@ -128,6 +128,7 @@ from maintenance import (  # noqa: E402
     review_due_summary,
     review_recommendation_summary,
     run_maintenance,
+    run_supervised_maintenance,
     run_supervised_process,
 )
 from manual_acceptance import (  # noqa: E402
@@ -623,7 +624,6 @@ class MemoryToolTests(unittest.TestCase):
             ),
             ("import chats", ["import-chats", "codex", "--path", str(ROOT)]),
             ("capture", ["capture", "text", "--text", "Review candidate."]),
-            ("maintenance", ["maintenance", "run"]),
             ("schedule", ["schedule", "setup"]),
             (
                 "schedule with a global command option",
@@ -653,6 +653,30 @@ class MemoryToolTests(unittest.TestCase):
                         "refuses an unconfigured or nested ambient root",
                         error.getvalue(),
                     )
+
+    def test_maintenance_run_requires_bound_roots_without_discovery(self) -> None:
+        invocations = (
+            ("real run", ["maintenance", "run"]),
+            ("dry run", ["maintenance", "run", "--dry-run", "--json"]),
+            (
+                "supervised run",
+                ["maintenance", "run", "--timeout-seconds", "300", "--json"],
+            ),
+        )
+        for label, argv in invocations:
+            with self.subTest(command=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                root_resolver.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_root_bound_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
@@ -688,7 +712,6 @@ class MemoryToolTests(unittest.TestCase):
             ("providers", ["detect"]),
             ("import-chats", ["codex", "--dry-run"]),
             ("maintenance", ["status"]),
-            ("maintenance", ["run", "--dry-run"]),
             ("schedule", ["doctor"]),
             ("schedule", ["remove", "--dry-run"]),
         ):
@@ -697,6 +720,7 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertFalse(command_requires_explicit_vault_binding(command, argv))
 
         for command, argv in (
+            ("maintenance", ["run", "--dry-run"]),
             ("providers", ["plan", "--json"]),
             ("providers", ["configure", "codex", "--dry-run"]),
             ("schedule", ["plan"]),
@@ -922,6 +946,90 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, 2)
                 self.assertIn("requires an absolute vault path", error.getvalue())
 
+    def test_maintenance_run_rejects_relative_bindings_before_discovery(self) -> None:
+        run_forms = (
+            ("real run", ["run"]),
+            ("dry run", ["run", "--dry-run", "--json"]),
+        )
+        for run_label, run_argv in run_forms:
+            invocations = (
+                (
+                    "global root",
+                    ["--root", ".", "maintenance", *run_argv],
+                    "",
+                ),
+                (
+                    "post-command root",
+                    ["maintenance", "--root", ".", *run_argv],
+                    "",
+                ),
+                ("environment root", ["maintenance", *run_argv], "."),
+            )
+            for binding_label, argv, environment_root in invocations:
+                with self.subTest(run=run_label, binding=binding_label):
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        cli_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    root_resolver.assert_not_called()
+                    self.assertIn("requires an absolute vault path", error.getvalue())
+
+    def test_maintenance_run_explicit_bindings_override_malformed_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "explicit-vault"
+            root.mkdir()
+            invocations = (
+                (
+                    "global root",
+                    ["--root", str(root), "maintenance", "run", "--dry-run", "--json"],
+                ),
+                (
+                    "post-command root",
+                    ["maintenance", "--root", str(root), "run", "--dry-run", "--json"],
+                ),
+            )
+            for binding_label, argv in invocations:
+                with self.subTest(binding=binding_label):
+                    output = io.StringIO()
+                    preview = {"dry_run": True, "binding": binding_label}
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                        patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                        patch(
+                            "ai_dememory_tool.admin.maintenance.dry_run_maintenance",
+                            return_value=preview,
+                        ) as dry_run,
+                        redirect_stdout(output),
+                    ):
+                        self.assertEqual(cli_main(argv), 0)
+
+                    root_resolver.assert_not_called()
+                    self.assertEqual(dry_run.call_args.args[0], root.resolve())
+                    self.assertEqual(json.loads(output.getvalue()), preview)
+
+            direct_output = io.StringIO()
+            direct_preview = {"dry_run": True, "binding": "direct"}
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                patch("maintenance.dry_run_maintenance", return_value=direct_preview) as dry_run,
+                redirect_stdout(direct_output),
+            ):
+                self.assertEqual(
+                    maintenance_main(
+                        ["--root", str(root), "run", "--dry-run", "--json"]
+                    ),
+                    0,
+                )
+
+            self.assertEqual(dry_run.call_args.args[0], root.resolve())
+            self.assertEqual(json.loads(direct_output.getvalue()), direct_preview)
+
     def test_direct_mutating_commands_fail_without_a_vault_binding(self) -> None:
         invocations = (
             (
@@ -1002,12 +1110,6 @@ class MemoryToolTests(unittest.TestCase):
                 ["install", "--dry-run", "--json"],
                 "schedule_memory.repo_root",
             ),
-            (
-                "maintenance run",
-                maintenance_main,
-                ["run"],
-                "maintenance.repo_root",
-            ),
         )
         for label, target, argv, resolver in invocations:
             with self.subTest(entrypoint=label):
@@ -1028,6 +1130,79 @@ class MemoryToolTests(unittest.TestCase):
                         self.assertEqual(output.getvalue(), "")
                         root_resolver.assert_not_called()
                         self.assertIn("requires an explicit vault binding", error.getvalue())
+
+    def test_direct_maintenance_run_requires_runtime_binding_before_work(self) -> None:
+        invocations = (
+            ("real run", ["run"]),
+            ("dry run", ["run", "--dry-run", "--json"]),
+            ("supervised run", ["run", "--timeout-seconds", "300", "--json"]),
+        )
+        for label, argv in invocations:
+            for environment_root, expected_message in (
+                ("", "runtime vault binding requires"),
+                (" ", "AI_DEMEMORY_ROOT requires a non-empty vault path"),
+            ):
+                with self.subTest(command=label, environment_root=repr(environment_root)):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        patch("maintenance.repo_root") as legacy_root,
+                        patch("maintenance.maintenance_lock") as lock,
+                        patch("maintenance.enabled_providers") as providers,
+                        patch("maintenance.import_chats") as provider_import,
+                        patch("maintenance.dry_run_maintenance") as dry_run,
+                        patch("maintenance.run_maintenance") as run,
+                        patch("maintenance.run_supervised_maintenance") as supervised_run,
+                        patch("maintenance.run_supervised_process") as child_process,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        maintenance_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn(expected_message, error.getvalue())
+                    for work_boundary in (
+                        legacy_root,
+                        lock,
+                        providers,
+                        provider_import,
+                        dry_run,
+                        run,
+                        supervised_run,
+                        child_process,
+                    ):
+                        work_boundary.assert_not_called()
+
+    def test_maintenance_status_retains_legacy_root_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "legacy-vault"
+            copy_template_tree(root)
+
+            direct_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("maintenance.repo_root", return_value=root) as legacy_root,
+                patch("maintenance.maintenance_status", return_value={"legacy": True}),
+                redirect_stdout(direct_output),
+            ):
+                self.assertEqual(maintenance_main(["status", "--json"]), 0)
+
+            self.assertEqual(json.loads(direct_output.getvalue()), {"legacy": True})
+            legacy_root.assert_called_once_with(None)
+
+            unified_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("ai_dememory_tool.cli.find_memory_root", return_value=root) as root_resolver,
+                redirect_stdout(unified_output),
+            ):
+                self.assertEqual(cli_main(["maintenance", "status", "--json"]), 0)
+
+            root_resolver.assert_called_once_with()
+            self.assertIn("recent_reports", json.loads(unified_output.getvalue()))
 
     def test_direct_provider_and_scheduler_reject_ambiguous_root_options_before_resolution(self) -> None:
         invocations = (
@@ -1202,7 +1377,6 @@ class MemoryToolTests(unittest.TestCase):
                     "maintenance dry run",
                     maintenance_main,
                     ["run", "--dry-run", "--json"],
-                    "maintenance.repo_root",
                 ),
             )
             for invocation in direct_invocations:
@@ -9115,7 +9289,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(Path(str(CapturedModule.dispatched["root"])), vault_a.resolve())
         self.assertEqual(
             CapturedModule.dispatched["argv"],
-            ["--root", str(vault_a.resolve()), "run", "--profile", "daily"],
+            ["run", "--profile", "daily"],
         )
         self.assertNotEqual(Path(str(CapturedModule.dispatched["root"])), vault_b.resolve())
 
@@ -9652,7 +9826,10 @@ class MemoryToolTests(unittest.TestCase):
         self.assertLess(fresh["missing_count"], missing_freshness["missing_count"])
         self.assertIn("hook_capture_report", weekly_freshness["artifacts"])
         self.assertTrue(weekly_freshness["needs_maintenance"])
-        self.assertEqual(weekly_freshness["next_action"], "Run ai-dememory maintenance run --profile weekly.")
+        self.assertEqual(
+            weekly_freshness["next_action"],
+            "Run ai-dememory --root <vault-path> maintenance run --profile weekly.",
+        )
         self.assertFalse(fresh["artifacts"]["weights"]["stale"])
         self.assertIn("artifact_freshness", after)
         self.assertEqual(after["artifact_freshness"]["stale_count"], fresh["stale_count"])
@@ -9957,6 +10134,42 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(payload["profile"], "daily")
         self.assertTrue(payload["dry_run"])
         self.assertFalse((root / "indexes").exists())
+
+    def test_supervised_maintenance_keeps_the_source_checkout_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            report_dir = Path("reports/maintenance")
+            with patch(
+                "maintenance.run_supervised_process",
+                return_value=(0, False, 1234),
+            ) as supervised_process:
+                self.assertEqual(
+                    run_supervised_maintenance(
+                        root,
+                        "daily",
+                        report_dir,
+                        300,
+                        json_output=True,
+                    ),
+                    0,
+                )
+
+        supervised_process.assert_called_once_with(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "ai_dememory.py"),
+                "--root",
+                str(root),
+                "maintenance",
+                "run",
+                "--profile",
+                "daily",
+                "--report-dir",
+                str(report_dir),
+                "--json",
+            ],
+            300,
+        )
 
     def test_supervised_process_terminates_owned_child_at_timeout(self) -> None:
         exit_code, timed_out, pid = run_supervised_process(
@@ -12058,7 +12271,7 @@ class MemoryToolTests(unittest.TestCase):
                     "stale_count": 0,
                     "fresh_count": 3,
                     "needs_maintenance": True,
-                    "next_action": "Run ai-dememory maintenance run --profile daily.",
+                    "next_action": "Run ai-dememory --root <vault-path> maintenance run --profile daily.",
                     "artifacts": {
                         "index": {
                             "path": "indexes/memory.sqlite",

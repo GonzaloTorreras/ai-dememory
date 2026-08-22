@@ -13,9 +13,9 @@ skills, and hook boundaries is defined in
 Daily maintenance:
 
 ```bash
-ai-dememory maintenance run --profile daily --dry-run --json
-ai-dememory maintenance run --profile daily
-ai-dememory maintenance run --profile daily --report-dir reports/maintenance
+ai-dememory --root <vault-path> maintenance run --profile daily --dry-run --json
+ai-dememory --root <vault-path> maintenance run --profile daily
+ai-dememory --root <vault-path> maintenance run --profile daily --report-dir reports/maintenance
 ```
 
 The dry-run previews enabled provider imports and generated artifact targets
@@ -32,7 +32,7 @@ maintenance reports are secret-scanned before writing.
 Weekly maintenance:
 
 ```bash
-ai-dememory maintenance run --profile weekly
+ai-dememory --root <vault-path> maintenance run --profile weekly
 ```
 
 Weekly maintenance includes the daily tasks and also writes
@@ -226,7 +226,7 @@ docker run --rm \
   -e AI_DEMEMORY_ROOT=/memory \
   -v "$PWD:/memory" \
   "$IMAGE_ID" \
-  maintenance run --profile daily --root /memory
+  --root /memory maintenance run --profile daily
 ```
 
 ## Hook Capture

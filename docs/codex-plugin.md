@@ -274,7 +274,7 @@ capture review state, advisory review recommendation queue state, and sleep
 consolidation plans. It should use `memory.maintenance_status`,
 `memory.schedule_plan`, and `memory.setup_health` for plugin-default inspection.
 For an actual maintenance pass, the skill should ask the user to run
-`ai-dememory maintenance run --profile daily --dry-run` first, then the
+`ai-dememory --root <vault-path> maintenance run --profile daily --dry-run` first, then the
 explicit non-dry-run CLI command only after review.
 
 Scheduler planning can target either the installed CLI or the local Docker

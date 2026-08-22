@@ -925,16 +925,16 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   import candidates without writing inbox files.
 - [ ] Repeated provider imports skip candidates with the same stable fingerprint
   instead of writing duplicate inbox files.
-- [ ] `ai-dememory maintenance run --profile daily --dry-run --json` previews
+- [ ] `ai-dememory --root <vault-path> maintenance run --profile daily --dry-run --json` previews
   enabled provider imports and generated artifacts without writing files or
   import candidates.
-- [ ] `ai-dememory maintenance run --profile weekly --dry-run --json`
+- [ ] `ai-dememory --root <vault-path> maintenance run --profile weekly --dry-run --json`
   previews `reports/sleep-plan.md` with
   `would_write_sleep_plan_report=true` and `reports/hook-captures.md` with
   `would_write_hook_capture_report=true` without writing files.
-- [ ] `ai-dememory maintenance run --profile daily --report-dir
+- [ ] `ai-dememory --root <vault-path> maintenance run --profile daily --report-dir
   reports/maintenance` writes maintenance reports inside the memory root.
-- [ ] `ai-dememory maintenance run --profile weekly` writes
+- [ ] `ai-dememory --root <vault-path> maintenance run --profile weekly` writes
   `reports/sleep-plan.md` and `reports/hook-captures.md`, and includes sleep
   plan and hook capture review paths/counts in the generated maintenance report.
 - [ ] Installed `ai-dememory maintenance status` reports generated artifact
@@ -1045,7 +1045,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py providers configure codex --path
   "$HOME/.codex" --dry-run --json`
 - [ ] `python3 scripts/ai_dememory.py maintenance status`
-- [ ] `python3 scripts/ai_dememory.py maintenance run --profile daily --dry-run --json`
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> maintenance run --profile daily --dry-run --json`
 - [ ] Maintenance status reports generated artifact state for index, graph,
   weights, lifecycle scores, and lifecycle report.
 - [ ] Maintenance status reports `artifact_freshness` with missing/stale counts
