@@ -90,9 +90,22 @@ API onboarding hint and documentation boundaries.
   rootless. Packaged MCP dispatch no longer reaches CWD/package discovery,
   and generated client configurations remain compatible through explicit
   environment binding plus the legacy `--require-bound-root` flag.
+- PR [#31](https://github.com/GonzaloTorreras/ai-dememory/pull/31) was merged
+  at `e8a55506d95990e911edf7f3c1fa1570b87aed18` after a fresh independent
+  exact-head review found no actionable P0/P1/P2 issue. CI run
+  [32595063206](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32595063206)
+  and Pages validation
+  [32595063201](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32595063201)
+  passed.
+- This third `BRG-003` increment applies the same resolver to the direct
+  local API and stateful hook surfaces. Those paths now require a nonempty
+  absolute root from `--root` or `AI_DEMEMORY_ROOT` (with `~` expanded),
+  reject duplicate/relative bindings, avoid opening an API socket before
+  binding, and leave unbound hook dispatch as the documented `{}` no-op.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
-  complete. The remaining strict-resolver work stays within `BRG-003`.
+  complete. The remaining strict-resolver inventory and any structural
+  vault-validation policy stay within `BRG-003`.
 
 ## Verified Release Evidence
 
@@ -142,8 +155,8 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. The next product increment within `BRG-003` reuses the strict runtime
-   resolver for API and hooks, then inventories the remaining direct runtime
-   fallback paths. `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`,
-   `GATE-B`, and `ONB-001` remain gated by their declared dependencies and
-   evidence.
+4. Continue `BRG-003` with a read-only inventory of remaining direct runtime
+   fallback paths before selecting the smallest compatible follow-up. Do not
+   claim structural vault validation merely from an absolute path.
+   `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`, `GATE-B`, and
+   `ONB-001` remain gated by their declared dependencies and evidence.
