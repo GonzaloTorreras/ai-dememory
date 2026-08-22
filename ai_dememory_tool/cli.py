@@ -451,10 +451,22 @@ def init_vault(argv: list[str]) -> int:
             ["--root", str(target)],
             onboarding_mode="operational",
         )
-    print(
-        "Next: run `ai-dememory setup wizard`; it previews one config-only plan and asks before applying it."
+    from ai_dememory_tool.admin.command_render import render_copy_command
+
+    setup_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "setup", "wizard"]
     )
-    print("Then run `ai-dememory doctor` and `ai-dememory index`.")
+    doctor_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "doctor"]
+    )
+    index_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "index"]
+    )
+    print(
+        "Next: run "
+        f"`{setup_command}`; it previews one config-only plan and asks before applying it."
+    )
+    print(f"Then run `{doctor_command}` and `{index_command}`.")
     return 0
 
 
