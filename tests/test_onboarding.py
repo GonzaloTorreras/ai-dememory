@@ -461,9 +461,24 @@ class OnboardingTests(unittest.TestCase):
     def test_setup_plan_next_actions_are_conditional(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
+            ambient_root = Path(tmp) / "ambient"
             root.mkdir()
-            plan = setup_plan(root)
-            operational = operational_setup_plan(root, operational_answers())
+            ambient_root.mkdir()
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(ambient_root)
+                with patch.dict(
+                    os.environ,
+                    {"AI_DEMEMORY_ROOT": str(ambient_root)},
+                    clear=False,
+                ):
+                    plan = setup_plan(root)
+                    operational = operational_setup_plan(root, operational_answers())
+                    onboard_command = render_copy_command(
+                        ["ai-dememory", "--root", str(root.resolve()), "onboard"]
+                    )
+            finally:
+                os.chdir(previous_cwd)
 
         next_actions = plan["next_actions"]
         integration_actions = operational["integrations"]["next_actions"]
@@ -482,6 +497,7 @@ class OnboardingTests(unittest.TestCase):
             "Optional MCP: choose one client first, then copy only that generated config.",
             next_actions,
         )
+        self.assertTrue(any(onboard_command in action for action in next_actions))
         self.assertTrue(
             all(
                 action.startswith("Optional ")
