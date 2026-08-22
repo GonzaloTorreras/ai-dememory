@@ -591,9 +591,9 @@ def integration_plan(root: Path, answers: dict[str, Any]) -> dict[str, Any]:
             schedule["mode"] != "docker" or immutable_docker_image(str(schedule["image"]))
         ),
         "next_actions": [
-            "Copy only the generated, runtime-version-gated MCP config for the client you use.",
-            "Preview the vault-bound hook config before installing hooks.",
-            "Review the schedule plan and fingerprint before an explicit scheduler apply.",
+            "Optional MCP: if you choose a client, copy only that generated, runtime-version-gated config.",
+            "Optional hooks: preview the vault-bound hook config only if you choose to install hooks.",
+            "Optional scheduler: review its plan and fingerprint only if you choose to enable scheduling.",
         ],
     }
 
@@ -1267,33 +1267,37 @@ def print_human_result(result: dict[str, Any], *, include_apply_hint: bool = Tru
 
 def print_guided_next_actions(result: dict[str, Any]) -> None:
     root = str(result["root"])
-    print("Next actions (nothing else was installed automatically):")
-    print(f"- {render_copy_command(['ai-dememory', '--root', root, 'doctor'])}")
-    print(f"- {render_copy_command(['ai-dememory', '--root', root, 'index'])}")
+    print("Optional next actions (setup is complete; nothing else was installed automatically):")
     print(
-        f"- {render_copy_command(['ai-dememory', '--root', root, 'setup', 'health', '--json'])}"
+        "- Optional diagnostics (not setup steps): "
+        f"{render_copy_command(['ai-dememory', '--root', root, 'doctor'])} or "
+        f"{render_copy_command(['ai-dememory', '--root', root, 'setup', 'health', '--json'])}"
     )
-    clients = result.get("clients")
-    if isinstance(clients, list):
-        for client in clients:
-            if client in {"codex", "claude", "generic"}:
-                print(
-                    "- "
-                    + render_copy_command(
-                        [
-                            "ai-dememory",
-                            "--root",
-                            root,
-                            "mcp-config",
-                            "--client",
-                            client,
-                        ]
-                    )
-                )
-    print("- Review hook and scheduler previews separately before installing either one.")
+    print(
+        "- Optional search: after you add or review Markdown that you want searchable, run "
+        + render_copy_command(["ai-dememory", "--root", root, "index"])
+    )
+    print(
+        "- Optional MCP: if you explicitly choose one client, generate and inspect only its config "
+        "(shown for Codex; replace `codex` with `claude` or `generic` if needed): "
+        + render_copy_command(
+            [
+                "ai-dememory",
+                "--root",
+                root,
+                "mcp-config",
+                "--client",
+                "codex",
+            ]
+        )
+    )
+    print(
+        "- Optional hooks or scheduling: preview their config or plan only if you choose those "
+        "integrations; nothing is installed automatically."
+    )
     if result.get("setup_scope") == "operational":
         print(
-            "- Optional local API for dashboards/scripts "
+            "- Optional local API for dashboards/scripts, only if you want it "
             "(foreground, loopback-only by default; not started automatically; Ctrl-C stops it): "
             + render_copy_command(
                 [
@@ -1305,7 +1309,7 @@ def print_guided_next_actions(result: dict[str, Any]) -> None:
             )
         )
         print(
-            "- Optional durable baseline: "
+            "- Optional durable baseline, only if you decide to record it: "
             + render_copy_command(["ai-dememory", "--root", root, "onboard"])
         )
 
