@@ -32,8 +32,6 @@ remains the current published stable PyPI release.
   contributor, and release material; document the installed `ai-dememory api`
   command instead of presenting the source wrapper as a normal user command.
 
-[Compare v2.1.1rc1...v2.1.1rc2](https://github.com/GonzaloTorreras/ai-dememory/compare/v2.1.1rc1...v2.1.1rc2)
-
 ## [2.1.1rc1] - 2026-08-21
 
 ### Fixed
