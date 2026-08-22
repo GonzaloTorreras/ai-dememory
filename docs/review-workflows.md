@@ -132,7 +132,8 @@ The listing is read-only. It returns counts for pending, policy-violation, and
 malformed artifacts, redacts secret-like metadata fields, and includes
 `writes_files=false`, `applies_review_decisions=false`, and
 `writes_canonical_memory=false`.
-`ai-dememory maintenance status`, `ai-dememory setup health --json`, and MCP
+`ai-dememory --root <vault> maintenance status`,
+`ai-dememory --root <vault> setup health --json`, and MCP
 `memory.maintenance_status` include a compact `review_recommendations` summary
 with pending, accepted, rejected, invalid, policy-violation, and kind counts so
 scheduled maintenance can surface stale advisory work without applying it.

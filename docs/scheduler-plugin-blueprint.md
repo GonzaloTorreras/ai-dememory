@@ -111,11 +111,13 @@ Recommended local setup:
    any integrations.
 3. Generate MCP config for a chosen client only when the user wants that
    integration, then inspect the fragment before copying it into host config.
-4. Use `ai-dememory setup health --json` as an optional read-only diagnostic.
+4. Use `ai-dememory --root ~/code/my-memory setup health --json` as an
+   optional read-only diagnostic.
 5. Preview hooks with `ai-dememory hooks install --client all --root ~/code/my-memory --dry-run`.
-6. Preview maintenance with `ai-dememory schedule plan --json`, then use
-   `ai-dememory schedule setup --dry-run` or reviewed cron export from the
-   scheduler plan when a human wants shell-ready output.
+6. Preview maintenance with
+   `ai-dememory --root ~/code/my-memory schedule plan --json`, then use
+   `ai-dememory --root ~/code/my-memory schedule setup --dry-run` or reviewed
+   cron export from the scheduler plan when a human wants shell-ready output.
 7. Install only the reviewed hook or schedule pieces the user wants.
 
 The tagged TestPyPI prerelease uses

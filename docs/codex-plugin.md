@@ -224,7 +224,8 @@ ai-dememory runtime model and embedding calls. The config-only wizard previews
 vault-bound MCP config, public-only hook config, hard resource ceilings, and an
 exact apply fingerprint; it changes only `.ai-dememory.toml` and never creates
 personal memory or installs those integrations itself. Optional reviewed
-personal memory uses the separate `ai-dememory onboard` fingerprint.
+personal memory uses the separate `ai-dememory --root <vault> onboard`
+fingerprint.
 
 `memory-recall` tells Codex how to use context, search, get, graph, and current
 working-state tools. For public-repository work it requires explicit

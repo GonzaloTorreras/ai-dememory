@@ -350,14 +350,17 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command in {"mcp", "api", "hook-event", "hooks"}:
-        # Stateful runtime surfaces own their vault resolution. In particular,
-        # do not discover CWD/package roots or inject a derived binding before
-        # their strict resolver can enforce an explicit/environment binding.
+    if command in {"mcp", "api", "hook-event", "hooks", "setup", "onboard"}:
+        # Stateful runtime and onboarding surfaces own their vault resolution.
+        # In particular, do not discover CWD/package roots or inject a derived
+        # binding before their strict resolver can enforce an
+        # explicit/environment binding.
         configure_imports()
         _, module_name = COMMANDS[command]
         prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
         module = importlib.import_module(f"{prefix}.{module_name}")
+        if command == "onboard":
+            return int(module.main(argv, mode=onboarding_mode or "onboard"))
         return int(module.main(argv))
     raw_explicit_root = root_arg_value(argv)
     if raw_explicit_root is not None and not raw_explicit_root.strip():
@@ -800,10 +803,16 @@ def main(argv: list[str] | None = None) -> int:
         argv = ["import", *argv]
     if command == "capture":
         argv = ["capture", *argv]
-    if command == "setup" and argv and argv[0] == "wizard":
-        command = "onboard"
-        onboarding_mode = "operational"
-        argv = argv[1:]
+    if command == "setup":
+        wizard_index = 0
+        if argv and argv[0] == "--root":
+            wizard_index = 2
+        elif argv and argv[0].startswith("--root="):
+            wizard_index = 1
+        if len(argv) > wizard_index and argv[wizard_index] == "wizard":
+            command = "onboard"
+            onboarding_mode = "operational"
+            del argv[wizard_index]
     if command == "mark-seen":
         argv = ["mark-seen", *argv]
     if command == "outcome":

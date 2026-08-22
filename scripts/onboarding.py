@@ -19,10 +19,11 @@ from typing import Any
 from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.cli import build_mcp_config
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from command_render import render_copy_command
 from config_file import load_config_path
 from hook_event import hook_config
-from memorylib import path_is_link_like, repo_root, slugify
+from memorylib import path_is_link_like, slugify
 from resource_policy import (
     DEFAULT_INTENSITY,
     DEFAULT_MODEL_POLICY,
@@ -1170,7 +1171,7 @@ def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
         ),
         allow_abbrev=False,
     )
-    parser.add_argument("--root", default=None, help="Memory vault root.")
+    parser.add_argument("--root", default=None, help="Memory vault root. Required unless AI_DEMEMORY_ROOT is set.")
     payload_name = "setup" if operational else "onboarding"
     parser.add_argument("--input-json", default=None, help=f"Inline {payload_name} JSON object.")
     parser.add_argument("--input-file", default=None, help=f"Path to {payload_name} JSON.")
@@ -1337,21 +1338,10 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
         ),
     )
     args = parser.parse_args(argv)
-    root_was_supplied = any(
-        argument == "--root" or argument.startswith("--root=")
-        for argument in argv
-    )
-    if root_was_supplied and (not args.root or not args.root.strip()):
-        parser.error("--root requires a non-empty vault path")
-    explicit_root = args.root if args.root and args.root.strip() else None
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = configured_root if configured_root and configured_root.strip() else None
-    if not explicit_root and not configured_root:
-        entrypoint = "setup wizard" if operational_guided else "onboarding"
-        parser.error(
-            f"{entrypoint} requires an explicit vault binding; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
-        )
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
     if args.apply and args.dry_run:
         parser.error("--apply and --dry-run are mutually exclusive")
     if args.json and uses_interactive_answers(args) and not operational_guided:
@@ -1377,7 +1367,6 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
         and not any((args.input_json, args.input_file, args.stdin))
     )
     try:
-        root = repo_root(explicit_root)
         if operational_guided:
             reject_personal_setup_flags(args)
         else:
