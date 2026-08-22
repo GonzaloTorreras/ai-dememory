@@ -306,7 +306,9 @@ def setup_plan(
             "Optional configuration: if you want these operational settings, preview the config-only wizard and review its selected intensity, hard caps, zero-runtime-model-call statement, and host-model policy before applying it.",
             "Optional diagnostics: doctor and setup health report local state; they are not setup requirements.",
             "Optional search: rebuild the index only after you add or review Markdown that you want searchable.",
-            "Optional durable baseline: preview ai-dememory onboard only if you choose to record reviewed values, preferences, recommendations, or project aliases.",
+            "Optional durable baseline: preview "
+            + render_copy_command(plan_command("onboard"))
+            + " only if you choose to record reviewed values, preferences, recommendations, or project aliases.",
             "Optional MCP: choose one client first, then copy only that generated config.",
             "Optional providers, hooks, and scheduling: preview their paths, config, or plan only if you choose those integrations; inspect before every explicit install.",
             "Optional reports and manual acceptance: generate or record them only when you need a review or release handoff after a human check.",
