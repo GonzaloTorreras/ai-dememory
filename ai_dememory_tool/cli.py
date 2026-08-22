@@ -323,6 +323,18 @@ def command_mutates_vault(command: str, argv: list[str]) -> bool:
     return False
 
 
+def provider_command_requires_explicit_vault_binding(command: str, argv: list[str]) -> bool:
+    """Identify provider flows that must never infer a vault from the CWD."""
+    if command in {"import-chats", "capture"}:
+        return True
+    return command == "providers" and command_subcommand(argv) in {
+        "plan",
+        "configure",
+        "import",
+        "capture",
+    }
+
+
 def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
     """Identify read-only previews and stateful runs that need a bound vault."""
     subcommand = command_subcommand(argv)
@@ -341,7 +353,11 @@ def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
 
 def command_requires_explicit_vault_binding(command: str, argv: list[str]) -> bool:
     """Require a binding before a command writes or prints a durable root."""
-    return command_mutates_vault(command, argv) or command_emits_bound_vault_command(command, argv)
+    return (
+        provider_command_requires_explicit_vault_binding(command, argv)
+        or command_mutates_vault(command, argv)
+        or command_emits_bound_vault_command(command, argv)
+    )
 
 
 def run_packaged_command(
@@ -352,14 +368,25 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command in {"mcp", "api", "hook-event", "hooks", "setup", "onboard"} or (
+    if command in {
+        "mcp",
+        "api",
+        "hook-event",
+        "hooks",
+        "setup",
+        "onboard",
+        "providers",
+        "import-chats",
+        "capture",
+    } or (
         command == "maintenance" and command_subcommand(argv) == "run"
     ):
-        # Stateful runtime, maintenance-run, and onboarding surfaces own their
-        # vault resolution.
-        # In particular, do not discover CWD/package roots or inject a derived
-        # binding before their strict resolver can enforce an
-        # explicit/environment binding.
+        # Stateful runtime, provider, maintenance-run, and onboarding surfaces
+        # own parsing and vault resolution.  In particular, never discover a
+        # CWD/package root, resolve a user path, or rewrite provider arguments
+        # before the provider parser has accepted its exact grammar.  Resolving
+        # a UNC path can perform I/O, and rewriting a trailing ``--root`` would
+        # turn an invalid provider command into a valid one.
         configure_imports()
         _, module_name = COMMANDS[command]
         prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"

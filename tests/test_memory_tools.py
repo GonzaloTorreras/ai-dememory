@@ -616,43 +616,54 @@ class MemoryToolTests(unittest.TestCase):
             (
                 "providers configure",
                 ["providers", "configure", "codex", "--path", str(ROOT)],
+                True,
             ),
-            ("providers import", ["providers", "import", "codex", "--path", str(ROOT)]),
+            (
+                "providers import",
+                ["providers", "import", "codex", "--path", str(ROOT)],
+                True,
+            ),
             (
                 "providers capture",
                 ["providers", "capture", "text", "--text", "Review candidate."],
+                True,
             ),
-            ("import chats", ["import-chats", "codex", "--path", str(ROOT)]),
-            ("capture", ["capture", "text", "--text", "Review candidate."]),
-            ("schedule", ["schedule", "setup"]),
+            ("import chats", ["import-chats", "codex", "--path", str(ROOT)], True),
+            ("capture", ["capture", "text", "--text", "Review candidate."], True),
+            ("schedule", ["schedule", "setup"], False),
             (
                 "schedule with a global command option",
                 ["schedule", "--command", "ai-dememory", "setup"],
+                False,
             ),
-            ("schedule status", ["schedule", "status"]),
+            ("schedule status", ["schedule", "status"], False),
         )
         roots = (
             ROOT,
             ROOT / "vault-template",
             ROOT / "ai_dememory_tool" / "templates" / "vault",
         )
-        for label, argv in invocations:
+        for label, argv, requires_strict_binding in invocations:
             for root in roots:
                 with self.subTest(command=label, root=root):
                     error = io.StringIO()
                     with (
                         patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                        patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
+                        patch("ai_dememory_tool.cli.find_memory_root", return_value=root) as root_resolver,
                         redirect_stderr(error),
                         self.assertRaises(SystemExit) as raised,
                     ):
                         cli_main(argv)
 
                     self.assertEqual(raised.exception.code, 2)
-                    self.assertIn(
-                        "refuses an unconfigured or nested ambient root",
-                        error.getvalue(),
-                    )
+                    if requires_strict_binding:
+                        root_resolver.assert_not_called()
+                        self.assertIn("runtime vault binding requires", error.getvalue())
+                    else:
+                        self.assertIn(
+                            "refuses an unconfigured or nested ambient root",
+                            error.getvalue(),
+                        )
 
     def test_maintenance_run_requires_bound_roots_without_discovery(self) -> None:
         invocations = (
@@ -680,37 +691,41 @@ class MemoryToolTests(unittest.TestCase):
 
     def test_root_bound_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
-            ("providers plan", ["providers", "plan", "--json"]),
+            ("providers plan", ["providers", "plan", "--json"], True),
             (
                 "providers configure preview",
                 ["providers", "configure", "codex", "--path", str(ROOT), "--dry-run"],
+                True,
             ),
-            ("schedule plan", ["schedule", "plan", "--json"]),
-            ("schedule cron", ["schedule", "cron", "--json"]),
-            ("schedule setup preview", ["schedule", "setup", "--dry-run"]),
-            ("schedule install preview", ["schedule", "install", "--dry-run"]),
+            ("schedule plan", ["schedule", "plan", "--json"], False),
+            ("schedule cron", ["schedule", "cron", "--json"], False),
+            ("schedule setup preview", ["schedule", "setup", "--dry-run"], False),
+            ("schedule install preview", ["schedule", "install", "--dry-run"], False),
         )
-        for label, argv in invocations:
+        for label, argv, requires_strict_binding in invocations:
             with self.subTest(command=label):
                 error = io.StringIO()
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                    patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
+                    patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT) as root_resolver,
                     redirect_stderr(error),
                     self.assertRaises(SystemExit) as raised,
                 ):
                     cli_main(argv)
 
                 self.assertEqual(raised.exception.code, 2)
-                self.assertIn(
-                    "refuses an unconfigured or nested ambient root",
-                    error.getvalue(),
-                )
+                if requires_strict_binding:
+                    root_resolver.assert_not_called()
+                    self.assertIn("runtime vault binding requires", error.getvalue())
+                else:
+                    self.assertIn(
+                        "refuses an unconfigured or nested ambient root",
+                        error.getvalue(),
+                    )
 
     def test_root_guard_classifies_mutating_and_root_bound_commands(self) -> None:
         for command, argv in (
             ("providers", ["detect"]),
-            ("import-chats", ["codex", "--dry-run"]),
             ("maintenance", ["status"]),
             ("schedule", ["doctor"]),
             ("schedule", ["remove", "--dry-run"]),
@@ -723,6 +738,7 @@ class MemoryToolTests(unittest.TestCase):
             ("maintenance", ["run", "--dry-run"]),
             ("providers", ["plan", "--json"]),
             ("providers", ["configure", "codex", "--dry-run"]),
+            ("import-chats", ["codex", "--dry-run"]),
             ("schedule", ["plan"]),
             ("schedule", ["cron"]),
             ("schedule", ["setup", "--dry-run"]),
@@ -1129,7 +1145,215 @@ class MemoryToolTests(unittest.TestCase):
                         self.assertEqual(raised.exception.code, 2)
                         self.assertEqual(output.getvalue(), "")
                         root_resolver.assert_not_called()
-                        self.assertIn("requires an explicit vault binding", error.getvalue())
+                        if label.startswith("provider"):
+                            expected_message = (
+                                "runtime vault binding requires"
+                                if environment_root == ""
+                                else "AI_DEMEMORY_ROOT requires a non-empty vault path"
+                            )
+                        else:
+                            expected_message = "requires an explicit vault binding"
+                        self.assertIn(expected_message, error.getvalue())
+
+    def test_unified_provider_commands_require_binding_without_discovery(self) -> None:
+        commands = (
+            ("providers plan", ["providers", "plan", "--json"]),
+            ("import-chats alias", ["import-chats", "codex", "--dry-run", "--json"]),
+            ("capture alias", ["capture", "text", "--text", "Reviewed candidate.", "--json"]),
+        )
+        for label, argv in commands:
+            with self.subTest(command=label):
+                output = io.StringIO()
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stdout(output),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertEqual(output.getvalue(), "")
+                self.assertIn("runtime vault binding requires", error.getvalue())
+                root_resolver.assert_not_called()
+
+    def test_unified_provider_arguments_are_parsed_before_path_resolution(self) -> None:
+        invalid_commands = (
+            (
+                "invalid provider option with UNC global root",
+                ["--root", r"\\attacker\share", "providers", "plan", "--bogus"],
+            ),
+            (
+                "trailing root is not promoted",
+                [
+                    "providers",
+                    "configure",
+                    "codex",
+                    "--path",
+                    "C:/provider",
+                    "--dry-run",
+                    "--root",
+                    r"\\attacker\share",
+                ],
+            ),
+            (
+                "end of options root is not promoted",
+                ["providers", "plan", "--", "--root", r"\\attacker\share"],
+            ),
+        )
+        for label, argv in invalid_commands:
+            with self.subTest(command=label):
+                output = io.StringIO()
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    patch("ai_dememory_tool.cli.resolve_runtime_vault") as cli_binding_resolver,
+                    patch(
+                        "ai_dememory_tool.admin.provider_import.resolve_runtime_vault"
+                    ) as binding_resolver,
+                    redirect_stdout(output),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertEqual(output.getvalue(), "")
+                self.assertIn("unrecognized arguments", error.getvalue())
+                root_resolver.assert_not_called()
+                cli_binding_resolver.assert_not_called()
+                binding_resolver.assert_not_called()
+
+    def test_unified_provider_bindings_reach_valid_commands_without_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "explicit-vault"
+            root.mkdir()
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
+                patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                patch(
+                    "ai_dememory_tool.admin.provider_import.provider_setup_plan",
+                    return_value={"providers": []},
+                ) as plan,
+                redirect_stdout(output),
+            ):
+                self.assertEqual(cli_main(["providers", "plan", "--json"]), 0)
+
+            root_resolver.assert_not_called()
+            self.assertEqual(plan.call_args.args[0], root.resolve())
+            self.assertEqual(json.loads(output.getvalue()), {"providers": []})
+
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": "."}),
+                patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                patch(
+                    "ai_dememory_tool.admin.provider_import.provider_setup_plan",
+                    return_value={"providers": []},
+                ) as plan,
+                redirect_stdout(output),
+            ):
+                self.assertEqual(
+                    cli_main(["providers", "--root", str(root), "plan", "--json"]),
+                    0,
+                )
+
+            root_resolver.assert_not_called()
+            self.assertEqual(plan.call_args.args[0], root.resolve())
+
+    def test_provider_static_help_remains_rootless_before_discovery(self) -> None:
+        direct_commands = (
+            ("plan", ["plan", "--help"]),
+            ("capture", ["capture", "--help"]),
+        )
+        for command_label, argv in direct_commands:
+            with self.subTest(entrypoint=f"direct {command_label}"):
+                output = io.StringIO()
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("provider_import.repo_root") as legacy_root,
+                    patch("provider_import.detect_providers") as detect,
+                    redirect_stdout(output),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    provider_main(argv)
+
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn("usage:", output.getvalue())
+                self.assertIn("Requires --root <vault-path> or AI_DEMEMORY_ROOT.", output.getvalue())
+                self.assertEqual(error.getvalue(), "")
+                legacy_root.assert_not_called()
+                detect.assert_not_called()
+
+        unified_commands = (
+            ("providers plan", ["providers", "plan", "--help"]),
+            ("capture alias", ["capture", "--help"]),
+        )
+        for command_label, argv in unified_commands:
+            with self.subTest(entrypoint=f"unified {command_label}"):
+                output = io.StringIO()
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stdout(output),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn("usage:", output.getvalue())
+                self.assertIn("Requires --root <vault-path> or AI_DEMEMORY_ROOT.", output.getvalue())
+                self.assertEqual(error.getvalue(), "")
+                root_resolver.assert_not_called()
+
+    def test_provider_detect_remains_rootless_and_legacy_compatible(self) -> None:
+        class CapturedDetectModule:
+            dispatched: list[list[str]] = []
+
+            @staticmethod
+            def main(argv: list[str]) -> int:
+                CapturedDetectModule.dispatched.append(list(argv))
+                print("[]")
+                return 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "ambient-vault"
+            root.mkdir()
+            direct_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("provider_import.repo_root", return_value=root) as legacy_root,
+                patch("provider_import.detect_providers", return_value=[]),
+                redirect_stdout(direct_output),
+            ):
+                self.assertEqual(provider_main(["detect", "--json"]), 0)
+
+            unified_output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                patch("ai_dememory_tool.cli.configure_imports"),
+                patch(
+                    "ai_dememory_tool.cli.importlib.import_module",
+                    return_value=CapturedDetectModule,
+                ),
+                redirect_stdout(unified_output),
+            ):
+                self.assertEqual(cli_main(["providers", "detect", "--json"]), 0)
+
+        self.assertEqual(json.loads(direct_output.getvalue()), [])
+        legacy_root.assert_called_once_with(None)
+        self.assertEqual(json.loads(unified_output.getvalue()), [])
+        root_resolver.assert_not_called()
+        self.assertEqual(CapturedDetectModule.dispatched, [["detect", "--json"]])
 
     def test_direct_maintenance_run_requires_runtime_binding_before_work(self) -> None:
         invocations = (
@@ -8966,8 +9190,8 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(len(CapturedModule.dispatched), 3)
         for action, dispatched in zip(("configure", "import", "capture"), CapturedModule.dispatched):
             self.assertEqual(Path(str(dispatched["root"])), root_a.resolve())
-            self.assertEqual(dispatched["argv"][:2], ["--root", root_a_value])
-            self.assertEqual(dispatched["argv"][2], action)
+            self.assertEqual(dispatched["argv"][0], action)
+            self.assertNotIn("--root", dispatched["argv"])
             self.assertNotEqual(Path(str(dispatched["root"])), root_b.resolve())
 
     def test_mcp_provider_setup_plan_binds_commands_to_the_invocation_root(self) -> None:
@@ -11368,6 +11592,10 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(health["artifact_freshness"]["writes_files"])
         self.assertTrue(health["next_actions"])
         self.assertTrue(any("generated artifacts" in action for action in health["next_actions"]))
+        self.assertIn(
+            "Review provider setup with `ai-dememory --root <vault-path> providers plan --json` before importing chats.",
+            health["next_actions"],
+        )
         self.assertFalse(mcp_health["mutates_system"])
         self.assertFalse(mcp_health["runs_commands"])
         self.assertFalse(mcp_health["writes_files"])

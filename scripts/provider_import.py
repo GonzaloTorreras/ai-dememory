@@ -21,6 +21,7 @@ if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.pa
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from ai_dememory_tool.argument_safety import reject_duplicate_options  # noqa: E402
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault  # noqa: E402
 from command_render import render_copy_command
 from config_file import CONFIG_NAME, load_config, set_section
 from memorylib import (
@@ -41,6 +42,7 @@ MAX_EXPORT_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20
 MAX_SCAN_ENTRIES = 2500
 CAPTURE_KINDS = {"chatgpt", "claude", "codex", "cursor", "windsurf", "markdown", "text", "conversation"}
+VAULT_BINDING_HELP = "Requires --root <vault-path> or AI_DEMEMORY_ROOT."
 
 
 @dataclass(frozen=True)
@@ -753,7 +755,11 @@ def write_import_candidate(root: Path, provider: str, source_file: Path, text: s
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Vault root. Required unless AI_DEMEMORY_ROOT is set (except read-only detect).",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     detect = subparsers.add_parser("detect", help="Detect known provider directories.", allow_abbrev=False)
@@ -762,6 +768,7 @@ def main(argv: list[str] | None = None) -> int:
     plan = subparsers.add_parser(
         "plan",
         help="Show reviewed provider setup commands without mutating config.",
+        description=VAULT_BINDING_HELP,
         allow_abbrev=False,
     )
     plan.add_argument(
@@ -773,7 +780,10 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     configure = subparsers.add_parser(
-        "configure", help="Configure a provider import source.", allow_abbrev=False
+        "configure",
+        help="Configure a provider import source.",
+        description=VAULT_BINDING_HELP,
+        allow_abbrev=False,
     )
     configure.add_argument("provider", choices=sorted(default_provider_paths()))
     configure.add_argument("--path", required=True, help="Provider chat/session directory.")
@@ -782,7 +792,10 @@ def main(argv: list[str] | None = None) -> int:
     configure.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     import_cmd = subparsers.add_parser(
-        "import", help="Import provider files into inbox/imports/.", allow_abbrev=False
+        "import",
+        help="Import provider files into inbox/imports/.",
+        description=VAULT_BINDING_HELP,
+        allow_abbrev=False,
     )
     import_cmd.add_argument("provider", choices=sorted(default_provider_paths()))
     import_cmd.add_argument("--path", default=None, help="Override provider path for this run.")
@@ -797,7 +810,10 @@ def main(argv: list[str] | None = None) -> int:
     import_cmd.add_argument("--json", action="store_true", help="Emit JSON output.")
 
     capture_cmd = subparsers.add_parser(
-        "capture", help="Capture explicit files or text into inbox/imports/.", allow_abbrev=False
+        "capture",
+        help="Capture explicit files or text into inbox/imports/.",
+        description=VAULT_BINDING_HELP,
+        allow_abbrev=False,
     )
     capture_cmd.add_argument("kind", choices=sorted(CAPTURE_KINDS))
     capture_source_group = capture_cmd.add_mutually_exclusive_group(required=True)
@@ -813,25 +829,16 @@ def main(argv: list[str] | None = None) -> int:
     root_was_supplied = any(argument == "--root" or argument.startswith("--root=") for argument in argv)
     if root_was_supplied and (not args.root or not args.root.strip()):
         parser.error("--root requires a non-empty vault path")
-    explicit_root = args.root if args.root and args.root.strip() else None
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = configured_root if configured_root and configured_root.strip() else None
-    mutates_vault = args.command == "capture" or (
-        args.command in {"configure", "import"} and not args.dry_run
-    )
-    emits_bound_command = args.command == "plan" or (
-        args.command == "configure" and args.dry_run
-    )
-    if (
-        (mutates_vault or emits_bound_command)
-        and not explicit_root
-        and not configured_root
-    ):
-        parser.error(
-            f"provider {args.command} requires an explicit vault binding; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
-        )
-    root = repo_root(explicit_root)
+    if args.command == "detect":
+        # Detection is a read-only compatibility surface. It intentionally
+        # retains its legacy root resolution rather than requiring a runtime
+        # vault binding.
+        root = repo_root(args.root)
+    else:
+        try:
+            root = resolve_runtime_vault(args.root).root
+        except VaultBindingError as exc:
+            parser.error(str(exc))
 
     if args.command == "detect":
         candidates = detect_providers(root)

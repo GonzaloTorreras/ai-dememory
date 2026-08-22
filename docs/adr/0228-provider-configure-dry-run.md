@@ -16,7 +16,7 @@ installation are supposed to stay passive.
 
 ## Decision
 
-Add `ai-dememory providers configure <provider> --path <path> --dry-run
+Add `ai-dememory --root <vault-path> providers configure <provider> --path <path> --dry-run
 --json`.
 
 The dry-run:

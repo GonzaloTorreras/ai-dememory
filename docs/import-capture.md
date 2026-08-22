@@ -16,8 +16,12 @@ Detect known local provider folders:
 
 ```bash
 ai-dememory providers detect
-ai-dememory providers plan --json
+ai-dememory --root <vault-path> providers plan --json
 ```
+
+`providers detect` is a rootless, read-only local diagnostic. Provider plans,
+configuration, imports, and captures operate on a selected vault and require
+an absolute `--root <vault-path>` binding (or `AI_DEMEMORY_ROOT`).
 
 MCP clients can inspect configured import readiness with
 `memory.providers_status` and review provider setup commands with
@@ -28,10 +32,10 @@ candidates.
 Configure a provider path:
 
 ```bash
-ai-dememory providers configure codex --path ~/.codex --dry-run --json
-ai-dememory providers configure codex --path ~/.codex
-ai-dememory providers configure claude --path ~/.claude --dry-run --json
-ai-dememory providers configure claude --path ~/.claude
+ai-dememory --root <vault-path> providers configure codex --path ~/.codex --dry-run --json
+ai-dememory --root <vault-path> providers configure codex --path ~/.codex
+ai-dememory --root <vault-path> providers configure claude --path ~/.claude --dry-run --json
+ai-dememory --root <vault-path> providers configure claude --path ~/.claude
 ```
 
 The configure dry-run validates the provider name, normalizes the chosen path,
@@ -42,7 +46,7 @@ candidates.
 Preview configured provider files before writing inbox candidates:
 
 ```bash
-ai-dememory import-chats codex --dry-run --json
+ai-dememory --root <vault-path> import-chats codex --dry-run --json
 ```
 
 Dry-run reads and scans provider files, returns `would_write`, and does not
@@ -51,8 +55,8 @@ create or write `inbox/imports/` files.
 Import configured provider files after reviewing the preview:
 
 ```bash
-ai-dememory import-chats codex
-ai-dememory import-chats claude --limit 10
+ai-dememory --root <vault-path> import-chats codex
+ai-dememory --root <vault-path> import-chats claude --limit 10
 ```
 
 Provider imports are idempotent for unchanged source files. Each candidate gets
@@ -72,21 +76,21 @@ Supported configured providers are:
 Capture a Markdown or text file:
 
 ```bash
-ai-dememory capture markdown --path ./notes/session.md
-ai-dememory capture text --path ./notes/todo.txt
-ai-dememory capture conversation --path ./exports/session.jsonl
+ai-dememory --root <vault-path> capture markdown --path ./notes/session.md
+ai-dememory --root <vault-path> capture text --path ./notes/todo.txt
+ai-dememory --root <vault-path> capture conversation --path ./exports/session.jsonl
 ```
 
 Capture text from stdin:
 
 ```bash
-printf "Remember this non-secret lesson." | ai-dememory capture text --stdin --title "Session lesson"
+printf "Remember this non-secret lesson." | ai-dememory --root <vault-path> capture text --stdin --title "Session lesson"
 ```
 
 PowerShell:
 
 ```powershell
-'Remember this non-secret lesson.' | ai-dememory capture text --stdin --title "Session lesson"
+'Remember this non-secret lesson.' | ai-dememory --root <vault-path> capture text --stdin --title "Session lesson"
 ```
 
 Supported capture kinds are:
@@ -105,7 +109,7 @@ Supported capture kinds are:
 For ChatGPT `conversations.json` exports:
 
 ```bash
-ai-dememory capture chatgpt --path ~/Downloads/conversations.json --limit 10
+ai-dememory --root <vault-path> capture chatgpt --path ~/Downloads/conversations.json --limit 10
 ```
 
 The importer extracts conversation titles and user/assistant message parts into

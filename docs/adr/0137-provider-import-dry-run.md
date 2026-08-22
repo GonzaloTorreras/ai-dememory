@@ -18,7 +18,7 @@ reviewable preflight that reads provider files but does not write inbox files.
 
 ## Decision
 
-Add `--dry-run` to `ai-dememory import-chats`. In dry-run mode the command
+Add `--dry-run` to `ai-dememory --root <vault-path> import-chats`. In dry-run mode the command
 discovers, reads, renders, and scans provider candidates, then returns
 `would_write` paths without creating `inbox/imports/` or writing candidate
 Markdown files.
