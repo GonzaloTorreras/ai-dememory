@@ -2,7 +2,7 @@
   "$schema": "./v3-execution-sequence.schema.json",
   "contract_version": 1,
   "planning_status": "c0_public_baseline",
-  "updated_at": "2026-08-05",
+  "updated_at": "2026-08-22",
   "current_frontier": ["BRG-003", "BRG-017"],
   "batches": [
     {
@@ -71,7 +71,13 @@
       "title": "Make vault binding explicit and deterministic",
       "status": "in_progress",
       "depends_on": ["BRG-014"],
-      "evidence": [],
+      "evidence": [
+        "ai_dememory_tool/cli.py",
+        "scripts/onboarding.py",
+        "scripts/setup_plan.py",
+        "scripts/maintenance.py",
+        "tests/test_memory_tools.py"
+      ],
       "external_readback_required": false
     },
     {
