@@ -1,6 +1,15 @@
 # Operations Runbook
 
-This runbook covers normal local operation for the ai-dememory repository.
+This runbook covers an existing, separately bound private vault. It is not an
+installation guide and it is not a release checklist for the public source
+repository. Start with [Installation](install.md) to install the CLI and create
+the vault; use [Local MCP](local-mcp.md) or [Local REST API](local-api.md) only
+when you choose one of those integrations.
+
+Normal vault commands use the installed `ai-dememory` CLI with an explicit
+root, for example `ai-dememory --root ~/code/my-memory <command>`. Later
+references to a shorter `ai-dememory <command>` assume that same private-vault
+binding. Source-checkout commands are confined to the maintainer section below.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
 PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
@@ -17,7 +26,7 @@ contract:
 ```bash
 pipx install --force ai-dememory==2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
-ai-dememory --root ~/code/my-memory mcp-client-smoke
+ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 ```
 
 Inspect and replace the old host entry yourself; the generator does not edit
@@ -38,20 +47,23 @@ profile. Explicit `admin` preserves the complete historical MCP surface for
 compatibility and broad maintenance, so opt into it only when that authority is
 actually required.
 
-## Daily Use
+## Everyday Vault Use
 
-From the repository root:
+Run these against the private vault, not the public repository:
 
 ```bash
-python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py setup plan --json
-python3 scripts/ai_dememory.py setup health --json
-python3 scripts/ai_dememory.py search "topic or project" --limit 5
-python3 scripts/ai_dememory.py eval-recall
-python3 scripts/ai_dememory.py maintenance status
+ai-dememory --root ~/code/my-memory doctor
+ai-dememory --root ~/code/my-memory search "topic or project" --limit 5
+ai-dememory --root ~/code/my-memory maintenance status
 ```
 
-Use `py -3` instead of `python3` on Windows when needed.
+`setup plan --json` and `setup health --json` are optional diagnostic views;
+they are read-only and do not need to run before a first use:
+
+```bash
+ai-dememory --root ~/code/my-memory setup plan --json
+ai-dememory --root ~/code/my-memory setup health --json
+```
 
 `setup plan --json` includes reviewed cron export commands and a
 `generated_reports` command group for optional handoff artifacts: recall review
@@ -116,17 +128,21 @@ Node, Python, browser, shell, or Codex processes.
 Always run:
 
 ```bash
-python3 scripts/ai_dememory.py validate
-python3 scripts/ai_dememory.py validate --json
-python3 scripts/ai_dememory.py secret-scan
+ai-dememory --root ~/code/my-memory validate
+ai-dememory --root ~/code/my-memory validate --json
+ai-dememory --root ~/code/my-memory secret-scan
 ```
 
 Then rebuild generated artifacts:
 
 ```bash
-python3 scripts/ai_dememory.py index
-python3 scripts/ai_dememory.py export-context
+ai-dememory --root ~/code/my-memory index
+ai-dememory --root ~/code/my-memory dev export-context
 ```
+
+`export-context` is an advanced generated-artifact command; normal recall does
+not require it. Markdown remains canonical and generated indexes, reports, and
+context exports are disposable.
 
 ## Weekly Review
 
@@ -178,13 +194,13 @@ reports/conflicts.md` when attaching review report evidence.
 Preview scheduler installation before writing OS scheduler state:
 
 ```bash
-python3 scripts/ai_dememory.py schedule plan --json
-python3 scripts/ai_dememory.py schedule plan --intensity minimal --json
-python3 scripts/ai_dememory.py schedule setup --dry-run
+ai-dememory --root ~/code/my-memory schedule plan --json
+ai-dememory --root ~/code/my-memory schedule plan --intensity minimal --json
+ai-dememory --root ~/code/my-memory schedule setup --dry-run
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
-python3 scripts/ai_dememory.py schedule plan --json --mode docker --image "$IMAGE_ID"
-python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image "$IMAGE_ID"
-python3 scripts/ai_dememory.py schedule cron --json
+ai-dememory --root ~/code/my-memory schedule plan --json --mode docker --image "$IMAGE_ID"
+ai-dememory --root ~/code/my-memory schedule setup --dry-run --mode docker --image "$IMAGE_ID"
+ai-dememory --root ~/code/my-memory schedule cron --json
 ```
 
 The plan reports the effective `minimal`, `balanced`, or `active` resource
@@ -192,10 +208,10 @@ policy, resolved root, exact command, a vault-specific task namespace, and
 `plan_sha256`. Install only the exact reviewed projection:
 
 ```bash
-python3 scripts/ai_dememory.py schedule setup \
+ai-dememory --root ~/code/my-memory schedule setup \
   --intensity balanced \
   --expect-plan-sha256 <plan_sha256>
-python3 scripts/ai_dememory.py schedule status
+ai-dememory --root ~/code/my-memory schedule status
 ```
 
 Installation creates definitions exclusively, reads them back, and records
@@ -223,10 +239,10 @@ same policy with those diagnostics instead of silently using fallback values.
 Run profiles manually:
 
 ```bash
-python3 scripts/ai_dememory.py maintenance run --profile daily --dry-run --json
-python3 scripts/ai_dememory.py maintenance run --profile daily
-python3 scripts/ai_dememory.py maintenance run --profile daily --report-dir reports/maintenance
-python3 scripts/ai_dememory.py maintenance run --profile weekly
+ai-dememory --root ~/code/my-memory maintenance run --profile daily --dry-run --json
+ai-dememory --root ~/code/my-memory maintenance run --profile daily
+ai-dememory --root ~/code/my-memory maintenance run --profile daily --report-dir reports/maintenance
+ai-dememory --root ~/code/my-memory maintenance run --profile weekly
 ```
 
 The dry-run previews enabled provider imports and generated artifacts without
@@ -271,13 +287,12 @@ the memory root.
 Configure providers explicitly:
 
 ```bash
-python3 scripts/ai_dememory.py providers detect
-python3 scripts/ai_dememory.py setup plan --json
-python3 scripts/ai_dememory.py setup health --json
-python3 scripts/ai_dememory.py providers plan --json
-python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex" --dry-run --json
-python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex"
-python3 scripts/ai_dememory.py import-chats codex
+ai-dememory --root ~/code/my-memory providers detect
+ai-dememory --root ~/code/my-memory setup plan --json
+ai-dememory --root ~/code/my-memory setup health --json
+ai-dememory --root ~/code/my-memory providers plan --json
+ai-dememory --root ~/code/my-memory providers configure codex --path "$HOME/.codex" --dry-run --json
+ai-dememory --root ~/code/my-memory import-chats codex
 ```
 
 Imported chats are review candidates. They must be scanned and rewritten before
@@ -294,9 +309,12 @@ reports whether it exists without reading provider files.
 4. Decide whether FTS recall is good enough; do not add vector search until
    measured misses justify it.
 
-## Release Validation
+## Maintainer: Source Checkout Release Validation
 
-Before marking any V2 release ready for review, run the static checks:
+Skip this section when operating a private vault. It is for a contributor or
+release owner working from a trusted source checkout, and deliberately retains
+the wrapper commands that test that checkout rather than an installed package.
+Run these before marking a V2 release ready for review:
 
 ```bash
 python3 scripts/ai_dememory.py doctor

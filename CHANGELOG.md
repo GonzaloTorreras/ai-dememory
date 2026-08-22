@@ -7,7 +7,18 @@ accepted by the release identity guard.
 
 ## [Unreleased]
 
-No changes are queued outside the 2.1.1 release line.
+### Added
+
+- After a guided operational setup completes, the wizard offers the optional
+  foreground local API command for dashboards and scripts. It remains
+  loopback-only by default and is never started, installed, or configured by
+  the wizard.
+
+### Documentation
+
+- Separate the public installation and local-use paths from source-checkout,
+  contributor, and release material; document the installed `ai-dememory api`
+  command instead of presenting the source wrapper as a normal user command.
 
 ## [2.1.1] - Unreleased
 

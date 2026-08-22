@@ -147,6 +147,7 @@ ai-dememory init ~/code/my-memory --wizard</code></pre>
               <pre tabindex="0"><code>ai-dememory --root ~/code/my-memory mcp-config --client codex</code></pre>
             </div>
             <p>In published 2.1.0, the generated runtime configuration persists the historical exact-version pin; the candidate removes that generated pin. Both bind the vault, make <code>core</code> the reduced four-tool server-enforced default, and use a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
+            <p>If a local dashboard or script needs HTTP instead of MCP stdio, the optional API runs only when you start it. Read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-api.md">canonical Local API guide</a> for the loopback-only default and network-binding safeguards.</p>
             <p><a href="../architecture/#process-lifecycle">See the process lifecycle</a> or read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-mcp.md">full MCP guide on GitHub</a>.</p>
           </section>
 

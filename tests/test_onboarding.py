@@ -401,6 +401,13 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn("Applied:", output.getvalue())
         self.assertIn("operational vault configuration only", output.getvalue())
         self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
+        self.assertIn("Optional local API for dashboards/scripts", output.getvalue())
+        self.assertIn(
+            render_copy_command(
+                ["ai-dememory", "--root", str(root.resolve()), "api"]
+            ),
+            output.getvalue(),
+        )
         self.assertIn("Optional durable baseline", output.getvalue())
         self.assertFalse(memories_exist)
         self.assertIn('intensity = "balanced"', config)
@@ -432,6 +439,37 @@ class OnboardingTests(unittest.TestCase):
                 ),
                 rendered,
             )
+
+    def test_guided_next_actions_offer_a_foreground_loopback_api_without_starting_it(self) -> None:
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, redirect_stdout(output):
+            root = str(Path(tmp).resolve())
+            onboarding.print_guided_next_actions(
+                {
+                    "root": root,
+                    "clients": [],
+                    "setup_scope": "operational",
+                }
+            )
+
+        rendered = output.getvalue()
+        command = render_copy_command(
+            [
+                "ai-dememory",
+                "--root",
+                root,
+                "api",
+            ]
+        )
+        self.assertIn(
+            "Optional local API for dashboards/scripts "
+            "(foreground, loopback-only by default; not started automatically; Ctrl-C stops it):",
+            rendered,
+        )
+        self.assertIn(command, rendered)
+        self.assertNotIn("--host", rendered)
+        self.assertNotIn("--port", rendered)
+        self.assertNotIn("python3 scripts/ai_dememory.py api", rendered)
 
     def test_copy_command_renderer_quotes_shell_metacharacters(self) -> None:
         argv = [
