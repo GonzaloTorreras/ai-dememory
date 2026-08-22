@@ -62,18 +62,46 @@ STABLE_RELEASE_CONTRACTS = {
             "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
         ),
+        # Every visible <pre> is a copyable release surface. Keep this list
+        # literal and deliberately smaller than the broader Markdown command
+        # allowlist: it is the complete set rendered by the static site.
+        "copyable": (
+            "pipx install ai-dememory==2.1.0",
+            "pipx install --force ai-dememory==2.1.0",
+            "uv tool install ai-dememory==2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+            "ai-dememory --version",
+        ),
         "source_only": (
             "ai-dememory init ~/code/my-memory --wizard",
         ),
     },
 }
 
-SOURCE_CANDIDATE_REQUIRED_COMMANDS = (
+# This is the first-run command paired with each *published* prerelease
+# package block. An untagged source candidate must not gain a copyable block
+# merely because it uses the same wizard syntax.
+PUBLISHED_PRERELEASE_REQUIRED_COMMANDS = (
     "ai-dememory init ~/code/my-memory --wizard",
 )
-SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER = (
-    "not installable from a package index until it is tagged and published"
-)
+
+# A source version is not automatically an installable prerelease. Each entry
+# is added only after its immutable tag, canonical release workflow and index
+# readback have been verified. This keeps the documentation guard fail-closed
+# for future source candidates while allowing the one exact TestPyPI route that
+# has real release evidence.
+PUBLISHED_PRERELEASE_CONTRACTS = {
+    "2.1.1rc1": {
+        "scope_marker": "testpypi prerelease 2.1.1rc1",
+        "site_lens": "TestPyPI prerelease: 2.1.1rc1",
+        "install_marker": "TestPyPI prerelease 2.1.1rc1 is available for evaluation",
+        "package_command": (
+            "python -m pip install --index-url https://test.pypi.org/simple/ "
+            "ai-dememory==2.1.1rc1"
+        ),
+    },
+}
 
 RELEASE_SCOPE_DOCS = (
     "README.md",
@@ -116,13 +144,18 @@ STABLE_DOC_REQUIRED_COMMANDS = {
     ),
     "docs/local-mcp.md": (
         "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
     "docs/mcp-client-config.md": (
         "pipx install --force ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
-    "docs/codex-plugin.md": ("pipx install ai-dememory==2.1.0",),
+    "docs/codex-plugin.md": (
+        "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+    ),
     "docs/operations.md": (
         "pipx install --force ai-dememory==2.1.0",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
@@ -133,6 +166,9 @@ STABLE_DOC_REQUIRED_COMMANDS = {
     ),
     "docs/create-memory-repo.md": (
         "pipx install ai-dememory==2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+    ),
+    "docs/scheduler-plugin-blueprint.md": (
         "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
     ),
 }
@@ -224,6 +260,14 @@ SVG_DYNAMIC_CONTENT_TAGS = frozenset(
 STATIC_INTERACTIVE_CONTROL_TAGS = frozenset(
     {"button", "form", "input", "optgroup", "option", "select", "textarea"}
 )
+DECLARATIVE_SHADOW_DOM_ATTRIBUTES = frozenset(
+    {
+        "shadowrootmode",
+        "shadowrootclonable",
+        "shadowrootdelegatesfocus",
+        "shadowrootserializable",
+    }
+)
 SVG_ACTIVE_CONTENT_RE = re.compile(
     r"<\s*(?:[^\s:/<>]+:)?"
     r"(?:animate(?:color|motion|transform)?|discard|embed|foreignobject|iframe|object|script|set)\b|"
@@ -243,15 +287,55 @@ CSS_RESOURCE_REFERENCE_RE = re.compile(
 )
 CSS_URL_FUNCTION_RE = re.compile(r"url\s*\(\s*(?P<target>[^)]*)\s*\)", re.IGNORECASE)
 CSS_NON_URL_RESOURCE_FUNCTION_RE = re.compile(r"(?:image-set|image)\s*\(", re.IGNORECASE)
+CSS_CONTENT_DECLARATION_RE = re.compile(
+    r"(?<![-\w])content\s*:\s*(?P<value>[^;{}]+)", re.IGNORECASE
+)
+CSS_COMMENT_TOKEN_RE = re.compile(r"/\*|\*/")
+ALLOWED_CSS_GENERATED_CONTENT = frozenset(
+    {
+        '""',
+        '"≠"',
+        '"✓"',
+        '"→"',
+        '"↓"',
+        "attr(data-label)",
+        "counter(process, decimal-leading-zero)",
+    }
+)
+ALLOWED_CSS_DATA_LABELS = frozenset(
+    {
+        "Boundary",
+        "Can see or change",
+        "Cadence",
+        "Candidates",
+        "File / scan ceilings",
+        "Future Node plane",
+        "Python owns now",
+        "Recall",
+    }
+)
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
     markers = [f"published stable {stable_version}"]
     if source_version != stable_version:
-        markers.append(f"source candidate {source_version} is unreleased")
+        # Published prereleases retain their own immutable install route even
+        # after the checked-out source advances. Do not make that historical
+        # route depend on the current source version: a new source candidate
+        # is not evidence that a published package disappeared or was
+        # superseded on an index.
+        markers.extend(
+            contract["scope_marker"]
+            for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+        )
+        if source_version not in PUBLISHED_PRERELEASE_CONTRACTS:
+            markers.append(f"source candidate {source_version} is unreleased")
     return tuple(markers)
 
 
 def site_release_lens(stable_version: str, source_version: str) -> str:
     if source_version != stable_version:
+        contract = PUBLISHED_PRERELEASE_CONTRACTS.get(source_version)
+        if contract is not None:
+            return contract["site_lens"]
         return f"Source candidate: {source_version}, unreleased"
     return f"Source/release line: {source_version}"
 
@@ -281,8 +365,36 @@ INLINE_HTML_CODE_RE = re.compile(
 DYNAMIC_SHELL_SYNTAX_RE = re.compile(
     r"(?:\$(?:@|\(|\{|[A-Za-z_']|[0-9*#?-])|"
     r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!|"
-    r"`|\^(?=\S)|\{[^{}\r\n]*\.\.[^{}\r\n]*\}|"
+    r"`|\^(?=\S)|\{[^{}\r\n]*\}|"
     r"&[ \t]*\(|\+[ \t]*['\"]|['\"][ \t]*\+)",
+    re.IGNORECASE,
+)
+SHELL_LINE_CONTINUATION_RE = re.compile(r"(?:\\|\^)[ \t]*\r?\n")
+SHELL_TOKEN_FRAGMENT_RE = re.compile(r"[\\\"']")
+# The documentation site has no untracked package-install examples. Every
+# supported Python installer and every supported ai-dememory package route
+# belongs in a literal release block. Recognize common package-tool spellings
+# here rather than trying to emulate shell parsing in prose, then reject dynamic
+# spellings near an installer verb separately below.
+UNTRACKED_PACKAGE_ACTION_RE = re.compile(
+    r"(?:"
+    r"\b(?:pipx|pip(?:3(?:\.\d+)?)?|uvx?|conda|pipenv|poetry|pdm)(?:\.exe)?\b"
+    r"[^\r\n<]{0,120}?\b(?:install|upgrade|reinstall|run|add)\b"
+    r"|\b(?:python(?:3(?:\.\d+)?)?|pypy(?:3(?:\.\d+)?)?|py)(?:\.exe)?\b"
+    r"[^\r\n<]{0,120}?\b-m\s+(?:pip|pipx|uv)\b"
+    r"[^\r\n<]{0,120}?\b(?:install|upgrade|reinstall|run|add)\b"
+    r")",
+    re.IGNORECASE,
+)
+UNTRACKED_AI_DEMEMORY_PACKAGE_ACTION_RE = re.compile(
+    r"\b[a-z][a-z0-9_.-]*(?:\.exe)?\b[^\r\n<]{0,120}?"
+    r"\b(?:install|upgrade|reinstall|run|add|exec|dlx)\b[^\r\n<]{0,120}?"
+    r"\bai[-_.]+dememory\b",
+    re.IGNORECASE,
+)
+UNTRACKED_AI_DEMEMORY_RUNNER_RE = re.compile(
+    r"\b(?:npx|bunx|uvx)(?:\.exe)?\b[^\r\n<]{0,120}?"
+    r"\bai[-_.]+dememory\b",
     re.IGNORECASE,
 )
 EXPANDED_DOCKER_RUN_RE = re.compile(
@@ -312,6 +424,21 @@ def _contains_css_resource_reference(text: str) -> bool:
     """Recognize CSS resource tokens after decoding CSS identifier escapes."""
     decoded = CSS_ESCAPE_RE.sub(_decode_css_escape, text)
     return CSS_RESOURCE_REFERENCE_RE.search(decoded) is not None
+
+
+def _contains_unapproved_css_generated_content(text: str) -> bool:
+    """Allow only the site's reviewed decorative CSS generated content."""
+    decoded = CSS_ESCAPE_RE.sub(_decode_css_escape, text)
+    for match in CSS_CONTENT_DECLARATION_RE.finditer(decoded):
+        value = re.sub(r"\s+", " ", match.group("value").strip())
+        if value not in ALLOWED_CSS_GENERATED_CONTENT:
+            return True
+    return False
+
+
+def _contains_css_comment_token(text: str) -> bool:
+    """CSS comments are not needed by the reviewed static stylesheet."""
+    return CSS_COMMENT_TOKEN_RE.search(text) is not None
 
 
 def _contains_unapproved_svg_presentation_resource(text: str) -> bool:
@@ -979,8 +1106,8 @@ def _duplicate_security_options(tokens: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(option for option, count in counts.items() if count > 1))
 
 
-def _tokens_contain_package_install(tokens: tuple[str, ...]) -> bool:
-    """Detect supported Python application installers anywhere in a shell line."""
+def _package_installer_command_ends(tokens: tuple[str, ...]) -> tuple[int, ...]:
+    """Return the token positions immediately after supported installer verbs."""
     folded = tuple(token.casefold() for token in tokens)
 
     def command_end_after(start: int, commands: frozenset[str]) -> int:
@@ -989,6 +1116,7 @@ def _tokens_contain_package_install(tokens: tuple[str, ...]) -> bool:
                 return position + 1
         return -1
 
+    command_ends: list[int] = []
     for index, token in enumerate(folded):
         launcher = _launcher_name(token)
         command_end = -1
@@ -1027,9 +1155,17 @@ def _tokens_contain_package_install(tokens: tuple[str, ...]) -> bool:
                         frozenset({"install", "upgrade", "reinstall"}),
                     )
                     break
-        if command_end >= 0 and any(PACKAGE_SPEC_TOKEN_RE.fullmatch(value) for value in tokens[command_end:]):
-            return True
-    return False
+        if command_end >= 0:
+            command_ends.append(command_end)
+    return tuple(command_ends)
+
+
+def _tokens_contain_package_install(tokens: tuple[str, ...]) -> bool:
+    """Detect supported package installers that contain a literal package spec."""
+    return any(
+        any(PACKAGE_SPEC_TOKEN_RE.fullmatch(value) for value in tokens[command_end:])
+        for command_end in _package_installer_command_ends(tokens)
+    )
 
 
 def _tokens_contain_mutable_runner(tokens: tuple[str, ...]) -> bool:
@@ -1827,11 +1963,82 @@ def _normalized_package_command(command: str) -> str:
     return " ".join(normalized.split()).casefold()
 
 
+def _approved_package_commands(stable_version: str) -> set[str]:
+    expected_spec = f"ai-dememory=={stable_version}"
+    commands = {
+        f"pipx install {expected_spec}",
+        f"pipx install --force {expected_spec}",
+        f"uv tool install {expected_spec}",
+        f"python3 -m pip install {expected_spec}",
+        f"py -3 -m pip install {expected_spec}",
+    }
+    # The source checkout can advance beyond an immutable TestPyPI candidate.
+    # Each published contract remains a permitted exact package command until
+    # its evidence record is deliberately retired; never infer availability
+    # from ``source_version``.
+    commands.update(
+        contract["package_command"]
+        for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+    )
+    return commands
+
+
+def _untracked_site_command_errors(text: str, label: str) -> list[str]:
+    """Reject installer-like text outside a reviewed release command block."""
+    errors: list[str] = []
+    direct_package_action = UNTRACKED_PACKAGE_ACTION_RE.search(text) is not None
+    direct_ai_dememory_action = (
+        UNTRACKED_AI_DEMEMORY_PACKAGE_ACTION_RE.search(text) is not None
+    )
+    direct_ai_dememory_runner = UNTRACKED_AI_DEMEMORY_RUNNER_RE.search(text) is not None
+    normalized_fragments = SHELL_LINE_CONTINUATION_RE.sub(
+        "", text
+    )
+    normalized_fragments = SHELL_TOKEN_FRAGMENT_RE.sub("", normalized_fragments)
+    fragmented_package_action = (
+        UNTRACKED_PACKAGE_ACTION_RE.search(normalized_fragments) is not None
+    )
+    fragmented_ai_dememory_action = (
+        UNTRACKED_AI_DEMEMORY_PACKAGE_ACTION_RE.search(normalized_fragments)
+        is not None
+    )
+    fragmented_ai_dememory_runner = (
+        UNTRACKED_AI_DEMEMORY_RUNNER_RE.search(normalized_fragments) is not None
+    )
+    if (
+        direct_package_action
+        or direct_ai_dememory_action
+        or direct_ai_dememory_runner
+        or fragmented_package_action
+        or fragmented_ai_dememory_action
+        or fragmented_ai_dememory_runner
+    ):
+        errors.append(f"{label}: untracked package installer text is forbidden")
+    if (
+        DYNAMIC_SHELL_SYNTAX_RE.search(text) is not None
+        or SHELL_LINE_CONTINUATION_RE.search(text) is not None
+    ):
+        errors.append(
+            f"{label}: dynamic or fragmented shell syntax is forbidden in untracked auditable site content"
+        )
+    else:
+        if (
+            (fragmented_package_action and not direct_package_action)
+            or (fragmented_ai_dememory_action and not direct_ai_dememory_action)
+            or (fragmented_ai_dememory_runner and not direct_ai_dememory_runner)
+        ):
+            errors.append(
+                f"{label}: dynamic or fragmented shell syntax is forbidden in untracked auditable site content"
+            )
+    return errors
+
+
 def _stable_command_errors(
     text: str,
     stable_version: str,
     label: str,
     *,
+    source_version: str | None = None,
     check_executable_lines: bool = True,
     required_executable_commands: tuple[str, ...] = (),
     require_explicit_mcp_root: bool = False,
@@ -1842,13 +2049,7 @@ def _stable_command_errors(
         errors.append(
             f"{label}:{line_number}: security-sensitive command must use literal Markdown-free command text: {reconstructed!r}"
         )
-    allowed_package_commands = {
-        f"pipx install {expected_spec}",
-        f"pipx install --force {expected_spec}",
-        f"uv tool install {expected_spec}",
-        f"python3 -m pip install {expected_spec}",
-        f"py -3 -m pip install {expected_spec}",
-    }
+    allowed_package_commands = _approved_package_commands(stable_version)
     normalized_allowed_package_commands = {
         _normalized_package_command(command) for command in allowed_package_commands
     }
@@ -1873,7 +2074,7 @@ def _stable_command_errors(
             seen_package_commands.add(key)
             if _normalized_package_command(command) not in normalized_allowed_package_commands:
                 errors.append(
-                    f"{label}:{line_number}: stable package command is not allowlisted for exact {expected_spec!r}: {command!r}"
+                    f"{label}:{line_number}: package command is not allowlisted for the approved release contracts: {command!r}"
                 )
 
     if not check_executable_lines:
@@ -1953,7 +2154,7 @@ def _stable_command_errors(
                 seen_package_commands.add(key)
                 if key[1] not in normalized_allowed_package_commands:
                     errors.append(
-                        f"{label}:{line_number}: stable package command is not allowlisted for exact {expected_spec!r}: {tokenized_package_command!r}"
+                        f"{label}:{line_number}: package command is not allowlisted for the approved release contracts: {tokenized_package_command!r}"
                     )
         if _tokens_contain_mutable_runner(tokens):
             errors.append(
@@ -2208,8 +2409,10 @@ class DocumentParser(HTMLParser):
         self.release_blocks: dict[str, list[str]] = {}
         self.release_block_texts: dict[str, list[list[str]]] = {}
         self.release_block_violations: list[str] = []
+        self.data_labels: list[str] = []
         self.visible_text_parts: list[str] = []
         self.auditable_text_parts: list[str] = []
+        self.untracked_auditable_text_parts: list[str] = []
         self._active_release_block: list[str] | None = None
         self._active_release = ""
         self._release_depth = 0
@@ -2232,6 +2435,10 @@ class DocumentParser(HTMLParser):
     def auditable_text(self) -> str:
         return "".join(self.auditable_text_parts)
 
+    @property
+    def untracked_auditable_text(self) -> str:
+        return "".join(self.untracked_auditable_text_parts)
+
     def _append_visible_text(self, data: str) -> None:
         self.visible_text_parts.append(data)
         if self._active_release:
@@ -2241,6 +2448,8 @@ class DocumentParser(HTMLParser):
 
     def _append_auditable_text(self, data: str) -> None:
         self.auditable_text_parts.append(data)
+        if not self._active_release:
+            self.untracked_auditable_text_parts.append(data)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.casefold()
@@ -2261,6 +2470,11 @@ class DocumentParser(HTMLParser):
             self.release_block_violations.append(
                 "iframe srcdoc is forbidden because embedded HTML bypasses "
                 "command, script, and resource auditing"
+            )
+        if DECLARATIVE_SHADOW_DOM_ATTRIBUTES.intersection(values):
+            self.release_block_violations.append(
+                "declarative Shadow DOM attributes are forbidden because they bypass "
+                "the static command-surface audit"
             )
         if tag in STATIC_INTERACTIVE_CONTROL_TAGS:
             self.release_block_violations.append(
@@ -2327,10 +2541,27 @@ class DocumentParser(HTMLParser):
             self._append_auditable_text("\n")
 
         release_marker = values.get("data-release", "")
+        copy_marker = "data-copy-block" in values
+        if copy_marker and not release_marker:
+            self.release_block_violations.append(
+                "copyable command blocks must carry a nonempty data-release marker"
+            )
         if self._active_release:
             if release_marker:
                 self.release_block_violations.append(
                     f"nested data-release marker {release_marker!r} is not allowed"
+                )
+            if tag not in {"pre", "code"}:
+                self.release_block_violations.append(
+                    "release command blocks must not contain nested markup"
+                )
+            elif tag == "pre" and values != {"tabindex": "0"}:
+                self.release_block_violations.append(
+                    "release command blocks must use a plain focusable <pre>"
+                )
+            elif tag == "code" and values:
+                self.release_block_violations.append(
+                    "release command blocks must use plain <code> content"
                 )
             if not is_void:
                 self._release_depth += 1
@@ -2359,6 +2590,14 @@ class DocumentParser(HTMLParser):
                 self._active_release_block = []
                 self.release_block_texts.setdefault(self._active_release, []).append(
                     self._active_release_block
+                )
+        # Closed <details>, aria-hidden, visually-hidden, popover, and noscript
+        # content can all become user-reachable. Only parser-only containers are
+        # excluded from the command-surface contract.
+        if tag == "pre" and not audit_nonrendered:
+            if not self._active_release:
+                self.release_block_violations.append(
+                    "preformatted command blocks must use a canonical tracked data-release command block"
                 )
         if tag == "html":
             self.lang = values.get("lang", "")
@@ -2412,6 +2651,8 @@ class DocumentParser(HTMLParser):
 
         if tag == "img" and "alt" not in values:
             self.images_without_alt += 1
+        if "data-label" in values:
+            self.data_labels.append(values["data-label"])
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.casefold()
@@ -2468,6 +2709,32 @@ class DocumentParser(HTMLParser):
             self._append_visible_text(data)
         if self._audit_nonrendered_depth == 0:
             self._append_auditable_text(data)
+
+    def _reject_auditable_nontext_token(self, token: str) -> None:
+        if self._audit_nonrendered_depth:
+            return
+        if self._active_release:
+            self.release_block_violations.append(
+                f"release command blocks must not contain {token}"
+            )
+        else:
+            self.release_block_violations.append(
+                f"{token} are forbidden in auditable site content"
+            )
+
+    def handle_comment(self, data: str) -> None:
+        self._reject_auditable_nontext_token("HTML comments")
+
+    def handle_decl(self, decl: str) -> None:
+        if decl.strip().casefold() == "doctype html" and not self._element_stack:
+            return
+        self._reject_auditable_nontext_token("HTML declarations")
+
+    def unknown_decl(self, data: str) -> None:
+        self._reject_auditable_nontext_token("unknown HTML declarations")
+
+    def handle_pi(self, data: str) -> None:
+        self._reject_auditable_nontext_token("processing instructions")
 
     def close(self) -> None:
         super().close()
@@ -2656,6 +2923,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     text,
                     stable_version,
                     relative,
+                    source_version=source_version,
                     required_executable_commands=STABLE_DOC_REQUIRED_COMMANDS.get(
                         relative, ()
                     ),
@@ -2664,7 +2932,12 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             )
     scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
-        scope_text = (repo_root / relative).read_text(encoding="utf-8").lower()
+        # Markdown prose may wrap a release sentence across physical lines.
+        # Compare its rendered-word shape instead of making the public contract
+        # depend on line width.
+        scope_text = " ".join(
+            (repo_root / relative).read_text(encoding="utf-8").lower().split()
+        )
         for marker in scope_markers:
             if marker not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
@@ -2686,16 +2959,34 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         ),
         ("complete historical MCP surface", "admin compatibility warning"),
     ]
-    if source_version != stable_version:
+    # Published TestPyPI routes remain visible and copyable after source moves
+    # on. The current source candidate is a separate status claim, never an
+    # implied package installation route.
+    for prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.values():
         install_expectations.extend(
             [
+                (prerelease_contract["install_marker"], "prerelease availability marker"),
+                (prerelease_contract["package_command"], "exact prerelease install command"),
                 (
-                    SOURCE_CANDIDATE_NOT_INSTALLABLE_MARKER,
-                    "unpublished candidate availability warning",
+                    "Use an isolated virtual environment for this TestPyPI evaluation",
+                    "prerelease isolation guidance",
                 ),
                 (
                     "ai-dememory init ~/code/my-memory --wizard",
-                    "candidate wizard-first vault command",
+                    "prerelease wizard-first vault command",
+                ),
+            ]
+        )
+    source_is_unreleased_candidate = (
+        source_version != stable_version
+        and source_version not in PUBLISHED_PRERELEASE_CONTRACTS
+    )
+    if source_is_unreleased_candidate:
+        install_expectations.extend(
+            [
+                (
+                    "not installable from a package index until it is tagged and published",
+                    "unpublished candidate availability warning",
                 ),
             ]
         )
@@ -2721,6 +3012,13 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     document.auditable_text,
                     stable_version,
                     f"site/{page_label}",
+                    source_version=source_version,
+                )
+            )
+            errors.extend(
+                _untracked_site_command_errors(
+                    document.untracked_auditable_text,
+                    f"site/{page_label}",
                 )
             )
             for release, parts in document.release_blocks.items():
@@ -2743,10 +3041,23 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                         page_stable_text,
                         stable_version,
                         f"site/{page_label}",
+                        source_version=source_version,
                         required_executable_commands=required_page_commands,
                     )
                 )
         stable_label = f"stable-{stable_version}"
+        known_release_labels = {
+            stable_label,
+            *(
+                f"source-{prerelease_version}"
+                for prerelease_version in PUBLISHED_PRERELEASE_CONTRACTS
+            ),
+        }
+        for release in sorted(release_block_texts):
+            if release not in known_release_labels:
+                errors.append(
+                    f"site: copyable command block uses an unknown release marker {release!r}"
+                )
         stable_text = "\n".join(release_blocks.get(stable_label, []))
         stable_commands = {
             command
@@ -2765,31 +3076,58 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             if marker in stable_commands:
                 errors.append(f"site: stable {stable_version} command block contains source-only marker {marker!r}")
         for block in release_block_texts.get(stable_label, []):
+            literal_commands = tuple(
+                line.strip() for line in block.splitlines() if line.strip()
+            )
+            unapproved_commands = tuple(
+                command
+                for command in literal_commands
+                if command not in contract["copyable"]
+            )
+            if unapproved_commands:
+                errors.append(
+                    f"site: stable {stable_version} command block contains an unapproved literal command: "
+                    f"{unapproved_commands!r}"
+                )
             errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
 
-        if source_version != stable_version:
-            source_label = f"source-{source_version}"
-            source_text = "\n".join(release_blocks.get(source_label, []))
-            source_commands = {
+        # Do not require a copyable command block for an untagged source
+        # candidate. Only immutable, published prereleases may own one.
+        for prerelease_version, prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.items():
+            prerelease_label = f"source-{prerelease_version}"
+            prerelease_text = "\n".join(release_blocks.get(prerelease_label, []))
+            prerelease_commands = {
                 command
-                for block in release_block_texts.get(source_label, [])
+                for block in release_block_texts.get(prerelease_label, [])
                 for command in _executable_command_lines(block)
             }
-            if not source_text:
-                errors.append(f"site: no command block is labelled {source_label!r}")
-            for command in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
-                if command not in source_commands:
+            if not prerelease_text:
+                errors.append(
+                    f"site: no command block is labelled published prerelease {prerelease_label!r}"
+                )
+            required_prerelease_commands = (
+                prerelease_contract["package_command"],
+                *PUBLISHED_PRERELEASE_REQUIRED_COMMANDS,
+            )
+            for command in required_prerelease_commands:
+                if command not in prerelease_commands:
                     errors.append(
-                        f"site: source {source_version} command block is missing {command!r}"
+                        f"site: published prerelease {prerelease_version} command block is missing {command!r}"
                     )
-            for command in source_commands:
-                if _tokens_contain_package_install(_preferred_shell_tokens(command)):
+            for block in release_block_texts.get(prerelease_label, []):
+                literal_commands = tuple(
+                    line.strip() for line in block.splitlines() if line.strip()
+                )
+                if literal_commands != required_prerelease_commands:
                     errors.append(
-                        f"site: source {source_version} command blocks must not advertise an unpublished package install: {command!r}"
+                        f"site: published prerelease {prerelease_version} command block must contain only "
+                        f"the approved prerelease install and wizard commands: {literal_commands!r}"
                     )
-            for marker in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
-                if marker not in source_text:
-                    errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
+            for marker in PUBLISHED_PRERELEASE_REQUIRED_COMMANDS:
+                if marker not in prerelease_text:
+                    errors.append(
+                        f"site: published prerelease {prerelease_version} command blocks are missing {marker!r}"
+                    )
 
     policy_path = repo_root / "SECURITY.md"
     policy_exists = policy_path.exists()
@@ -2861,6 +3199,11 @@ def audit_site(repo_root: Path = REPO_ROOT, site_root: Path | None = None) -> li
             errors.append(f"{label}: duplicate ids: {sorted(document.duplicate_ids)}")
         if document.images_without_alt:
             errors.append(f"{label}: {document.images_without_alt} img element(s) lack alt")
+        for data_label in document.data_labels:
+            if data_label not in ALLOWED_CSS_DATA_LABELS:
+                errors.append(
+                    f"{label}: data-label renders through reviewed CSS and is not allowlisted: {data_label!r}"
+                )
         if document.inline_script_count:
             errors.append(f"{label}: inline scripts are forbidden; use the audited local enhancement")
         if document.meta_refresh:
@@ -2871,6 +3214,10 @@ def audit_site(repo_root: Path = REPO_ROOT, site_root: Path | None = None) -> li
         inline_css = "\n".join((*document.inline_styles, *document.style_parts))
         if _contains_css_resource_reference(inline_css):
             errors.append(f"{label}: inline CSS imports/resources are forbidden")
+        if _contains_css_comment_token(inline_css):
+            errors.append(f"{label}: CSS comments are forbidden in the audited static site")
+        if _contains_unapproved_css_generated_content(inline_css):
+            errors.append(f"{label}: CSS generated content is not allowlisted")
 
         for tag, attribute, value in document.references:
             parts = urlsplit(value)
@@ -2904,6 +3251,10 @@ def audit_site(repo_root: Path = REPO_ROOT, site_root: Path | None = None) -> li
     css = (site_root / "assets/site.css").read_text(encoding="utf-8")
     if _contains_css_resource_reference(css):
         errors.append("assets/site.css: resource imports or references are forbidden")
+    if _contains_css_comment_token(css):
+        errors.append("assets/site.css: CSS comments are forbidden in the audited static site")
+    if _contains_unapproved_css_generated_content(css):
+        errors.append("assets/site.css: CSS generated content is not allowlisted")
     if "prefers-reduced-motion: reduce" not in css:
         errors.append("assets/site.css: reduced-motion treatment is missing")
     if "forced-colors: active" not in css:

@@ -1,48 +1,59 @@
 # ai DeMemory
 
-Public source and package-distribution repository for ai DeMemory, a local
-multi-LLM memory tool for Codex, Claude, Gemini, Obsidian, and future clients.
-Private memory lives in separately bound vaults and is never repository state.
+ai DeMemory is a local-first, review-first memory tool for Codex, Claude,
+Gemini, Obsidian, and future clients. Install the Python CLI, create a
+separately bound private vault, and keep Markdown as the human-editable source
+of truth.
 
-Markdown is the canonical source of truth. SQLite FTS, exports, reports, and
-future vector indexes are generated from Markdown and can be rebuilt.
+This public repository distributes the tool, documentation, and public
+demo/validation fixtures. It is not a personal vault: private memories,
+credentials, and local receipts belong in a separately bound private location.
+SQLite FTS, exports, reports, and future vector indexes are generated from
+Markdown and can be rebuilt.
 
-## Status
+## Choose Your Path
+
+- **Install the tool and create a private vault:** follow [Quick Start](#quick-start).
+- **Connect an AI client or run a local dashboard/script:** use
+  [Use It Locally](#use-it-locally) after the wizard.
+- **Find a focused guide:** start at the [documentation portal](docs/README.md).
+- **Work on the source checkout, tests, or releases:** read
+  [Source Checkout And Contributor Workflows](#source-checkout-and-contributor-workflows).
+
+## Release Status
 
 - Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
-  only package line available from PyPI; confirm it with the exact pinned
-  install rather than falling back to an older package.
-- Source candidate 2.1.1rc1 is unreleased and not installable from a package
-  index until it is tagged and published. Its source behavior, tag, package,
-  and release availability are verified separately by the immutable release
-  workflow.
+  only package line available from PyPI; use the exact pinned install instead
+  of falling back to an older package.
+- TestPyPI prerelease 2.1.1rc1 is an evaluation release, tagged at
+  `a5140a81e4d153c8e7f41b0f2a88649030942c51`. It is not a PyPI stable release;
+  its source behavior, tag, package, and index installation were verified by
+  the immutable release workflow.
+- Source candidate 2.1.1rc2 is unreleased. It is untagged and not installable
+  from a package index until it has its own reviewed tag, TestPyPI publication,
+  and index readback; it must not be confused with the published 2.1.1rc1
+  evaluation artifact.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
-- Runtime boundary: Python 3.11+ remains authoritative; Node is not a headless
-  runtime dependency. See `docs/adr/0254-python-node-runtime-boundary.md`.
-- Transport: local MCP stdio plus optional local REST API.
-- License: Apache-2.0; use, modification and redistribution are permitted under
-  the terms in `LICENSE`.
-- Repository workflow: Codex owns routine implementation and release readiness;
-  independent read-only review precedes PR readiness, while merge, tag and
-  publication require explicit user approval.
-- Remote HTTP, OAuth, automatic durable writes, and vector search are out of
-  scope for this release.
+- Python 3.11+ is the only headless runtime. Node is not an installation or
+  background-process dependency; see
+  [the runtime boundary](docs/adr/0254-python-node-runtime-boundary.md).
+- Transport is local MCP stdio plus an optional local REST API. Remote HTTP,
+  OAuth, automatic durable writes, and vector search are out of scope for this
+  release.
 
-The active modernization and selective MemPalace adoption plan is documented in
-`docs/public-modernization-roadmap.md`. The progressive documentation source is
-in [`site/`](site/README.md), governed by the
-[documentation-site plan](docs/documentation-site-plan.md). Two isolated,
-security-guarded workflows validate the artifact and prepare manual GitHub Pages
-delivery. They have no push trigger: merging source cannot deploy, and Pages
-enablement plus an exact-main dispatch remain separate production operations.
+The [public modernization roadmap](docs/public-modernization-roadmap.md)
+describes product direction. Source-site delivery, planning, and release
+operations are contributor material, not installation steps.
 
 ## Quick Start
 
-### Published stable 2.1.0: legacy first run
+### Published stable 2.1.0: legacy compatibility route
 
-The currently published package uses its version-gated setup flow. Install the
-exact public package and create a separate private vault:
+The currently published package requires its version-gated wizard. The trailing
+`--require-version 2.1.0` is a required option for this legacy package, not a
+second command or a diagnostic ritual. Install the exact public package and
+create a separate private vault:
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -50,44 +61,55 @@ ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
 The wizard previews its plan, shows resource limits, and asks before it writes
-the vault's operational config. It never imports chats, creates personal memory,
+the vault operational config. It never imports chats, creates personal memory,
 installs hooks or schedules, or edits a client configuration.
 
-The complete, immutable stable instructions live in the
+The complete immutable stable instructions live in the
 [v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md).
-Its generated MCP configuration later persists the same compatibility pin; that
-historical behavior is the specific patch correction in this candidate.
+The compatibility gate is omitted from newly generated configuration in the
+next release line; it remains accepted so already-generated 2.1.0 client
+configuration does not strand an upgrade.
 
 `uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
-line. On Windows, use a private path such as `D:\Memory\my-vault` instead of the
-example path.
+line. On Windows, use a private path such as `D:\Memory\my-vault` instead of
+the example path.
 
-### Source candidate 2.1.1rc1: wizard-first behavior, not an install route
+### TestPyPI prerelease 2.1.1rc1: wizard-first evaluation
 
-The candidate removes the persistent compatibility pin from newly generated
-configuration and makes the first run a single wizard-first command:
+The TestPyPI prerelease removes the persistent compatibility pin from newly
+generated configuration. For an evaluation install in an isolated Python
+environment, use the exact package, then make the first run a single
+wizard-first command:
 
 ```bash
+# inside an isolated virtual environment
+python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
 ai-dememory init ~/code/my-memory --wizard
 ```
 
-This describes the reviewed source candidate only. Do not try to install
-`2.1.1rc1` from PyPI or TestPyPI yet: no candidate package is installable until
-it is tagged and published. Once that separate release evidence exists, the
-next stable guide will replace the legacy 2.1.0 path above.
+This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
+next stable guide will replace the legacy 2.1.0 path only after a separately
+prepared, reviewed, tagged, and published `2.1.1` release.
+
+### Current source candidate 2.1.1rc2: not an installation route
+
+The checked-out source adds the optional post-wizard local API suggestion and
+the documentation separation in this PR. It is deliberately not a third
+installation command: use stable 2.1.0 or the published TestPyPI 2.1.1rc1
+route above until 2.1.1rc2 has an immutable tag and package-index readback.
 
 ### Connect a client when you are ready
 
-Client configuration remains a separate, explicit action: it is the one step
-that must be inspected and copied into Codex, Claude, or another host.
+Client configuration is a separate, explicit action: inspect the generated
+fragment before copying it into Codex, Claude, or another host.
 
 ```bash
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-The generated fragment binds the vault, uses the reduced `core` profile, and
-sets an idle lease. You do not need to type those internal arguments during
-first-run setup.
+The generated fragment binds the vault, uses the reduced server-enforced
+`core` profile, and sets an idle lease. You do not need to type its internal
+runtime arguments during first-run setup.
 
 ### Update or diagnose an installation
 
@@ -101,221 +123,136 @@ pipx install --force ai-dememory==2.1.0
 ai-dememory --version
 ```
 
-If you want a reusable private GitHub vault template repo instead of creating a
-single local vault, export the packaged vault template:
+To create a reusable private GitHub vault template rather than one local vault:
 
 ```bash
 ai-dememory vault-template export ~/code/ai-dememory-vault-template
 ```
 
-Review the exported files, push them to a separate private repository, then mark
-that repository as a GitHub template. Keep the tool distribution repo separate
-from private memory vault repos.
+Review the exported files, then keep that vault repository private and separate
+from the public tool distribution repository.
 
-For the profiles, optional reviewed onboarding, hooks, providers, schedules,
-Docker, and machine-readable automation, see the focused
-[installation guide](docs/install.md). Those are not prerequisites for a first
-vault.
+## Use It Locally
 
-## Contributor workflows
+The wizard creates a private vault and its bounded local policy; it neither
+launches a local API nor changes host configuration. The MCP configuration
+above uses stdio, not a network port. Generated client configuration includes a
+bound vault, a reduced tool profile, and an idle lease; see [Local MCP](docs/local-mcp.md)
+and [MCP client configuration](docs/mcp-client-config.md) for the full setup.
 
-Run from the repository root. On Windows PowerShell, use `py -3` if `python3`
-is not available.
-
-```bash
-python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py validate
-python3 scripts/ai_dememory.py validate --json
-python3 scripts/ai_dememory.py secret-scan
-python3 scripts/ai_dememory.py index
-python3 scripts/ai_dememory.py search ai-dememory --limit 3
-python3 scripts/ai_dememory.py search ai-dememory --why
-python3 scripts/ai_dememory.py context ai-dememory --budget 2000
-python3 scripts/ai_dememory.py graph --json
-python3 scripts/ai_dememory.py setup plan --json
-python3 scripts/ai_dememory.py setup health --json
-python3 scripts/ai_dememory.py recall-fixtures packet --limit 50 --pending-offset 50 --invalid-offset 50 --write-report
-python3 scripts/ai_dememory.py providers detect
-python3 scripts/ai_dememory.py capture markdown --path ./notes.md
-python3 scripts/ai_dememory.py maintenance status
-python3 scripts/ai_dememory.py schedule plan --json
-python3 scripts/ai_dememory.py schedule setup --dry-run
-```
-
-`search --why` reports both numeric scoring components and matched evidence
-fields such as `matched_terms`, `matched_fields`, `matched_tags`, and
-`matched_aliases`. MCP `memory.search` returns the same explanation object.
-`context` reads optional `[context]` defaults from `.ai-dememory.toml`;
-explicit CLI flags and MCP arguments take precedence. Use `context --why` or
-MCP `memory.context` with `explain_results=true` to include ranking evidence in
-assembled Markdown context.
-For public-repository work, use an explicit query with `context --public-only
---no-working-memory` or MCP `memory.context` with `public_only=true` and
-`include_working_memory=false`. The ceiling filters non-public memories before
-the result limit is applied, ranks only revalidated canonical public Markdown,
-ignores generated lifecycle state, does not read generated working state, and
-rejects `public_only` combined with `auto`. `search --public-only`, MCP
-`memory.search(public_only=true)`, and MCP `memory.get(public_only=true)` expose
-the same public-sensitivity boundary for narrower recall.
-`setup plan --json` is read-only and includes `generated_reports` command
-arrays for optional recall review, recall review packet, manual acceptance,
-manual acceptance packet, hook capture review, and release evidence handoff
-artifacts. It also includes `generated_archive_status` command arrays for
-read-only recall and manual acceptance packet archive inspection, plus
-`generated_archive_retention` command arrays for previewing generated packet
-archive cleanup candidates without deleting files.
-`setup health --json` is read-only and combines validation status, context
-config status, manual acceptance readiness, recall review status, vector
-readiness, scheduler environment/status, provider readiness, maintenance
-preflight commands, generated artifact state and freshness, generated packet
-archive cleanup counts, lock state, and review queues into one local setup
-health summary.
-It reports separate `core_ready`, `retrieval_evaluated`,
-`manual_maintenance_ready`, `automation_ready`, `maintenance_ready`,
-`integrations_ready`, `autonomy_ready`, and `release_ready` dimensions.
-Automation is not ready until a namespaced scheduler receipt has been checked
-against the host after installation.
-The legacy `ready` field is deprecated and is only an alias for
-`core_ready`; it must not be interpreted as overall setup or release health.
-`schedule plan --json` is read-only and returns host scheduler commands,
-reviewed cron export entries, Docker command shapes when requested, and
-side-effect flags before any `schedule setup` command writes config or touches
-host scheduler state. Invalid resource overrides return
-`resource_policy_valid=false` with diagnostics and suppress every install/apply
-surface.
-`maintenance status` reports generated artifact state and freshness, generated
-packet archive cleanup counts, provider readiness, false-positive review due
-counts, stale suppression counts, conflict review counts, and hook capture
-review counts without reading provider chat files, deleting archives, or
-writing canonical memory.
-
-Optional editable install from a local checkout:
+For a local script or dashboard that needs HTTP rather than MCP stdio, run the
+optional REST API from the installed command:
 
 ```bash
-python3 -m pip install -e .
-ai-dememory doctor
-ai-dememory search ai-dememory --limit 3
+ai-dememory --root ~/code/my-memory api
 ```
 
-Use WSL paths for active Linux/web tooling checkouts when possible, but the
-repository tools are dependency-light and also run from native PowerShell.
+It runs in the foreground, binds only to `127.0.0.1:8765` by default, and stops
+with Ctrl-C. It is not started automatically. The [local API guide](docs/local-api.md)
+covers endpoint details, indexing, and the stricter API-key/TLS requirements
+for any deliberate non-loopback binding.
 
-Package installation is passive. Scheduled maintenance, provider imports, and
-Codex or Claude hook capture are explicit opt-in steps.
+## Documentation By Task
+
+The [documentation portal](docs/README.md) separates first use, local MCP/API
+operation, maintenance, architecture, and source/release material. Start there
+instead of treating every repository command as an installation requirement.
+
+## Source Checkout And Contributor Workflows
+
+This section is for people working on a trusted source checkout, tests, or
+release evidence. It is not part of a normal `pipx` installation or wizard
+first run. The installed `ai-dememory` command is the normal private-vault
+interface; compatibility wrappers and direct script modules belong only to
+source debugging and CI.
+
+- [Documentation portal](docs/README.md): choose the relevant user, operations,
+  architecture, or contributor guide.
+- [Maintainer script reference](scripts/README.md): checkout-only test, CI, and
+  compatibility-wrapper guidance.
+- [Draft PR handoff](docs/pr-draft.md): required evidence and exact-head PR
+  workflow.
+- [v2 release checklist](docs/release-v2-checklist.md): release and package
+  evidence gates.
+- [Development continuity](DEVELOPMENT.md) and
+  [current development status](docs/development-status.md): public frontier,
+  branch, and approval boundary.
+
+On Windows PowerShell, contributor instructions use `py -3` where their
+equivalent says `python3`. Do not copy source-checkout test or release commands
+into a personal vault workflow.
 
 ## Architecture
 
 - Markdown and Obsidian are the human-editable source of truth.
-- Private GitHub syncs and versions canonical memory.
-- SQLite FTS5 is the local retrieval and ranking layer.
-- MCP exposes recall and write proposals to LLM tools.
-- A local REST API exposes health, search, graph, reindex, and proposal
-  endpoints for scripts and local dashboards that cannot launch MCP stdio.
-- Graph generation uses `indexes/memory.sqlite` when available and falls back
-  to Markdown parsing when the index is missing.
-- Vector search is optional later, only if measured recall failures justify it.
+- A separately chosen private Git repository can sync and version canonical
+  memory; the public tool repository does not contain that memory.
+- SQLite FTS5 is the local retrieval and ranking layer; graph, reports, and
+  future vector indexes are generated and disposable.
+- MCP exposes local recall and review-first proposal tools. The optional REST
+  API serves local dashboards and scripts that cannot launch MCP stdio.
+- Vector search remains optional and requires measured recall evidence before
+  it can add a dependency or privacy surface.
 
-See [docs/architecture.md](docs/architecture.md), [docs/schema.md](docs/schema.md),
-[docs/operations.md](docs/operations.md), [docs/mcp-v2.md](docs/mcp-v2.md), and
-[docs/mcp-v2-gap-analysis.md](docs/mcp-v2-gap-analysis.md).
-
-Distribution and user vault setup:
-
-- Install guide: [docs/install.md](docs/install.md)
-- Local MCP server setup: [docs/local-mcp.md](docs/local-mcp.md)
-- Local REST API: [docs/local-api.md](docs/local-api.md)
-- Memory graph: [docs/memory-graph.md](docs/memory-graph.md)
-- Memory quality: [docs/memory-quality.md](docs/memory-quality.md)
-- Source-grounded query and consolidation design:
-  [docs/source-grounded-query-design.md](docs/source-grounded-query-design.md)
-- Normative V3 roadmap:
-  [docs/v3-hybrid-visual-multiplatform-roadmap.md](docs/v3-hybrid-visual-multiplatform-roadmap.md)
-- Machine-readable V3 frontier: [contracts/planning/](contracts/planning/)
-- Historical R0-R7 research appendix, not an executable backlog: [PLAN.md](PLAN.md)
-- Shared memory governance roadmap:
-  [docs/shared-memory-governance-roadmap.md](docs/shared-memory-governance-roadmap.md)
-- Import and capture: [docs/import-capture.md](docs/import-capture.md)
-- Git lesson capture: [docs/git-lessons.md](docs/git-lessons.md)
-- Future vector migration: [docs/vector-migration.md](docs/vector-migration.md)
-- Operational loop: [docs/operational-loop.md](docs/operational-loop.md)
-- Review workflows: [docs/review-workflows.md](docs/review-workflows.md)
-- Sleep consolidation: [docs/sleep-consolidation.md](docs/sleep-consolidation.md)
-- Scheduler and maintenance: [docs/scheduler.md](docs/scheduler.md)
-- Scheduler/plugin blueprint: [docs/scheduler-plugin-blueprint.md](docs/scheduler-plugin-blueprint.md)
-- Local hook integrations: [docs/hooks.md](docs/hooks.md)
-- Codex plugin: [docs/codex-plugin.md](docs/codex-plugin.md)
-- Distribution plan: [docs/distribution.md](docs/distribution.md)
-- Create a memory repo: [docs/create-memory-repo.md](docs/create-memory-repo.md)
-- GitHub vault template source: [vault-template/](vault-template/)
+See [architecture](docs/architecture.md), [schema](docs/schema.md),
+[operations](docs/operations.md), and [source-grounded query design](docs/source-grounded-query-design.md).
 
 ## Safety Model
 
 - Never store secrets, tokens, private keys, service-account JSON, cookies,
-  recovery codes, or `.env` contents.
-- Durable memories require human review before modification.
-- LLMs may write proposals to `inbox/llm-captures/`, not directly to durable
-  memory.
-- Generated indexes live under `indexes/` and can be rebuilt.
+  recovery codes, or `.env` contents in a vault or this repository.
+- Durable memory changes require human review. LLMs may create proposals in
+  `inbox/llm-captures/`, not direct durable writes.
+- Generated indexes, context exports, and reports can be rebuilt from canonical
+  Markdown; they are not durable memory by themselves.
 - Secret scanning and schema validation run before indexing.
-- `sensitivity: secret-prohibited` is reserved for quarantined material and is
-  rejected from canonical memory.
-- `private` and `sensitive` memories are excluded from default search/MCP
-  results and generated LLM context unless explicitly included by a local user.
-- `internal` memory remains valid for a private vault but is not public-safe.
-  Public-repository work must opt into the fail-closed `public_only` ceiling;
-  default exclusion of only private/sensitive data is not an egress policy.
+- `private` and `sensitive` memories are excluded from default search, MCP
+  results, and generated context unless a local user explicitly includes them.
+- `internal` memory can be valid in a private vault but is not public-safe.
+  Public-repository work must request the fail-closed `public_only` ceiling.
 
-## Repository Layout
+## Public Source Repository Layout
 
-- `memories/durable/`: reviewed durable values, preferences, policies, and facts.
-- `memories/active/`: short-lived current working context.
-- `memories/projects/`: project-specific memories and decisions.
-- `memories/tools/`: tool-specific setup and behavior notes.
-- `inbox/`: LLM proposals and raw captures awaiting human review.
-- `inbox/imports/`: provider chat/session import candidates.
-- `inbox/git-lessons/`: git history lesson candidates.
-- `inbox/session-events/`: optional Codex/Claude hook metadata candidates.
-- `inbox/conflict-resolution/`: reviewed conflict merge proposals.
-- `inbox/review-recommendations/`: advisory LLM/client review recommendation
-  artifacts that still require human action.
-- `inbox/sleep-consolidation/`: generated sleep review packets.
-- `working/`: generated current task state and handoffs.
-- `indexes/`: generated SQLite and future vector indexes.
-- `distilled/`: generated session context exports.
-- `reports/`: generated review, scan, and consolidation reports.
-- `mcp/`: MCP server skeleton and integration notes.
-- `scripts/`: validation, scanning, indexing, search, export, and review tools.
-- `templates/`: Obsidian-friendly memory templates.
+This describes the public checkout and its demo/validation fixtures. A real
+vault is separately bound and must not be added to this repository.
+
+- `memories/` and `inbox/`: public fixtures and review candidates, never a
+  personal memory archive.
+- `working/`, `indexes/`, `distilled/`, and `reports/`: generated state,
+  indexes, exports, and review output.
+- `mcp/`: MCP server implementation and integration notes.
+- `scripts/`: maintainer validation, retrieval, integration, and release tools.
+- `templates/` and `vault-template/`: starter content for a private vault.
+- `contracts/planning/`: normative V3 task order and state; historical research
+  in `PLAN.md` is explanatory, not an executable backlog.
 
 ## MCP v2 Operation
 
-- Client config examples: [docs/mcp-client-config.md](docs/mcp-client-config.md)
-- Protocol gap analysis: [docs/mcp-v2-gap-analysis.md](docs/mcp-v2-gap-analysis.md)
-- v2 release checklist: [docs/release-v2-checklist.md](docs/release-v2-checklist.md)
-- PR-gated MCP runtime smoke: `python3 scripts/ai_dememory.py mcp-smoke`
-- PR handoff: [docs/pr-draft.md](docs/pr-draft.md)
-- Roadmap status: [docs/roadmap-status.md](docs/roadmap-status.md)
-- Normative V3 roadmap:
-  [docs/v3-hybrid-visual-multiplatform-roadmap.md](docs/v3-hybrid-visual-multiplatform-roadmap.md)
-- Machine-readable V3 frontier: [contracts/planning/](contracts/planning/)
-- Historical planning research, non-normative: [PLAN.md](PLAN.md)
-- Shared-memory governance roadmap:
-  [docs/shared-memory-governance-roadmap.md](docs/shared-memory-governance-roadmap.md)
+For normal local use, generate a bound client configuration through the command
+in Quick Start. The default `core` profile exposes four server-enforced tools;
+the checked-in public plugin is stricter and uses a three-tool `public` profile
+with `public_only=true`, no sensitive content, and no working-memory injection.
+`working` and `review` are opt-in, while `admin` preserves the complete
+historical MCP surface for compatibility and broad maintenance.
+
+MCP resources do not expose `private`, `sensitive`, or `secret-prohibited`
+memory by default. Tools that could include sensitive content require an
+explicit opt-in, and proposal/review actions remain confined to review-first
+locations. The server is stdio-only; do not expose it as a network service
+without a separate authentication and authorization design.
+
+The following machine-checked inventory is collapsed so it does not obscure
+the normal installation path. The complete protocol explanation and profile
+measurements are in [MCP V2](docs/mcp-v2.md),
+[MCP tool profiles](docs/mcp-tool-profiles.md), and
+[the protocol gap analysis](docs/mcp-v2-gap-analysis.md).
+
+<details>
+<summary>Maintainer inventory: 74 MCP tools</summary>
 
 Implemented MCP surface: 74 MCP tools.
 
-Generated Codex, Claude, and generic private-vault configs expose only the
-four-tool server-enforced `core` profile by default. The checked-in public
-plugin is stricter: its three-tool `public` profile exposes only search, get,
-and context and forces `public_only=true`, `include_sensitive=false`, and no
-working-memory injection in the server. Additive `working` and `review`
-profiles are opt-in; `admin` preserves the complete historical server surface
-for backwards compatibility and broad maintenance, so it is not the normal
-default. Generated configs require an explicitly bound vault. See
-[MCP tool profiles](docs/mcp-tool-profiles.md), including reproducible schema
-byte and estimated-token measurements.
-
-- Tools: `memory.search`, `memory.get`, `memory.write_proposal`,
+- `memory.search`, `memory.get`, `memory.write_proposal`,
   `memory.mark_seen`, `memory.reindex`, `memory.consolidate`,
   `memory.secret_scan`, `memory.graph`, `memory.doctor`,
   `memory.validate_status`, `memory.capture_miss`,
@@ -326,474 +263,66 @@ byte and estimated-token measurements.
   `memory.recall_review_packet_archive_retention_plan`,
   `memory.recall_miss_review`,
   `memory.vector_status`, `memory.roadmap_status`, `memory.context`,
-  `memory.outcome`, `memory.lifecycle_scores`, `memory.maintenance_status`, `memory.import_chats`,
-  `memory.capture_import`, `memory.git_lessons`, `memory.maintenance_run`, `memory.schedule_plan`,
-  `memory.schedule_status`, `memory.schedule_environment`, `memory.hook_events`,
-  `memory.hook_config`, `memory.hook_status`, `memory.hook_capture_review`, `memory.sleep_plan`,
-  `memory.sleep_apply_reviewed`, and
-  `memory.working_current`, `memory.working_status`,
-  `memory.working_snapshot`, `memory.working_handoff`,
-  `memory.providers_detect`, `memory.providers_status`,
-  `memory.providers_plan`, `memory.setup_plan`, `memory.setup_health`,
-  `memory.review_false_positives`,
-  `memory.review_stale_false_positives`,
-  `memory.false_positive_ignore`, `memory.false_positive_unignore`,
-  `memory.review_conflicts`,
+  `memory.outcome`, `memory.lifecycle_scores`, `memory.maintenance_status`,
+  `memory.import_chats`, `memory.capture_import`, `memory.git_lessons`,
+  `memory.maintenance_run`, `memory.schedule_plan`,
+  `memory.schedule_status`, `memory.schedule_environment`,
+  `memory.hook_events`, `memory.hook_config`, `memory.hook_status`,
+  `memory.hook_capture_review`, `memory.sleep_plan`,
+  `memory.sleep_apply_reviewed`, `memory.working_current`,
+  `memory.working_status`, `memory.working_snapshot`,
+  `memory.working_handoff`, `memory.providers_detect`,
+  `memory.providers_status`, `memory.providers_plan`, `memory.setup_plan`,
+  `memory.setup_health`, `memory.review_false_positives`,
+  `memory.review_stale_false_positives`, `memory.false_positive_ignore`,
+  `memory.false_positive_unignore`, `memory.review_conflicts`,
   `memory.conflict_dismiss`, `memory.conflict_keep`,
-  `memory.conflict_merge_proposal`,
-  `memory.review_modes`, `memory.review_configure_mode`,
-  `memory.review_plan`, `memory.review_recommendation`,
-  `memory.review_recommendations`,
+  `memory.conflict_merge_proposal`, `memory.review_modes`,
+  `memory.review_configure_mode`, `memory.review_plan`,
+  `memory.review_recommendation`, `memory.review_recommendations`,
   `memory.review_recommendation_archive_status`,
   `memory.review_recommendation_archive_restore_preview`,
   `memory.review_recommendation_outcome_report`,
-  `memory.review_recommendation_outcome`,
-  `memory.provenance_status`,
+  `memory.review_recommendation_outcome`, `memory.provenance_status`,
   `memory.acceptance_status`, `memory.acceptance_verify`,
   `memory.acceptance_plan`, `memory.acceptance_template`,
   `memory.acceptance_packet`,
   `memory.acceptance_packet_archive_status`,
   `memory.acceptance_packet_archive_retention_plan`,
-  `memory.release_evidence`,
-  `memory.release_evidence_report`, and
+  `memory.release_evidence`, `memory.release_evidence_report`, and
   `memory.publish_plan`.
-- Resources: `memory://id/{id}` and `memory://path/{path}` for public/internal
-  canonical memories.
-- Prompts: `memory_recall_context`, `memory_capture_proposal`,
-  `memory_review_inbox`.
-- Utilities: `initialize`, `notifications/initialized`, and `ping`.
 
-The checked-in Codex plugin enables the server-forced three-tool `public`
-profile. Generated private-vault configs default to `core`; opt into `working`
-or `review` only for those workflows, and use the CLI or explicit `admin`
-profile when broad local execution tools are intended.
+</details>
 
-Safety defaults:
+## Working In A Private Vault
 
-- MCP resources never expose `private`, `sensitive`, or `secret-prohibited`
-  memories by default.
-- Tools that can include sensitive content require an explicit
-  `include_sensitive` argument.
-- `memory.write_proposal` writes only to `inbox/llm-captures/` and scans the
-  rendered Markdown before writing.
-- Working-memory tools write only generated operational state under `working/`;
-  they do not promote durable memories.
-- `memory.secret_scan` only accepts repository-relative paths through MCP.
-- Review write tools only update `.ai-dememory-ignore.toml` or
-  `inbox/conflict-resolution/`; false-positive suppressions report derived
-  `review_due` and `review_after_status` fields from their `review_after`
-  dates.
-- Recall miss review writes only update reviewed frontmatter on files under
-  `inbox/recall-feedback/`; fixture promotion remains a separate CLI review
-  action.
-- `memory.mark_seen` and `memory.outcome` return structured lifecycle receipts;
-  outcome receipts report counters and metadata without echoing feedback notes.
-- Docker is supported only for local stdio MCP usage with a bind-mounted vault;
-  no ports or remote service are exposed.
+After creating a separate private vault:
 
-## Local REST API
-
-Run a loopback-only API for local scripts and dashboards:
-
-```bash
-python3 scripts/ai_dememory.py api --host 127.0.0.1 --port 8765
-```
-
-Endpoints include `/health`, `/search`, `/memories/{id}`, `/graph`,
-`/proposals`, and `/reindex`. Graph responses are paginated. Non-loopback
-binds require both `AI_DEMEMORY_API_KEY` and TLS certificate/key arguments;
-there is no unauthenticated override. See [docs/local-api.md](docs/local-api.md).
-
-## Workflow
-
-1. Capture new information as Markdown in `inbox/` or the appropriate
+1. Capture new information as Markdown in `inbox/` or an appropriate
    `memories/` folder.
-2. Run validation and secret scanning.
-3. Rebuild the SQLite index.
-4. Search or export context for LLM sessions.
-5. Promote inbox proposals to durable/project/active memories only after review.
+2. Validate and secret-scan it before indexing.
+3. Rebuild the disposable SQLite index when you want it searchable.
+4. Search or assemble bounded context for an LLM session.
+5. Promote proposals into durable, project, or active memory only after review.
 
-## Validation And Release Gates
+For imports, hooks, schedulers, maintenance, review packets, and recovery,
+follow the focused guides in the [documentation portal](docs/README.md). Those
+actions are opt-in and are not performed by installation or the wizard.
 
-Run from the repository root:
+## Source Validation And Release Gates
 
-```bash
-python3 scripts/ai_dememory.py doctor
-python3 scripts/ai_dememory.py verify-mcp
-python3 scripts/ai_dememory.py ci-guard
-python3 scripts/ai_dememory.py artifact-guard
-python3 scripts/ai_dememory.py vault-setup-guard
-python3 scripts/ai_dememory.py pr-template-guard
-python3 scripts/ai_dememory.py pr-draft-guard
-python3 scripts/ai_dememory.py acceptance-guard
-python3 scripts/ai_dememory.py adr-guard
-python3 scripts/ai_dememory.py release-checklist-guard
-python3 scripts/ai_dememory.py release-check
-python3 scripts/ai_dememory.py roadmap status --json
-python3 scripts/ai_dememory.py api-smoke
-python3 scripts/ai_dememory.py validate
-python3 scripts/ai_dememory.py validate --json
-python3 scripts/ai_dememory.py secret-scan
-python3 scripts/ai_dememory.py eval-recall
-python3 scripts/ai_dememory.py recall-fixtures status --json
-python3 scripts/ai_dememory.py recall-fixtures review-plan --json
-python3 scripts/ai_dememory.py recall-fixtures review-plan --write-report
-python3 scripts/ai_dememory.py recall-fixtures packet --write-report
-python3 scripts/ai_dememory.py recall-fixtures promote-miss --help
-python3 scripts/ai_dememory.py recall-fixtures review-miss --help
-python3 -m unittest discover -s tests -t .
-python3 -m compileall -q scripts mcp/server ai_dememory_tool
-```
+Source validation, CI, draft PR evidence, package smoke, release identity, and
+manual acceptance are maintained outside this product entry page. Use the
+[maintainer script reference](scripts/README.md), [draft PR handoff](docs/pr-draft.md),
+and [v2 release checklist](docs/release-v2-checklist.md) for the exact command
+sets and evidence order.
 
-CI runs `artifact-guard` before release gates and runs
-`package-build-smoke --check-clean` after install, package-build, and Docker
-smoke commands so stale package build metadata cannot be left behind by
-validation.
+CI validates the source, schema, secret policy, MCP contract, package smoke,
+and generated-artifact boundary. Generated SQLite databases, context exports,
+and reports are never canonical memory and are not staged unless a change
+explicitly reviews them.
 
-After a draft PR exists, run the runtime MCP smoke with the PR URL set:
-
-```bash
-AI_DEMEMORY_PR_URL="https://github.com/GonzaloTorreras/ai-dememory/pull/<number>" python3 scripts/ai_dememory.py release-check --strict
-AI_DEMEMORY_PR_URL="https://github.com/GonzaloTorreras/ai-dememory/pull/<number>" python3 scripts/ai_dememory.py mcp-smoke
-```
-
-PowerShell equivalent:
-
-```powershell
-$env:AI_DEMEMORY_PR_URL = "https://github.com/GonzaloTorreras/ai-dememory/pull/<number>"
-py -3 scripts\ai_dememory.py release-check --strict
-py -3 scripts\ai_dememory.py mcp-smoke
-```
-
-Generated artifact smoke commands:
-
-```bash
-python3 scripts/ai_dememory.py index
-python3 scripts/ai_dememory.py search codex
-python3 scripts/ai_dememory.py graph
-python3 scripts/ai_dememory.py maintenance run --profile daily --dry-run --json
-python3 scripts/ai_dememory.py maintenance run --profile daily
-python3 scripts/ai_dememory.py maintenance run --profile weekly --dry-run --json
-python3 scripts/ai_dememory.py maintenance run --profile weekly
-python3 scripts/ai_dememory.py lifecycle scores --json
-python3 scripts/ai_dememory.py lifecycle report
-python3 scripts/ai_dememory.py sleep plan
-python3 scripts/ai_dememory.py sleep --dry-run --json
-python3 scripts/ai_dememory.py sleep --propose --id sleep_... --json
-python3 scripts/ai_dememory.py sleep --apply-reviewed --id sleep_... --json
-python3 scripts/ai_dememory.py sleep apply-reviewed --all
-python3 scripts/ai_dememory.py working status --json
-python3 scripts/ai_dememory.py hooks config --client codex
-python3 scripts/ai_dememory.py hooks config --client claude
-python3 scripts/ai_dememory.py hooks captures --json
-python3 scripts/ai_dememory.py hooks captures --provider codex --review-status pending --json
-python3 scripts/ai_dememory.py hooks captures --created-from 2026-06-01 --created-to 2026-06-30 --json
-python3 scripts/ai_dememory.py hooks captures --write-report
-python3 scripts/ai_dememory.py hooks review --help
-python3 scripts/ai_dememory.py hooks archive --json
-python3 scripts/ai_dememory.py hooks install --client all --dry-run
-python3 scripts/ai_dememory.py providers configure codex --path "$HOME/.codex" --dry-run --json
-python3 scripts/ai_dememory.py schedule plan --json
-IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
-python3 scripts/ai_dememory.py schedule plan --json --mode docker --image "$IMAGE_ID"
-python3 scripts/ai_dememory.py schedule setup --dry-run --mode docker --image "$IMAGE_ID"
-python3 scripts/ai_dememory.py schedule cron --json
-python3 scripts/ai_dememory.py schedule doctor --json
-python3 scripts/ai_dememory.py export-context
-python3 scripts/ai_dememory.py consolidate --dry-run
-python3 scripts/ai_dememory.py review false-positives
-python3 scripts/ai_dememory.py review false-positives --due-only
-python3 scripts/ai_dememory.py review stale-false-positives
-python3 scripts/ai_dememory.py review conflicts
-python3 scripts/ai_dememory.py review modes
-python3 scripts/ai_dememory.py review plan --kind conflict
-python3 scripts/ai_dememory.py review recommendation --kind conflict --target-id conf_example --recommendation collect_evidence --rationale "Needs human review." --recommended-by "Local LLM" --json
-python3 scripts/ai_dememory.py review recommendations --json
-python3 scripts/ai_dememory.py review recommendation-outcome --id rec_example --status accepted --reviewer "You" --reason "Reviewed." --json
-python3 scripts/ai_dememory.py review recommendation-outcomes --json
-python3 scripts/ai_dememory.py review recommendation-outcomes --limit 50 --offset 50 --invalid-offset 50 --json
-python3 scripts/ai_dememory.py conflict resolve --id conf_example --keep mem_example --recommendation-id rec_example --reviewer "You"
-python3 scripts/ai_dememory.py review recommendations-archive-status --limit 50 --offset 50 --invalid-offset 50 --json
-python3 scripts/ai_dememory.py capture text --stdin --title "Session lesson"
-python3 scripts/ai_dememory.py learn --git --days 7 --repo .
-python3 scripts/ai_dememory.py learn --git --days 7 --repo . --write
-python3 scripts/ai_dememory.py vector status
-python3 scripts/ai_dememory.py recall-fixtures status --strict --max-age-days 14
-python3 scripts/ai_dememory.py recall-fixtures review-plan
-python3 scripts/ai_dememory.py recall-fixtures review-plan --write-report
-python3 scripts/ai_dememory.py recall-fixtures packet --write-report
-python3 scripts/ai_dememory.py recall-fixtures promote-miss --help
-python3 scripts/ai_dememory.py recall-fixtures review-miss --help
-python3 scripts/ai_dememory.py acceptance status
-python3 scripts/ai_dememory.py acceptance plan
-python3 scripts/ai_dememory.py acceptance plan --write-report
-python3 scripts/ai_dememory.py acceptance packet --write-report
-python3 scripts/ai_dememory.py acceptance packet --limit 50 --offset 50 --write-report
-```
-
-`review modes` and `review plan` include normalized `[false_positives]` and
-`[conflicts]` policy values from `.ai-dememory.toml`, including
-`triage_policy`, `resolution_policy`, scan toggles, and LLM auto-deny
-categories. These settings are exposed as review guidance; durable and
-canonical memory writes remain explicitly review-gated.
-Setting `[false_positives].enabled = false` or `[conflicts].enabled = false`
-makes the corresponding review reports and MCP listing tools return no
-candidates, and blocks review-state write commands for that workflow.
-JSON and MCP review listing responses include `enabled` and `policy` metadata
-for the relevant workflow. Generated Markdown review reports include the same
-compact `Review Policy` section, so archived false-positive, stale-suppression,
-and conflict reports show whether a workflow was disabled or simply empty.
-When `[conflicts].scan_on_validate = true`, `validate` also reports a
-non-blocking conflict review scan summary after frontmatter validation succeeds.
-When `[conflicts].scan_on_consolidate = true`, `consolidate --dry-run` includes
-the same non-blocking conflict review evidence in its generated report.
-
-False-positive suppressions use `[false_positives].review_after_days` from
-`.ai-dememory.toml` when `--review-after-days` is omitted. New vaults default
-to 90 days, and explicit CLI/MCP arguments still override that policy per
-reviewed finding. Review state defaults to `.ai-dememory-ignore.toml`, or to
-`[false_positives].ignore_file` when configured inside the vault.
-Conflict reports and merge proposals use `[conflicts].report_path` and
-`[conflicts].proposal_path` when no explicit report path is supplied; both paths
-are constrained to the vault.
-
-Product acceptance stays separate from automated package gates. This repository
-is operationally maintained by Codex: it prepares release PRs, versions,
-changelog entries and exact-artifact evidence. A release PR is not merged and
-no tag or package is published until the user explicitly authorizes those
-important actions. The manual tagger and publisher are separate exact-tuple
-dispatches. After both are authorized, the canonical publisher builds once,
-smokes the exact wheel and sdist, attests them, publishes through OIDC and
-verifies the installed index package.
-See `docs/ai-operated-releases.md`.
-
-Manual acceptance remains useful for product and vault behavior, but it does
-not substitute for release authorization and is not consumed by the package
-workflow. Missing evidence is surfaced in the owner handoff for an explicit
-decision. After a reviewer uses a real MCP client, inspects an Obsidian vault,
-reviews a provider import, or verifies another checklist item, record that
-separate product evidence with:
-
-```bash
-ai-dememory acceptance record \
-  --item mcp-client-installed \
-  --reviewed-by "Reviewer Name" \
-  --summary "Generated config was used with a real MCP client."
-ai-dememory acceptance verify
-ai-dememory release-evidence --write-report
-ai-dememory release-evidence --strict
-python scripts/ai_release_guard.py --version-only --json
-```
-
-The release-identity command succeeds only after an authorized release-prep
-change replaces the current version's `Unreleased` changelog heading with its
-actual release date.
-
-`publish-plan` is read-only. Its compatibility `workflow_url` resolves the
-legacy hosted readiness preflight, never a publisher. That workflow requires
-`confirm=preflight`, a PR URL, read-only repository permission, and cannot
-request OIDC, target a package environment, upload artifacts, or publish.
-The plan retains the fields `release_ready` and `publish_ready` for API
-compatibility: TestPyPI local readiness may defer only the
-`testpypi-publish` acceptance item, while the local PyPI planner requires full
-release evidence. The canonical workflow cannot read private-vault receipts
-and does not enforce either field. Actual publication belongs exclusively to
-the manually dispatched `.github/workflows/release.yml` path for an exact
-immutable tag/commit tuple. Tag creation and publication are separate explicit
-owner authorizations after any remaining evidence gaps are disclosed; pushing
-a tag alone does not invoke the current publisher.
-`testpypi-publish` requires acceptance revision 3. Earlier or unversioned
-passing records from the former manual publisher or retired tag-push topology
-remain auditable but do not complete the current local acceptance/readiness
-signal.
-
-Use `ai-dememory release-evidence --write-report --report-path
-reports/v2-release-evidence.md` when a handoff needs an explicit generated
-report target. The path must stay inside the memory root and the rendered
-Markdown is secret-scanned before writing.
-Add `--reviewer "Reviewer Name"` or set `AI_DEMEMORY_REVIEWER` when release
-evidence should pre-fill reviewer identity in embedded manual acceptance plans,
-templates, packets, and strict handoff commands. Add `--pr-url https://github.com/...`
-or set `AI_DEMEMORY_PR_URL` to carry the pull request URL into the same
-read-only handoff guidance. These fields do not record acceptance evidence.
-
-Use `ai-dememory acceptance plan` to see remaining or blocked manual checks and
-the reviewed-evidence commands to run after each check. Each plan item also
-includes `suggested_artifacts`, such as a client log, reviewed inbox path,
-maintenance report, or TestPyPI workflow URL, so reviewers know what proof to
-attach before recording acceptance.
-Use `ai-dememory acceptance plan --write-report` to write the same read-only
-plan to `reports/manual-acceptance-plan.md` for handoffs. That generated report
-does not record evidence or count as acceptance; reviewers still need to run
-`ai-dememory acceptance record` with real proof.
-Use `ai-dememory acceptance packet --write-report` to write
-`reports/manual-acceptance-packet.md`, a reviewer-facing packet with fill-in
-sections, suggested artifacts, and pass/block record commands for every
-incomplete manual acceptance item. Use `--limit` and `--offset` to page large
-incomplete-item sections. Add `--reviewer "Reviewer Name"` and `--pr-url
-https://github.com/...` when a PR handoff should pre-fill reviewer and pull
-request context in the packet header. Add `--archive` when a review needs a
-timestamped copy under `reports/manual-acceptance-packets/`. It is still not
-evidence. Use `ai-dememory acceptance packet-archive-status --json` to list
-those generated packet snapshots with pagination metadata; the status command
-does not write files or record acceptance evidence. Use
-`ai-dememory acceptance packet-archive-retention-plan --json` to preview
-cleanup candidates after keeping the newest 30 generated packet snapshots by
-default; the retention plan does not delete files.
-Use `ai-dememory acceptance template --item <item-id>` when a reviewer needs a
-single-item evidence template without recording proof. The template is
-read-only guidance until `ai-dememory acceptance record` is run with reviewed
-details.
-Both `acceptance plan` and `acceptance template` accept
-`--reviewer "Reviewer Name"` and `--pr-url https://github.com/...` to pre-fill
-generated record commands with a reviewer and PR artifact while still leaving
-the item-specific summary for human review.
-`ai-dememory release-evidence --json` and the Markdown report also embed this
-manual acceptance plan so final handoffs include example record commands,
-suggested artifacts, and not only the remaining item descriptions.
-They also include `release_blockers`, a structured summary of dirty worktree,
-automated warning/failure, recall quality, and manual acceptance blockers that
-currently keep `release_ready` false. Recall freshness remains visible through
-`recall_fixture_freshness` and `recall_fixture_review_plan`; stale seed-only
-fixtures become a `recall_fixture_review` blocker only when there are pending
-or invalid recall miss files, recall eval is unavailable, or the current eval
-has failures. A clean current eval with no miss files stays visible as review
-evidence but does not force a synthetic miss before package release.
-Release evidence also includes `vector_readiness`, the same measured recall gate
-used by `ai-dememory vector status`, with `creates_embeddings=false`. If recall
-fixtures make a vector experiment eligible, `release_blockers` adds
-`vector_readiness_review` so the release handoff requires review before any
-embedding dependency or privacy model is approved.
-The same output includes a top-level `next_actions` list plus compact
-`setup_health_summary` and `maintenance_summary` objects so final handoffs show
-the ordered work remaining alongside validation, context
-defaults, scheduler readiness, hook capture review due counts, provider import
-readiness, recall review, vector readiness, generated artifact state and
-freshness, review queue counts, generated packet archive cleanup counts, and
-setup next actions without recording evidence, installing hooks, deleting
-archives, refreshing generated artifacts, or running maintenance commands.
-It also includes `handoff_commands`: copyable command arrays for writing release
-evidence, generating manual acceptance and recall review packets, running
-strict release evidence, verifying manual acceptance, checking recall freshness,
-evaluating TestPyPI/PyPI readiness, and running the publish guard. These
-commands are guidance; reviewers still need real evidence before recording
-acceptance or publishing.
-The handoff payload separates `payload_*` side-effect flags from
-`command_side_effects`; constructing release evidence remains read-only, while
-commands such as `--write-report` are explicitly marked as writing generated
-files and publish-plan commands are marked as running local read-only
-inspection if reviewers choose to run them.
-When reviewer and PR URL metadata are provided to `release-evidence`, the
-embedded `acceptance_plan` and `acceptance_template` handoff commands include
-that metadata so reviewers can copy the generated commands without replacing
-placeholders first.
-Weekly maintenance writes `reports/sleep-plan.md` as generated compaction
-review evidence; it does not write sleep review packets or mutate canonical
-memory.
-Use `ai-dememory recall-fixtures check-miss --query "<query>" --expected-id
-<memory-id> --json` before writing recall feedback. The check is read-only and
-reports whether the expected memory is outside the accepted rank window plus
-the exact `capture-miss --dry-run` and write commands to run if the miss is
-real.
-Use `ai-dememory recall-fixtures packet --write-report` when the weekly recall
-review needs a reviewer-facing handoff with fill-in fields, promote/reject
-commands, and final `eval-recall` and `release-evidence --strict` reminders.
-Add `--reviewer "Reviewer Name"` and `--pr-url https://github.com/...` when a
-PR handoff should pre-fill reviewer and pull request context in the packet
-header. Add `--archive` when the weekly quality review needs a timestamped copy
-under `reports/recall-review-packets/`. The packet is generated guidance only;
-it does not promote fixtures, close miss files, or write
-`quality/recall-fixtures.json`. Use
-`ai-dememory recall-fixtures packet-archive-status --json` to list generated
-recall packet snapshots with pagination metadata; the status command is
-read-only and does not promote fixtures. Use
-`ai-dememory recall-fixtures packet-archive-retention-plan --json` to preview
-cleanup candidates after keeping the newest 30 generated packet snapshots by
-default; the retention plan does not delete files.
-
-If a manual check was attempted but cannot pass on the current workstation,
-record it as blocked instead of leaving the attempt invisible:
-
-```bash
-ai-dememory acceptance record \
-  --item mcp-client-docker \
-  --status blocked \
-  --reviewed-by "Reviewer Name" \
-  --summary "Docker is unavailable on this workstation."
-```
-
-Blocked records appear in `release-evidence`, but the item remains incomplete
-until a later `passed` record exists. `ai-dememory acceptance verify` exits
-nonzero until every manual acceptance item has reviewed passing evidence.
-`ai-dememory release-evidence --strict` also exits nonzero until automated
-evidence is clean and manual acceptance is complete.
-
-Acceptance evidence is written under `inbox/release-acceptance/` and
-secret-scanned before it is saved.
-
-Direct script entry points remain available when debugging an individual tool:
-
-```bash
-python3 scripts/validate_memory.py
-python3 scripts/validate_memory.py --json
-python3 scripts/secret_scan.py
-python3 scripts/index_memory.py
-python3 scripts/search_memory.py codex
-python3 scripts/export_context.py
-python3 scripts/consolidate_memory.py --dry-run
-```
-
-## MCP Server
-
-Run as a stdio MCP server:
-
-```bash
-python3 scripts/ai_dememory.py --root ~/code/my-memory mcp --stdio --require-bound-root
-```
-
-In stable 2.1.0, the stdio server exits after 600 seconds without an MCP message
-by default.
-Generated setup configs use 120/600/1800 seconds for the
-`minimal`/`balanced`/`active` intensity profiles. This prevents completed agent
-sessions from retaining idle MCP processes indefinitely. Pass
-`--idle-timeout-seconds 0` only when a separate supervisor owns cleanup.
-Package-owned Git, scheduler, install-smoke, and maintenance children receive
-closed stdin and run in an owned process group/tree. Every deadline reaps the
-complete descendant tree; MCP response reads also have a deadline and graceful
-EOF shutdown. Windows creates each child suspended, assigns it to a retained
-kill-on-close Job Object, and only then allows it to execute. POSIX uses an
-owned session/process group. Canonical scans, secret
-scans, graph pages, MCP input queues, captured output, and SQLite histories
-also have hard ceilings. These controls cover ai-dememory processes, not
-unrelated Node/Python tool servers owned by the host application.
-
-PowerShell direct smoke examples:
-
-```powershell
-'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{}}}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root
-'{"jsonrpc":"2.0","id":2,"method":"ping"}' | py -3 scripts/ai_dememory.py --root C:/memory-vault mcp --stdio --require-bound-root
-```
-
-Do not expose the stdio server as a network service without a separate
-authentication and authorization design.
-
-## CI
-
-GitHub Actions runs compile, schema validation, secret scan, static MCP contract
-verification, release readiness, PR-gated strict release readiness and MCP
-runtime smoke on pull requests, unit tests, index rebuild, search smoke, package
-install smoke, package build smoke, Docker local MCP smoke, and the final
-package build artifact clean check. The PR-gated checks receive
-`AI_DEMEMORY_PR_URL` from the pull request event, and runtime smoke exercises a
-live stdio server process.
-The ordinary release readiness check runs before index generation; the strict
-PR-only release readiness check runs after index/search/recall smoke so doctor
-has generated index evidence.
-
-## Generated Artifacts
-
-Generated artifacts must be reproducible from Markdown. SQLite databases,
-context exports, and reports are not canonical memory unless a human explicitly
-reviews and promotes their content into `memories/`. Before release, run
-`ai-dememory artifact-guard` or `python3 scripts/ai_dememory.py artifact-guard`
-to confirm generated outputs are not staged.
+Review, merge, and release authority is documented in
+[Development continuity](DEVELOPMENT.md) and the
+[draft PR handoff](docs/pr-draft.md). A private vault is never release evidence
+or public repository content.

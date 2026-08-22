@@ -1,148 +1,120 @@
 # Local MCP Server Setup
 
-`ai-dememory` is local-first. The MCP server uses stdio and reads a private
-memory vault through `AI_DEMEMORY_ROOT`.
+Use MCP when an AI client such as Codex or Claude needs local memory tools.
+The server uses stdio, not a network port, and its configuration binds the
+installed `ai-dememory` command to one private vault through
+`AI_DEMEMORY_ROOT`.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
-index until it is tagged and published. The published server instructions below
-retain its historical compatibility gate.
+This is an optional integration after installation. The public source repository
+contains demo/validation fixtures only; it is never the vault to connect.
 
-## Published Stable 2.1.0: Install And Create A Vault
+## User Path: Install, Create A Vault, Then Connect A Client
 
-Install the tool and create the private vault:
+Published stable 2.1.0 is the PyPI release. Its historical wizard compatibility
+argument is required only for this stable package:
 
 ```bash
 pipx install ai-dememory==2.1.0
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
-Connecting a client is separate and optional. Generate the fragment for the
-specific private vault, inspect it, then copy it into the client configuration:
+Generate a fragment only for a client you intend to connect. Read it and copy it
+into that client's configuration yourself; the command never edits Codex,
+Claude, or another host automatically.
 
 ```bash
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-PowerShell:
+On Windows, use a private path such as `D:\Memory\my-vault` in place of the
+example. The produced Codex fragment belongs in `~/.codex/config.toml` or a
+trusted project's `.codex/config.toml`; Claude and generic clients receive their
+native JSON shape. Full field examples are in
+[MCP client configuration](mcp-client-config.md).
 
-```powershell
-pipx install ai-dememory==2.1.0
-ai-dememory init D:\Github\my-memory --wizard --require-version 2.1.0
-ai-dememory --root D:\Github\my-memory mcp-config --client codex
+The TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI upgrade.
+After its exact install from [Installation](install.md), use the shorter
+wizard-first command `ai-dememory init ~/code/my-memory --wizard`.
+Prerelease-generated MCP configuration omits the legacy stable pin. Source
+candidate 2.1.1rc2 is unreleased: it must not replace that published package
+command until it has its own tag and package-index readback.
+
+## What The Generated Fragment Protects
+
+Generated private-vault configuration defaults to the server-enforced four-tool
+`core` profile, an explicit root binding, and a bounded idle lease. Codex also
+receives a matching `enabled_tools` allowlist as defense in depth. Use
+`--profile working` or `--profile review` only when that extra capability is
+needed. `--profile admin` retains the full historical server surface for broad
+maintenance and compatibility; it is not the default.
+
+The default `balanced` idle lease is 600 seconds; wizard intensities emit
+120/600/1800 seconds for `minimal`/`balanced`/`active`. An idle client can
+reconnect later. Set `--idle-timeout-seconds 0` only when an external
+supervisor owns lifecycle cleanup.
+
+The server closes cleanly on stdin EOF. Package-owned children run with closed
+stdin, bounded deadlines, and an owned process group/tree: Windows uses a
+kill-on-close Job Object and POSIX uses a separate session/process group. These
+controls cover ai-dememory children, not unrelated browser, Node, Python, or
+plugin processes owned by the host application.
+
+## Optional Configuration Check
+
+After copying a fragment into a real client, an advanced diagnostic can launch
+the configured installed CLI and verify `initialize` and `ping`. It is not a
+first-run requirement:
+
+```bash
+ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 ```
 
-The generated Codex fragment carries the selected profile, root binding, and
-idle lease:
-
-```toml
-[mcp_servers.ai-dememory]
-command = "ai-dememory"
-args = ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"]
-enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.doctor"]
-
-[mcp_servers.ai-dememory.env]
-AI_DEMEMORY_ROOT = "<vault path>"
-```
-
-After upgrading an existing PyPI installation, regenerate the client fragment
-from each private vault and, when needed, smoke-test the installed command:
+When upgrading an existing stable installation, regenerate the fragment for
+each vault before replacing the previous host entry:
 
 ```bash
 pipx install --force ai-dememory==2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
-ai-dememory --root ~/code/my-memory mcp-client-smoke
 ```
 
-Inspect and replace the prior host entry yourself; `mcp-config` prints the
-configuration and does not silently edit Codex, Claude, or another client. If a
-host package or Docker image originated from a release candidate or mutable Git
-checkout, replace it with `pipx uninstall ai-dememory` followed by
-`pipx install ai-dememory==2.1.0` before regenerating the fragment.
+If a host package or Docker image came from a release candidate or mutable
+checkout, rebuild it with the exact stable package first.
+`ai-dememory version-check 2.1.0` remains a CI/support diagnostic, not a setup step.
 
-`ai-dememory version-check 2.1.0` remains an explicit CI or support diagnostic;
-it is not a required installation or configuration step.
+## Docker: Local Stdio Only
 
-## Source Candidate 2.1.1rc1: No Persistent Gate
-
-The candidate keeps root binding, server-enforced profiles, allowlists, and idle
-leases, while removing the generated `--require-version` pin. After it is
-tagged and published, its wizard-first route is
-`ai-dememory init ~/code/my-memory --wizard` and its generated configuration
-uses the normal vault-bound MCP configuration form. Those are source-candidate
-semantics, not an unpublished package install path.
-
-This is the shape accepted by Codex in `~/.codex/config.toml` or a trusted
-project's `.codex/config.toml`. Claude and generic output modes use JSON.
-Generated Codex, Claude, and generic configs use the server-enforced four-tool
-`core` profile by default and require an explicitly bound vault. Pass
-`--profile working`, `--profile review`, or explicitly `--profile admin` to
-change the advertised and callable surface. Codex receives the same allowlist
-client-side as defense in depth. `admin` preserves the complete historical MCP
-surface for compatibility and broad maintenance; it is an explicit escape
-hatch, not the recommended default.
-
-Generated servers also carry a bounded idle lease so a client or completed
-agent cannot leave an unused Python MCP process alive forever. The default
-`balanced` lease is 600 seconds; onboarding uses 120/600/1800 seconds for
-`minimal`/`balanced`/`active`. A client may reconnect on its next call. Use
-`--idle-timeout-seconds 0` only when another supervisor owns process cleanup.
-
-The server's protocol reader has its own response/idle deadline and closes
-cleanly on stdin EOF. Package-owned Git and maintenance children never inherit
-MCP protocol stdin: they run non-interactively in an owned process group/tree,
-and timeout/shutdown reaps descendants before the MCP process exits. Windows
-uses a kill-on-close Job Object; POSIX uses an owned session/process group.
-These guarantees cover ai-dememory-owned children; the host application
-remains responsible for its unrelated browser, Node, Python, or plugin tool
-servers.
-
-From a source checkout without an editable install, generate and smoke test a
-checkout-safe command:
-
-```bash
-python3 scripts/ai_dememory.py --root /path/to/vault mcp-config --client codex \
-  --command python3 \
-  --command-arg /path/to/ai-dememory/scripts/ai_dememory.py
-python3 scripts/ai_dememory.py --root /path/to/vault mcp-client-smoke \
-  --command python3 \
-  --command-arg /path/to/ai-dememory/scripts/ai_dememory.py
-```
-
-## Docker
-
-Docker is supported only for local stdio MCP usage. It does not expose ports or
-run a remote server.
-
-Build the image:
+Docker is an optional local stdio transport. It does not expose a port or turn
+MCP into a remote service. Build the image from a trusted source checkout, then
+generate the client configuration for an already initialized private vault:
 
 ```bash
 docker build -t ai-dememory:local .
-```
-
-Create or reuse a vault, then generate Docker client config:
-
-```bash
 ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory
-ai-dememory mcp-client-smoke --mode docker --image ai-dememory:local --root ~/code/my-memory
 ```
 
-Generated Docker config appends
-`mcp --stdio --idle-timeout-seconds 600 --profile core --require-bound-root`
-after the image name and
-binds the selected vault at `/memory`; clients only need stdin/stdout attached.
-
-Use the `mcp-client-smoke` command above for the end-to-end test. Stable guides
-intentionally do not provide raw `docker run` recipes: generated configuration
-owns the exact mount, image selection, profile, root binding and resource lease.
-The selected root must be the separately initialized private vault, not the
-public source checkout.
-
-Do not expose this container as a network service without a separate
+The generated configuration owns the exact mount, image, profile, root binding,
+and idle lease; this guide intentionally does not provide a raw `docker run`
+recipe. It binds the selected vault at `/memory` and appends
+`mcp --stdio --idle-timeout-seconds 600 --profile core --require-bound-root`.
+Do not expose the container as a network service without a separate
 authentication, authorization, and privacy design.
 
-## Related Local Transports
+## Maintainer Checkout Recipe
 
-Use the MCP stdio server for LLM clients when possible. For local scripts or
-dashboards that need HTTP, use the separate loopback REST API documented in
-`docs/local-api.md`.
+The following source-checkout form exists for development and CI diagnostics.
+It is not an installation path and must never point at the public repository as
+a vault:
+
+```bash
+python3 scripts/ai_dememory.py --root /path/to/private-vault mcp-config --client codex \
+  --command python3 \
+  --command-arg /path/to/ai-dememory/scripts/ai_dememory.py
+python3 scripts/ai_dememory.py --root /path/to/private-vault mcp-client-smoke \
+  --command python3 \
+  --command-arg /path/to/ai-dememory/scripts/ai_dememory.py
+```
+
+## REST Instead Of MCP
+
+Use MCP stdio for AI clients. For local dashboards or scripts that need HTTP,
+use the separate loopback [Local REST API](local-api.md).

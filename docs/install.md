@@ -4,9 +4,10 @@ This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
-index until it is tagged and published. This guide shows both contracts so the
-current source branch cannot be mistaken for the published package.
+PyPI. TestPyPI prerelease 2.1.1rc1 is a tagged evaluation route, not a PyPI
+stable release. Source candidate 2.1.1rc2 is unreleased and not installable
+from a package index until it is tagged and published. This guide keeps all
+three states distinct.
 
 ## Published Stable 2.1.0: Legacy First Run
 
@@ -28,13 +29,14 @@ not an installation prerequisite.
 `uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
 `D:\Memory\my-vault`.
 
-## Source Candidate 2.1.1rc1: Wizard-First Behavior
+## TestPyPI Prerelease 2.1.1rc1: Wizard-First Evaluation
 
-The reviewed source candidate removes the persistent `--require-version` pin
-from new setup and MCP configuration. Once its separate tag and package
-publication have completed, its first run will be:
+The reviewed TestPyPI prerelease removes the persistent `--require-version`
+pin from new setup and MCP configuration. In an isolated Python environment,
+install the exact prerelease and then run the wizard:
 
 ```bash
+python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
 ai-dememory init ~/code/my-memory --wizard
 ```
 
@@ -43,10 +45,15 @@ fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
 import chats, create personal memory, install hooks or schedules, or edit a
 client configuration. `balanced` is the recommended first-run intensity.
 
-Do not infer an installation command from this candidate example: 2.1.1rc1 is
-not installable from a package index until it is tagged and published. The
-branch describes the candidate behavior; the next stable release will provide
-the actual immutable package command.
+This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
+next stable release will provide its own immutable package command.
+
+## Current Source Candidate 2.1.1rc2: Not Installable Yet
+
+The checked-out source includes follow-up onboarding and documentation work.
+It is neither a replacement for the published 2.1.1rc1 evaluation package nor
+a third install command. Wait for its own immutable tag, TestPyPI publication,
+and exact-index readback before treating it as an evaluation route.
 
 ## Connect An AI Client (Optional)
 
@@ -59,8 +66,8 @@ host application's configuration on your behalf.
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-That invocation is the same in 2.1.0 and the source candidate. Stable 2.1.0
-then persists the gate inside the generated runtime configuration; the candidate
+That invocation is the same in 2.1.0 and the TestPyPI prerelease. Stable 2.1.0
+then persists the gate inside the generated runtime configuration; the prerelease
 omits that generated pin. The generated runtime command contains the bound vault,
 a reduced `core` profile, and an idle lease. First-run users do not need to type
 those internal arguments themselves.
@@ -81,9 +88,9 @@ If `pipx` is unavailable, use a virtual environment or see the
 checkout and the development instructions in `DEVELOPMENT.md`; local/editable
 installs are not a normal user path.
 
-## What The Candidate Wizard Configures
+## What The Prerelease Wizard Configures
 
-The candidate interactive wizard changes operational policy only. Personal
+The prerelease interactive wizard changes operational policy only. Personal
 values, preferences, recommendations, and project profiles stay in the separate,
 optional `onboard` review/apply flow. For automation, the machine-readable
 `setup plan --json` preview remains available, but it is not needed before an

@@ -9,9 +9,10 @@ MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. Source candidate 2.1.1rc1 is unreleased and not installable from a package
-index until it is tagged and published. The checked-in plugin configuration
-follows the source candidate and must not be presented as a stable 2.1.0
+PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
+release. Source candidate 2.1.1rc2 is unreleased and not installable from a
+package index. The checked-in plugin configuration follows that current source
+candidate; it must not be presented as a stable 2.1.0 or published 2.1.1rc1
 runtime contract.
 
 For published 2.1.0 compatibility, install the matching PyPI package in an
@@ -27,9 +28,10 @@ Create or select a private vault through the wizard:
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
-The candidate simplifies this first-run command to
-`ai-dememory init ~/code/my-memory --wizard` only after the candidate is
-tagged and published.
+The TestPyPI prerelease simplifies this first-run command to
+`ai-dememory init ~/code/my-memory --wizard`; follow the
+[installation guide](install.md) for its exact evaluation package route. Do
+not infer a package install command from the current source-plugin version.
 
 When upgrading an existing installation, replace it with the selected release:
 

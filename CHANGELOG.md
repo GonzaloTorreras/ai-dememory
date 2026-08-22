@@ -7,13 +7,30 @@ accepted by the release identity guard.
 
 ## [Unreleased]
 
-No changes are queued outside the 2.1.1 release line.
+No changes yet.
 
 ## [2.1.1] - Unreleased
 
-This stable release entry is intentionally reserved. The candidate below has
-not been tagged or published from this change, and 2.1.0 remains the current
-published stable release.
+This stable release entry is intentionally reserved. The published `2.1.1rc1`
+candidate remains the TestPyPI evaluation artifact; the untagged `2.1.1rc2`
+source candidate below requires its own immutable tag, TestPyPI publication,
+and index readback before it can be offered as an installation route. `2.1.0`
+remains the current published stable PyPI release.
+
+## [2.1.1rc2] - 2026-08-22
+
+### Added
+
+- After a guided operational setup completes, the wizard offers the optional
+  foreground local API command for dashboards and scripts. It remains
+  loopback-only by default and is never started, installed, or configured by
+  the wizard.
+
+### Documentation
+
+- Separate the public installation and local-use paths from source-checkout,
+  contributor, and release material; document the installed `ai-dememory api`
+  command instead of presenting the source wrapper as a normal user command.
 
 ## [2.1.1rc1] - 2026-08-21
 

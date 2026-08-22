@@ -8,7 +8,7 @@ project: ai-dememory
 tags: [active, memory, implementation]
 aliases: [current context]
 created_at: 2026-06-14
-updated_at: 2026-08-21
+updated_at: 2026-08-22
 confidence: 0.9
 sensitivity: public
 source:
@@ -22,12 +22,14 @@ review_after: 2026-08-26
 # Demo Active Working Context
 
 The public repository is the canonical development and package-distribution
-source. PyPI and GitHub Releases currently expose published stable 2.1.0, while
-the source tree declares source candidate 2.1.1rc1. That candidate is unreleased
-and not installable from a package index until it is tagged and published. Continue strengthening
-Markdown-canonical storage, SQLite FTS retrieval, MCP interfaces, local review
-workflows, and generated maintenance artifacts on clean branches based on
-public `origin/main`.
+source. PyPI exposes published stable 2.1.0. `2.1.1rc1` is an annotated
+TestPyPI prerelease with a matching GitHub prerelease and exact-index
+installation evidence; it is an evaluation route, not a stable PyPI release.
+The current source tree declares the separate untagged and unpublished
+2.1.1rc2 candidate, which must not be described as an installable package or
+as the immutable rc1 artifact. Continue strengthening Markdown-canonical
+storage, SQLite FTS retrieval, MCP interfaces, local review workflows, and
+generated maintenance artifacts on clean branches based on public `origin/main`.
 
 The historical private checkout is research input only: port decisions
 semantically, renumber conflicting ADRs, and regenerate every test and release

@@ -1293,6 +1293,18 @@ def print_guided_next_actions(result: dict[str, Any]) -> None:
     print("- Review hook and scheduler previews separately before installing either one.")
     if result.get("setup_scope") == "operational":
         print(
+            "- Optional local API for dashboards/scripts "
+            "(foreground, loopback-only by default; not started automatically; Ctrl-C stops it): "
+            + render_copy_command(
+                [
+                    "ai-dememory",
+                    "--root",
+                    root,
+                    "api",
+                ]
+            )
+        )
+        print(
             "- Optional durable baseline: "
             + render_copy_command(["ai-dememory", "--root", root, "onboard"])
         )

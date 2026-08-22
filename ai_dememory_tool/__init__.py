@@ -1,3 +1,3 @@
 """Installable entry points for the ai-dememory local toolchain."""
 
-__version__ = "2.1.1rc1"
+__version__ = "2.1.1rc2"
