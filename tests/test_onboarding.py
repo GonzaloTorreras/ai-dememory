@@ -828,6 +828,44 @@ class OnboardingTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, 2)
                 self.assertFalse(target.exists())
 
+    def test_init_without_wizard_binds_its_setup_hint_to_the_new_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            created_vault = Path(tmp) / "created vault"
+            ambient_vault = Path(tmp) / "different ambient vault"
+            ambient_vault.mkdir()
+            output = io.StringIO()
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(ambient_vault)
+                with patch.dict(
+                    os.environ,
+                    {"AI_DEMEMORY_ROOT": str(ambient_vault)},
+                    clear=False,
+                ), redirect_stdout(output):
+                    exit_code = unified_cli.main(
+                        ["init", str(created_vault), "--no-wizard"]
+                    )
+            finally:
+                os.chdir(previous_cwd)
+
+            expected_command = render_copy_command(
+                [
+                    "ai-dememory",
+                    "--root",
+                    str(created_vault.resolve()),
+                    "setup",
+                    "wizard",
+                ]
+            )
+            ambient_entries = list(ambient_vault.iterdir())
+
+        rendered = output.getvalue()
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn(expected_command, rendered)
+        self.assertNotIn("`ai-dememory setup wizard`", rendered)
+        self.assertEqual(ambient_entries, [])
+
     def test_apply_requires_matching_preview_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other_tmp:
             root = Path(tmp)
