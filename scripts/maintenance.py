@@ -979,6 +979,7 @@ def run_supervised_maintenance(
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -997,6 +998,12 @@ def main(argv: list[str] | None = None) -> int:
     status.add_argument("--json", action="store_true")
 
     args = parser.parse_args(argv)
+    root_was_supplied = any(
+        argument == "--root" or argument.startswith("--root=")
+        for argument in argv
+    )
+    if root_was_supplied and (not args.root or not args.root.strip()):
+        parser.error("--root requires a non-empty vault path")
     explicit_root = args.root if args.root and args.root.strip() else None
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
     configured_root = configured_root if configured_root and configured_root.strip() else None
