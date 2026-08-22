@@ -349,7 +349,10 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    explicit_root = root_binding_value(root_arg_value(argv))
+    raw_explicit_root = root_arg_value(argv)
+    if raw_explicit_root is not None and not raw_explicit_root.strip():
+        cli_argument_error("--root requires a non-empty vault path")
+    explicit_root = root_binding_value(raw_explicit_root)
     configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
     if (
         command == "mcp"
@@ -570,6 +573,9 @@ def mcp_config(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
+    root_was_supplied = has_root_arg(argv)
+    if root_was_supplied and (not args.root or not args.root.strip()):
+        parser.error("--root requires a non-empty vault path")
     explicit_root = root_binding_value(args.root)
     configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
     root = Path(explicit_root).expanduser().resolve() if explicit_root else find_memory_root()
@@ -745,7 +751,10 @@ def main(argv: list[str] | None = None) -> int:
     if duplicate_options(argv, ("--root",)):
         print("--root may be specified at most once", file=sys.stderr)
         return 2
-    root_override = root_binding_value(pop_global_root(argv))
+    raw_root_override = pop_global_root(argv)
+    if raw_root_override is not None and not raw_root_override.strip():
+        cli_argument_error("--root requires a non-empty vault path")
+    root_override = root_binding_value(raw_root_override)
     if root_override:
         # Preserve the textual binding until the selected subcommand has
         # validated its arguments. Resolving a UNC path can perform I/O.
