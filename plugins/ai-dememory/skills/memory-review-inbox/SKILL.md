@@ -56,7 +56,7 @@ Review-first rules:
 10. Use `memory.hook_capture_review` only after human approval to close a
     selected `inbox/session-events/` hook capture with reviewer metadata. It
     must not be used to promote durable memory or delete the capture.
-11. Use `ai-dememory hooks archive --json` to preview moving resolved hook
+11. Use `ai-dememory hooks archive --root <vault> --json` to preview moving resolved hook
     captures to `archive/session-events/`; run it with `--apply` only when the
     user approves the archival preview.
 

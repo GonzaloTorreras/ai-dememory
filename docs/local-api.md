@@ -9,6 +9,11 @@ and create a private vault outside this public source repository. The command
 name is `ai-dememory`; a source-checkout wrapper is a maintainer-only fallback,
 not the normal way to run the API.
 
+The API requires an explicit absolute `--root <vault>` (or `~` path after home
+expansion) or `AI_DEMEMORY_ROOT` runtime binding. It never searches the current
+directory or source checkout for a vault; an explicit non-empty `--root` takes
+precedence over the environment.
+
 ## Choose The Right Local Interface
 
 | Need | Use |

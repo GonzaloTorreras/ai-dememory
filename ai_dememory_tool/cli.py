@@ -350,12 +350,14 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command == "mcp":
-        # The MCP service owns its runtime vault resolution. In particular,
-        # do not discover CWD/package roots or inject an environment binding
-        # before it can enforce the strict resolver.
+    if command in {"mcp", "api", "hook-event", "hooks"}:
+        # Stateful runtime surfaces own their vault resolution. In particular,
+        # do not discover CWD/package roots or inject a derived binding before
+        # their strict resolver can enforce an explicit/environment binding.
         configure_imports()
-        module = importlib.import_module("ai_dememory_tool.mcp_server.memory_mcp")
+        _, module_name = COMMANDS[command]
+        prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
+        module = importlib.import_module(f"{prefix}.{module_name}")
         return int(module.main(argv))
     raw_explicit_root = root_arg_value(argv)
     if raw_explicit_root is not None and not raw_explicit_root.strip():

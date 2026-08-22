@@ -234,10 +234,10 @@ docker run --rm \
 Codex plugin hooks can call:
 
 ```bash
-ai-dememory hook-event --event UserPromptSubmit
-ai-dememory hook-event --event PreCompact
-ai-dememory hook-event --event PostCompact
-ai-dememory hook-event --event Stop
+ai-dememory hook-event --root ~/code/my-memory --event UserPromptSubmit
+ai-dememory hook-event --root ~/code/my-memory --event PreCompact
+ai-dememory hook-event --root ~/code/my-memory --event PostCompact
+ai-dememory hook-event --root ~/code/my-memory --event Stop
 ```
 
 By default, hook capture stores metadata only under `inbox/session-events/`.

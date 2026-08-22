@@ -41,3 +41,15 @@ class RuntimeVaultBindingTests(unittest.TestCase):
             with self.subTest(explicit_root=explicit_root, environment=environment):
                 with self.assertRaisesRegex(VaultBindingError, message):
                     resolve_runtime_vault(explicit_root, environ=environment)
+
+    def test_relative_bindings_are_rejected_before_cwd_resolution(self) -> None:
+        cases = (
+            (".", {}, "--root requires an absolute"),
+            ("./vault", {}, "--root requires an absolute"),
+            (None, {"AI_DEMEMORY_ROOT": "."}, "AI_DEMEMORY_ROOT requires an absolute"),
+            (None, {"AI_DEMEMORY_ROOT": "relative-vault"}, "AI_DEMEMORY_ROOT requires an absolute"),
+        )
+        for explicit_root, environment, message in cases:
+            with self.subTest(explicit_root=explicit_root, environment=environment):
+                with self.assertRaisesRegex(VaultBindingError, message):
+                    resolve_runtime_vault(explicit_root, environ=environment)

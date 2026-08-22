@@ -790,7 +790,10 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   artifacts in the repository.
 - [ ] `ai-dememory package-build-smoke` fails fast when stale `build/`,
   `dist/`, or `ai_dememory.egg-info/` paths already exist in the checkout.
-- [ ] From that vault, `ai-dememory doctor` succeeds with only an initial
+- [ ] Bind the test vault explicitly before the following vault commands,
+  either with `AI_DEMEMORY_ROOT=<vault>` or `--root <vault>`; being in the
+  vault directory alone is not a runtime binding.
+- [ ] From that bound vault, `ai-dememory doctor` succeeds with only an initial
   missing-index warning.
 - [ ] From that vault, `ai-dememory validate`, `ai-dememory secret-scan`, and
   `ai-dememory index` succeed.
