@@ -250,4 +250,3 @@ python3 mcp/server/memory_mcp.py --root ~/code/my-memory --require-bound-root --
 Only `--list-tools` is rootless static metadata. Direct `--call` and `--stdio`
 runtime sessions need `--root <private-vault>` or `AI_DEMEMORY_ROOT`; they do
 not discover a vault from the current directory or this public checkout.
-
