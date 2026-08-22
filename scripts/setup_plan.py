@@ -302,22 +302,22 @@ def setup_plan(
         "commands": commands,
         "provider_plan": provider_plan,
         "next_actions": [
-            "Preview and fingerprint the operational config-only setup wizard.",
-            "Review the selected intensity, hard caps, zero-runtime-model-call statement, and host-model policy.",
-            "Apply the reviewed setup fingerprint explicitly, then run doctor and index.",
-            "Optionally preview reviewed values, preferences, recommendations, and project aliases with ai-dememory onboard.",
-            "Copy an MCP config for the client you actually use.",
-            "Generate report artifacts only when you need a release or review handoff.",
-            "Review provider paths before running any providers configure command.",
-            "Review structured scheduler plans before installing host scheduler jobs.",
-            "Preview hooks and schedules with dry-run/config commands before installing anything.",
-            "Record real-client and reviewed manual acceptance evidence only after a human check.",
+            "After a successful setup, no further command is required; this plan remains a preview until you explicitly apply a reviewed fingerprint.",
+            "Optional configuration: if you want these operational settings, preview the config-only wizard and review its selected intensity, hard caps, zero-runtime-model-call statement, and host-model policy before applying it.",
+            "Optional diagnostics: doctor and setup health report local state; they are not setup requirements.",
+            "Optional search: rebuild the index only after you add or review Markdown that you want searchable.",
+            "Optional durable baseline: preview "
+            + render_copy_command(plan_command("onboard"))
+            + " only if you choose to record reviewed values, preferences, recommendations, or project aliases.",
+            "Optional MCP: choose one client first, then copy only that generated config.",
+            "Optional providers, hooks, and scheduling: preview their paths, config, or plan only if you choose those integrations; inspect before every explicit install.",
+            "Optional reports and manual acceptance: generate or record them only when you need a review or release handoff after a human check.",
         ],
     }
     if not docker_schedule_installable:
         result["next_actions"].insert(
             0,
-            "Resolve the Docker image to sha256:<image-id> or repository@sha256:<digest> before previewing unattended Docker apply/cron commands.",
+            "Optional Docker scheduling: Resolve the Docker image to sha256:<image-id> or repository@sha256:<digest> only if you intend to preview unattended Docker apply/cron commands.",
         )
     return result
 
@@ -731,7 +731,10 @@ def main(argv: list[str] | None = None) -> int:
                             print(
                                 f"  - {report_name}: {render_copy_command(report_command)}"
                             )
-            print("Next: run the commands for the client and provider paths you choose.")
+            print(
+                "Optional commands: choose only the diagnostics or integration paths you want; "
+                "nothing installs automatically."
+            )
         return 0
 
     if args.command_name == "health":

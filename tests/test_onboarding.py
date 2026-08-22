@@ -32,6 +32,7 @@ from onboarding import (  # noqa: E402
     operational_setup_plan,
 )
 from resource_policy import resolved_resource_policy  # noqa: E402
+from setup_plan import setup_plan  # noqa: E402
 from validate_memory import validate_repo_result  # noqa: E402
 
 
@@ -400,8 +401,11 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn("Preview:", output.getvalue())
         self.assertIn("Applied:", output.getvalue())
         self.assertIn("operational vault configuration only", output.getvalue())
-        self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
-        self.assertIn("Optional local API for dashboards/scripts", output.getvalue())
+        self.assertIn(
+            "Optional next actions (setup is complete; nothing else was installed automatically):",
+            output.getvalue(),
+        )
+        self.assertIn("Optional local API for dashboards/scripts, only if you want it", output.getvalue())
         self.assertIn(
             render_copy_command(
                 ["ai-dememory", "--root", str(root.resolve()), "api"]
@@ -412,7 +416,7 @@ class OnboardingTests(unittest.TestCase):
         self.assertFalse(memories_exist)
         self.assertIn('intensity = "balanced"', config)
 
-    def test_guided_next_actions_gate_generated_mcp_configuration(self) -> None:
+    def test_guided_next_actions_show_one_valid_mcp_client_example(self) -> None:
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp, redirect_stdout(output):
             onboarding.print_guided_next_actions(
@@ -425,8 +429,22 @@ class OnboardingTests(unittest.TestCase):
 
         rendered = output.getvalue()
         root = str(Path(tmp).resolve())
-        for client in ("codex", "claude", "generic"):
-            self.assertIn(
+        codex_command = render_copy_command(
+            [
+                "ai-dememory",
+                "--root",
+                root,
+                "mcp-config",
+                "--client",
+                "codex",
+            ]
+        )
+        self.assertIn("setup is complete", rendered)
+        self.assertIn("Optional MCP: if you explicitly choose one client", rendered)
+        self.assertIn("shown for Codex; replace `codex` with `claude` or `generic`", rendered)
+        self.assertIn(codex_command, rendered)
+        for client in ("claude", "generic"):
+            self.assertNotIn(
                 render_copy_command(
                     [
                         "ai-dememory",
@@ -439,6 +457,55 @@ class OnboardingTests(unittest.TestCase):
                 ),
                 rendered,
             )
+
+    def test_setup_plan_next_actions_are_conditional(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            ambient_root = Path(tmp) / "ambient"
+            root.mkdir()
+            ambient_root.mkdir()
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(ambient_root)
+                with patch.dict(
+                    os.environ,
+                    {"AI_DEMEMORY_ROOT": str(ambient_root)},
+                    clear=False,
+                ):
+                    plan = setup_plan(root)
+                    operational = operational_setup_plan(root, operational_answers())
+                    onboard_command = render_copy_command(
+                        ["ai-dememory", "--root", str(root.resolve()), "onboard"]
+                    )
+            finally:
+                os.chdir(previous_cwd)
+
+        next_actions = plan["next_actions"]
+        integration_actions = operational["integrations"]["next_actions"]
+
+        self.assertTrue(
+            any(
+                action.startswith("After a successful setup, no further command is required;")
+                for action in next_actions
+            )
+        )
+        self.assertIn(
+            "Optional search: rebuild the index only after you add or review Markdown that you want searchable.",
+            next_actions,
+        )
+        self.assertIn(
+            "Optional MCP: choose one client first, then copy only that generated config.",
+            next_actions,
+        )
+        self.assertTrue(any(onboard_command in action for action in next_actions))
+        self.assertTrue(
+            all(
+                action.startswith("Optional ")
+                or action.startswith("After a successful setup")
+                for action in next_actions
+            )
+        )
+        self.assertTrue(all(action.startswith("Optional ") for action in integration_actions))
 
     def test_guided_next_actions_offer_a_foreground_loopback_api_without_starting_it(self) -> None:
         output = io.StringIO()
@@ -462,7 +529,7 @@ class OnboardingTests(unittest.TestCase):
             ]
         )
         self.assertIn(
-            "Optional local API for dashboards/scripts "
+            "Optional local API for dashboards/scripts, only if you want it "
             "(foreground, loopback-only by default; not started automatically; Ctrl-C stops it):",
             rendered,
         )
@@ -786,7 +853,10 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn("Initialized ai-dememory vault", output.getvalue())
         self.assertIn("Preview:", output.getvalue())
         self.assertIn("Applied:", output.getvalue())
-        self.assertIn("Next actions (nothing else was installed automatically):", output.getvalue())
+        self.assertIn(
+            "Optional next actions (setup is complete; nothing else was installed automatically):",
+            output.getvalue(),
+        )
         self.assertIn('intensity = "balanced"', config)
         self.assertFalse(personal_memory_exists)
 
@@ -866,6 +936,14 @@ class OnboardingTests(unittest.TestCase):
                     "ai-dememory",
                     "--root",
                     str(created_vault.resolve()),
+                    "setup",
+                    "health",
+                    "--json",
+                ],
+                [
+                    "ai-dememory",
+                    "--root",
+                    str(created_vault.resolve()),
                     "index",
                 ],
             ]
@@ -874,6 +952,12 @@ class OnboardingTests(unittest.TestCase):
         rendered = output.getvalue()
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("Vault creation is complete; no further command is required.", rendered)
+        self.assertIn("Optional diagnostics (not setup steps):", rendered)
+        self.assertIn(
+            "Optional search: after you add or review Markdown that you want searchable,",
+            rendered,
+        )
         for command in expected_commands:
             self.assertIn(render_copy_command(command), rendered)
         self.assertNotIn("`ai-dememory setup wizard`", rendered)

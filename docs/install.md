@@ -114,6 +114,9 @@ follow [Create A Memory Repo](create-memory-repo.md).
 
 ## Start Using The Vault
 
+After a successful wizard, no further command is required. The actions below
+are optional: choose one only when its stated condition applies.
+
 The wizard is intentionally configuration-only. It does not scan a provider
 folder, create durable personal memory, or build an index. When you add
 reviewed Markdown that you want to recall, build the disposable local index:
