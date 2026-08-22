@@ -1,6 +1,6 @@
 # Development Status
 
-Updated: 2026-08-22
+Updated: 2026-08-23
 
 This is a concise public-repository handoff, not release evidence by itself.
 The lead integrator updates it when a verified checkout, frontier, blocker, or
@@ -116,6 +116,22 @@ API onboarding hint and documentation boundaries.
   `setup wizard` plus `init --wizard`, including both post-command root
   spellings. Packaged vault templates and active setup/maintenance guidance now
   show the same root-bound onboarding command.
+- PR [#35](https://github.com/GonzaloTorreras/ai-dememory/pull/35) was merged
+  at `e4f844413a874972d7626a325b47ec9dfa75a393` after a fresh independent
+  exact-head review found no actionable P0/P1/P2 issue. CI run
+  [32601078748](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32601078748)
+  and Pages validation
+  [32601078743](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32601078743)
+  passed.
+- This fifth `BRG-003` increment makes `maintenance run` select its vault
+  through the strict runtime resolver before generic discovery, provider reads,
+  lock acquisition, or supervised-child creation. It applies equally to real,
+  dry-run, and supervised maintenance; absolute explicit `--root` takes
+  precedence over the environment. `maintenance status` deliberately remains a
+  compatible read-only legacy path. Source-checkout children use the trusted
+  wrapper while installed packages retain the module entry point, both with an
+  explicit root. PR #35 records full regression evidence of 856 passed and 53
+  skipped, plus an exact working-tree security scan with zero findings.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
@@ -169,10 +185,9 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. Continue `BRG-003` with the already-inventoried `maintenance run` execution
-   boundary only: preserve `maintenance status` compatibility, resolve a
-   strict root for both real and dry runs before locks/processes, and retain
-   generated scheduler commands that already bind a root. Do not claim
+4. Continue `BRG-003` by mapping the remaining strict-resolver inventory.
+   Preserve the intentional `maintenance status` compatibility boundary and
+   the generated scheduler commands that already bind a root. Do not claim
    structural vault validation merely from an absolute path. Providers/import,
    scheduler, and dual-path commands remain separate compatibility slices.
    `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`, `GATE-B`, and
