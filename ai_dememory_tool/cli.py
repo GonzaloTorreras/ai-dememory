@@ -839,4 +839,3 @@ def pop_global_root(argv: list[str]) -> str | None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
