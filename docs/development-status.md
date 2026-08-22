@@ -9,8 +9,9 @@ reproducible evidence changes.
 ## Canonical Baseline
 
 - Public remote: `https://github.com/GonzaloTorreras/ai-dememory.git`
-- Public `main`:
-  `a5140a81e4d153c8e7f41b0f2a88649030942c51`
+- Public `main` is a moving source branch. Resolve its current SHA before a
+  handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
+  historical release commit into a permanent `main` claim.
 - Public stable tag `v2.1.0`:
   `f43e55d824e7b085b5a7f8518e6dad9d5ddaef99`
 - Current published stable release line in user documentation: `2.1.0` on
@@ -28,10 +29,10 @@ reproducible evidence changes.
   receipts, credentials, paths, and personal memory are not public source or
   release evidence.
 
-The release facts above were read back from the canonical public `main`, tag,
-GitHub Release, release workflow, and TestPyPI index. This status file records
-those facts but does not substitute for the exact checks required by a later
-stable release.
+The immutable release facts above were read back from the canonical public tag,
+GitHub Release, release workflow, and TestPyPI index. Current `main` is source
+state rather than release evidence and must be read back separately. This status
+file does not substitute for the exact checks required by a later stable release.
 
 ## Current Maintenance Correction
 
