@@ -5,7 +5,9 @@ a separate private vault, never in this public repository.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
 PyPI. TestPyPI prerelease 2.1.1rc1 is a tagged evaluation route, not a PyPI
-stable release. This guide keeps those contracts distinct.
+stable release. Source candidate 2.1.1rc2 is unreleased and not installable
+from a package index until it is tagged and published. This guide keeps all
+three states distinct.
 
 ## Published Stable 2.1.0: Legacy First Run
 
@@ -45,6 +47,13 @@ client configuration. `balanced` is the recommended first-run intensity.
 
 This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
 next stable release will provide its own immutable package command.
+
+## Current Source Candidate 2.1.1rc2: Not Installable Yet
+
+The checked-out source includes follow-up onboarding and documentation work.
+It is neither a replacement for the published 2.1.1rc1 evaluation package nor
+a third install command. Wait for its own immutable tag, TestPyPI publication,
+and exact-index readback before treating it as an evaluation route.
 
 ## Connect An AI Client (Optional)
 

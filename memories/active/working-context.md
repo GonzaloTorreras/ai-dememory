@@ -22,12 +22,14 @@ review_after: 2026-08-26
 # Demo Active Working Context
 
 The public repository is the canonical development and package-distribution
-source. PyPI exposes published stable 2.1.0. The source tree declares
-2.1.1rc1, now an annotated TestPyPI prerelease with a matching GitHub prerelease
-and exact-index installation evidence; it is an evaluation route, not a stable
-PyPI release. Continue strengthening Markdown-canonical storage, SQLite FTS
-retrieval, MCP interfaces, local review workflows, and generated maintenance
-artifacts on clean branches based on public `origin/main`.
+source. PyPI exposes published stable 2.1.0. `2.1.1rc1` is an annotated
+TestPyPI prerelease with a matching GitHub prerelease and exact-index
+installation evidence; it is an evaluation route, not a stable PyPI release.
+The current source tree declares the separate untagged and unpublished
+2.1.1rc2 candidate, which must not be described as an installable package or
+as the immutable rc1 artifact. Continue strengthening Markdown-canonical
+storage, SQLite FTS retrieval, MCP interfaces, local review workflows, and
+generated maintenance artifacts on clean branches based on public `origin/main`.
 
 The historical private checkout is research input only: port decisions
 semantically, renumber conflicting ADRs, and regenerate every test and release

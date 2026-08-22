@@ -19,6 +19,9 @@ reproducible evidence changes.
   `a5140a81e4d153c8e7f41b0f2a88649030942c51` and published on
   [TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.1rc1/). It is an
   evaluation route, not a stable PyPI release.
+- Current source candidate: `2.1.1rc2` in the repository source. It is
+  untagged and unpublished; it must not be presented as an installable package
+  or as the immutable `v2.1.1rc1` release artifact.
 - Python 3.11+ remains the only headless runtime. Node is not an installation
   or background-process dependency.
 - The former private checkout is historical input only. Private vaults,
@@ -32,9 +35,10 @@ stable release.
 
 ## Current Maintenance Correction
 
-This documentation branch records the published 2.1.1 release candidate that
-corrects an unintended 2.1.0 compatibility contract without changing the V3
-execution DAG.
+The published `2.1.1rc1` release candidate corrected an unintended 2.1.0
+compatibility contract without changing the V3 execution DAG. The current
+`2.1.1rc2` source candidate is a separate, untagged follow-up for its local
+API onboarding hint and documentation boundaries.
 
 - Planning mapping: compatible maintenance remediation of completed `BRG-014`
   in `B04a`; it does not advance `B04b` or claim a V3 milestone.
@@ -45,12 +49,18 @@ execution DAG.
   defaults omit the pin. Legacy configuration that still contains it is accepted
   as a no-op. `version-check` remains an explicit CI/support diagnostic.
 - Release coupling: `2.1.0` remains the published stable PyPI package and
-  retains its historical explicit wizard version flag. `2.1.1rc1` is a
-  TestPyPI-only evaluation prerelease with the new wizard-first command. The
-  documentation and static site keep those two release lenses separate.
+  retains its historical explicit wizard version flag. `2.1.1rc1` is the
+  immutable TestPyPI-only evaluation prerelease with the new wizard-first
+  command. `2.1.1rc2` is an unpublished source candidate, not a substitute
+  package command. The documentation and static site keep all three states
+  separate.
 - Prerelease first-run UX: `ai-dememory init ~/code/my-memory --wizard` after
   installing the exact TestPyPI prerelease. Client configuration remains an
   optional, inspect-before-copy action.
+- Source-only follow-up: after a completed operational wizard, the current
+  candidate may suggest the optional foreground loopback API command for a
+  dashboard or script. It does not start, install, configure, or schedule the
+  API.
 - Preserved safeguards: explicit vault binding, `--require-bound-root`,
   server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
   and bounded resource policy.
@@ -94,12 +104,13 @@ remain intact.
 
 ## Next Legal Action
 
-1. Keep 2.1.0 stable PyPI instructions and `2.1.1rc1` TestPyPI evaluation
-   instructions distinct. Do not silently replace the stable route with the
-   prerelease.
-2. Collect compatibility feedback and prepare a separate `2.1.1` stable source
-   version only when its scope is justified. That release requires its own
-   exact-tag authorization, publication authorization, and external readback.
+1. Keep 2.1.0 stable PyPI instructions, the published `2.1.1rc1` TestPyPI
+   evaluation route, and the untagged `2.1.1rc2` source candidate distinct.
+   Do not silently replace a package route with source behavior.
+2. Before any later rc2 package release, obtain a fresh exact-head review and
+   green CI, then require separate exact-tag authorization, publication
+   authorization, and external readback. A stable `2.1.1` source version is a
+   separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
 4. After this small V2 correction, the next product frontier remains `B04b`:

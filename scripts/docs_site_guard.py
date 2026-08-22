@@ -79,7 +79,10 @@ STABLE_RELEASE_CONTRACTS = {
     },
 }
 
-SOURCE_CANDIDATE_REQUIRED_COMMANDS = (
+# This is the first-run command paired with each *published* prerelease
+# package block. An untagged source candidate must not gain a copyable block
+# merely because it uses the same wizard syntax.
+PUBLISHED_PRERELEASE_REQUIRED_COMMANDS = (
     "ai-dememory init ~/code/my-memory --wizard",
 )
 
@@ -314,11 +317,17 @@ ALLOWED_CSS_DATA_LABELS = frozenset(
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
     markers = [f"published stable {stable_version}"]
     if source_version != stable_version:
-        contract = PUBLISHED_PRERELEASE_CONTRACTS.get(source_version)
-        if contract is None:
+        # Published prereleases retain their own immutable install route even
+        # after the checked-out source advances. Do not make that historical
+        # route depend on the current source version: a new source candidate
+        # is not evidence that a published package disappeared or was
+        # superseded on an index.
+        markers.extend(
+            contract["scope_marker"]
+            for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+        )
+        if source_version not in PUBLISHED_PRERELEASE_CONTRACTS:
             markers.append(f"source candidate {source_version} is unreleased")
-        else:
-            markers.append(contract["scope_marker"])
     return tuple(markers)
 
 
@@ -1954,9 +1963,7 @@ def _normalized_package_command(command: str) -> str:
     return " ".join(normalized.split()).casefold()
 
 
-def _approved_package_commands(
-    stable_version: str, source_version: str | None = None
-) -> set[str]:
+def _approved_package_commands(stable_version: str) -> set[str]:
     expected_spec = f"ai-dememory=={stable_version}"
     commands = {
         f"pipx install {expected_spec}",
@@ -1965,10 +1972,14 @@ def _approved_package_commands(
         f"python3 -m pip install {expected_spec}",
         f"py -3 -m pip install {expected_spec}",
     }
-    if source_version is not None:
-        prerelease_contract = PUBLISHED_PRERELEASE_CONTRACTS.get(source_version)
-        if prerelease_contract is not None:
-            commands.add(prerelease_contract["package_command"])
+    # The source checkout can advance beyond an immutable TestPyPI candidate.
+    # Each published contract remains a permitted exact package command until
+    # its evidence record is deliberately retired; never infer availability
+    # from ``source_version``.
+    commands.update(
+        contract["package_command"]
+        for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+    )
     return commands
 
 
@@ -2038,7 +2049,7 @@ def _stable_command_errors(
         errors.append(
             f"{label}:{line_number}: security-sensitive command must use literal Markdown-free command text: {reconstructed!r}"
         )
-    allowed_package_commands = _approved_package_commands(stable_version, source_version)
+    allowed_package_commands = _approved_package_commands(stable_version)
     normalized_allowed_package_commands = {
         _normalized_package_command(command) for command in allowed_package_commands
     }
@@ -2921,7 +2932,12 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             )
     scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
-        scope_text = (repo_root / relative).read_text(encoding="utf-8").lower()
+        # Markdown prose may wrap a release sentence across physical lines.
+        # Compare its rendered-word shape instead of making the public contract
+        # depend on line width.
+        scope_text = " ".join(
+            (repo_root / relative).read_text(encoding="utf-8").lower().split()
+        )
         for marker in scope_markers:
             if marker not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
@@ -2943,36 +2959,37 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         ),
         ("complete historical MCP surface", "admin compatibility warning"),
     ]
-    prerelease_contract = PUBLISHED_PRERELEASE_CONTRACTS.get(source_version)
-    if source_version != stable_version:
-        if prerelease_contract is None:
-            install_expectations.extend(
-                [
-                    (
-                        "not installable from a package index until it is tagged and published",
-                        "unpublished candidate availability warning",
-                    ),
-                    (
-                        "ai-dememory init ~/code/my-memory --wizard",
-                        "candidate wizard-first vault command",
-                    ),
-                ]
-            )
-        else:
-            install_expectations.extend(
-                [
-                    (prerelease_contract["install_marker"], "prerelease availability marker"),
-                    (prerelease_contract["package_command"], "exact prerelease install command"),
-                    (
-                        "Use an isolated virtual environment for this TestPyPI evaluation",
-                        "prerelease isolation guidance",
-                    ),
-                    (
-                        "ai-dememory init ~/code/my-memory --wizard",
-                        "prerelease wizard-first vault command",
-                    ),
-                ]
-            )
+    # Published TestPyPI routes remain visible and copyable after source moves
+    # on. The current source candidate is a separate status claim, never an
+    # implied package installation route.
+    for prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.values():
+        install_expectations.extend(
+            [
+                (prerelease_contract["install_marker"], "prerelease availability marker"),
+                (prerelease_contract["package_command"], "exact prerelease install command"),
+                (
+                    "Use an isolated virtual environment for this TestPyPI evaluation",
+                    "prerelease isolation guidance",
+                ),
+                (
+                    "ai-dememory init ~/code/my-memory --wizard",
+                    "prerelease wizard-first vault command",
+                ),
+            ]
+        )
+    source_is_unreleased_candidate = (
+        source_version != stable_version
+        and source_version not in PUBLISHED_PRERELEASE_CONTRACTS
+    )
+    if source_is_unreleased_candidate:
+        install_expectations.extend(
+            [
+                (
+                    "not installable from a package index until it is tagged and published",
+                    "unpublished candidate availability warning",
+                ),
+            ]
+        )
     for expected, label in install_expectations:
         if expected not in install:
             errors.append(f"install/index.html: stale or missing {label}: {expected!r}")
@@ -3029,9 +3046,13 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     )
                 )
         stable_label = f"stable-{stable_version}"
-        known_release_labels = {stable_label}
-        if source_version != stable_version:
-            known_release_labels.add(f"source-{source_version}")
+        known_release_labels = {
+            stable_label,
+            *(
+                f"source-{prerelease_version}"
+                for prerelease_version in PUBLISHED_PRERELEASE_CONTRACTS
+            ),
+        }
         for release in sorted(release_block_texts):
             if release not in known_release_labels:
                 errors.append(
@@ -3070,36 +3091,43 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 )
             errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
 
-        if source_version != stable_version:
-            source_label = f"source-{source_version}"
-            source_text = "\n".join(release_blocks.get(source_label, []))
-            source_commands = {
+        # Do not require a copyable command block for an untagged source
+        # candidate. Only immutable, published prereleases may own one.
+        for prerelease_version, prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.items():
+            prerelease_label = f"source-{prerelease_version}"
+            prerelease_text = "\n".join(release_blocks.get(prerelease_label, []))
+            prerelease_commands = {
                 command
-                for block in release_block_texts.get(source_label, [])
+                for block in release_block_texts.get(prerelease_label, [])
                 for command in _executable_command_lines(block)
             }
-            if not source_text:
-                errors.append(f"site: no command block is labelled {source_label!r}")
-            required_source_commands = list(SOURCE_CANDIDATE_REQUIRED_COMMANDS)
-            if prerelease_contract is not None:
-                required_source_commands.insert(0, prerelease_contract["package_command"])
-            for command in required_source_commands:
-                if command not in source_commands:
+            if not prerelease_text:
+                errors.append(
+                    f"site: no command block is labelled published prerelease {prerelease_label!r}"
+                )
+            required_prerelease_commands = (
+                prerelease_contract["package_command"],
+                *PUBLISHED_PRERELEASE_REQUIRED_COMMANDS,
+            )
+            for command in required_prerelease_commands:
+                if command not in prerelease_commands:
                     errors.append(
-                        f"site: source {source_version} command block is missing {command!r}"
+                        f"site: published prerelease {prerelease_version} command block is missing {command!r}"
                     )
-            expected_source_block_commands = tuple(required_source_commands)
-            for block in release_block_texts.get(source_label, []):
+            for block in release_block_texts.get(prerelease_label, []):
                 literal_commands = tuple(
                     line.strip() for line in block.splitlines() if line.strip()
                 )
-                if literal_commands != expected_source_block_commands:
+                if literal_commands != required_prerelease_commands:
                     errors.append(
-                        f"site: source {source_version} command block must contain only the approved prerelease install and wizard commands: {literal_commands!r}"
+                        f"site: published prerelease {prerelease_version} command block must contain only "
+                        f"the approved prerelease install and wizard commands: {literal_commands!r}"
                     )
-            for marker in SOURCE_CANDIDATE_REQUIRED_COMMANDS:
-                if marker not in source_text:
-                    errors.append(f"site: source {source_version} command blocks are missing {marker!r}")
+            for marker in PUBLISHED_PRERELEASE_REQUIRED_COMMANDS:
+                if marker not in prerelease_text:
+                    errors.append(
+                        f"site: published prerelease {prerelease_version} command blocks are missing {marker!r}"
+                    )
 
     policy_path = repo_root / "SECURITY.md"
     policy_exists = policy_path.exists()

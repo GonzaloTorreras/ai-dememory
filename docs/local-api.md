@@ -17,9 +17,11 @@ not the normal way to run the API.
 | A local dashboard or script that can call loopback HTTP without a cross-origin browser request | This loopback REST API |
 | No local HTTP consumer | Skip the API entirely |
 
-The current unreleased source line's operational wizard may show the API command
-as an optional next action for dashboards and scripts. It never starts a server,
-edits a client configuration, or creates a schedule for it.
+The current unreleased 2.1.1rc2 source line's operational wizard may show the
+API command as an optional next action for dashboards and scripts. It never
+starts a server, edits a client configuration, or creates a schedule for it.
+That source candidate is not an additional package-install route: use a
+published package before following this guide.
 
 The API is not a CORS service: a browser UI served from another origin cannot
 call it. Use a same-origin local UI or a native/local script instead.

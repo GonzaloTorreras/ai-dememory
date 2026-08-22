@@ -8,7 +8,9 @@ it must never be the vault.
 
 Published stable 2.1.0 is the current PyPI release. TestPyPI prerelease 2.1.1rc1
 is an evaluation route only. The stable generated configuration keeps its
-historical runtime pin; the prerelease removes that emitted pin.
+historical runtime pin; the prerelease removes that emitted pin. Source
+candidate 2.1.1rc2 is unreleased and cannot be installed from a package index
+yet, so it does not replace the documented TestPyPI route.
 
 ## Generate, Do Not Hand Assemble
 

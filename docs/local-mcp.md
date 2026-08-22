@@ -35,7 +35,9 @@ native JSON shape. Full field examples are in
 The TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI upgrade.
 After its exact install from [Installation](install.md), use the shorter
 wizard-first command `ai-dememory init ~/code/my-memory --wizard`.
-Prerelease-generated MCP configuration omits the legacy stable pin.
+Prerelease-generated MCP configuration omits the legacy stable pin. Source
+candidate 2.1.1rc2 is unreleased: it must not replace that published package
+command until it has its own tag and package-index readback.
 
 ## What The Generated Fragment Protects
 

@@ -29,6 +29,10 @@ Markdown and can be rebuilt.
   `a5140a81e4d153c8e7f41b0f2a88649030942c51`. It is not a PyPI stable release;
   its source behavior, tag, package, and index installation were verified by
   the immutable release workflow.
+- Source candidate 2.1.1rc2 is unreleased. It is untagged and not installable
+  from a package index until it has its own reviewed tag, TestPyPI publication,
+  and index readback; it must not be confused with the published 2.1.1rc1
+  evaluation artifact.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Python 3.11+ is the only headless runtime. Node is not an installation or
@@ -86,6 +90,13 @@ ai-dememory init ~/code/my-memory --wizard
 This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
 next stable guide will replace the legacy 2.1.0 path only after a separately
 prepared, reviewed, tagged, and published `2.1.1` release.
+
+### Current source candidate 2.1.1rc2: not an installation route
+
+The checked-out source adds the optional post-wizard local API suggestion and
+the documentation separation in this PR. It is deliberately not a third
+installation command: use stable 2.1.0 or the published TestPyPI 2.1.1rc1
+route above until 2.1.1rc2 has an immutable tag and package-index readback.
 
 ### Connect a client when you are ready
 

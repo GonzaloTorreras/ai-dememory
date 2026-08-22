@@ -14,7 +14,9 @@ binding. Source-checkout commands are confined to the maintainer section below.
 **Release scope:** Published stable 2.1.0 is the only package available from
 PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
 release. The prerelease keeps the same bounded profiles and idle leases while
-removing the generated compatibility pin.
+removing the generated compatibility pin. Source candidate 2.1.1rc2 is
+unreleased and not installable from a package index; it does not alter the
+published operational commands below.
 
 ## After Installing Exact 2.1.0
 
