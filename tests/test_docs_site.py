@@ -2131,6 +2131,15 @@ python3 -m pip install -e .
         self.assertNotIn("browser UI integration is not currently supported", guide)
         self.assertNotIn("conventional reverse proxy does not bypass", guide)
 
+    def test_development_status_does_not_freeze_a_moving_main_sha(self) -> None:
+        status = (REPO_ROOT / "docs" / "development-status.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Public `main` is a moving source branch", status)
+        self.assertIn("git ls-remote origin refs/heads/main", status)
+        self.assertNotIn("- Public `main`:\n  `", status)
+
     def test_clipboard_fallback_selects_commands_and_updates_accessible_status(self) -> None:
         javascript = (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8")
         self.assertIn("document.createRange()", javascript)
