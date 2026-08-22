@@ -848,22 +848,37 @@ class OnboardingTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
-            expected_command = render_copy_command(
+            expected_commands = [
                 [
                     "ai-dememory",
                     "--root",
                     str(created_vault.resolve()),
                     "setup",
                     "wizard",
-                ]
-            )
+                ],
+                [
+                    "ai-dememory",
+                    "--root",
+                    str(created_vault.resolve()),
+                    "doctor",
+                ],
+                [
+                    "ai-dememory",
+                    "--root",
+                    str(created_vault.resolve()),
+                    "index",
+                ],
+            ]
             ambient_entries = list(ambient_vault.iterdir())
 
         rendered = output.getvalue()
 
         self.assertEqual(exit_code, 0)
-        self.assertIn(expected_command, rendered)
+        for command in expected_commands:
+            self.assertIn(render_copy_command(command), rendered)
         self.assertNotIn("`ai-dememory setup wizard`", rendered)
+        self.assertNotIn("`ai-dememory doctor`", rendered)
+        self.assertNotIn("`ai-dememory index`", rendered)
         self.assertEqual(ambient_entries, [])
 
     def test_apply_requires_matching_preview_fingerprint(self) -> None:
