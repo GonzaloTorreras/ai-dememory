@@ -18,13 +18,18 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 MCP_SERVER = ROOT / "mcp" / "server"
+if str(ROOT) not in sys.path:
+    # Direct source-script invocation must import only the trusted checkout,
+    # never a package supplied by the current working directory.
+    sys.path.insert(0, str(ROOT))
 if str(MCP_SERVER) not in sys.path:
     sys.path.insert(0, str(MCP_SERVER))
 
 from graph_memory import build_graph
 from index_memory import default_db_path, rebuild_index
 from ai_dememory_tool.mcp_server.memory_mcp import get_memory, write_proposal
-from memorylib import repo_root
+from ai_dememory_tool.argument_safety import duplicate_options
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from search_memory import result_to_dict, search
 from secret_scan import scan_paths
 
@@ -321,15 +326,21 @@ def serve(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Defaults to loopback only.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port.")
     parser.add_argument("--api-key", default=None, help="Optional API key. Defaults to AI_DEMEMORY_API_KEY.")
     parser.add_argument("--tls-cert", default=None, help="PEM certificate required for non-loopback binds.")
     parser.add_argument("--tls-key", default=None, help="PEM private key required for non-loopback binds.")
-    args = parser.parse_args(argv)
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    if duplicate_options(arguments, ("--root",)):
+        parser.error("--root may be specified at most once")
+    args = parser.parse_args(arguments)
 
-    root = repo_root(args.root)
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
     api_key = args.api_key or os.environ.get("AI_DEMEMORY_API_KEY")
     if not is_loopback_host(args.host) and not api_key:
         print(

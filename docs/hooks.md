@@ -27,19 +27,23 @@ MCP `memory.context` (`public_only=true`, `include_working_memory=false`) or
 Do not use auto context, working-memory tools, graph/resources/prompts, or a
 surface without a public-only ceiling for that work.
 
-The CLI supports Codex plugin hooks and Claude Code command hooks:
+The CLI supports Codex plugin hooks and Claude Code command hooks. Only
+`hooks events` is rootless static metadata. Every stateful `hooks` subcommand,
+manual `hook-event` capture, and dispatch needs an absolute `--root <vault>`
+(or `~` path after home expansion) or `AI_DEMEMORY_ROOT`; none discovers a
+vault from the current directory or source checkout. An explicit non-empty
+`--root` takes precedence over the environment.
 
 ```bash
 ai-dememory hooks events
-ai-dememory hooks list
-ai-dememory hooks captures --json
-ai-dememory hooks review --help
-ai-dememory hooks config --client codex
-ai-dememory hooks config --client claude
+ai-dememory hooks list --root ~/code/my-memory
+ai-dememory hooks captures --root ~/code/my-memory --json
+ai-dememory hooks review --root ~/code/my-memory --help
+ai-dememory hooks config --client codex --root ~/code/my-memory
+ai-dememory hooks config --client claude --root ~/code/my-memory
 ```
 
-Use `--root <vault>` when generating config for a vault outside the current
-directory:
+Use `--root <vault>` whenever the environment does not already name the vault:
 
 ```bash
 ai-dememory hooks config --client codex --root ~/code/my-memory
@@ -73,8 +77,8 @@ ai-dememory hooks install --client claude --root C:\Users\you\memory
 Use `--dry-run` to preview install or uninstall operations without writing:
 
 ```bash
-ai-dememory hooks install --client all --dry-run --json
-ai-dememory hooks uninstall --client all --dry-run --json
+ai-dememory hooks install --client all --root ~/code/my-memory --dry-run --json
+ai-dememory hooks uninstall --client all --root ~/code/my-memory --dry-run --json
 ```
 
 ## Supported Events
@@ -180,10 +184,10 @@ next action when unresolved hook captures are due for review.
 Filter high-volume review queues by provider, event, or review status:
 
 ```bash
-ai-dememory hooks captures --provider codex --review-status pending --json
-ai-dememory hooks captures --provider claude --event SessionStart --write-report
-ai-dememory hooks captures --created-from 2026-06-01 --created-to 2026-06-30 --json
-ai-dememory hooks captures --review-after-from 2026-06-20 --review-after-to 2026-06-21 --json
+ai-dememory hooks captures --root ~/code/my-memory --provider codex --review-status pending --json
+ai-dememory hooks captures --root ~/code/my-memory --provider claude --event SessionStart --write-report
+ai-dememory hooks captures --root ~/code/my-memory --created-from 2026-06-01 --created-to 2026-06-30 --json
+ai-dememory hooks captures --root ~/code/my-memory --review-after-from 2026-06-20 --review-after-to 2026-06-21 --json
 ```
 
 Allowed review-status filters are `pending`, `resolved`, `reviewed`,
@@ -195,7 +199,7 @@ frontmatter `created_at` and `review_after` dates.
 Close a reviewed hook capture without promoting memory:
 
 ```bash
-ai-dememory hooks review \
+ai-dememory hooks review --root ~/code/my-memory \
   --path inbox/session-events/<capture>.md \
   --status dismissed \
   --reviewed-by "Your Name" \
@@ -216,14 +220,14 @@ and returns `canonical_memory_updated=false`.
 Preview archival for reviewed captures:
 
 ```bash
-ai-dememory hooks archive --json
-ai-dememory hooks archive --provider codex --review-status dismissed --min-reviewed-days 7 --json
+ai-dememory hooks archive --root ~/code/my-memory --json
+ai-dememory hooks archive --root ~/code/my-memory --provider codex --review-status dismissed --min-reviewed-days 7 --json
 ```
 
 Apply archival only after reviewing the preview:
 
 ```bash
-ai-dememory hooks archive --apply --min-reviewed-days 7 --json
+ai-dememory hooks archive --root ~/code/my-memory --apply --min-reviewed-days 7 --json
 ```
 
 The archive command moves only resolved captures from `inbox/session-events/`
@@ -233,8 +237,8 @@ does not read raw payload bodies, and does not promote canonical memory.
 For a durable review handoff, write a local report:
 
 ```bash
-ai-dememory hooks captures --write-report
-ai-dememory hooks captures --write-report --report-path reports/hook-captures.md
+ai-dememory hooks captures --root ~/code/my-memory --write-report
+ai-dememory hooks captures --root ~/code/my-memory --write-report --report-path reports/hook-captures.md
 ```
 
 The report path must stay inside the memory root. The rendered report is
@@ -245,17 +249,17 @@ payload text even when an individual capture was created with `--capture-raw`.
 
 ## Managed Instruction Blocks
 
-`ai-dememory hooks install` patches instruction files with managed blocks:
+`ai-dememory hooks install --root <vault>` patches instruction files with managed blocks:
 
 - Codex: `AGENTS.md`
 - Claude Code: `CLAUDE.md`
 
 The managed blocks are bounded by HTML comments and can be updated
-idempotently. `ai-dememory hooks uninstall` removes only those blocks and
+idempotently. `ai-dememory hooks uninstall --root <vault>` removes only those blocks and
 leaves unrelated instruction text untouched.
 
 The installer does not write client settings files. Use
-`ai-dememory hooks config --client <client>` for the hook config fragment and
+`ai-dememory hooks config --client <client> --root <vault>` for the hook config fragment and
 copy it through the relevant client setup flow.
 
 ## Manual Capture
@@ -263,15 +267,15 @@ copy it through the relevant client setup flow.
 You can test capture without installing hooks:
 
 ```bash
-printf '{"prompt":"non-secret setup note"}' | ai-dememory hook-event --provider codex --event UserPromptSubmit
-printf '{"source":"startup"}' | ai-dememory hook-event --provider claude --event SessionStart
+printf '{"prompt":"non-secret setup note"}' | ai-dememory hook-event --root ~/code/my-memory --provider codex --event UserPromptSubmit
+printf '{"source":"startup"}' | ai-dememory hook-event --root ~/code/my-memory --provider claude --event SessionStart
 ```
 
 PowerShell:
 
 ```powershell
-'{"prompt":"non-secret setup note"}' | ai-dememory hook-event --provider codex --event UserPromptSubmit
-'{"source":"startup"}' | ai-dememory hook-event --provider claude --event SessionStart
+'{"prompt":"non-secret setup note"}' | ai-dememory hook-event --root C:\Users\you\memory --provider codex --event UserPromptSubmit
+'{"source":"startup"}' | ai-dememory hook-event --root C:\Users\you\memory --provider claude --event SessionStart
 ```
 
 Direct capture returns a JSON receipt. Use `hook-event dispatch` to test the
@@ -300,5 +304,5 @@ filtering. It also accepts `capture_created_from`, `capture_created_to`,
 `capture_review_after_from`, and `capture_review_after_to` date-window
 arguments.
 
-Hook capture archival remains CLI-only through `ai-dememory hooks archive`;
+Hook capture archival remains CLI-only through `ai-dememory hooks archive --root <vault>`;
 reviewers should preview it before running with `--apply`.

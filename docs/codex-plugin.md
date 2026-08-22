@@ -243,11 +243,11 @@ and conflict merge proposals review-first. `memory.git_lessons` lets the plugin
 preview local git lesson candidates and only writes to `inbox/git-lessons/` when
 `dry_run=false`.
 Hook capture review outcomes can be recorded through either
-`ai-dememory hooks review` or approval-gated MCP `memory.hook_capture_review`;
+`ai-dememory hooks review --root <vault>` or approval-gated MCP `memory.hook_capture_review`;
 both update only selected `inbox/session-events/` candidates and return
 `canonical_memory_updated=false`.
 Archival of resolved hook captures remains CLI-only through
-`ai-dememory hooks archive`; preview it before applying moves to
+`ai-dememory hooks archive --root <vault>`; preview it before applying moves to
 `archive/session-events/`.
 Archival of accepted or rejected review recommendation artifacts is also
 CLI-only through `ai-dememory review recommendations-archive`; preview it
@@ -384,17 +384,22 @@ same provider, event, and payload fingerprint reuse the existing inbox file.
 JSON hook payloads use canonical sorted-key fingerprints, while non-JSON
 payloads use raw-text fingerprints.
 
+The checked-in generic hook template deliberately has no vault path, so it
+returns an inert `{}` until an absolute `AI_DEMEMORY_ROOT` is configured.
+Generate a vault-specific fragment to embed an absolute `--root`; stateful hook
+commands never infer a vault from the client project or this source checkout.
+
 Generate provider hook fragments with:
 
 ```bash
-ai-dememory hooks config --client codex
-ai-dememory hooks config --client claude
+ai-dememory hooks config --client codex --root ~/code/my-memory
+ai-dememory hooks config --client claude --root ~/code/my-memory
 ```
 
 Inspect managed hook instruction status with:
 
 ```bash
-ai-dememory hooks list --json
+ai-dememory hooks list --root ~/code/my-memory --json
 ```
 
 MCP clients can use read-only `memory.hook_status` for the same setup signal and
@@ -410,7 +415,7 @@ a date window.
 Generate a frontmatter-only review report from the local CLI with:
 
 ```bash
-ai-dememory hooks captures --write-report
+ai-dememory hooks captures --root ~/code/my-memory --write-report
 ```
 
 The report is written under the vault, path-bounded to the memory root, and
@@ -421,19 +426,19 @@ text.
 After review, close candidates that do not need promotion with:
 
 ```bash
-ai-dememory hooks review --path inbox/session-events/<capture>.md --status dismissed --reviewed-by "Your Name" --reason "No durable memory needed."
+ai-dememory hooks review --root ~/code/my-memory --path inbox/session-events/<capture>.md --status dismissed --reviewed-by "Your Name" --reason "No durable memory needed."
 ```
 
 MCP clients can record the same receipt with `memory.hook_capture_review` when
 the user approves the selected capture, status, reviewer, and reason.
 Resolved hook captures can be moved out of the review inbox with the local CLI
-`ai-dememory hooks archive --json`, followed by `--apply` only after approval.
+`ai-dememory hooks archive --root ~/code/my-memory --json`, followed by `--apply` only after approval.
 
 Install or remove managed agent instruction blocks with:
 
 ```bash
-ai-dememory hooks install --client codex
-ai-dememory hooks uninstall --client codex
+ai-dememory hooks install --client codex --root ~/code/my-memory
+ai-dememory hooks uninstall --client codex --root ~/code/my-memory
 ```
 
 See [hooks.md](hooks.md) for Claude Code hook configuration, safety boundaries,

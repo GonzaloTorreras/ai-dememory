@@ -25,8 +25,11 @@ class VaultBinding:
     source: Literal["argument", "environment"]
 
 
-def _resolved_path(value: str) -> Path:
-    return Path(value).expanduser().resolve()
+def _resolved_path(value: str, label: str) -> Path:
+    expanded = Path(value).expanduser()
+    if not expanded.is_absolute():
+        raise VaultBindingError(f"{label} requires an absolute vault path")
+    return expanded.resolve()
 
 
 def resolve_runtime_vault(
@@ -37,14 +40,15 @@ def resolve_runtime_vault(
     """Select a runtime vault without CWD, package, or mutable-global fallback.
 
     A supplied argument always wins over the environment, including when the
-    environment is malformed. Empty environment values mean no binding, while
-    whitespace-only values are rejected so they cannot resolve to CWD.
+    environment is malformed. Bindings must be absolute after home expansion.
+    Empty environment values mean no binding, while whitespace-only or relative
+    values are rejected so they cannot resolve against CWD.
     """
 
     if explicit_root is not None:
         if not explicit_root.strip():
             raise VaultBindingError("--root requires a non-empty vault path")
-        return VaultBinding(_resolved_path(explicit_root), "argument")
+        return VaultBinding(_resolved_path(explicit_root, "--root"), "argument")
 
     environment = os.environ if environ is None else environ
     configured_root = environment.get("AI_DEMEMORY_ROOT")
@@ -54,4 +58,4 @@ def resolve_runtime_vault(
         )
     if not configured_root.strip():
         raise VaultBindingError("AI_DEMEMORY_ROOT requires a non-empty vault path")
-    return VaultBinding(_resolved_path(configured_root), "environment")
+    return VaultBinding(_resolved_path(configured_root, "AI_DEMEMORY_ROOT"), "environment")

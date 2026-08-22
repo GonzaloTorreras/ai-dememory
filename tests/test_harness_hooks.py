@@ -8,7 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 
@@ -25,6 +25,12 @@ from ai_dememory_tool.cli import main as cli_main  # noqa: E402
 class _Stdin:
     def __init__(self, text: str) -> None:
         self.buffer = io.BytesIO(text.encode("utf-8"))
+
+
+class _UnreadStdin:
+    @property
+    def buffer(self) -> io.BytesIO:
+        raise AssertionError("an unbound hook must not read stdin")
 
 
 class HarnessHookTests(unittest.TestCase):
@@ -236,6 +242,133 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(output.getvalue()), {})
         self.assertNotIn("Captured", output.getvalue())
+
+    def test_unbound_dispatch_is_inert_without_reading_stdin_or_recalling(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("hook_event.dispatch_hook_event") as dispatch,
+            patch("sys.stdin", _UnreadStdin()),
+            redirect_stdout(output),
+        ):
+            exit_code = hook_event_main(
+                ["dispatch", "--client", "codex", "--event", "UserPromptSubmit"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue(), "{}\n")
+        dispatch.assert_not_called()
+
+    def test_dispatch_blank_explicit_root_does_not_fall_back_to_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": tmp}, clear=True),
+                patch("hook_event.dispatch_hook_event") as dispatch,
+                patch("sys.stdin", _UnreadStdin()),
+                redirect_stdout(output),
+            ):
+                exit_code = hook_event_main(
+                    [
+                        "--root=",
+                        "dispatch",
+                        "--client",
+                        "codex",
+                        "--event",
+                        "UserPromptSubmit",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue(), "{}\n")
+        dispatch.assert_not_called()
+
+    def test_direct_hook_entrypoint_rejects_duplicate_roots(self) -> None:
+        error = io.StringIO()
+        with redirect_stderr(error):
+            exit_code = hook_event_main(
+                [
+                    "--root",
+                    "first-vault",
+                    "dispatch",
+                    "--root",
+                    "second-vault",
+                    "--client",
+                    "codex",
+                    "--event",
+                    "UserPromptSubmit",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("--root may be specified at most once", error.getvalue())
+
+    def test_dispatch_relative_environment_root_is_inert_without_reading_stdin(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": "."}, clear=True),
+            patch("hook_event.dispatch_hook_event") as dispatch,
+            patch("sys.stdin", _UnreadStdin()),
+            redirect_stdout(output),
+        ):
+            exit_code = hook_event_main(
+                ["dispatch", "--client", "codex", "--event", "UserPromptSubmit"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue(), "{}\n")
+        dispatch.assert_not_called()
+
+    def test_stateful_hook_commands_require_a_vault_binding(self) -> None:
+        commands = (
+            ["--provider", "codex", "--event", "UserPromptSubmit"],
+            ["list"],
+            ["captures"],
+            [
+                "review",
+                "--path",
+                "inbox/session-events/example.md",
+                "--status",
+                "dismissed",
+                "--reviewed-by",
+                "Unit Test",
+                "--reason",
+                "No durable memory needed.",
+            ],
+            ["archive"],
+            ["config"],
+            ["install", "--dry-run"],
+            ["uninstall", "--dry-run"],
+        )
+        for argv in commands:
+            with self.subTest(argv=argv):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {}, clear=True),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    hook_event_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("runtime vault binding requires", error.getvalue())
+
+    def test_hook_config_requires_and_serializes_the_explicit_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "explicit-vault"
+            environment_root = Path(tmp) / "environment-vault"
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(environment_root)}, clear=True),
+                redirect_stdout(output),
+            ):
+                exit_code = hook_event_main(["config", "--root", str(root), "--client", "codex"])
+
+        config = json.loads(output.getvalue())
+        command = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(root.resolve()), command)
+        self.assertNotIn(str(environment_root.resolve()), command)
 
     def test_client_allowlists_and_metadata_switch_are_enforced(self) -> None:
         payload = json.dumps({"prompt": "Continue reviewed project work"})

@@ -7738,6 +7738,73 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(search_result["results"][0]["id"], "mem_codex_test")
         self.assertTrue(any(node["id"] == "mem_codex_test" for node in graph_result["nodes"]))
 
+    def test_api_requires_a_runtime_binding_before_starting_a_socket(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("http_api.serve") as start_server,
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            api_main(["--host", "127.0.0.1", "--port", "8765"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("runtime vault binding requires", error.getvalue())
+        start_server.assert_not_called()
+
+    def test_cli_api_does_not_discover_an_ambient_root(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            cli_main(["api"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("runtime vault binding requires", error.getvalue())
+        root_resolver.assert_not_called()
+
+    def test_api_explicit_binding_wins_over_a_malformed_environment_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "explicit-vault"
+            error = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                patch("http_api.serve", side_effect=OSError("socket fixture")) as start_server,
+                redirect_stderr(error),
+            ):
+                exit_code = api_main(["--root", str(root)])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("API startup failed", error.getvalue())
+        self.assertEqual(start_server.call_args.args[0], root.resolve())
+
+    def test_direct_api_entrypoint_rejects_duplicate_roots(self) -> None:
+        error = io.StringIO()
+        with (
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            api_main(["--root", "first-vault", "--root", "second-vault"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--root may be specified at most once", error.getvalue())
+
+    def test_direct_api_entrypoint_rejects_relative_root_before_starting(self) -> None:
+        error = io.StringIO()
+        with (
+            patch("http_api.serve") as start_server,
+            redirect_stderr(error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            api_main(["--root", "."])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("--root requires an absolute vault path", error.getvalue())
+        start_server.assert_not_called()
+
     def test_api_refuses_unauthenticated_network_bind(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

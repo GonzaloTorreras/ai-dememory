@@ -51,7 +51,7 @@ durable memory.
   `ai-dememory hooks config --client <codex|claude> --root <vault>`.
   Hook recall is public-only by default and capture metadata is off unless the
   chosen profile enables it. Preview managed instruction changes with
-  `hooks install --dry-run`.
+  `ai-dememory hooks install --root <vault> --dry-run`.
 - Inspect providers with `providers detect` and `providers plan --json`.
   Preview configuration and import before either write:
   `providers configure <provider> --path <path> --dry-run --json`, then

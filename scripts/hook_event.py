@@ -17,6 +17,14 @@ import shutil
 import sys
 import tempfile
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if str(SOURCE_ROOT) not in sys.path:
+    # A direct source-script invocation may start outside the checkout. This
+    # bridge is derived from this trusted file, never from a vault or CWD.
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from ai_dememory_tool.argument_safety import duplicate_options
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from memorylib import (
     FrontmatterError,
     SOURCE_KINDS,
@@ -25,7 +33,6 @@ from memorylib import (
     parse_frontmatter_text,
     path_is_link_like,
     repo_relative_path,
-    repo_root,
     safe_write_text,
     slugify,
 )
@@ -1268,15 +1275,23 @@ def serialize_windows_hook_command(args: list[str]) -> str:
     )
 
 
+def require_runtime_hook_vault(parser: argparse.ArgumentParser, root_argument: str | None) -> Path:
+    """Resolve a hook vault without ambient checkout or CWD discovery."""
+    try:
+        return resolve_runtime_vault(root_argument).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
+
+
 def run_capture(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--provider", default="codex", choices=tuple(HOOK_EVENTS), help="Hook provider.")
     parser.add_argument("--event", required=True, help="Provider hook event name.")
     parser.add_argument("--capture-raw", action="store_true", help="Include raw hook payload after secret scan.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
     policy = resolved_resource_policy(root)
     resources = policy.get("resources", {})
@@ -1298,7 +1313,7 @@ def run_capture(argv: list[str] | None = None) -> int:
 def run_dispatch(argv: list[str] | None = None) -> int:
     """Dispatch a generic stdin JSON hook without ever emitting free-form stdout."""
     parser = argparse.ArgumentParser(description="Inject relevant memory into a harness hook.")
-    parser.add_argument("--root", default=None, help="Memory vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Memory vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--client", "--provider", dest="client", choices=(*HOOK_EVENTS.keys(), "generic"), default="generic")
     parser.add_argument("--event", required=True, help="Harness event name.")
     parser.add_argument("--budget-tokens", type=int, default=None)
@@ -1318,9 +1333,15 @@ def run_dispatch(argv: list[str] | None = None) -> int:
     parser.set_defaults(public_only=None)
     parser.add_argument("--capture-raw", action="store_true", help="Opt in to raw metadata capture after secret scan.")
     args = parser.parse_args(argv)
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except (VaultBindingError, OSError, RuntimeError, ValueError):
+        # Hooks are a protocol boundary: no binding must neither inspect stdin
+        # nor discover a project root. Keep the host contract valid and inert.
+        print("{}")
+        return 0
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
     try:
-        root = repo_root(args.root)
         if (
             args.client in HOOK_EVENTS
             and args.event in HOOK_EVENTS[args.client]
@@ -1375,11 +1396,11 @@ def run_events(argv: list[str]) -> int:
 
 def run_list(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="List hook instruction install status.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     results = hook_status(root, [args.client])
     if args.json:
         print(json.dumps({"hooks": results_as_dicts(results)}, indent=2))
@@ -1392,7 +1413,7 @@ def run_list(argv: list[str]) -> int:
 
 def run_captures(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Summarize hook capture review candidates.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--limit", type=int, default=20, help="Maximum latest, due, and malformed entries to include.")
     parser.add_argument("--provider", choices=tuple(HOOK_EVENTS), default=None, help="Filter captures by provider.")
     parser.add_argument(
@@ -1415,7 +1436,7 @@ def run_captures(argv: list[str]) -> int:
     parser.add_argument("--report-path", default=str(DEFAULT_CAPTURE_REPORT), help="Report path relative to the vault.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     if args.limit < 1:
         parser.error("--limit must be at least 1")
     try:
@@ -1467,14 +1488,14 @@ def run_captures(argv: list[str]) -> int:
 
 def run_review(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Record a reviewed outcome on a hook capture candidate.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--path", required=True, help="Hook capture path under inbox/session-events.")
     parser.add_argument("--status", required=True, choices=tuple(sorted(HOOK_CAPTURE_REVIEW_STATUSES)))
     parser.add_argument("--reviewed-by", required=True, help="Reviewer name.")
     parser.add_argument("--reason", required=True, help="Short review reason.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     try:
         result = review_hook_capture(root, args.path, args.status, args.reviewed_by, args.reason)
     except HookEventError as exc:
@@ -1490,7 +1511,7 @@ def run_review(argv: list[str]) -> int:
 
 def run_archive(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Archive reviewed hook capture candidates.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--apply", action="store_true", help="Move eligible captures. Defaults to preview only.")
     parser.add_argument("--archive-root", default=str(DEFAULT_CAPTURE_ARCHIVE), help="Archive directory under archive/session-events.")
     parser.add_argument("--provider", choices=tuple(HOOK_EVENTS), default=None, help="Filter captures by provider.")
@@ -1510,7 +1531,7 @@ def run_archive(argv: list[str]) -> int:
     parser.add_argument("--limit", type=int, default=20, help="Maximum candidates, archived items, skips, and malformed entries to include.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     try:
         result = archive_reviewed_hook_captures(
             root,
@@ -1539,22 +1560,22 @@ def run_config(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Print provider hook configuration.")
     parser.add_argument("--client", "--provider", dest="provider", choices=tuple(HOOK_EVENTS), default="codex")
     parser.add_argument("--command", default="ai-dememory", help="Installed CLI command clients should call.")
-    parser.add_argument("--root", default=None, help="Vault root to pass to hook-event commands.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = Path(args.root).expanduser().resolve() if args.root else None
+    root = require_runtime_hook_vault(parser, args.root)
     print(json.dumps(hook_config(args.provider, command=args.command, root=root), indent=2))
     return 0
 
 
 def run_install(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Install managed hook instruction blocks.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     results = install_hook_instructions(root, [args.client], dry_run=args.dry_run)
     if args.json:
         print(json.dumps({"hooks": results_as_dicts(results)}, indent=2))
@@ -1567,12 +1588,12 @@ def run_install(argv: list[str]) -> int:
 
 def run_uninstall(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Remove managed hook instruction blocks.")
-    parser.add_argument("--root", default=None, help="Repository or vault root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files.")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    root = repo_root(args.root)
+    root = require_runtime_hook_vault(parser, args.root)
     results = uninstall_hook_instructions(root, [args.client], dry_run=args.dry_run)
     if args.json:
         print(json.dumps({"hooks": results_as_dicts(results)}, indent=2))
@@ -1602,50 +1623,53 @@ def has_root_arg(argv: list[str]) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
+    if duplicate_options(args, ("--root",)):
+        print("--root may be specified at most once", file=sys.stderr)
+        return 2
     root_override = pop_global_root(args)
     if args and args[0] == "dispatch":
         dispatch_args = args[1:]
-        if root_override and not has_root_arg(dispatch_args):
+        if root_override is not None and not has_root_arg(dispatch_args):
             dispatch_args = ["--root", root_override, *dispatch_args]
         return run_dispatch(dispatch_args)
     if args and args[0] == "events":
         return run_events(args[1:])
     if args and args[0] == "list":
         list_args = args[1:]
-        if root_override and not has_root_arg(list_args):
+        if root_override is not None and not has_root_arg(list_args):
             list_args = ["--root", root_override, *list_args]
         return run_list(list_args)
     if args and args[0] == "captures":
         capture_args = args[1:]
-        if root_override and not has_root_arg(capture_args):
+        if root_override is not None and not has_root_arg(capture_args):
             capture_args = ["--root", root_override, *capture_args]
         return run_captures(capture_args)
     if args and args[0] == "review":
         review_args = args[1:]
-        if root_override and not has_root_arg(review_args):
+        if root_override is not None and not has_root_arg(review_args):
             review_args = ["--root", root_override, *review_args]
         return run_review(review_args)
     if args and args[0] == "archive":
         archive_args = args[1:]
-        if root_override and not has_root_arg(archive_args):
+        if root_override is not None and not has_root_arg(archive_args):
             archive_args = ["--root", root_override, *archive_args]
         return run_archive(archive_args)
     if args and args[0] == "config":
         config_args = args[1:]
-        if root_override and not has_root_arg(config_args):
+        if root_override is not None and not has_root_arg(config_args):
             config_args = ["--root", root_override, *config_args]
         return run_config(config_args)
     if args and args[0] == "install":
         install_args = args[1:]
-        if root_override and not has_root_arg(install_args):
+        if root_override is not None and not has_root_arg(install_args):
             install_args = ["--root", root_override, *install_args]
         return run_install(install_args)
     if args and args[0] == "uninstall":
         uninstall_args = args[1:]
-        if root_override and not has_root_arg(uninstall_args):
+        if root_override is not None and not has_root_arg(uninstall_args):
             uninstall_args = ["--root", root_override, *uninstall_args]
         return run_uninstall(uninstall_args)
-    if root_override and not has_root_arg(args):
+    if root_override is not None and not has_root_arg(args):
         args = ["--root", root_override, *args]
     return run_capture(args)
 
