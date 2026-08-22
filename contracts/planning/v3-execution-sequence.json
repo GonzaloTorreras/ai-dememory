@@ -75,11 +75,14 @@
         "ai_dememory_tool/cli.py",
         "ai_dememory_tool/vault_binding.py",
         "mcp/server/memory_mcp.py",
+        "scripts/http_api.py",
+        "scripts/hook_event.py",
         "scripts/onboarding.py",
         "scripts/setup_plan.py",
         "scripts/maintenance.py",
         "tests/test_memory_tools.py",
         "tests/test_mcp_profiles.py",
+        "tests/test_harness_hooks.py",
         "tests/test_vault_binding.py"
       ],
       "external_readback_required": false
