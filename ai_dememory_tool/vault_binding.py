@@ -55,4 +55,3 @@ def resolve_runtime_vault(
     if not configured_root.strip():
         raise VaultBindingError("AI_DEMEMORY_ROOT requires a non-empty vault path")
     return VaultBinding(_resolved_path(configured_root), "environment")
-
