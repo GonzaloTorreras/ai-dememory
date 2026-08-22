@@ -424,18 +424,19 @@ class MemoryToolTests(unittest.TestCase):
             )
             self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
 
-    def test_mcp_config_rejects_an_ambient_tool_checkout_root(self) -> None:
+    def test_mcp_config_requires_binding_before_ambient_checkout_discovery(self) -> None:
         error = io.StringIO()
         with (
             patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-            patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT),
+            patch("ai_dememory_tool.cli.find_memory_root", return_value=ROOT) as root_resolver,
             redirect_stderr(error),
             self.assertRaises(SystemExit) as raised,
         ):
             mcp_config(["--client", "codex"])
 
         self.assertEqual(raised.exception.code, 2)
-        self.assertIn("refuses an unconfigured or nested ambient root", error.getvalue())
+        root_resolver.assert_not_called()
+        self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_nested_vault_in_sparse_checkout_requires_an_explicit_binding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -533,24 +534,27 @@ class MemoryToolTests(unittest.TestCase):
 
             self.assertTrue(ambient_root_requires_explicit_binding(vault))
 
-    def test_mcp_config_rejects_ambient_tool_checkout_descendants(self) -> None:
-        nested_roots = (
-            ROOT / "vault-template",
-            ROOT / "ai_dememory_tool" / "templates" / "vault",
-        )
-        for root in nested_roots:
-            with self.subTest(root=root):
-                error = io.StringIO()
+    def test_mcp_config_requires_a_bound_vault_without_ambient_discovery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ambient_root = Path(temporary) / "ambient-vault"
+            (ambient_root / "memories").mkdir(parents=True)
+            error = io.StringIO()
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(ambient_root)
                 with (
-                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                    patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
+                    patch.dict(os.environ, {}, clear=True),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
                     redirect_stderr(error),
                     self.assertRaises(SystemExit) as raised,
                 ):
                     mcp_config(["--client", "generic"])
+            finally:
+                os.chdir(original_cwd)
 
-                self.assertEqual(raised.exception.code, 2)
-                self.assertIn("unconfigured or nested ambient root", error.getvalue())
+        self.assertEqual(raised.exception.code, 2)
+        root_resolver.assert_not_called()
+        self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_mcp_config_accepts_explicit_checkout_descendant_bindings(self) -> None:
         root = ROOT / "vault-template"

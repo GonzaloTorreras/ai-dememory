@@ -73,11 +73,11 @@ from ai_dememory_tool.admin.memorylib import (
     load_memory,
     path_is_link_like,
     repo_relative_path,
-    repo_root,
     safe_write_text,
     slugify,
 )
 from ai_dememory_tool.admin.search_memory import result_to_dict, search
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from ai_dememory_tool.admin.provider_import import CAPTURE_KINDS, capture_source, detect_providers, import_chats, provider_setup_plan, providers_status
 from ai_dememory_tool.admin.process_control import noninteractive_git_environment, run_owned_capture
 from ai_dememory_tool.admin.resource_policy import HARD_LIMITS, model_policy_names, profile_names
@@ -2757,7 +2757,8 @@ def call_tool(
     public_ceiling: bool = False,
 ) -> Any:
     arguments = arguments or {}
-    root = root or REPO_ROOT
+    if root is None:
+        raise ValueError("MCP tool calls require an explicitly bound vault root")
     public_only = public_ceiling or bool(arguments.get("public_only", False))
     include_sensitive = (
         False
@@ -4438,20 +4439,14 @@ def run_stdio(
     return 0
 
 
-def root_binding_value(value: str | None) -> str | None:
-    """Return a root value only when it names more than whitespace.
-
-    Keep nonblank values verbatim: spaces can be part of a valid path. A
-    whitespace-only binding would otherwise resolve to the current directory
-    and make an ambient checkout appear explicitly bound.
-    """
-    return value if value is not None and value.strip() else None
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Vault root. Required for --stdio and --call unless AI_DEMEMORY_ROOT is set.",
+    )
     parser.add_argument("--stdio", action="store_true", help="Run JSON-RPC stdio server.")
     parser.add_argument(
         "--profile",
@@ -4500,27 +4495,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    explicit_root = root_binding_value(args.root)
-    configured_root_raw = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = root_binding_value(configured_root_raw)
-    if args.root is not None and explicit_root is None:
+    if args.root is not None and not args.root.strip():
         parser.error("--root requires a non-empty vault path")
-    if explicit_root is None and configured_root_raw not in (None, "") and configured_root is None:
-        parser.error("AI_DEMEMORY_ROOT requires a non-empty vault path")
-    if args.require_bound_root and not (explicit_root or configured_root):
-        parser.error("--require-bound-root needs --root or AI_DEMEMORY_ROOT")
+    if args.call is not None and not args.call.strip():
+        parser.error("--call requires a non-empty tool name")
     try:
         idle_timeout_seconds = normalize_mcp_idle_timeout_seconds(args.idle_timeout_seconds)
     except ValueError as exc:
         parser.error(str(exc))
-    root = repo_root(explicit_root)
+
     selected_profile = args.profile or ("core" if args.stdio else "admin")
+    requires_runtime_vault = args.stdio or args.call is not None or args.require_bound_root
+    root: Path | None = None
+    if requires_runtime_vault:
+        try:
+            root = resolve_runtime_vault(args.root).root
+        except VaultBindingError as exc:
+            parser.error(str(exc))
+
     if args.stdio:
+        assert root is not None
         return run_stdio(root, profile=selected_profile, idle_timeout_seconds=idle_timeout_seconds)
     if args.list_tools:
         print(json.dumps({"tools": tools_for_profile(selected_profile)}, indent=2))
         return 0
     if args.call:
+        assert root is not None
         ensure_tool_allowed(args.call, selected_profile)
         result = call_tool(
             args.call,

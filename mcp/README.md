@@ -244,5 +244,9 @@ Validate locally:
 ```bash
 python3 mcp/server/memory_mcp.py --list-tools
 python3 scripts/mcp_inventory.py --check-docs
-python3 mcp/server/memory_mcp.py --call memory.search --args '{"query":"codex","limit":3}'
+python3 mcp/server/memory_mcp.py --root ~/code/my-memory --require-bound-root --call memory.search --args '{"query":"codex","limit":3}'
 ```
+
+Only `--list-tools` is rootless static metadata. Direct `--call` and `--stdio`
+runtime sessions need `--root <private-vault>` or `AI_DEMEMORY_ROOT`; they do
+not discover a vault from the current directory or this public checkout.

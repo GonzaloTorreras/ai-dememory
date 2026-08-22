@@ -24,6 +24,7 @@ from ai_dememory_tool.mcp_profiles import (
     enabled_tools_for_profile,
     normalize_mcp_idle_timeout_seconds,
 )
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 
 
 LOCAL_COMMANDS = {
@@ -349,22 +350,18 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
+    if command == "mcp":
+        # The MCP service owns its runtime vault resolution. In particular,
+        # do not discover CWD/package roots or inject an environment binding
+        # before it can enforce the strict resolver.
+        configure_imports()
+        module = importlib.import_module("ai_dememory_tool.mcp_server.memory_mcp")
+        return int(module.main(argv))
     raw_explicit_root = root_arg_value(argv)
     if raw_explicit_root is not None and not raw_explicit_root.strip():
         cli_argument_error("--root requires a non-empty vault path")
     explicit_root = root_binding_value(raw_explicit_root)
     configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
-    if (
-        command == "mcp"
-        and "--require-bound-root" in argv
-        and not (explicit_root or configured_root)
-    ):
-        print(
-            "MCP configuration is not bound to a vault. Generate it with "
-            "`ai-dememory mcp-config --root <vault-path>`.",
-            file=sys.stderr,
-        )
-        return 2
     if command == "hook-event" and "dispatch" in argv and not (explicit_root or configured_root):
         # Never discover a hook vault from an untrusted project working tree.
         print("{}")
@@ -533,7 +530,11 @@ def mcp_config(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=LOCAL_COMMANDS["mcp-config"], allow_abbrev=False)
     parser.add_argument("--client", choices=("generic", "codex", "claude"), default="generic")
     parser.add_argument("--mode", choices=("installed", "docker"), default="installed")
-    parser.add_argument("--root", default=None, help="Vault root. Defaults to the current vault.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Vault root. Required unless AI_DEMEMORY_ROOT is set.",
+    )
     parser.add_argument("--command", default="ai-dememory", help="Command clients should launch.")
     parser.add_argument("--command-arg", action="append", default=[], help="Extra argument before `mcp --stdio`; repeatable.")
     parser.add_argument("--image", default="ai-dememory:local", help="Docker image for --mode docker.")
@@ -573,21 +574,10 @@ def mcp_config(argv: list[str]) -> int:
     )
     args = parser.parse_args(argv)
 
-    root_was_supplied = has_root_arg(argv)
-    if root_was_supplied and (not args.root or not args.root.strip()):
-        parser.error("--root requires a non-empty vault path")
-    explicit_root = root_binding_value(args.root)
-    configured_root = root_binding_value(os.environ.get("AI_DEMEMORY_ROOT"))
-    root = Path(explicit_root).expanduser().resolve() if explicit_root else find_memory_root()
-    if (
-        not explicit_root
-        and not configured_root
-        and ambient_root_requires_explicit_binding(root)
-    ):
-        parser.error(
-            "mcp-config refuses an unconfigured or nested ambient root; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
-        )
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
     try:
         output = build_mcp_config(
             args.client,

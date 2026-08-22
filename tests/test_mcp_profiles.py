@@ -108,11 +108,8 @@ class McpProfileTests(unittest.TestCase):
         self.assertEqual(initialized["serverInfo"]["version"], __version__)
 
     def test_unprofiled_stdio_server_fails_closed_to_core(self) -> None:
-        with (
-            patch("memory_mcp.repo_root", return_value=ROOT),
-            patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
-        ):
-            exit_code = mcp_main(["--stdio"])
+        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
+            exit_code = mcp_main(["--stdio", "--root", str(ROOT)])
 
         self.assertEqual(exit_code, 0)
         run_stdio.assert_called_once_with(
@@ -122,12 +119,9 @@ class McpProfileTests(unittest.TestCase):
         )
 
     def test_mcp_server_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
-        with (
-            patch("memory_mcp.repo_root", return_value=ROOT),
-            patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
-        ):
+        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
             self.assertEqual(
-                mcp_main(["--stdio", "--require-version", "0.0.0"]),
+                mcp_main(["--stdio", "--root", str(ROOT), "--require-version", "0.0.0"]),
                 0,
             )
         run_stdio.assert_called_once_with(
@@ -186,14 +180,12 @@ class McpProfileTests(unittest.TestCase):
                 error = io.StringIO()
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
-                    patch("memory_mcp.repo_root") as root_resolver,
                     patch("memory_mcp.run_stdio") as run_stdio,
                     patch("sys.stderr", error),
                     self.assertRaises(SystemExit) as raised,
                 ):
                     mcp_main(argv)
                 self.assertEqual(raised.exception.code, 2)
-                root_resolver.assert_not_called()
                 run_stdio.assert_not_called()
                 self.assertIn(message, error.getvalue())
 
@@ -205,16 +197,90 @@ class McpProfileTests(unittest.TestCase):
             with self.subTest(binding=f"valid {label}"):
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
-                    patch("memory_mcp.repo_root", return_value=ROOT) as root_resolver,
                     patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
                 ):
                     self.assertEqual(mcp_main(argv), 0)
-                root_resolver.assert_called_once_with(str(ROOT) if label == "explicit root" else None)
                 run_stdio.assert_called_once_with(
                     ROOT,
                     profile="core",
                     idle_timeout_seconds=600,
                 )
+
+    def test_mcp_runtime_requires_a_binding_before_server_or_tool_call(self) -> None:
+        invocations = (
+            ("stdio", ["--stdio"], "memory_mcp.run_stdio"),
+            (
+                "call",
+                ["--call", "memory.search", "--args", '{"query":"codex"}'],
+                "memory_mcp.call_tool",
+            ),
+        )
+        for label, argv, runtime_target in invocations:
+            with self.subTest(entrypoint=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {}, clear=True),
+                    patch(runtime_target) as runtime_call,
+                    patch("sys.stderr", error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    mcp_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                runtime_call.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
+
+    def test_mcp_list_tools_stays_rootless_static_metadata(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+            patch("memory_mcp.resolve_runtime_vault") as resolver,
+            patch("sys.stdout", output),
+        ):
+            self.assertEqual(mcp_main(["--list-tools"]), 0)
+
+        resolver.assert_not_called()
+        self.assertTrue(json.loads(output.getvalue())["tools"])
+
+    def test_mcp_metadata_respects_the_legacy_binding_flag(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("sys.stderr", error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            mcp_main(["--list-tools", "--require-bound-root"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("runtime vault binding requires", error.getvalue())
+
+    def test_mcp_rejects_a_blank_direct_tool_name_before_binding(self) -> None:
+        error = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("memory_mcp.resolve_runtime_vault") as resolver,
+            patch("memory_mcp.call_tool") as tool_call,
+            patch("sys.stderr", error),
+            self.assertRaises(SystemExit) as raised,
+        ):
+            mcp_main(["--call", ""])
+
+        self.assertEqual(raised.exception.code, 2)
+        resolver.assert_not_called()
+        tool_call.assert_not_called()
+        self.assertIn("--call requires a non-empty tool name", error.getvalue())
+
+    def test_public_cli_mcp_metadata_never_discovers_a_vault(self) -> None:
+        output = io.StringIO()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+            patch("sys.stdout", output),
+        ):
+            self.assertEqual(cli_main(["mcp", "--list-tools"]), 0)
+
+        root_resolver.assert_not_called()
+        self.assertTrue(json.loads(output.getvalue())["tools"])
 
     def test_plugin_allowlist_matches_public_ceiling(self) -> None:
         plugin = json.loads((ROOT / "plugins" / "ai-dememory" / ".mcp.json").read_text(encoding="utf-8"))
@@ -420,10 +486,7 @@ class McpProfileTests(unittest.TestCase):
             self.assertEqual(find_memory_root(), (Path(temporary) / "vault").resolve())
 
     def test_legacy_version_argument_preserves_root_profile_and_idle_controls(self) -> None:
-        with (
-            patch("memory_mcp.repo_root", return_value=ROOT) as root_resolver,
-            patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
-        ):
+        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
             self.assertEqual(
                 mcp_main(
                     [
@@ -441,7 +504,6 @@ class McpProfileTests(unittest.TestCase):
                 ),
                 0,
             )
-        root_resolver.assert_called_once_with(str(ROOT))
         run_stdio.assert_called_once_with(
             ROOT,
             profile="public",
