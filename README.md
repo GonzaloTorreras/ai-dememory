@@ -93,8 +93,8 @@ prepared, reviewed, tagged, and published `2.1.1` release.
 
 ### Current source candidate 2.1.1rc2: not an installation route
 
-The checked-out source adds the optional post-wizard local API suggestion and
-the documentation separation in this PR. It is deliberately not a third
+This checked-out source includes the optional post-wizard local API suggestion
+and its documentation separation. It is deliberately not a third
 installation command: use stable 2.1.0 or the published TestPyPI 2.1.1rc1
 route above until 2.1.1rc2 has an immutable tag and package-index readback.
 
