@@ -66,6 +66,22 @@ API onboarding hint and documentation boundaries.
   server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
   and bounded resource policy.
 
+## Current B04b Binding Increment
+
+- PR [#27](https://github.com/GonzaloTorreras/ai-dememory/pull/27) was merged
+  at `64622752d7d14c2a7f5bb49fc436010825d37d8c` after exact-head functional
+  and security review found no actionable P0/P1/P2 issue and CI run
+  [32589647682](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32589647682)
+  passed all verification and cross-platform compatibility jobs.
+- This first `BRG-003` increment rejects an explicitly supplied empty or
+  whitespace-only `--root` before the CLI can fall through to
+  `AI_DEMEMORY_ROOT` or CWD discovery. It covers global and post-command CLI
+  binding plus direct MCP-config, setup, onboarding, and maintenance entry
+  points; focused tests also preserve valid explicit-root precedence.
+- It is source hardening only: it does not change a package, tag, release,
+  vault, host configuration, or the V3 task state from `in_progress` to
+  complete. The remaining strict-resolver increment stays within `BRG-003`.
+
 ## Verified Release Evidence
 
 - PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21) was merged
@@ -114,7 +130,8 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. After this small V2 correction, the next product frontier remains `B04b`:
-   `BRG-003` (deterministic vault/root binding) and `BRG-017` (strict config
-   parsing). `BRG-019`, `MIG-001`, `GATE-B`, and `ONB-001` remain gated by their
-   declared dependencies and evidence.
+4. The next product increment within `BRG-003` is one strict resolver for
+   runtime vault binding, including the remaining API, hooks, direct-MCP, and
+   ambient fallback paths. `BRG-017` follows within `B04b`; `BRG-019`,
+   `MIG-001`, `GATE-B`, and `ONB-001` remain gated by their declared
+   dependencies and evidence.
