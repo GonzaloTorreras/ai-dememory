@@ -46,17 +46,20 @@ candidates into durable memory.
 
 ```bash
 ai-dememory providers detect
-ai-dememory providers plan --json
-ai-dememory providers configure codex --path "$HOME/.codex" --dry-run --json
-ai-dememory providers configure codex --path "$HOME/.codex"
-ai-dememory providers configure claude --path "$HOME/.claude"
-ai-dememory import-chats codex
+ai-dememory --root <vault-path> providers plan --json
+ai-dememory --root <vault-path> providers configure codex --path "$HOME/.codex" --dry-run --json
+ai-dememory --root <vault-path> providers configure codex --path "$HOME/.codex"
+ai-dememory --root <vault-path> providers configure claude --path "$HOME/.claude"
+ai-dememory --root <vault-path> import-chats codex
 ```
 
-Imports write review candidates to `inbox/imports/<provider>/`. Secret-like
-files are skipped. Use `providers configure --dry-run --json` to review the
-selected folder before writing `.ai-dememory.toml`; it does not read provider
-chat files or write import candidates. Unchanged provider files that already
+`providers detect` is a rootless, read-only local diagnostic. The remaining
+provider commands require an absolute vault binding. Imports write review
+candidates to `inbox/imports/<provider>/`. Secret-like files are skipped. Use
+`ai-dememory --root <vault-path> providers configure <provider> --path <path>
+--dry-run --json` to review the selected folder before writing
+`.ai-dememory.toml`; it does not read provider chat files or write import
+candidates. Unchanged provider files that already
 have a matching inbox candidate are skipped with reason `already imported`, so
 recurring maintenance does not create duplicate review candidates for the same
 source path and text. Review and rewrite candidates before promoting any fact

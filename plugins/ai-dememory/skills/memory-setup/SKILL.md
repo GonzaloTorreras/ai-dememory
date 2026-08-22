@@ -53,10 +53,12 @@ durable memory.
   Hook recall is public-only by default and capture metadata is off unless the
   chosen profile enables it. Preview managed instruction changes with
   `ai-dememory hooks install --root <vault> --dry-run`.
-- Inspect providers with `providers detect` and `providers plan --json`.
+- Inspect providers with `ai-dememory providers detect` (a rootless,
+  read-only local diagnostic) and
+  `ai-dememory --root <vault-path> providers plan --json`.
   Preview configuration and import before either write:
-  `providers configure <provider> --path <path> --dry-run --json`, then
-  `import-chats <provider> --dry-run --json`.
+  `ai-dememory --root <vault-path> providers configure <provider> --path <path> --dry-run --json`, then
+  `ai-dememory --root <vault-path> import-chats <provider> --dry-run --json`.
 - For a schedule, run
   `ai-dememory schedule plan --intensity <profile> --json`. Execute only the
   returned fingerprint-bound `apply_command`. Names are vault-specific; Docker

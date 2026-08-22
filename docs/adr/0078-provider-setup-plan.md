@@ -19,7 +19,7 @@ reviewing the selected folders.
 
 Add a read-only provider setup plan.
 
-The CLI command `ai-dememory providers plan --json` returns each known
+The CLI command `ai-dememory --root <vault-path> providers plan --json` returns each known
 provider, detected or configured path state, readiness reason, next action,
 `providers configure` command array, disable command array, and `import-chats`
 command array.

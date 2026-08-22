@@ -19,9 +19,9 @@ before generated candidates enter the review inbox.
 Add explicit capture to `scripts/provider_import.py` and the unified CLI:
 
 ```bash
-ai-dememory capture <kind> --path <file-or-directory>
-ai-dememory capture <kind> --stdin --title "..."
-ai-dememory capture <kind> --text "..." --title "..."
+ai-dememory --root <vault-path> capture <kind> --path <file-or-directory>
+ai-dememory --root <vault-path> capture <kind> --stdin --title "..."
+ai-dememory --root <vault-path> capture <kind> --text "..." --title "..."
 ```
 
 Capture kinds are:

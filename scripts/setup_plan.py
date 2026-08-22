@@ -406,7 +406,10 @@ def setup_health(
     if int(archive_summary.get("prunable_count", 0)) > 0:
         next_actions.append("Review generated packet archive retention previews before cleanup.")
     if int(maintenance["provider_readiness"].get("configured_count", 0)) == 0:
-        next_actions.append("Review provider setup with `ai-dememory providers plan --json` before importing chats.")
+        next_actions.append(
+            "Review provider setup with `ai-dememory --root <vault-path> providers plan --json` "
+            "before importing chats."
+        )
     if int(maintenance["provider_readiness"].get("import_ready_count", 0)) > 0:
         next_actions.append("Preview maintenance with `ai-dememory --root <vault-path> maintenance run --profile daily --dry-run --json` before enabling schedules.")
     if not next_actions:

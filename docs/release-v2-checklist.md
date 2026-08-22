@@ -600,7 +600,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py hooks archive --json`
 - [ ] `python3 scripts/ai_dememory.py hooks install --client all --dry-run`
 - [ ] `python3 scripts/ai_dememory.py setup plan --json`
-- [ ] `python3 scripts/ai_dememory.py providers plan --json`
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers plan --json`
 - [ ] `python3 scripts/ai_dememory.py install-smoke`
 - [ ] Installed `ai-dememory roadmap status --json` validates `phase_count`,
   read-only side-effect flags, status counts, and stable phase numbers,
@@ -715,7 +715,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py provenance --json`
 - [ ] `python3 scripts/ai_dememory.py provenance --write-report --report-path
   reports/durable-provenance.md`
-- [ ] `python3 scripts/ai_dememory.py capture text --stdin --title "Smoke capture"`
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> capture text --stdin --title "Smoke capture"`
 - [ ] `python3 scripts/ai_dememory.py learn --git --days 7 --repo . --dry-run`
 - [ ] `python3 scripts/ai_dememory.py vector status`
 - [ ] `python3 scripts/ai_dememory.py vector status --write-report --report-path
@@ -883,9 +883,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] Equivalent JSON hook payloads with different formatting or key order reuse
   the existing inbox file.
 - [ ] `ai-dememory providers detect` runs without mutating provider folders.
-- [ ] `ai-dememory providers plan --json` returns reviewable configure/import
+- [ ] `ai-dememory --root <vault-path> providers plan --json` returns reviewable configure/import
   commands without reading provider files or writing import candidates.
-- [ ] `ai-dememory providers configure codex --path <path> --dry-run --json`
+- [ ] `ai-dememory --root <vault-path> providers configure codex --path <path> --dry-run --json`
   previews normalized provider config without writing `.ai-dememory.toml`,
   reading provider files, or writing import candidates.
 - [ ] MCP `memory.providers_status` reports configured provider import
@@ -893,7 +893,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] MCP `memory.providers_plan` reports provider setup commands without
   configuring providers, reading provider files, or writing import candidates,
   and includes `configure_dry_run_command` for reviewed folder selection.
-- [ ] `ai-dememory capture markdown --path <file>` writes only to
+- [ ] `ai-dememory --root <vault-path> capture markdown --path <file>` writes only to
   `inbox/imports/markdown/`.
 - [ ] `ai-dememory learn --git --repo <repo> --dry-run` previews git lesson
   candidates without writing canonical memory.
@@ -921,7 +921,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   without reading provider files or writing import candidates.
 - [ ] `ai-dememory maintenance status` reports false-positive review due
   counts without exposing redacted finding lines.
-- [ ] `ai-dememory import-chats codex --dry-run --json` previews provider
+- [ ] `ai-dememory --root <vault-path> import-chats codex --dry-run --json` previews provider
   import candidates without writing inbox files.
 - [ ] Repeated provider imports skip candidates with the same stable fingerprint
   instead of writing duplicate inbox files.
@@ -1041,8 +1041,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py providers detect`
 - [ ] `python3 scripts/ai_dememory.py setup plan --json`
 - [ ] `python3 scripts/ai_dememory.py setup health --json`
-- [ ] `python3 scripts/ai_dememory.py providers plan --json`
-- [ ] `python3 scripts/ai_dememory.py providers configure codex --path
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers plan --json`
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers configure codex --path
   "$HOME/.codex" --dry-run --json`
 - [ ] `python3 scripts/ai_dememory.py maintenance status`
 - [ ] `python3 scripts/ai_dememory.py --root <vault-path> maintenance run --profile daily --dry-run --json`
