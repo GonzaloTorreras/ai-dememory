@@ -324,8 +324,10 @@ def command_mutates_vault(command: str, argv: list[str]) -> bool:
 
 
 def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
-    """Identify read-only previews that serialize an executable vault binding."""
+    """Identify read-only previews and stateful runs that need a bound vault."""
     subcommand = command_subcommand(argv)
+    if command == "maintenance":
+        return subcommand == "run"
     if command == "providers":
         return subcommand == "plan" or (
             subcommand == "configure" and "--dry-run" in argv
@@ -350,8 +352,11 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command in {"mcp", "api", "hook-event", "hooks", "setup", "onboard"}:
-        # Stateful runtime and onboarding surfaces own their vault resolution.
+    if command in {"mcp", "api", "hook-event", "hooks", "setup", "onboard"} or (
+        command == "maintenance" and command_subcommand(argv) == "run"
+    ):
+        # Stateful runtime, maintenance-run, and onboarding surfaces own their
+        # vault resolution.
         # In particular, do not discover CWD/package roots or inject a derived
         # binding before their strict resolver can enforce an
         # explicit/environment binding.

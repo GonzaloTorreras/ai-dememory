@@ -12,9 +12,9 @@ server-enforced `admin` profile.
 
 ## Safe Run Order
 
-1. Read state once: `ai-dememory maintenance status`.
+1. Read state once: `ai-dememory --root <vault-path> maintenance status`.
 2. Preview the selected unit once:
-   `ai-dememory maintenance run --profile <daily|weekly> --dry-run --json`.
+   `ai-dememory --root <vault-path> maintenance run --profile <daily|weekly> --dry-run --json`.
 3. Inspect provider counts, scan/file limits, artifact targets, review queues,
    lock state, and `resource_policy`.
 4. Run that profile once only when the preview is acceptable.

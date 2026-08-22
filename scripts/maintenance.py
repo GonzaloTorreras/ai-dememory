@@ -15,6 +15,13 @@ import sys
 from typing import Iterator
 import uuid
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.path:
+    # Keep the supported direct source-script entry point bound to this
+    # checkout instead of an unrelated installed package.
+    sys.path.insert(0, str(SOURCE_ROOT))
+
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from config_file import load_config
 from consolidate_memory import write_report as write_consolidation_report
 from eval_recall import DEFAULT_FIXTURES, evaluate, summary
@@ -625,7 +632,7 @@ def generated_artifact_freshness(
 
     needs_maintenance = missing_count > 0 or stale_count > 0
     next_action = (
-        f"Run ai-dememory maintenance run --profile {profile}."
+        f"Run ai-dememory --root <vault-path> maintenance run --profile {profile}."
         if needs_maintenance
         else f"{profile.title()} generated artifacts are current."
     )
@@ -953,19 +960,28 @@ def run_supervised_maintenance(
     *,
     json_output: bool,
 ) -> int:
-    command = [
-        sys.executable,
-        "-m",
-        "ai_dememory_tool.cli",
-        "--root",
-        str(root),
-        "maintenance",
-        "run",
-        "--profile",
-        profile,
-        "--report-dir",
-        str(report_dir),
-    ]
+    source_wrapper = SOURCE_ROOT / "scripts" / "ai_dememory.py"
+    if (SOURCE_ROOT / "pyproject.toml").is_file() and source_wrapper.is_file():
+        # The direct source-script entry point already bound this process to the
+        # trusted checkout. Preserve that binding in its supervised child rather
+        # than resolving an installed package from the caller's working dir.
+        command = [sys.executable, str(source_wrapper)]
+    else:
+        # Built packages do not carry the source wrapper; use their installed
+        # module entry point instead.
+        command = [sys.executable, "-m", "ai_dememory_tool.cli"]
+    command.extend(
+        [
+            "--root",
+            str(root),
+            "maintenance",
+            "run",
+            "--profile",
+            profile,
+            "--report-dir",
+            str(report_dir),
+        ]
+    )
     if json_output:
         command.append("--json")
     exit_code, timed_out, pid = run_supervised_process(command, timeout_seconds)
@@ -981,7 +997,11 @@ def run_supervised_maintenance(
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Memory vault root. Required for run unless AI_DEMEMORY_ROOT is set.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="Run a maintenance profile.")
     run.add_argument("--profile", choices=("daily", "weekly"), default="daily")
@@ -1005,19 +1025,15 @@ def main(argv: list[str] | None = None) -> int:
     if root_was_supplied and (not args.root or not args.root.strip()):
         parser.error("--root requires a non-empty vault path")
     explicit_root = args.root if args.root and args.root.strip() else None
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = configured_root if configured_root and configured_root.strip() else None
-    if (
-        args.command == "run"
-        and not args.dry_run
-        and not explicit_root
-        and not configured_root
-    ):
-        parser.error(
-            "maintenance run requires an explicit vault binding; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
-        )
-    root = repo_root(explicit_root)
+    if args.command == "run":
+        try:
+            root = resolve_runtime_vault(args.root).root
+        except VaultBindingError as exc:
+            parser.error(str(exc))
+    else:
+        # Status remains a compatibility/read-only surface. It deliberately
+        # retains the legacy source/vault selection until its separate slice.
+        root = repo_root(explicit_root)
     if args.command == "status":
         data = maintenance_status(root)
         if args.json:

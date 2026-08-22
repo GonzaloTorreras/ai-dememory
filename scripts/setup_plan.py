@@ -377,7 +377,7 @@ def setup_health(
     if int(review_recommendations.get("invalid_count", 0)) > 0:
         next_actions.append("Fix malformed advisory review recommendation artifacts under `inbox/review-recommendations/`.")
     if bool(artifact_freshness.get("needs_maintenance", False)):
-        next_actions.append("Run `ai-dememory maintenance run --profile daily` to refresh missing or stale generated artifacts.")
+        next_actions.append("Run `ai-dememory --root <vault-path> maintenance run --profile daily` to refresh missing or stale generated artifacts.")
     hook_captures = hooks.get("captures", {}) if isinstance(hooks.get("captures"), dict) else {}
     if int(hook_captures.get("review_due_count", 0)) > 0:
         next_actions.append("Review due hook capture candidates under `inbox/session-events/`.")
@@ -408,7 +408,7 @@ def setup_health(
     if int(maintenance["provider_readiness"].get("configured_count", 0)) == 0:
         next_actions.append("Review provider setup with `ai-dememory providers plan --json` before importing chats.")
     if int(maintenance["provider_readiness"].get("import_ready_count", 0)) > 0:
-        next_actions.append("Preview maintenance with `ai-dememory maintenance run --profile daily --dry-run --json` before enabling schedules.")
+        next_actions.append("Preview maintenance with `ai-dememory --root <vault-path> maintenance run --profile daily --dry-run --json` before enabling schedules.")
     if not next_actions:
         next_actions.append("Setup health has no immediate review actions.")
     resource_policy_valid = bool(resource_policy.get("valid", False))
