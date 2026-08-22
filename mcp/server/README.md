@@ -30,10 +30,15 @@ python3 mcp/server/memory_mcp.py --list-tools
 python3 scripts/mcp_inventory.py --check-docs
 ```
 
+`--list-tools` is static metadata and does not need a vault. Runtime calls
+(`--stdio` and `--call`) require `--root <private-vault>` or
+`AI_DEMEMORY_ROOT`; they never infer a vault from the current directory or the
+public source checkout.
+
 Call a tool directly from Bash/WSL:
 
 ```bash
-python3 mcp/server/memory_mcp.py --call memory.search --args '{"query":"codex","limit":3}'
+python3 mcp/server/memory_mcp.py --root ~/code/my-memory --require-bound-root --call memory.search --args '{"query":"codex","limit":3}'
 ```
 
 Search results include the same `why` object as `ai-dememory search --why`,
@@ -43,13 +48,13 @@ including numeric score components plus `matched_terms`, `matched_fields`,
 From PowerShell, prefer stdio JSON-RPC to avoid native argv quote rewriting:
 
 ```powershell
-'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory.search","arguments":{"query":"codex","limit":3}}}' | py -3 mcp\server\memory_mcp.py --stdio
+'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory.search","arguments":{"query":"codex","limit":3}}}' | py -3 mcp\server\memory_mcp.py --root C:\path\to\private-vault --require-bound-root --stdio
 ```
 
 Run as a stdio JSON-RPC server:
 
 ```bash
-python3 mcp/server/memory_mcp.py --stdio
+python3 mcp/server/memory_mcp.py --root ~/code/my-memory --require-bound-root --stdio
 ```
 
 The server has a 600-second idle lease by default, including when the host
@@ -59,13 +64,13 @@ disables self-termination and should only be used with external supervision.
 List resources:
 
 ```powershell
-'{"jsonrpc":"2.0","id":2,"method":"resources/list"}' | py -3 mcp\server\memory_mcp.py --stdio
+'{"jsonrpc":"2.0","id":2,"method":"resources/list"}' | py -3 mcp\server\memory_mcp.py --root C:\path\to\private-vault --require-bound-root --stdio
 ```
 
 List prompts:
 
 ```powershell
-'{"jsonrpc":"2.0","id":3,"method":"prompts/list"}' | py -3 mcp\server\memory_mcp.py --stdio
+'{"jsonrpc":"2.0","id":3,"method":"prompts/list"}' | py -3 mcp\server\memory_mcp.py --root C:\path\to\private-vault --require-bound-root --stdio
 ```
 
 `memory.write_proposal` pre-scans rendered proposal text, then writes only to
@@ -343,3 +348,4 @@ Safety limits:
   through MCP.
 - Tool results include structured content for clients and text content for
   compatibility.
+
