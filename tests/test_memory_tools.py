@@ -17771,4 +17771,3 @@ def git(repo: Path, *args: str) -> str:
 
 if __name__ == "__main__":
     unittest.main()
-
