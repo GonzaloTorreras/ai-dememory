@@ -692,6 +692,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    root_was_supplied = any(
+        argument == "--root" or argument.startswith("--root=")
+        for argument in argv
+    )
+    if root_was_supplied and (not args.root or not args.root.strip()):
+        parser.error("--root requires a non-empty vault path")
     explicit_root = args.root if args.root and args.root.strip() else None
     configured_root = os.environ.get("AI_DEMEMORY_ROOT")
     configured_root = configured_root if configured_root and configured_root.strip() else None
