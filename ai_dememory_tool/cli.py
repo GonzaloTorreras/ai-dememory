@@ -456,11 +456,17 @@ def init_vault(argv: list[str]) -> int:
     setup_command = render_copy_command(
         ["ai-dememory", "--root", str(target), "setup", "wizard"]
     )
+    doctor_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "doctor"]
+    )
+    index_command = render_copy_command(
+        ["ai-dememory", "--root", str(target), "index"]
+    )
     print(
         "Next: run "
         f"`{setup_command}`; it previews one config-only plan and asks before applying it."
     )
-    print("Then run `ai-dememory doctor` and `ai-dememory index`.")
+    print(f"Then run `{doctor_command}` and `{index_command}`.")
     return 0
 
 
