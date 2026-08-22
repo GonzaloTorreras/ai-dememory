@@ -2108,18 +2108,28 @@ python3 -m pip install -e .
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
 
-    def test_local_api_guide_does_not_claim_browser_or_proxy_support(self) -> None:
+    def test_local_api_guide_sets_the_supported_browser_proxy_boundary(self) -> None:
         guide = " ".join(
             (REPO_ROOT / "docs" / "local-api.md").read_text(encoding="utf-8").split()
         )
 
         self.assertIn(
-            "browser UI integration is not currently supported by the loopback API",
+            "browser page served from another origin cannot call it directly",
             guide,
         )
-        self.assertIn("Use a native/local script instead.", guide)
+        self.assertIn(
+            "same-origin reverse proxy only when it keeps a loopback `Host` "
+            "(`127.0.0.1` or `localhost`) and forwards a matching `Origin`",
+            guide,
+        )
+        self.assertIn(
+            "does not configure or support that proxy or its browser-auth design",
+            guide,
+        )
+        self.assertIn("For the normal path, use a native/local script instead.", guide)
         self.assertNotIn("same-origin local UI", guide)
-        self.assertNotIn("reverse proxy that serves them from the same origin", guide)
+        self.assertNotIn("browser UI integration is not currently supported", guide)
+        self.assertNotIn("conventional reverse proxy does not bypass", guide)
 
     def test_clipboard_fallback_selects_commands_and_updates_accessible_status(self) -> None:
         javascript = (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8")

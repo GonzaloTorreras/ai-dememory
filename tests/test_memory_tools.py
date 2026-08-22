@@ -71,6 +71,7 @@ from http_api import (  # noqa: E402
     ApiError,
     main as api_main,
     read_json_body,
+    require_safe_request_context,
     serve,
 )
 from api_smoke import run_api_smoke  # noqa: E402
@@ -7678,6 +7679,14 @@ class MemoryToolTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=5)
+
+    def test_api_allows_a_matching_loopback_proxy_context(self) -> None:
+        require_safe_request_context(
+            "127.0.0.1",
+            "localhost:3000",
+            "http://localhost:3000",
+            "same-origin",
+        )
 
     def test_api_rejects_negative_content_length_before_read(self) -> None:
         handler = type("FakeHandler", (), {})()

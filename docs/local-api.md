@@ -23,10 +23,12 @@ starts a server, edits a client configuration, or creates a schedule for it.
 That source candidate is not an additional package-install route: use a
 published package before following this guide.
 
-The API serves JSON only and is not a CORS service: browser UI integration is
-not currently supported by the loopback API. An independently served browser
-page cannot call it directly, and a conventional reverse proxy does not bypass
-the API's loopback host and origin checks. Use a native/local script instead.
+The API serves JSON only and emits no CORS headers, so a browser page served
+from another origin cannot call it directly. An advanced local UI can use a
+same-origin reverse proxy only when it keeps a loopback `Host`
+(`127.0.0.1` or `localhost`) and forwards a matching `Origin`; this project
+does not configure or support that proxy or its browser-auth design. For the
+normal path, use a native/local script instead.
 
 ## Start A Bound Loopback Server
 
