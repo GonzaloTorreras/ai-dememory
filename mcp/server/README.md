@@ -348,4 +348,3 @@ Safety limits:
   through MCP.
 - Tool results include structured content for clients and text content for
   compatibility.
-
