@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -21,13 +20,13 @@ from ai_dememory_tool.argument_safety import (  # noqa: E402
     reject_duplicate_options,
     validate_docker_image_argument,
 )
+from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault  # noqa: E402
 
 from context_memory import context_defaults_status
 from command_render import render_copy_command
 from maintenance import generated_packet_archive_summary, maintenance_artifact_targets, maintenance_status
 from hook_event import hook_status_summary
 from manual_acceptance import acceptance_plan
-from memorylib import repo_root
 from provider_import import provider_setup_plan
 from recall_fixtures import recall_fixture_review_plan
 from resource_policy import (
@@ -657,7 +656,7 @@ def setup_health_recall_review(root: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--root", default=None, help="Vault root. Defaults to the current vault or checkout.")
+    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     plan = subparsers.add_parser("plan", help="Print a read-only local setup plan.", allow_abbrev=False)
@@ -692,25 +691,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
-    root_was_supplied = any(
-        argument == "--root" or argument.startswith("--root=")
-        for argument in argv
-    )
-    if root_was_supplied and (not args.root or not args.root.strip()):
-        parser.error("--root requires a non-empty vault path")
-    explicit_root = args.root if args.root and args.root.strip() else None
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = configured_root if configured_root and configured_root.strip() else None
-    if (
-        args.command_name in {"plan", "health"}
-        and not explicit_root
-        and not configured_root
-    ):
-        parser.error(
-            f"setup {args.command_name} requires an explicit vault binding; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
-        )
-    root = repo_root(explicit_root)
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
 
     if args.command_name == "plan":
         result = setup_plan(

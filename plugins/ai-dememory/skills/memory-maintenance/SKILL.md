@@ -35,12 +35,12 @@ must not apply them to canonical memory.
 
 ## Scheduler
 
-- Inspect: `ai-dememory schedule doctor --json`.
-- Plan: `ai-dememory schedule plan --intensity <profile> --json`.
+- Inspect: `ai-dememory --root <vault> schedule doctor --json`.
+- Plan: `ai-dememory --root <vault> schedule plan --intensity <profile> --json`.
 - Apply only the exact `apply_command` returned by the reviewed plan.
-- Verify: `ai-dememory schedule status`, then
-  `ai-dememory setup health --json`.
-- Remove: `ai-dememory schedule remove`.
+- Verify: `ai-dememory --root <vault> schedule status`, then
+  `ai-dememory --root <vault> setup health --json`.
+- Remove: `ai-dememory --root <vault> schedule remove`.
 
 Tasks are namespaced per vault. A successful install records a receipt but is
 not host-verified until status commands succeed. Docker jobs use `--network

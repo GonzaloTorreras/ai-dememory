@@ -4,7 +4,7 @@ import json
 import io
 import os
 import shlex
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from datetime import date, datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
@@ -589,34 +589,26 @@ class MemoryToolTests(unittest.TestCase):
         config = tomllib.loads(output.getvalue())["mcp_servers"]["ai-dememory"]
         self.assertEqual(Path(config["env"]["AI_DEMEMORY_ROOT"]), root.resolve())
 
-    def test_setup_and_onboarding_reject_ambient_tool_checkout_roots(self) -> None:
+    def test_setup_and_onboarding_require_bound_roots_without_discovery(self) -> None:
         invocations = (
             ("setup plan", ["setup", "plan", "--client", "codex", "--json"]),
             ("setup wizard", ["setup", "wizard", "--json"]),
             ("onboard", ["onboard", "--json"]),
         )
-        roots = (
-            ROOT,
-            ROOT / "vault-template",
-            ROOT / "ai_dememory_tool" / "templates" / "vault",
-        )
         for label, argv in invocations:
-            for root in roots:
-                with self.subTest(command=label, root=root):
-                    error = io.StringIO()
-                    with (
-                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                        patch("ai_dememory_tool.cli.find_memory_root", return_value=root),
-                        redirect_stderr(error),
-                        self.assertRaises(SystemExit) as raised,
-                    ):
-                        cli_main(argv)
+            with self.subTest(command=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
 
-                    self.assertEqual(raised.exception.code, 2)
-                    self.assertIn(
-                        "refuses an unconfigured or nested ambient root",
-                        error.getvalue(),
-                    )
+                self.assertEqual(raised.exception.code, 2)
+                root_resolver.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_rootless_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
@@ -731,7 +723,7 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertTrue(command_mutates_vault(command, argv))
                 self.assertTrue(command_requires_explicit_vault_binding(command, argv))
 
-    def test_setup_accepts_deliberate_and_external_vault_bindings(self) -> None:
+    def test_setup_and_onboarding_accept_deliberate_bindings(self) -> None:
         checkout_root = ROOT / "vault-template"
         bindings = (
             ("argument", ["setup", "--root", str(checkout_root), "plan", "--json"], ""),
@@ -778,104 +770,157 @@ class MemoryToolTests(unittest.TestCase):
             checkout_root.resolve(),
         )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            external_root = Path(tmp)
-            copy_template_tree(external_root)
-            output = io.StringIO()
-            with (
-                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("ai_dememory_tool.cli.find_memory_root", return_value=external_root),
-                redirect_stdout(output),
-            ):
-                self.assertEqual(cli_main(["setup", "plan", "--json"]), 0)
+        for label, argv in (
+            ("setup", ["setup", "plan", "--json"]),
+            ("onboard", ["onboard", "--json"]),
+        ):
+            with self.subTest(command=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
 
-            self.assertEqual(Path(json.loads(output.getvalue())["root"]), external_root.resolve())
+                self.assertEqual(raised.exception.code, 2)
+                root_resolver.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
 
-            onboarding_output = io.StringIO()
-            with (
-                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("ai_dememory_tool.cli.find_memory_root", return_value=external_root),
-                redirect_stdout(onboarding_output),
-            ):
-                self.assertEqual(
-                    cli_main(
-                        [
-                            "onboard",
-                            "--reviewed-by",
-                            "Unit Test",
-                            "--value",
-                            "Prefer safe work.",
-                            "--preference",
-                            "Run narrow tests first.",
-                            "--recommendation",
-                            "Recall reviewed memory.",
-                            "--json",
-                        ]
-                    ),
-                    0,
-                )
-
-            self.assertEqual(
-                Path(json.loads(onboarding_output.getvalue())["root"]),
-                external_root.resolve(),
-            )
-
-    def test_direct_setup_and_onboarding_fail_without_a_vault_binding(self) -> None:
-        for label, target, argv, resolver, expected_message in (
+    def test_direct_setup_and_onboarding_fail_without_a_runtime_vault_binding(self) -> None:
+        for label, target, argv, expected_message in (
             (
                 "setup plan",
                 setup_plan_main,
                 ["plan", "--client", "codex", "--json"],
-                "setup_plan.repo_root",
-                "requires an explicit vault binding",
+                "runtime vault binding requires",
             ),
             (
                 "setup plan with empty root",
                 setup_plan_main,
                 ["--root=", "plan", "--client", "codex", "--json"],
-                "setup_plan.repo_root",
                 "--root requires a non-empty vault path",
             ),
             (
                 "setup health",
                 setup_plan_main,
                 ["health", "--json"],
-                "setup_plan.repo_root",
-                "requires an explicit vault binding",
+                "runtime vault binding requires",
             ),
             (
                 "onboarding",
                 onboarding_main,
                 ["--json"],
-                "onboarding.repo_root",
-                "requires an explicit vault binding",
+                "runtime vault binding requires",
             ),
             (
                 "onboarding with empty root",
                 onboarding_main,
                 ["--root=", "--json"],
-                "onboarding.repo_root",
                 "--root requires a non-empty vault path",
             ),
         ):
-            with self.subTest(entrypoint=label):
-                for environment_root in ("", " "):
-                    with self.subTest(environment_root=repr(environment_root)):
-                        output = io.StringIO()
-                        error = io.StringIO()
-                        with (
-                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
-                            patch(resolver) as root_resolver,
-                            redirect_stdout(output),
-                            redirect_stderr(error),
-                            self.assertRaises(SystemExit) as raised,
-                        ):
-                            target(argv)
+            for environment_root, environment_message in (
+                ("", expected_message),
+                (" ", "AI_DEMEMORY_ROOT requires a non-empty vault path"),
+            ):
+                with self.subTest(entrypoint=label, environment_root=repr(environment_root)):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        target(argv)
 
-                        self.assertEqual(raised.exception.code, 2)
-                        self.assertEqual(output.getvalue(), "")
-                        root_resolver.assert_not_called()
-                        self.assertIn(expected_message, error.getvalue())
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    message = (
+                        expected_message
+                        if any(argument == "--root" or argument.startswith("--root=") for argument in argv)
+                        else environment_message
+                    )
+                    self.assertIn(message, error.getvalue())
+
+    def test_setup_and_onboarding_reject_relative_bindings_before_discovery(self) -> None:
+        invocations = (
+            ("global setup root", ["--root", ".", "setup", "plan", "--json"], ""),
+            ("post-command setup root", ["setup", "--root", ".", "plan", "--json"], ""),
+            ("environment setup root", ["setup", "plan", "--json"], "."),
+            ("global onboard root", ["--root", ".", "onboard", "--json"], ""),
+            ("post-command onboard root", ["onboard", "--root", ".", "--json"], ""),
+            ("environment onboard root", ["onboard", "--json"], "."),
+        )
+        for label, argv, environment_root in invocations:
+            with self.subTest(binding=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                root_resolver.assert_not_called()
+                self.assertIn("requires an absolute vault path", error.getvalue())
+
+    def test_setup_and_onboarding_explicit_roots_win_malformed_environment(self) -> None:
+        onboarding_arguments = [
+            "--reviewed-by",
+            "Unit Test",
+            "--value",
+            "Prefer safe work.",
+            "--preference",
+            "Run narrow tests first.",
+            "--recommendation",
+            "Recall reviewed memory.",
+            "--json",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            invocations = (
+                ("global setup root", ["--root", str(root), "setup", "plan", "--json"]),
+                ("post-command setup root", ["setup", "--root", str(root), "plan", "--json"]),
+                ("post-command onboard root", ["onboard", "--root", str(root), *onboarding_arguments]),
+            )
+            for label, argv in invocations:
+                with self.subTest(binding=label):
+                    output = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                        patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                        redirect_stdout(output),
+                    ):
+                        self.assertEqual(cli_main(argv), 0)
+
+                    root_resolver.assert_not_called()
+                    self.assertEqual(Path(json.loads(output.getvalue())["root"]), root.resolve())
+
+    def test_direct_setup_and_onboarding_reject_relative_runtime_bindings(self) -> None:
+        invocations = (
+            ("setup explicit", setup_plan_main, ["--root", ".", "plan", "--json"], "C:/vault"),
+            ("setup environment", setup_plan_main, ["plan", "--json"], "."),
+            ("onboard explicit", onboarding_main, ["--root", ".", "--json"], "C:/vault"),
+            ("onboard environment", onboarding_main, ["--json"], "."),
+        )
+        for label, target, argv, environment_root in invocations:
+            with self.subTest(binding=label):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    target(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("requires an absolute vault path", error.getvalue())
 
     def test_direct_mutating_commands_fail_without_a_vault_binding(self) -> None:
         invocations = (
@@ -1086,7 +1131,6 @@ class MemoryToolTests(unittest.TestCase):
             health_output = io.StringIO()
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
-                patch("setup_plan.repo_root", return_value=root) as root_resolver,
                 patch("setup_plan.setup_health", return_value={"compatible": True}),
                 redirect_stdout(health_output),
             ):
@@ -1095,7 +1139,6 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(Path(json.loads(setup_output.getvalue())["root"]), root.resolve())
         for output in onboarding_outputs:
             self.assertEqual(Path(json.loads(output.getvalue())["root"]), root.resolve())
-        root_resolver.assert_called_once_with(None)
         self.assertEqual(json.loads(health_output.getvalue()), {"compatible": True})
 
     def test_empty_root_arguments_reject_before_ambient_vault_resolution(self) -> None:
@@ -1149,13 +1192,11 @@ class MemoryToolTests(unittest.TestCase):
                     "setup plan",
                     setup_plan_main,
                     ["plan", "--client", "codex", "--json"],
-                    "setup_plan.repo_root",
                 ),
                 (
                     "onboarding",
                     onboarding_main,
                     ["--json"],
-                    "onboarding.repo_root",
                 ),
                 (
                     "maintenance dry run",
@@ -1164,14 +1205,18 @@ class MemoryToolTests(unittest.TestCase):
                     "maintenance.repo_root",
                 ),
             )
-            for label, target, suffix, resolver in direct_invocations:
+            for invocation in direct_invocations:
+                label, target, suffix, *resolver = invocation
                 for root_option in (("--root=",), ("--root", " \t")):
                     with self.subTest(entrypoint=label, root_option=root_option):
                         output = io.StringIO()
                         error = io.StringIO()
+                        context = (
+                            patch(resolver[0]) if resolver else nullcontext()
+                        )
                         with (
                             patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(ambient_root)}),
-                            patch(resolver) as root_resolver,
+                            context as root_resolver,
                             redirect_stdout(output),
                             redirect_stderr(error),
                             self.assertRaises(SystemExit) as raised,
@@ -1180,7 +1225,8 @@ class MemoryToolTests(unittest.TestCase):
 
                         self.assertEqual(raised.exception.code, 2)
                         self.assertEqual(output.getvalue(), "")
-                        root_resolver.assert_not_called()
+                        if resolver:
+                            root_resolver.assert_not_called()
                         self.assertIn("--root requires a non-empty vault path", error.getvalue())
 
     def test_unified_root_binding_prefers_explicit_vault_over_environment(self) -> None:
@@ -1202,6 +1248,7 @@ class MemoryToolTests(unittest.TestCase):
                         "--json",
                     ],
                     explicit_root,
+                    explicit_root,
                 ),
                 (
                     "post-command explicit root",
@@ -1215,14 +1262,16 @@ class MemoryToolTests(unittest.TestCase):
                         "--json",
                     ],
                     explicit_root,
+                    ambient_root,
                 ),
                 (
                     "environment root",
                     ["setup", "plan", "--client", "codex", "--json"],
                     ambient_root,
+                    ambient_root,
                 ),
             )
-            for label, argv, expected_root in invocations:
+            for label, argv, expected_root, expected_environment_root in invocations:
                 with self.subTest(binding=label):
                     output = io.StringIO()
                     with (
@@ -1232,7 +1281,7 @@ class MemoryToolTests(unittest.TestCase):
                         self.assertEqual(cli_main(argv), 0)
                         self.assertEqual(
                             os.environ["AI_DEMEMORY_ROOT"],
-                            str(expected_root.resolve()),
+                            str(expected_environment_root.resolve()),
                         )
 
                     self.assertEqual(

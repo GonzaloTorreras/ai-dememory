@@ -793,6 +793,19 @@ class OnboardingTests(unittest.TestCase):
             onboarding_mode="operational",
         )
 
+    def test_setup_wizard_alias_preserves_a_post_command_root(self) -> None:
+        for root_arguments in (["--root", "C:/vault"], ["--root=C:/vault"]):
+            with self.subTest(root_arguments=root_arguments):
+                with patch("ai_dememory_tool.cli.run_packaged_command", return_value=0) as runner:
+                    exit_code = unified_cli.main(["setup", *root_arguments, "wizard", "--json"])
+
+                self.assertEqual(exit_code, 0)
+                runner.assert_called_once_with(
+                    "onboard",
+                    [*root_arguments, "--json"],
+                    onboarding_mode="operational",
+                )
+
     def test_direct_onboard_cannot_select_internal_operational_mode(self) -> None:
         with self.assertRaises(SystemExit):
             onboarding_main(["--guided", "--json"])

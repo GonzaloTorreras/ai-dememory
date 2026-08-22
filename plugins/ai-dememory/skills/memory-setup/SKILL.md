@@ -20,9 +20,10 @@ files, or promote memory.
    the exact same in-memory operating policy and fingerprint without asking for
    it again. It never creates personal memory.
 3. If the user explicitly wants reviewed personal or project memory, use the
-   separate `ai-dememory onboard` preview. Setup and onboarding each keep the
-   two-step JSON/stdin/input-file/dry-run contract: preview first, then apply
-   the same input with `--apply --expect-plan-sha256 <sha> --json`.
+   separate `ai-dememory --root <vault> onboard` preview. Setup and onboarding
+   each require that explicit root (or `AI_DEMEMORY_ROOT`) and keep the two-step
+   JSON/stdin/input-file/dry-run contract: preview first, then apply the same
+   input with `--apply --expect-plan-sha256 <sha> --json`.
 4. Run `ai-dememory --root <vault> index` after reviewed notes exist.
    `ai-dememory --root <vault> doctor` and `ai-dememory --root <vault> setup
    health --json` are optional diagnostics, not first-run gates.
