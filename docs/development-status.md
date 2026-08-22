@@ -78,9 +78,21 @@ API onboarding hint and documentation boundaries.
   `AI_DEMEMORY_ROOT` or CWD discovery. It covers global and post-command CLI
   binding plus direct MCP-config, setup, onboarding, and maintenance entry
   points; focused tests also preserve valid explicit-root precedence.
+- PR [#29](https://github.com/GonzaloTorreras/ai-dememory/pull/29) was merged
+  at `2d7212ad1205c58dd060b8048023fdb34c7ad164` after fresh exact-head
+  functional/security review found no actionable P0/P1/P2 issue and CI run
+  [32592493743](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32592493743)
+  passed verification, all nine compatibility jobs, MCP runtime, install,
+  package-build, and Docker smokes.
+- This second `BRG-003` increment adds a pure runtime resolver and applies it
+  to direct MCP runtime and `mcp-config`: `--stdio` and `--call` now require
+  `--root` or `AI_DEMEMORY_ROOT`, while static `--list-tools` remains
+  rootless. Packaged MCP dispatch no longer reaches CWD/package discovery,
+  and generated client configurations remain compatible through explicit
+  environment binding plus the legacy `--require-bound-root` flag.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
-  complete. The remaining strict-resolver increment stays within `BRG-003`.
+  complete. The remaining strict-resolver work stays within `BRG-003`.
 
 ## Verified Release Evidence
 
@@ -130,8 +142,8 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. The next product increment within `BRG-003` is one strict resolver for
-   runtime vault binding, including the remaining API, hooks, direct-MCP, and
-   ambient fallback paths. `BRG-017` follows within `B04b`; `BRG-019`,
-   `MIG-001`, `GATE-B`, and `ONB-001` remain gated by their declared
-   dependencies and evidence.
+4. The next product increment within `BRG-003` reuses the strict runtime
+   resolver for API and hooks, then inventories the remaining direct runtime
+   fallback paths. `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`,
+   `GATE-B`, and `ONB-001` remain gated by their declared dependencies and
+   evidence.
