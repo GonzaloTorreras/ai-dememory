@@ -14,7 +14,14 @@ import re
 import sys
 from typing import Any, Iterable
 
-from config_file import ensure_safe_write_path, load_config, load_config_path, set_section, set_section_path
+from config_file import (
+    ensure_safe_write_path,
+    load_config,
+    load_config_path,
+    root_bound_config_path,
+    set_section,
+    set_section_path,
+)
 from memorylib import (
     FrontmatterError,
     MemoryDocument,
@@ -368,8 +375,15 @@ def ignore_path(root: Path) -> Path:
     return review_state_path(root)
 
 
+def _load_review_root_config(root: Path) -> dict[str, dict[str, Any]]:
+    try:
+        return load_config(root)
+    except ValueError as exc:
+        raise ReviewError(str(exc)) from exc
+
+
 def review_state_path(root: Path) -> Path:
-    config = load_config(root)
+    config = _load_review_root_config(root)
     false_positive_config = config.get("false_positives", {})
     configured = false_positive_config.get("ignore_file")
     if configured in {None, ""}:
@@ -379,18 +393,15 @@ def review_state_path(root: Path) -> Path:
             raise ReviewError("configured false-positive ignore file is disabled")
         selected = str(configured)
 
-    target = unresolved_repo_path(root, selected)
     try:
-        target.resolve(strict=False).relative_to(root.resolve())
+        target = root_bound_config_path(unresolved_repo_path(root, selected), root)
     except ValueError as exc:
-        raise ReviewError("review state path must stay inside the memory root") from exc
-    try:
-        ensure_safe_write_path(target, root=root)
-    except ValueError as exc:
+        if str(exc) == "config path must stay inside the memory root":
+            raise ReviewError("review state path must stay inside the memory root") from exc
         raise ReviewError(str(exc)) from exc
-    memories_root = (root / "memories").resolve(strict=False)
+    memories_root = Path(root).resolve(strict=False) / "memories"
     try:
-        target.resolve(strict=False).relative_to(memories_root)
+        target.relative_to(memories_root)
     except ValueError:
         pass
     else:
@@ -416,11 +427,14 @@ def conflict_id(category: str, memory_ids: Iterable[str]) -> str:
 
 
 def load_review_config(root: Path) -> dict[str, dict[str, Any]]:
-    return load_config_path(ignore_path(root))
+    try:
+        return load_config_path(ignore_path(root), root=root)
+    except ValueError as exc:
+        raise ReviewError(str(exc)) from exc
 
 
 def active_review_mode(root: Path) -> ReviewMode:
-    config = load_config(root)
+    config = _load_review_root_config(root)
     configured = str(config.get("review", {}).get("mode") or "strict")
     mode = REVIEW_MODES.get(canonical_review_mode(configured))
     if mode:
@@ -448,10 +462,19 @@ def review_mode_dict(mode: ReviewMode, active: bool = False) -> dict[str, Any]:
     return data
 
 
+def _set_review_state_section(root: Path, section: str, values: dict[str, Any]) -> Path:
+    try:
+        return set_section_path(ignore_path(root), section, values, root=root)
+    except (OSError, ValueError) as exc:
+        raise ReviewError(str(exc)) from exc
+
+
 def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = None) -> Path:
     mode = REVIEW_MODES.get(canonical_review_mode(mode_name))
     if not mode:
         raise ReviewError(f"unknown review mode: {mode_name}")
+    # Keep the direct API's established ValueError contract for unsafe config.
+    # The CLI boundary below still normalizes it into a controlled exit.
     config = load_config(root)
     current = dict(config.get("review", {}))
     current.update(review_mode_config_values(mode_name, reviewer))
@@ -1627,7 +1650,7 @@ def frontmatter_scalar(value: Any) -> str:
 
 
 def review_policy_config(root: Path) -> dict[str, Any]:
-    config = load_config(root)
+    config = _load_review_root_config(root)
     false_positive_config = config.get("false_positives", {})
     conflict_config = config.get("conflicts", {})
     return {
@@ -1913,13 +1936,13 @@ def ignore_false_positive(
     )
     if effective_review_after_days is not None:
         values["review_after"] = (today() + timedelta(days=max(1, effective_review_after_days))).isoformat()
-    return set_section_path(ignore_path(root), f"false_positives.{fp_id}", values, root=root)
+    return _set_review_state_section(root, f"false_positives.{fp_id}", values)
 
 
 def false_positive_review_after_days(root: Path, override: int | None = None) -> int | None:
     if override is not None:
         return max(1, int(override))
-    config = load_config(root)
+    config = _load_review_root_config(root)
     value = config.get("false_positives", {}).get("review_after_days")
     if value in {None, ""}:
         return DEFAULT_FALSE_POSITIVE_REVIEW_AFTER_DAYS
@@ -1948,12 +1971,7 @@ def unignore_false_positive(root: Path, fp_id: str, reviewer: str, recommendatio
             expected_actions={"keep_finding_active"},
         )
     )
-    return set_section_path(
-        ignore_path(root),
-        f"false_positives.{fp_id}",
-        values,
-        root=root,
-    )
+    return _set_review_state_section(root, f"false_positives.{fp_id}", values)
 
 
 def filter_false_positive_reviews(reviews: list[FalsePositiveReview], due_only: bool = False) -> list[FalsePositiveReview]:
@@ -2163,7 +2181,7 @@ def resolve_generated_report_path(root: Path, output: str | Path) -> Path:
 
 
 def configured_path(root: Path, section: str, key: str, default: str | Path) -> str | Path:
-    value = load_config(root).get(section, {}).get(key)
+    value = _load_review_root_config(root).get(section, {}).get(key)
     if value in {None, ""}:
         return default
     return str(value)
@@ -2408,12 +2426,7 @@ def dismiss_conflict(
             expected_actions={"dismiss_conflict"},
         )
     )
-    return set_section_path(
-        ignore_path(root),
-        f"conflicts.{conf_id}",
-        values,
-        root=root,
-    )
+    return _set_review_state_section(root, f"conflicts.{conf_id}", values)
 
 
 def resolve_conflict(
@@ -2449,12 +2462,7 @@ def resolve_conflict(
                 expected_actions={"keep_memory"},
             )
         )
-        return set_section_path(
-            ignore_path(root),
-            f"conflicts.{conf_id}",
-            values,
-            root=root,
-        )
+        return _set_review_state_section(root, f"conflicts.{conf_id}", values)
     if merge_proposal:
         link_values = recommendation_link_values(
             root,
@@ -2472,12 +2480,7 @@ def resolve_conflict(
             "reviewed_at": today().isoformat(),
         }
         values.update(link_values)
-        return set_section_path(
-            ignore_path(root),
-            f"conflicts.{conf_id}",
-            values,
-            root=root,
-        )
+        return _set_review_state_section(root, f"conflicts.{conf_id}", values)
     raise ReviewError("resolve requires --keep <memory-id> or --merge-proposal")
 
 
@@ -3021,7 +3024,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Updated {repo_relative_path(path, root)}")
             return 0
-    except ReviewError as exc:
+    except (ReviewError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
