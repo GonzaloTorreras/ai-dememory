@@ -38,6 +38,7 @@ SOURCE_PATHS = (
     "docs/mcp-client-config.md",
     "docs/mcp-tool-profiles.md",
     "docs/operations.md",
+    "docs/development-status.md",
     "docs/schema.md",
     "docs/adr/0254-python-node-runtime-boundary.md",
     "docs/adr/0257-bounded-autonomy-and-resource-profiles.md",
@@ -79,26 +80,31 @@ STABLE_RELEASE_CONTRACTS = {
     },
 }
 
-# This is the first-run command paired with each *published* prerelease
-# package block. An untagged source candidate must not gain a copyable block
-# merely because it uses the same wizard syntax.
-PUBLISHED_PRERELEASE_REQUIRED_COMMANDS = (
+# This is the first-run command paired with the one current, documented
+# TestPyPI prerelease block. A future source candidate must not gain another
+# copyable route merely because it supports the same wizard syntax.
+ACTIVE_PRERELEASE_REQUIRED_COMMANDS = (
     "ai-dememory init ~/code/my-memory --wizard",
 )
 
-# A source version is not automatically an installable prerelease. Each entry
-# is added only after its immutable tag, canonical release workflow and index
-# readback have been verified. This keeps the documentation guard fail-closed
-# for future source candidates while allowing the one exact TestPyPI route that
-# has real release evidence.
-PUBLISHED_PRERELEASE_CONTRACTS = {
-    "2.1.1rc1": {
-        "scope_marker": "testpypi prerelease 2.1.1rc1",
-        "site_lens": "TestPyPI prerelease: 2.1.1rc1",
-        "install_marker": "TestPyPI prerelease 2.1.1rc1 is available for evaluation",
+# This mapping intentionally contains only the prerelease package that is
+# currently documented as an evaluation route. Add or replace an entry only
+# after its immutable tag, canonical release workflow, TestPyPI readback, and
+# GitHub prerelease have been verified. Historical prereleases belong in
+# release evidence, not in the active copyable-install surface.
+ACTIVE_PRERELEASE_CONTRACTS = {
+    "2.1.1rc2": {
+        "scope_marker": "testpypi prerelease 2.1.1rc2",
+        "site_lens": "TestPyPI prerelease: 2.1.1rc2",
+        "install_marker": "TestPyPI prerelease 2.1.1rc2 is available for evaluation",
         "package_command": (
             "python -m pip install --index-url https://test.pypi.org/simple/ "
-            "ai-dememory==2.1.1rc1"
+            "ai-dememory==2.1.1rc2"
+        ),
+        "status_evidence": (
+            "v2.1.1rc2",
+            "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
+            "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
         ),
     },
 }
@@ -317,23 +323,22 @@ ALLOWED_CSS_DATA_LABELS = frozenset(
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
     markers = [f"published stable {stable_version}"]
     if source_version != stable_version:
-        # Published prereleases retain their own immutable install route even
-        # after the checked-out source advances. Do not make that historical
-        # route depend on the current source version: a new source candidate
-        # is not evidence that a published package disappeared or was
-        # superseded on an index.
+        # The one current documented TestPyPI route stays available while the
+        # checked-out source advances. Its availability is explicitly reviewed
+        # rather than inferred from source version; historical prereleases are
+        # deliberately excluded from this active documentation contract.
         markers.extend(
             contract["scope_marker"]
-            for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+            for contract in ACTIVE_PRERELEASE_CONTRACTS.values()
         )
-        if source_version not in PUBLISHED_PRERELEASE_CONTRACTS:
+        if source_version not in ACTIVE_PRERELEASE_CONTRACTS:
             markers.append(f"source candidate {source_version} is unreleased")
     return tuple(markers)
 
 
 def site_release_lens(stable_version: str, source_version: str) -> str:
     if source_version != stable_version:
-        contract = PUBLISHED_PRERELEASE_CONTRACTS.get(source_version)
+        contract = ACTIVE_PRERELEASE_CONTRACTS.get(source_version)
         if contract is not None:
             return contract["site_lens"]
         return f"Source candidate: {source_version}, unreleased"
@@ -1972,13 +1977,13 @@ def _approved_package_commands(stable_version: str) -> set[str]:
         f"python3 -m pip install {expected_spec}",
         f"py -3 -m pip install {expected_spec}",
     }
-    # The source checkout can advance beyond an immutable TestPyPI candidate.
-    # Each published contract remains a permitted exact package command until
-    # its evidence record is deliberately retired; never infer availability
-    # from ``source_version``.
+    # The source checkout can advance beyond the current documented TestPyPI
+    # prerelease. Its exact package command remains permitted until the active
+    # contract is deliberately replaced; never infer index availability from
+    # ``source_version`` alone.
     commands.update(
         contract["package_command"]
-        for contract in PUBLISHED_PRERELEASE_CONTRACTS.values()
+        for contract in ACTIVE_PRERELEASE_CONTRACTS.values()
     )
     return commands
 
@@ -2908,6 +2913,10 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     project = metadata["project"]
     source_version = str(project["version"])
     requires_python = str(project["requires-python"])
+    if len(ACTIVE_PRERELEASE_CONTRACTS) != 1:
+        errors.append(
+            "docs site guard: exactly one active TestPyPI prerelease contract is required"
+        )
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
     stable_match = re.search(r"Current release line: `ai-dememory` ([0-9]+(?:\.[0-9]+){2})", readme)
     if not stable_match:
@@ -2930,6 +2939,26 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     require_explicit_mcp_root=relative in EXPLICIT_ROOT_MCP_DOCS,
                 )
             )
+    development_status = (repo_root / "docs" / "development-status.md").read_text(
+        encoding="utf-8"
+    )
+    normalized_status = development_status.casefold()
+    for prerelease_version, prerelease_contract in ACTIVE_PRERELEASE_CONTRACTS.items():
+        for evidence in prerelease_contract["status_evidence"]:
+            if evidence not in development_status:
+                errors.append(
+                    "docs/development-status.md: current prerelease "
+                    f"{prerelease_version} is missing release evidence {evidence!r}"
+                )
+        if re.search(
+            rf"\b{re.escape(prerelease_version)}\b.{{0,240}}\b(?:untagged|unpublished)\b",
+            normalized_status,
+            flags=re.DOTALL,
+        ):
+            errors.append(
+                "docs/development-status.md: current prerelease "
+                f"{prerelease_version} is still described as untagged or unpublished"
+            )
     scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
         # Markdown prose may wrap a release sentence across physical lines.
@@ -2937,7 +2966,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         # depend on line width.
         scope_text = " ".join(
             (repo_root / relative).read_text(encoding="utf-8").lower().split()
-        )
+        ).replace("`", "")
         for marker in scope_markers:
             if marker not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
@@ -2959,10 +2988,10 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         ),
         ("complete historical MCP surface", "admin compatibility warning"),
     ]
-    # Published TestPyPI routes remain visible and copyable after source moves
-    # on. The current source candidate is a separate status claim, never an
+    # The one current TestPyPI route remains visible and copyable after source
+    # moves on. A future source candidate is a separate status claim, never an
     # implied package installation route.
-    for prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.values():
+    for prerelease_contract in ACTIVE_PRERELEASE_CONTRACTS.values():
         install_expectations.extend(
             [
                 (prerelease_contract["install_marker"], "prerelease availability marker"),
@@ -2979,7 +3008,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         )
     source_is_unreleased_candidate = (
         source_version != stable_version
-        and source_version not in PUBLISHED_PRERELEASE_CONTRACTS
+        and source_version not in ACTIVE_PRERELEASE_CONTRACTS
     )
     if source_is_unreleased_candidate:
         install_expectations.extend(
@@ -3050,7 +3079,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             stable_label,
             *(
                 f"source-{prerelease_version}"
-                for prerelease_version in PUBLISHED_PRERELEASE_CONTRACTS
+                for prerelease_version in ACTIVE_PRERELEASE_CONTRACTS
             ),
         }
         for release in sorted(release_block_texts):
@@ -3091,9 +3120,9 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 )
             errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
 
-        # Do not require a copyable command block for an untagged source
-        # candidate. Only immutable, published prereleases may own one.
-        for prerelease_version, prerelease_contract in PUBLISHED_PRERELEASE_CONTRACTS.items():
+        # The one current, immutable TestPyPI prerelease owns a copyable
+        # command block. An untagged source candidate cannot add another one.
+        for prerelease_version, prerelease_contract in ACTIVE_PRERELEASE_CONTRACTS.items():
             prerelease_label = f"source-{prerelease_version}"
             prerelease_text = "\n".join(release_blocks.get(prerelease_label, []))
             prerelease_commands = {
@@ -3103,16 +3132,16 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             }
             if not prerelease_text:
                 errors.append(
-                    f"site: no command block is labelled published prerelease {prerelease_label!r}"
+                    f"site: no command block is labelled active prerelease {prerelease_label!r}"
                 )
             required_prerelease_commands = (
                 prerelease_contract["package_command"],
-                *PUBLISHED_PRERELEASE_REQUIRED_COMMANDS,
+                *ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
             )
             for command in required_prerelease_commands:
                 if command not in prerelease_commands:
                     errors.append(
-                        f"site: published prerelease {prerelease_version} command block is missing {command!r}"
+                        f"site: active prerelease {prerelease_version} command block is missing {command!r}"
                     )
             for block in release_block_texts.get(prerelease_label, []):
                 literal_commands = tuple(
@@ -3120,13 +3149,13 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 )
                 if literal_commands != required_prerelease_commands:
                     errors.append(
-                        f"site: published prerelease {prerelease_version} command block must contain only "
+                        f"site: active prerelease {prerelease_version} command block must contain only "
                         f"the approved prerelease install and wizard commands: {literal_commands!r}"
                     )
-            for marker in PUBLISHED_PRERELEASE_REQUIRED_COMMANDS:
+            for marker in ACTIVE_PRERELEASE_REQUIRED_COMMANDS:
                 if marker not in prerelease_text:
                     errors.append(
-                        f"site: published prerelease {prerelease_version} command blocks are missing {marker!r}"
+                        f"site: active prerelease {prerelease_version} command blocks are missing {marker!r}"
                     )
 
     policy_path = repo_root / "SECURITY.md"

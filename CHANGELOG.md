@@ -11,11 +11,12 @@ No changes yet.
 
 ## [2.1.1] - Unreleased
 
-This stable release entry is intentionally reserved. The published `2.1.1rc1`
-candidate remains the TestPyPI evaluation artifact; the untagged `2.1.1rc2`
-source candidate below requires its own immutable tag, TestPyPI publication,
-and index readback before it can be offered as an installation route. `2.1.0`
-remains the current published stable PyPI release.
+This stable release entry is intentionally reserved. `2.1.1rc2` is the current
+TestPyPI evaluation artifact, published from immutable `v2.1.1rc2` with
+post-index verification. The earlier `2.1.1rc1` prerelease remains historical
+release evidence, not a second recommended installation route. `2.1.0`
+remains the current published stable PyPI release. A stable `2.1.1` promotion
+requires its own reviewed, explicitly authorized release decision.
 
 ## [2.1.1rc2] - 2026-08-23
 

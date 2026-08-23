@@ -32,12 +32,11 @@ trusted project's `.codex/config.toml`; Claude and generic clients receive their
 native JSON shape. Full field examples are in
 [MCP client configuration](mcp-client-config.md).
 
-The TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI upgrade.
-After its exact install from [Installation](install.md), use the shorter
-wizard-first command `ai-dememory init ~/code/my-memory --wizard`.
-Prerelease-generated MCP configuration omits the legacy stable pin. Source
-candidate 2.1.1rc2 is unreleased: it must not replace that published package
-command until it has its own tag and package-index readback.
+The current TestPyPI prerelease `2.1.1rc2` is an evaluation route, not a PyPI
+upgrade. After its exact install from [Installation](install.md), use the
+shorter wizard-first command `ai-dememory init ~/code/my-memory --wizard`.
+Prerelease-generated MCP configuration omits the legacy stable pin. The earlier
+`2.1.1rc1` prerelease is historical evidence, not a second recommended route.
 
 ## What The Generated Fragment Protects
 

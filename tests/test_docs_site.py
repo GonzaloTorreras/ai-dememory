@@ -10,12 +10,12 @@ from scripts.docs_site_guard import (
     REPO_ROOT,
     SITE_ROOT,
     NESTED_SHELL_MAX_DEPTH,
-    PUBLISHED_PRERELEASE_CONTRACTS,
+    ACTIVE_PRERELEASE_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
     STABLE_INSTALL_DOCS,
     STABLE_RELEASE_CONTRACTS,
-    PUBLISHED_PRERELEASE_REQUIRED_COMMANDS,
+    ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
     _stable_command_errors,
     audit_site,
     release_scope_markers,
@@ -63,31 +63,44 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
         self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/release line: 2.1.0")
 
-    def test_release_scope_distinguishes_the_published_testpypi_prerelease(self) -> None:
-        self.assertEqual(
-            release_scope_markers("2.1.0", "2.1.1rc1"),
-            ("published stable 2.1.0", "testpypi prerelease 2.1.1rc1"),
-        )
-        self.assertEqual(
-            site_release_lens("2.1.0", "2.1.1rc1"),
-            "TestPyPI prerelease: 2.1.1rc1",
-        )
-
-    def test_release_scope_keeps_the_published_route_when_source_advances_to_rc2(self) -> None:
+    def test_release_scope_distinguishes_the_current_testpypi_prerelease(self) -> None:
         self.assertEqual(
             release_scope_markers("2.1.0", "2.1.1rc2"),
-            (
-                "published stable 2.1.0",
-                "testpypi prerelease 2.1.1rc1",
-                "source candidate 2.1.1rc2 is unreleased",
-            ),
+            ("published stable 2.1.0", "testpypi prerelease 2.1.1rc2"),
         )
         self.assertEqual(
             site_release_lens("2.1.0", "2.1.1rc2"),
-            "Source candidate: 2.1.1rc2, unreleased",
+            "TestPyPI prerelease: 2.1.1rc2",
         )
 
-    def test_stable_user_docs_pin_the_legacy_artifact_and_keep_candidate_scope_explicit(self) -> None:
+    def test_release_scope_keeps_the_current_route_when_source_advances(self) -> None:
+        self.assertEqual(
+            release_scope_markers("2.1.0", "2.1.2rc1"),
+            (
+                "published stable 2.1.0",
+                "testpypi prerelease 2.1.1rc2",
+                "source candidate 2.1.2rc1 is unreleased",
+            ),
+        )
+        self.assertEqual(
+            site_release_lens("2.1.0", "2.1.2rc1"),
+            "Source candidate: 2.1.2rc1, unreleased",
+        )
+
+    def test_current_prerelease_contract_has_one_wizard_first_testpypi_route(self) -> None:
+        self.assertEqual(set(ACTIVE_PRERELEASE_CONTRACTS), {"2.1.1rc2"})
+        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
+        self.assertEqual(
+            prerelease["package_command"],
+            "python -m pip install --index-url https://test.pypi.org/simple/ "
+            "ai-dememory==2.1.1rc2",
+        )
+        self.assertEqual(
+            ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
+            ("ai-dememory init ~/code/my-memory --wizard",),
+        )
+
+    def test_stable_user_docs_pin_the_legacy_artifact_and_keep_current_prerelease_scope_explicit(self) -> None:
         for relative in STABLE_INSTALL_DOCS:
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -105,16 +118,16 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             with self.subTest(scope_path=relative):
                 text = " ".join(
                     (REPO_ROOT / relative).read_text(encoding="utf-8").lower().split()
-                )
+                ).replace("`", "")
                 self.assertIn("published stable 2.1.0", text)
-                self.assertIn("testpypi prerelease 2.1.1rc1", text)
-                self.assertIn("source candidate 2.1.1rc2 is unreleased", text)
+                self.assertIn("testpypi prerelease 2.1.1rc2", text)
+                self.assertNotIn("source candidate 2.1.1rc2 is unreleased", text)
 
         install = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
-        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
-        self.assertIn("TestPyPI Prerelease 2.1.1rc1", install)
+        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
+        self.assertIn("TestPyPI Prerelease 2.1.1rc2", install)
         self.assertIn(prerelease["package_command"], install)
-        for command in PUBLISHED_PRERELEASE_REQUIRED_COMMANDS:
+        for command in ACTIVE_PRERELEASE_REQUIRED_COMMANDS:
             self.assertIn(command, install)
 
     def test_checked_in_site_passes_guard(self) -> None:
@@ -593,7 +606,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertEqual([], audit_site(REPO_ROOT, copied))
 
-    def test_guard_rejects_missing_legacy_and_candidate_wizard_commands(self) -> None:
+    def test_guard_rejects_missing_legacy_and_current_prerelease_wizard_commands(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
@@ -616,7 +629,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             )
             self.assertTrue(
                 any(
-                    "published prerelease 2.1.1rc1 command block is missing "
+                    "active prerelease 2.1.1rc2 command block is missing "
                     "'ai-dememory init ~/code/my-memory --wizard'" in error
                     for error in errors
                 )
@@ -2017,8 +2030,8 @@ python3 -m pip install -e .
             _stable_command_errors(source_commands, "2.1.0", "source fixture"),
         )
 
-    def test_guard_allows_the_registered_testpypi_prerelease_after_source_advances(self) -> None:
-        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+    def test_guard_allows_the_current_testpypi_prerelease_after_source_advances(self) -> None:
+        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
         self.assertEqual(
             [],
             _stable_command_errors(
@@ -2037,7 +2050,7 @@ python3 -m pip install -e .
         self.assertTrue(any("not allowlisted" in error for error in errors))
 
     def test_guard_rejects_indirect_package_sources_in_prerelease_blocks(self) -> None:
-        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
         indirect_commands = (
             "python -m pip install --index-url https://test.pypi.org/simple/ $PKG",
             "python -m pip install --index-url https://test.pypi.org/simple/ --requirement requirements.txt",
@@ -2067,7 +2080,7 @@ python3 -m pip install -e .
 
             self.assertTrue(
                 any(
-                    "published prerelease 2.1.1rc1 command block must contain only the approved prerelease install and wizard commands"
+                    "active prerelease 2.1.1rc2 command block must contain only the approved prerelease install and wizard commands"
                     in error
                     for error in errors
                 ),
@@ -2095,15 +2108,15 @@ python3 -m pip install -e .
         )
         self.assertIn("ai-dememory init ~/code/my-memory --wizard", install)
         self.assertIn("ai-dememory --root ~/code/my-memory mcp-config --client codex", install)
-        prerelease = PUBLISHED_PRERELEASE_CONTRACTS["2.1.1rc1"]
+        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
         self.assertIn(prerelease["install_marker"], install)
         self.assertIn(prerelease["package_command"], install)
         self.assertIn("Use an isolated virtual environment for this TestPyPI evaluation", install)
-        self.assertIn("Source candidate: 2.1.1rc2, unreleased", install)
-        self.assertIn("The checked-out 2.1.1rc2 source candidate is unreleased.", install)
-        self.assertIn("not installable from a package index until it is tagged and published", install)
-        self.assertIn('data-release="source-2.1.1rc1"', install)
-        self.assertNotIn('data-release="source-2.1.1rc2"', install)
+        self.assertNotIn("Source candidate: 2.1.1rc2, unreleased", install)
+        self.assertNotIn("The checked-out 2.1.1rc2 source candidate is unreleased.", install)
+        self.assertNotIn("not installable from a package index until it is tagged and published", install)
+        self.assertIn('data-release="source-2.1.1rc2"', install)
+        self.assertNotIn('data-release="source-2.1.1rc1"', install)
         self.assertNotIn("pipx install ai-dememory==2.1.1rc1", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
@@ -2139,6 +2152,25 @@ python3 -m pip install -e .
         self.assertIn("Public `main` is a moving source branch", status)
         self.assertIn("git ls-remote origin refs/heads/main", status)
         self.assertNotIn("- Public `main`:\n  `", status)
+
+    def test_development_status_records_current_rc2_release_evidence(self) -> None:
+        status = (REPO_ROOT / "docs" / "development-status.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("v2.1.1rc2", status)
+        self.assertIn(
+            "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
+            status,
+        )
+        self.assertIn(
+            "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
+            status,
+        )
+        self.assertNotRegex(
+            status.casefold(),
+            r"(?s)\b2\.1\.1rc2\b.{0,240}\b(?:untagged|unpublished)\b",
+        )
 
     def test_clipboard_fallback_selects_commands_and_updates_accessible_status(self) -> None:
         javascript = (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8")

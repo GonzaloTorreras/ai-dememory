@@ -25,14 +25,16 @@ Markdown and can be rebuilt.
 - Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
   only package line available from PyPI; use the exact pinned install instead
   of falling back to an older package.
-- TestPyPI prerelease 2.1.1rc1 is an evaluation release, tagged at
-  `a5140a81e4d153c8e7f41b0f2a88649030942c51`. It is not a PyPI stable release;
+- TestPyPI prerelease 2.1.1rc2 is the current evaluation release, tagged at
+  `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is not a PyPI stable release;
   its source behavior, tag, package, and index installation were verified by
-  the immutable release workflow.
-- Source candidate 2.1.1rc2 is unreleased. It is untagged and not installable
-  from a package index until it has its own reviewed tag, TestPyPI publication,
-  and index readback; it must not be confused with the published 2.1.1rc1
-  evaluation artifact.
+  the immutable release workflow. Use the exact
+  [TestPyPI route](https://test.pypi.org/project/ai-dememory/2.1.1rc2/) or
+  [GitHub prerelease](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2)
+  below.
+- TestPyPI prerelease 2.1.1rc1 remains a historical evaluation artifact. It is
+  not the recommended first-run route now that the later immutable rc2 package
+  is available.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Python 3.11+ is the only headless runtime. Node is not an installation or
@@ -74,16 +76,17 @@ configuration does not strand an upgrade.
 line. On Windows, use a private path such as `D:\Memory\my-vault` instead of
 the example path.
 
-### TestPyPI prerelease 2.1.1rc1: wizard-first evaluation
+### TestPyPI prerelease 2.1.1rc2: wizard-first evaluation
 
-The TestPyPI prerelease removes the persistent compatibility pin from newly
-generated configuration. For an evaluation install in an isolated Python
+The current TestPyPI prerelease removes the persistent compatibility pin from
+newly generated configuration and may suggest the optional local API only
+after the wizard completes. For an evaluation install in an isolated Python
 environment, use the exact package, then make the first run a single
 wizard-first command:
 
 ```bash
 # inside an isolated virtual environment
-python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
+python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
 ai-dememory init ~/code/my-memory --wizard
 ```
 
@@ -91,12 +94,9 @@ This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
 next stable guide will replace the legacy 2.1.0 path only after a separately
 prepared, reviewed, tagged, and published `2.1.1` release.
 
-### Current source candidate 2.1.1rc2: not an installation route
-
-This checked-out source includes the optional post-wizard local API suggestion
-and its documentation separation. It is deliberately not a third
-installation command: use stable 2.1.0 or the published TestPyPI 2.1.1rc1
-route above until 2.1.1rc2 has an immutable tag and package-index readback.
+The earlier 2.1.1rc1 TestPyPI prerelease remains available as historical
+release evidence; use rc2 for a new evaluation rather than keeping two active
+installation routes.
 
 ### Connect a client when you are ready
 
