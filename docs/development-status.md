@@ -145,6 +145,21 @@ API onboarding hint and documentation boundaries.
   canonical root-bound command form. It is source hardening only: `BRG-003`
   remains `in_progress`, with no package, tag, release, vault, or V3-milestone
   change.
+- PR [#39](https://github.com/GonzaloTorreras/ai-dememory/pull/39) was merged
+  at `b585f913da8085231a1eb4d72671cd2e2f515869` after fresh independent
+  exact-head review found no actionable P0/P1/P2/P3 issue. CI run
+  [32611176677](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32611176677)
+  passed 879 tests with 6 expected platform skips, and Pages validation
+  [32611176739](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32611176739)
+  passed.
+- This seventh `BRG-003` increment binds configuration and review-state reads
+  and writes to the selected vault root. It rejects external paths,
+  symlinks/junctions, hard links, unstable file identity, descriptor
+  substitution, non-regular input, oversized input, and invalid UTF-8.
+  Onboarding reuses the validated configuration snapshot for planning and
+  fingerprints, while the review API preserves direct `ValueError` contracts
+  and the CLI returns controlled errors. The exact public-diff security review
+  recorded complete coverage and zero reportable findings.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
@@ -198,9 +213,11 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. Continue `BRG-003` with the remaining strict-resolver and root-bound
-   configuration-reader inventory. Provider/import/capture stateful actions
-   are now covered; preserve the intentional rootless read-only boundaries for
+4. Continue `BRG-003` with the remaining strict-resolver inventory and
+   structural vault-validation policy. The root-bound configuration-reader and
+   review-state boundary is covered for current entry points; provider/import/
+   capture stateful actions are also covered. Preserve the intentional rootless
+   read-only boundaries for
    `providers detect` and `maintenance status`. Keep scheduler and dual-path
    commands as separate compatibility slices. Do not claim structural vault
    validation merely from an absolute path. `BRG-017` follows within `B04b`;
