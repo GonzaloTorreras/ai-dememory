@@ -17,7 +17,7 @@ source candidate below requires its own immutable tag, TestPyPI publication,
 and index readback before it can be offered as an installation route. `2.1.0`
 remains the current published stable PyPI release.
 
-## [2.1.1rc2] - 2026-08-22
+## [2.1.1rc2] - 2026-08-23
 
 ### Added
 
@@ -26,11 +26,29 @@ remains the current published stable PyPI release.
   loopback-only by default and is never started, installed, or configured by
   the wizard.
 
+### Fixed
+
+- Require a deterministic, explicitly bound vault for MCP runtime, local API,
+  hooks, setup/onboarding, maintenance and provider commands. Empty bindings
+  and implicit checkout fallbacks now fail closed; intentional rootless
+  diagnostics remain read-only.
+- Bind configuration and review-state reads and writes to that vault root.
+  External paths, symlinks/junctions, hard links, unstable file identity,
+  descriptor replacement, non-regular input, oversized input and invalid UTF-8
+  are rejected before their contents are used.
+- Preserve direct review API validation contracts while presenting controlled
+  CLI errors, and reuse the validated configuration snapshot for setup plans
+  and fingerprints.
+
 ### Documentation
 
 - Separate the public installation and local-use paths from source-checkout,
   contributor, and release material; document the installed `ai-dememory api`
   command instead of presenting the source wrapper as a normal user command.
+- Keep wizard follow-up actions conditional and remove stale wording that made
+  an unreleased source checkout look like a normal installation route.
+
+[Compare v2.1.1rc1...v2.1.1rc2](https://github.com/GonzaloTorreras/ai-dememory/compare/v2.1.1rc1...v2.1.1rc2)
 
 ## [2.1.1rc1] - 2026-08-21
 
@@ -310,3 +328,4 @@ for the detailed implementation record.
 - Exercise the complete AI-operated Trusted Publishing path on TestPyPI.
 - Verify OIDC identity, exact-artifact smoke, checksums, attestations,
   post-index installation and GitHub prerelease creation before stable launch.
+
