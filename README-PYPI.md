@@ -30,4 +30,3 @@ the portable source of truth.
 For full documentation, exact release artifacts, compatibility notes, and
 prerelease availability, see the
 [ai DeMemory repository](https://github.com/GonzaloTorreras/ai-dememory).
-
