@@ -132,6 +132,19 @@ API onboarding hint and documentation boundaries.
   wrapper while installed packages retain the module entry point, both with an
   explicit root. PR #35 records full regression evidence of 856 passed and 53
   skipped, plus an exact working-tree security scan with zero findings.
+- PR [#37](https://github.com/GonzaloTorreras/ai-dememory/pull/37) was merged
+  at `4ff90b288c3d5ae9f522d5891fa5120f476ed781` after a fresh independent
+  exact-head review found no actionable security issue. CI run
+  [32606276539](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32606276539)
+  and Pages validation passed.
+- This sixth `BRG-003` increment makes stateful provider, import, and capture
+  commands parse their own arguments before resolving a vault, then require an
+  explicit runtime binding rather than generic CWD/package discovery.
+  `providers detect` remains a deliberately rootless, read-only diagnostic.
+  Documentation, generated setup guidance, and release checks now use the
+  canonical root-bound command form. It is source hardening only: `BRG-003`
+  remains `in_progress`, with no package, tag, release, vault, or V3-milestone
+  change.
 - It is source hardening only: it does not change a package, tag, release,
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
@@ -185,10 +198,10 @@ remain intact.
    separate decision after that evidence.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. Continue `BRG-003` by mapping the remaining strict-resolver inventory.
-   Preserve the intentional `maintenance status` compatibility boundary and
-   the generated scheduler commands that already bind a root. Do not claim
-   structural vault validation merely from an absolute path. Providers/import,
-   scheduler, and dual-path commands remain separate compatibility slices.
-   `BRG-017` follows within `B04b`; `BRG-019`, `MIG-001`, `GATE-B`, and
-   `ONB-001` remain gated by their declared dependencies and evidence.
+4. Continue `BRG-003` with the remaining strict-resolver and root-bound
+   configuration-reader inventory. Provider/import/capture stateful actions
+   are now covered; preserve the intentional rootless read-only boundaries for
+   `providers detect` and `maintenance status`. Keep scheduler and dual-path
+   commands as separate compatibility slices. Do not claim structural vault
+   validation merely from an absolute path. `BRG-017` follows within `B04b`;
+   later tasks remain dependency-gated.

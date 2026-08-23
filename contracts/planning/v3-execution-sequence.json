@@ -2,7 +2,7 @@
   "$schema": "./v3-execution-sequence.schema.json",
   "contract_version": 1,
   "planning_status": "c0_public_baseline",
-  "updated_at": "2026-08-22",
+  "updated_at": "2026-08-23",
   "current_frontier": ["BRG-003", "BRG-017"],
   "batches": [
     {
@@ -78,6 +78,7 @@
         "scripts/http_api.py",
         "scripts/hook_event.py",
         "scripts/onboarding.py",
+        "scripts/provider_import.py",
         "scripts/setup_plan.py",
         "scripts/maintenance.py",
         "tests/test_memory_tools.py",
