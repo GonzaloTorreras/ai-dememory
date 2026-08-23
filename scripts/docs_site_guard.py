@@ -2495,37 +2495,6 @@ def public_skill_guide_required_commands(
     return {relative: commands for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES}
 
 
-_SKILL_FRONTMATTER_RE = re.compile(
-    r"\A---[ \t]*\r?\n(?P<metadata>.*?)^---[ \t]*(?:\r?\n|\Z)",
-    re.DOTALL | re.MULTILINE,
-)
-_SKILL_METADATA_COMMAND_RE = re.compile(
-    r"\bai[-_.]+dememory(?:\.exe)?\b[^\r\n]*(?:\b(?:init|mcp-config|version-check)\b|"
-    r"--wizard\b|\bsetup[ \t]+(?:wizard|plan)\b|\bmcp\b[^\r\n]*--stdio\b)",
-    re.IGNORECASE,
-)
-
-
-def _skill_guide_auditable_text(relative: str, text: str, errors: list[str]) -> str:
-    """Exclude declarative Markdown metadata without allowing hidden commands."""
-
-    if not relative.endswith(".md"):
-        return text
-    match = _SKILL_FRONTMATTER_RE.match(text)
-    if match is None:
-        return text
-    metadata = match.group("metadata")
-    if (
-        STABLE_PACKAGE_COMMAND_RE.search(metadata) is not None
-        or _SKILL_METADATA_COMMAND_RE.search(metadata) is not None
-    ):
-        errors.append(
-            f"{relative}: public skill metadata must not contain an executable "
-            "installation or sensitive ai-dememory command"
-        )
-    return text[match.end() :]
-
-
 def audit_public_skill_guides(
     repo_root: Path,
     stable_version: str,
@@ -2565,10 +2534,9 @@ def audit_public_skill_guides(
                     f"{relative}: stable public skill guidance must not retain "
                     "--require-version"
                 )
-            auditable_text = _skill_guide_auditable_text(relative, text, errors)
             errors.extend(
                 _stable_command_errors(
-                    auditable_text,
+                    text,
                     stable_version,
                     relative,
                     source_version=source_version,

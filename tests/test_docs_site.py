@@ -153,6 +153,35 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
+    def test_public_skill_guard_rejects_folded_frontmatter_wizard_while_release_is_pending(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            guide.write_text(
+                guide.read_text(encoding="utf-8").replace(
+                    "description: ",
+                    "description: >\n  ai-dememory\n  init ~/code/my-memory --wizard "
+                    "--require-version 2.1.1\n  ",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "rendered Markdown must not create a security-sensitive command "
+                "across soft line breaks" in error
+                for error in errors
+            ),
+            errors,
+        )
+
     def test_release_scope_supports_source_equal_to_stable(self) -> None:
         self.assertEqual(
             release_scope_markers("2.1.0", "2.1.0"),

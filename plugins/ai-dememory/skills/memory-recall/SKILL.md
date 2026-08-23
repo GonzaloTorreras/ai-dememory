@@ -1,6 +1,6 @@
 ---
 name: memory-recall
-description: Recall focused, reviewed ai-dememory context with bounded MCP calls. Use before non-trivial work when prior decisions, project context, preferences, values, or recommendations may materially change the result, or when the user asks to remember or search memory.
+description: "Recall focused, reviewed ai-dememory context with bounded MCP calls. Use before non-trivial work when prior decisions, project context, preferences, values, or recommendations may materially change the result, or when the user asks to remember or search memory."
 ---
 
 # Memory Recall

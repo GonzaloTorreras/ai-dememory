@@ -1,6 +1,6 @@
 ---
 name: memory-working-session
-description: Maintain generated ai-dememory working state and handoffs through MCP or CLI tools. Use when the user asks to remember current task state, prepare a handoff, resume recent work, summarize a session, or update local working memory without promoting durable facts.
+description: "Maintain generated ai-dememory working state and handoffs through MCP or CLI tools. Use when the user asks to remember current task state, prepare a handoff, resume recent work, summarize a session, or update local working memory without promoting durable facts."
 ---
 
 # Memory Working Session
