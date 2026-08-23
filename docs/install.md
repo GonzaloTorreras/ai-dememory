@@ -3,28 +3,22 @@
 This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
 
-## Published 2.1.0: Compatibility Wizard Setup
+## Install And Run The Wizard
 
 Use `pipx` for normal CLI use: it keeps the Python application isolated while
 putting `ai-dememory` on your `PATH`.
 
-The published stable 2.1.0 package is the only user-installable route in this
-interim state.
-
 ```bash
-pipx install ai-dememory==2.1.0
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+pipx install ai-dememory
+ai-dememory init ~/code/my-memory --wizard
 ```
 
-This is the shortest truthful first-run path for the published package. Its
-compatibility gate is required by the 2.1.0 wizard, not a separate installation
-step. The later source behavior that omits the persistent gate is deliberately
-withheld from user instructions until its tag-bound PyPI release is read back.
+This is the shortest first-run path for the stable package.
 
 `uv` users can replace the first command with
-`uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
+`uv tool install ai-dememory`. On Windows, use a private path such as
 `D:\Memory\my-vault`.
 
 The wizard previews the bounded operational setup, shows its limits and exact
@@ -32,7 +26,7 @@ fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
 import chats, create personal memory, install hooks or schedules, or edit a
 client configuration. `balanced` is the recommended first-run intensity.
 
-This interim compatibility route intentionally presents one first-run command.
+The wizard is the only required first-run command after installation.
 
 ## Connect An AI Client (Optional)
 
@@ -51,12 +45,11 @@ internal runtime arguments.
 
 ## Upgrade Or Diagnose
 
-Repair an existing pipx install with the same immutable package pin. Use the
-standard `--version` output only when diagnosing a PATH or package issue;
-`version-check` remains available for CI and compatibility diagnostics.
+Repair an existing pipx install with the current stable package. Use the
+standard `--version` output only when diagnosing a PATH or package issue.
 
 ```bash
-pipx install --force ai-dememory==2.1.0
+pipx install --force ai-dememory
 ai-dememory --version
 ```
 
@@ -113,8 +106,8 @@ connect another application, read optional provider data, start a local server,
 or create maintenance automation. Use the focused guide only when you choose
 that capability:
 
-- [Local MCP and Docker](local-mcp.md): inspectable client fragments, direct
-  server smoke tests, and profiles.
+- [Local MCP](local-mcp.md): inspectable client fragments and profiles; Docker
+  diagnostics are maintainer-only.
 - [MCP client configuration](mcp-client-config.md): Codex, Claude, and generic
   host setup.
 - [Local REST API](local-api.md): localhost API and its network-binding

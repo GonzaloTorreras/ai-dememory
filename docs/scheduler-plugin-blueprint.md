@@ -3,7 +3,7 @@
 This blueprint defines the v2 implementation boundary for recurring local
 maintenance and the Codex plugin surface.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
 
 ## Scheduler Contract
 
@@ -100,10 +100,10 @@ Hooks must not:
 
 Recommended local setup:
 
-1. Install the selected CLI with `pipx install ai-dememory==2.1.0` or
-   `uv tool install ai-dememory==2.1.0`.
+1. Install the selected CLI with `pipx install ai-dememory` or
+   `uv tool install ai-dememory`.
 2. Create or select a private vault with
-   `ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0`.
+   `ai-dememory init ~/code/my-memory --wizard`.
    The wizard previews and records the bounded resource policy without enabling
    any integrations.
 3. Generate MCP config for a chosen client only when the user wants that

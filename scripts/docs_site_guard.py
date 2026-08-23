@@ -10,6 +10,7 @@ import sys
 import tomllib
 import ast
 import operator
+from functools import lru_cache
 from enum import Enum
 from html import unescape
 from html.parser import HTMLParser
@@ -58,6 +59,7 @@ PUBLIC_AGENT_SKILL_LITERAL_TOKEN_RE = re.compile(
 PENDING_SOURCE_MAINTAINER_SECTION_TITLES = {
     "docs/local-mcp.md": ("Maintainer-only Checkout Diagnostics",),
     "docs/mcp-client-config.md": ("Maintainer-Only Checkout And PR Checks",),
+    "docs/scheduler.md": ("Maintainer-only Docker schedule diagnostics",),
     "docs/operations.md": ("Maintainer: Source Checkout Release Validation",),
     "docs/codex-plugin.md": ("Maintainer-only Plugin Template Diagnostics",),
     "docs/distribution.md": (
@@ -65,6 +67,7 @@ PENDING_SOURCE_MAINTAINER_SECTION_TITLES = {
         "Docker source-image diagnostics: maintainers only",
     ),
 }
+_STABLE_SOURCE_ROUTE_CACHE_SENTINEL = "__stable-source-route-cache__"
 
 REQUIRED_PAGES = (
     "index.html",
@@ -72,6 +75,12 @@ REQUIRED_PAGES = (
     "architecture/index.html",
     "security/index.html",
     "404.html",
+)
+CONTEXTUAL_INSTALLER_PAGES = frozenset(
+    {
+        "architecture/index.html",
+        "security/index.html",
+    }
 )
 
 SOURCE_PATHS = (
@@ -97,51 +106,40 @@ SOURCE_PATHS = (
 )
 
 REQUIRED_COMMANDS = (
-    "pipx install ai-dememory==2.1.0",
-    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+    "pipx install ai-dememory",
+    "ai-dememory init ~/code/my-memory --wizard",
 )
 
 STABLE_RELEASE_CONTRACTS = {
-    "2.1.0": {
+    "2.1.1": {
         "required": (
-            "pipx install ai-dememory==2.1.0",
-            "pipx install --force ai-dememory==2.1.0",
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "pipx install ai-dememory",
+            "pipx install --force ai-dememory",
+            "ai-dememory init ~/code/my-memory --wizard",
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
         ),
         # Every visible <pre> is a copyable release surface. Keep this list
         # literal and deliberately smaller than the broader Markdown command
         # allowlist: it is the complete set rendered by the static site.
         "copyable": (
-            "pipx install ai-dememory==2.1.0",
-            "pipx install --force ai-dememory==2.1.0",
-            "uv tool install ai-dememory==2.1.0",
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "pipx install ai-dememory",
+            "pipx install --force ai-dememory",
+            "uv tool install ai-dememory",
+            "ai-dememory init ~/code/my-memory --wizard",
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
             "ai-dememory --version",
         ),
-        "source_only": (
-            "ai-dememory init ~/code/my-memory --wizard",
-        ),
+        "source_only": (),
     },
 }
 
 # A release-preparation source can be ahead of its last published stable
-# package, but only as an explicit, reviewable state. This is not a broad
-# source-version exception: it binds the source to the exact published
-# compatibility route and requires truthful public markers. In particular, it
-# never grants a package command for the pending source version.
-RELEASE_PENDING_CONTRACTS = {
-    "2.1.1": {
-        "published_version": "2.1.0",
-        "scope_markers": (
-            "2.1.1 is source release preparation, not an installable route until "
-            "tag-bound PyPI publication and external readback complete.",
-            "2.1.0 is the currently published PyPI compatibility route while "
-            "release verification is pending.",
-        ),
-    },
-}
+# package, but only as an explicit, reviewable state.  Keep this empty when
+# source and published release agree: adding a future entry remains a narrow
+# opt-in that binds the source to one already-published compatibility route.
+# In particular, a future pending entry never grants a package command for the
+# pending source version.
+RELEASE_PENDING_CONTRACTS: dict[str, dict[str, object]] = {}
 
 # A pending source has no active TestPyPI package route. A future candidate may
 # add exactly one reviewed contract only after its immutable tag, release
@@ -166,18 +164,49 @@ HISTORICAL_PRERELEASE_CONTRACTS = {
 RELEASE_SCOPE_DOCS = (
     "README.md",
     "docs/install.md",
-    "docs/local-mcp.md",
-    "docs/mcp-client-config.md",
     "docs/codex-plugin.md",
     "docs/operations.md",
 )
 
 STABLE_INSTALL_DOCS = (
     *RELEASE_SCOPE_DOCS,
+    # These are user-facing setup/operations guides even though their
+    # release-scope wording is not part of the short release-status set above.
+    # Keep them in the full audit so checkout recipes cannot bypass the same
+    # public-route policy as README/install.
+    "docs/local-mcp.md",
+    "docs/mcp-client-config.md",
     "docs/create-memory-repo.md",
     "docs/distribution.md",
     "docs/mcp-tool-profiles.md",
+    "docs/scheduler.md",
     "docs/scheduler-plugin-blueprint.md",
+)
+
+# This is intentionally a curated public-reader boundary, rather than a
+# recursive ``docs/**/*.md`` glob. ADRs, release checklists, planning records,
+# and CI evidence legitimately describe source-checkout execution and are not
+# installation/user guidance. The stable first-run set, every user/product page
+# reachable from the public documentation portal, and the PyPI package README
+# belong here. Keep this list explicit and covered by an end-to-end mutation
+# test below.
+PUBLIC_SOURCE_ROUTE_DOCS = (
+    *STABLE_INSTALL_DOCS,
+    "README-PYPI.md",
+    "docs/README.md",
+    "docs/local-api.md",
+    "docs/hooks.md",
+    "docs/schema.md",
+    "docs/memory-quality.md",
+    "docs/review-workflows.md",
+    "docs/import-capture.md",
+    "docs/source-grounded-query-design.md",
+    "docs/sleep-consolidation.md",
+    "docs/architecture.md",
+    "docs/memory-graph.md",
+    "docs/mcp-v2.md",
+    "docs/mcp-v2-gap-analysis.md",
+    "docs/public-modernization-roadmap.md",
 )
 
 STABLE_PACKAGE_COMMAND_RE = re.compile(
@@ -195,41 +224,41 @@ STABLE_PACKAGE_COMMAND_RE = re.compile(
 
 STABLE_DOC_REQUIRED_COMMANDS = {
     "README.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "docs/install.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "docs/local-mcp.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
     "docs/mcp-client-config.md": (
-        "pipx install --force ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install --force ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
     "docs/codex-plugin.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "docs/operations.md": (
-        "pipx install --force ai-dememory==2.1.0",
+        "pipx install --force ai-dememory",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
     "docs/distribution.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "docs/create-memory-repo.md": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "docs/scheduler-plugin-blueprint.md": (
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
 }
 
@@ -237,13 +266,13 @@ EXPLICIT_ROOT_MCP_DOCS = {"docs/mcp-tool-profiles.md"}
 
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
-        "pipx install ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
     ),
     "install/index.html": (
-        "pipx install ai-dememory==2.1.0",
-        "pipx install --force ai-dememory==2.1.0",
-        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        "pipx install ai-dememory",
+        "pipx install --force ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
         "ai-dememory --root ~/code/my-memory mcp-config --client codex",
     ),
 }
@@ -453,7 +482,7 @@ def _published_release_label(stable_version: str, source_version: str) -> str:
 
 
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
-    markers = [f"published stable {stable_version}"]
+    markers = ["current stable", stable_version]
     pending_contract = _release_pending_contract(stable_version, source_version)
     if pending_contract is not None:
         markers.extend(pending_contract["scope_markers"])
@@ -481,7 +510,7 @@ def site_release_lens(stable_version: str, source_version: str) -> str:
         if contract is not None:
             return contract["site_lens"]
         return f"Source candidate: {source_version}, unreleased"
-    return f"Source/release line: {source_version}"
+    return f"Stable release: {source_version}"
 
 
 EXECUTABLE_COMMAND_START_RE = re.compile(
@@ -980,7 +1009,16 @@ def _contains_disallowed_sensitive_shell_syntax(text: str) -> bool:
     """Reject dynamic/escaped spellings instead of attempting shell emulation."""
     collapsed = _collapsed_dynamic_shell_text(text)
     dynamic = DYNAMIC_SHELL_SYNTAX_RE.search(text) is not None
-    ai_package_shape = "ai" in collapsed and "memory" in collapsed
+    # Match an executable/package stem, not an environment variable such as
+    # ``AI_DEMEMORY_ROOT``. Strip shell token fragments first so quoted package
+    # spellings such as ``ai-'dememory'`` cannot evade the literal-route rule.
+    # The trailing-boundary check still excludes the Docker diagnostic's
+    # ``AI_DEMEMORY_ROOT`` environment assignment.
+    package_stem_probe = SHELL_TOKEN_FRAGMENT_RE.sub("", collapsed)
+    ai_package_shape = re.search(
+        r"(?<![a-z0-9])ai[-_.]+dememory(?:\.py)?(?![a-z0-9_-])",
+        package_stem_probe,
+    ) is not None
     sensitive_components = (
         ("mcp" in collapsed and "config" in collapsed)
         or ("version" in collapsed and "check" in collapsed)
@@ -1035,11 +1073,20 @@ def _contains_disallowed_sensitive_shell_syntax(text: str) -> bool:
         text,
         re.IGNORECASE,
     ) is not None
+    quoted_package_stem = (
+        installer_shape
+        and re.search(
+            r"(?:[\"']ai[-_.]*|ai[-_.]*[\"']|[\"'][A-Za-z0-9_.-]*memory)",
+            text,
+            re.IGNORECASE,
+        )
+        is not None
+    )
     return (
         dynamic
         and not pure_powershell_env_assignment
         and command_candidate
-    ) or escaped_sensitive_stem
+    ) or escaped_sensitive_stem or quoted_package_stem
 
 
 def _launcher_name(token: str) -> str:
@@ -1158,6 +1205,20 @@ def _starts_with_executable_command(text: str) -> bool:
         if launcher == "cmd":
             return first_argument.startswith("/")
         return first_argument.startswith(("-", "/")) or first_argument.endswith(".ps1")
+    if launcher in {"docker", "docker-compose"}:
+        path_qualified = any(separator in token for separator in ("/", "\\", ":"))
+        if path_qualified:
+            return True
+        if not arguments:
+            return False
+        first_argument = arguments[0].casefold()
+        return first_argument.startswith("-") or first_argument in {
+            "build",
+            "buildx",
+            "compose",
+            "image",
+            "run",
+        }
     return (
         launcher in EXECUTABLE_LAUNCHER_NAMES
         or re.fullmatch(r"python(?:3(?:\.\d+)?)?", launcher) is not None
@@ -1391,13 +1452,17 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
     """Return line, logical command, unsupported-space, and continuation state.
 
     Stable documentation accepts Bash, PowerShell, and cmd continuation
-    markers, but joins them before validation so a security-sensitive command
-    cannot hide its subcommand or package spec on the next physical line.
+    markers, but reconstructs their shell meaning before validation so a
+    security-sensitive command cannot hide its subcommand or package spec on
+    the next physical line. In particular, a marker in the middle of a token
+    removes the newline without adding whitespace (``pi\\`` + ``p`` is
+    ``pip`` in Bash), whereas a space on either side retains a token boundary.
     """
     entries: list[tuple[int, str, bool, bool]] = []
     parts: list[str] = []
     start_line = 0
     unsupported_whitespace = False
+    continuation_requires_separator = False
     for line_number, raw_line in enumerate(text.split("\n"), start=1):
         line = raw_line.removesuffix("\r")
         if not parts:
@@ -1408,23 +1473,39 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
             character.isspace() and character not in " \t"
             for character in line
         )
-        fragment = line.strip(" \t")
-        trimmed = fragment.rstrip(" \t")
+        trimmed = line.rstrip(" \t")
         continued = _has_shell_continuation(trimmed)
         if continued:
-            trimmed = trimmed[:-1].rstrip(" \t")
-        parts.append(trimmed)
+            before_marker = trimmed[:-1]
+            fragment = before_marker.strip(" \t")
+            # A shell continuation removes only the marker/newline. Preserve a
+            # separator when it was already present before the marker, or when
+            # the next physical line begins with one; otherwise concatenate the
+            # fragments exactly as the shell would.
+            continuation_requires_separator = bool(
+                before_marker and before_marker[-1] in " \t"
+            )
+        else:
+            fragment = line.strip(" \t")
+        if parts:
+            separator = (
+                " " if continuation_requires_separator or line[:1] in {" ", "\t"} else ""
+            )
+            parts.append(f"{separator}{fragment}")
+        else:
+            parts.append(fragment)
         if continued:
             continue
 
-        command = " ".join(part for part in parts if part)
+        command = "".join(parts)
         probe = _normalized_shell_whitespace(command)
         if _starts_with_executable_command(probe) or _contains_unquoted_sensitive_cli(probe):
             entries.append((start_line, command, unsupported_whitespace, False))
         parts = []
+        continuation_requires_separator = False
 
     if parts:
-        command = " ".join(part for part in parts if part)
+        command = "".join(parts)
         probe = _normalized_shell_whitespace(command)
         if _starts_with_executable_command(probe) or _contains_unquoted_sensitive_cli(probe):
             entries.append((start_line, command, unsupported_whitespace, True))
@@ -2153,13 +2234,13 @@ def _normalized_package_command(command: str) -> str:
 
 
 def _approved_package_commands(stable_version: str) -> set[str]:
-    expected_spec = f"ai-dememory=={stable_version}"
+    del stable_version
     commands = {
-        f"pipx install {expected_spec}",
-        f"pipx install --force {expected_spec}",
-        f"uv tool install {expected_spec}",
-        f"python3 -m pip install {expected_spec}",
-        f"py -3 -m pip install {expected_spec}",
+        "pipx install ai-dememory",
+        "pipx install --force ai-dememory",
+        "uv tool install ai-dememory",
+        "python3 -m pip install ai-dememory",
+        "py -3 -m pip install ai-dememory",
     }
     # Only an explicit active prerelease contract may add an index command.
     # With stable source this mapping is required to be empty, so historical
@@ -2171,16 +2252,38 @@ def _approved_package_commands(stable_version: str) -> set[str]:
     return commands
 
 
-def _untracked_site_command_errors(text: str, label: str) -> list[str]:
-    """Reject installer-like text outside a reviewed release command block."""
+def _untracked_site_command_errors(
+    text: str,
+    label: str,
+    *,
+    allowed_package_commands: set[str] | None = None,
+) -> list[str]:
+    """Reject installer-like text outside a reviewed release command block.
+
+    A few architecture/security explanations intentionally show the exact
+    already-audited package command as a standalone inline-code line.  Permit
+    only those literal lines after the regular stable-command audit has run;
+    prose, flags, wrappers, chaining, and every other installer spelling stay
+    subject to this fail-closed check.
+    """
     errors: list[str] = []
-    direct_package_action = UNTRACKED_PACKAGE_ACTION_RE.search(text) is not None
-    direct_ai_dememory_action = (
-        UNTRACKED_AI_DEMEMORY_PACKAGE_ACTION_RE.search(text) is not None
+    normalized_allowed = {
+        _normalized_package_command(command)
+        for command in (allowed_package_commands or set())
+    }
+    filtered_text = "\n".join(
+        ""
+        if _normalized_package_command(line.strip()) in normalized_allowed
+        else line
+        for line in text.splitlines()
     )
-    direct_ai_dememory_runner = UNTRACKED_AI_DEMEMORY_RUNNER_RE.search(text) is not None
+    direct_package_action = UNTRACKED_PACKAGE_ACTION_RE.search(filtered_text) is not None
+    direct_ai_dememory_action = (
+        UNTRACKED_AI_DEMEMORY_PACKAGE_ACTION_RE.search(filtered_text) is not None
+    )
+    direct_ai_dememory_runner = UNTRACKED_AI_DEMEMORY_RUNNER_RE.search(filtered_text) is not None
     normalized_fragments = SHELL_LINE_CONTINUATION_RE.sub(
-        "", text
+        "", filtered_text
     )
     normalized_fragments = SHELL_TOKEN_FRAGMENT_RE.sub("", normalized_fragments)
     fragmented_package_action = (
@@ -2232,7 +2335,6 @@ def _stable_command_errors(
     require_explicit_mcp_root: bool = False,
 ) -> list[str]:
     errors: list[str] = []
-    expected_spec = f"ai-dememory=={stable_version}"
     for line_number, reconstructed in _multiline_comment_sensitive_entries(text):
         errors.append(
             f"{label}:{line_number}: security-sensitive command must use literal Markdown-free command text: {reconstructed!r}"
@@ -2480,33 +2582,12 @@ def _stable_command_errors(
                 ):
                     continue
                 version_values = _option_values(segment, "--require-version")
-                if not version_values:
-                    if (
-                        _is_setup_wizard_tokens(segment)
-                        or _is_init_wizard_tokens(segment)
-                    ):
-                        errors.append(
-                            f"{label}:{line_number}: release-pending documentation must gate "
-                            f"wizard commands with exactly --require-version {stable_version}: "
-                            f"{command!r}"
-                        )
-                    continue
-                if (
-                    _is_setup_wizard_tokens(segment)
-                    or _is_init_wizard_tokens(segment)
-                ):
-                    if version_values == (stable_version,):
-                        continue
+                if version_values:
                     errors.append(
-                        f"{label}:{line_number}: release-pending documentation must gate "
-                        f"wizard commands with exactly --require-version {stable_version}: "
+                        f"{label}:{line_number}: release-pending public documentation must not pass "
+                        f"--require-version; exact version checks are release-evidence-only: "
                         f"{command!r}"
                     )
-                    continue
-                errors.append(
-                    f"{label}:{line_number}: release-pending documentation must not pass "
-                    f"--require-version to non-wizard sensitive commands: {command!r}"
-                )
         elif source_version == stable_version and any(
             token == "--require-version" or token.startswith("--require-version=")
             for token in _ai_dememory_tokens(tokens)
@@ -2543,11 +2624,14 @@ def public_skill_guide_required_commands(
 ) -> dict[str, tuple[str, str]]:
     """Return first-run commands that are legal for the active release state."""
 
-    pending_contract = _release_pending_contract(stable_version, source_version)
-    wizard = f"ai-dememory init ~/code/my-memory --wizard"
-    if pending_contract is not None:
-        wizard = f"{wizard} --require-version {stable_version}"
-    commands = (f"pipx install ai-dememory=={stable_version}", wizard)
+    # First-run public skills always name the package, not a release pin.  The
+    # pending-release guard still constrains source routes elsewhere, but a
+    # pinned wizard would turn a routine setup into a brittle runtime gate.
+    del stable_version, source_version
+    commands = (
+        "pipx install ai-dememory",
+        "ai-dememory init ~/code/my-memory --wizard",
+    )
     return {relative: commands for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES}
 
 
@@ -2924,6 +3008,82 @@ def _tokens_install_local_source(tokens: tuple[str, ...]) -> bool:
     return False
 
 
+def _source_execution_route(tokens: tuple[str, ...]) -> str | None:
+    """Classify a source-only execution route without trusting its wrapper."""
+
+    source_segments = _source_execution_segments(tokens)
+    if any(_tokens_contain_source_dispatcher(segment) for segment in source_segments):
+        return "source dispatcher"
+    if any(_tokens_build_source_docker_image(segment) for segment in source_segments):
+        return "source Docker build"
+    if any(_tokens_install_local_source(segment) for segment in source_segments):
+        return "local source install"
+    return None
+
+
+def _dynamic_source_execution_errors(
+    text: str,
+    label: str,
+    *,
+    allow_explicit_maintainer_sections: bool,
+    recognized_source_lines: set[int],
+) -> list[str]:
+    """Fail closed on escaped source routes before shell tokenization.
+
+    Shell parsers can reconstruct launchers that a token parser cannot see,
+    such as ``p^ip``/``p%EMPTY%ip`` in cmd or a Bash continuation in the
+    middle of a token. Inspect only a raw line or inline-code span whose
+    *collapsed* text starts with a known executable; normal prose that merely
+    mentions shell syntax remains outside this route check.
+    """
+
+    errors: list[str] = []
+    seen_candidates: set[tuple[int, str]] = set()
+
+    def inspect(line_number: int, candidate: str) -> None:
+        key = (line_number, candidate)
+        if key in seen_candidates or line_number in recognized_source_lines:
+            return
+        seen_candidates.add(key)
+        if (
+            DYNAMIC_SHELL_SYNTAX_RE.search(candidate) is None
+            and SHELL_LINE_CONTINUATION_RE.search(candidate) is None
+        ):
+            return
+        collapsed = _collapsed_dynamic_shell_text(
+            SHELL_LINE_CONTINUATION_RE.sub("", candidate)
+        )
+        probe = _normalized_shell_whitespace(collapsed)
+        if not _starts_with_executable_command(probe):
+            return
+        try:
+            route = _source_execution_route(_preferred_shell_tokens(probe))
+        except ValueError:
+            # The candidate has already crossed the dynamic source-route
+            # boundary. Do not interpret an incomplete shell construct as safe.
+            route = "source execution"
+        if route is None:
+            return
+        if allow_explicit_maintainer_sections and _is_explicit_maintainer_source_section(
+            text, line_number, label
+        ):
+            return
+        errors.append(
+            f"{label}:{line_number}: public user guidance must not execute a {route} "
+            "through dynamic or fragmented shell syntax; use the published compatibility "
+            "route or move the recipe below an explicit Maintainer-only/Maintainer: Source "
+            "Checkout heading"
+        )
+
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        inspect(line_number, raw_line)
+    for match in (*INLINE_MARKDOWN_CODE_RE.finditer(text), *INLINE_HTML_CODE_RE.finditer(text)):
+        snippet = match.group("body")
+        if snippet:
+            inspect(text.count("\n", 0, match.start()) + 1, snippet)
+    return errors
+
+
 def _tokens_contain_nested_shell_execution(tokens: tuple[str, ...]) -> bool:
     """Treat actual nested-shell execution shapes as metadata command transport."""
 
@@ -3151,6 +3311,25 @@ def _is_explicit_maintainer_source_section(
     return False
 
 
+@lru_cache(maxsize=128)
+def _stable_source_execution_errors(
+    text: str,
+    label: str,
+    allow_explicit_maintainer_sections: bool,
+) -> tuple[str, ...]:
+    """Cache stable source-route scans across repeated static-site audits."""
+
+    return tuple(
+        _pending_source_execution_errors(
+            text,
+            _STABLE_SOURCE_ROUTE_CACHE_SENTINEL,
+            _STABLE_SOURCE_ROUTE_CACHE_SENTINEL,
+            label,
+            allow_explicit_maintainer_sections=allow_explicit_maintainer_sections,
+        )
+    )
+
+
 def _pending_source_execution_errors(
     text: str,
     stable_version: str,
@@ -3159,44 +3338,58 @@ def _pending_source_execution_errors(
     *,
     allow_explicit_maintainer_sections: bool,
 ) -> list[str]:
-    """Keep release-pending user guidance on the published compatibility route."""
+    """Keep public user guidance off source-only execution routes.
 
-    if _release_pending_contract(stable_version, source_version) is None:
+    Source/published drift tightens release wording, but must never be the only
+    protection against a checkout command leaking into a user-facing guide.
+    Stable releases therefore enforce the same explicit maintainer-section
+    boundary; an unknown future source state remains the caller's release
+    contract error rather than an implicit allowance here.
+    """
+
+    if stable_version != _STABLE_SOURCE_ROUTE_CACHE_SENTINEL and source_version == stable_version:
+        return list(
+            _stable_source_execution_errors(
+                text,
+                label,
+                allow_explicit_maintainer_sections,
+            )
+        )
+
+    if (
+        source_version != stable_version
+        and _release_pending_contract(stable_version, source_version) is None
+    ):
         return []
 
     errors: list[str] = []
+    recognized_source_lines: set[int] = set()
     for line_number, command, _, _ in _executable_command_entries(text):
         try:
             tokens = _preferred_shell_tokens(command)
         except ValueError:
             continue
-        source_segments = _source_execution_segments(tokens)
-        source_dispatcher = any(
-            _tokens_contain_source_dispatcher(segment) for segment in source_segments
-        )
-        local_docker_build = any(
-            _tokens_build_source_docker_image(segment) for segment in source_segments
-        )
-        local_source_install = any(
-            _tokens_install_local_source(segment) for segment in source_segments
-        )
-        if not source_dispatcher and not local_docker_build and not local_source_install:
+        route = _source_execution_route(tokens)
+        if route is None:
             continue
+        recognized_source_lines.add(line_number)
         if allow_explicit_maintainer_sections and _is_explicit_maintainer_source_section(
             text, line_number, label
         ):
             continue
-        if source_dispatcher:
-            route = "source dispatcher"
-        elif local_docker_build:
-            route = "source Docker build"
-        else:
-            route = "local source install"
         errors.append(
-            f"{label}:{line_number}: release-pending user guidance must not execute a {route}; "
+            f"{label}:{line_number}: public user guidance must not execute a {route}; "
             "use the published compatibility route or move the recipe below an explicit "
             "Maintainer-only/Maintainer: Source Checkout heading"
         )
+    errors.extend(
+        _dynamic_source_execution_errors(
+            text,
+            label,
+            allow_explicit_maintainer_sections=allow_explicit_maintainer_sections,
+            recognized_source_lines=recognized_source_lines,
+        )
+    )
     return errors
 
 
@@ -3236,11 +3429,6 @@ def audit_public_skill_guides(
             except UnicodeDecodeError:
                 errors.append(f"{relative}: public skill guide must be UTF-8 text")
                 continue
-            if source_version == stable_version and "--require-version" in text:
-                errors.append(
-                    f"{relative}: stable public skill guidance must not retain "
-                    "--require-version"
-                )
             if relative.endswith(".md"):
                 frontmatter, body, frontmatter_errors = _public_skill_frontmatter(relative, text)
                 errors.extend(frontmatter_errors)
@@ -3890,7 +4078,11 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     source_version = str(project["version"])
     requires_python = str(project["requires-python"])
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
-    stable_match = re.search(r"Current release line: `ai-dememory` ([0-9]+(?:\.[0-9]+){2})", readme)
+    stable_match = re.search(
+        r"Current (?:release line|stable release): `ai-dememory` "
+        r"([0-9]+(?:\.[0-9]+){2})",
+        readme,
+    )
     if not stable_match:
         errors.append("README.md: current release line is not machine-readable")
         return
@@ -3901,11 +4093,6 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     if stable_contract is not None:
         for relative in STABLE_INSTALL_DOCS:
             text = (repo_root / relative).read_text(encoding="utf-8")
-            if source_version == stable_version and "--require-version" in text:
-                errors.append(
-                    f"{relative}: stable installation documentation must not retain "
-                    "--require-version"
-                )
             errors.extend(
                 _stable_command_errors(
                     text,
@@ -3918,6 +4105,8 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     require_explicit_mcp_root=relative in EXPLICIT_ROOT_MCP_DOCS,
                 )
             )
+        for relative in PUBLIC_SOURCE_ROUTE_DOCS:
+            text = (repo_root / relative).read_text(encoding="utf-8")
             errors.extend(
                 _pending_source_execution_errors(
                     text,
@@ -3978,13 +4167,13 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     install = (site_root / "install/index.html").read_text(encoding="utf-8")
     release_lens = site_release_lens(stable_version, source_version)
     install_expectations = [
-        (f"Release line: {stable_version}", "release line version"),
+        (f"Stable release: {stable_version}", "release line version"),
         (release_lens, "source version"),
         (f"Python {requires_python.removeprefix('>=')}+", "Python requirement"),
-        (f"pipx install --force ai-dememory=={stable_version}", "exact stable upgrade command"),
+        ("pipx install --force ai-dememory", "stable upgrade command"),
         (
-            f"ai-dememory init ~/code/my-memory --wizard --require-version {stable_version}",
-            "published compatibility wizard-first vault command",
+            "ai-dememory init ~/code/my-memory --wizard",
+            "wizard-first vault command",
         ),
         (
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
@@ -4043,11 +4232,6 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         for page in site_root.rglob("*.html"):
             document = _parse_page(page)
             page_label = page.relative_to(site_root).as_posix()
-            if source_version == stable_version and "--require-version" in document.auditable_text:
-                errors.append(
-                    f"site/{page_label}: stable visible documentation must not retain "
-                    "--require-version"
-                )
             errors.extend(
                 f"site/{page_label}: {violation}"
                 for violation in document.release_block_violations
@@ -4064,6 +4248,11 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 _untracked_site_command_errors(
                     document.untracked_auditable_text,
                     f"site/{page_label}",
+                    allowed_package_commands=(
+                        {"pipx install ai-dememory"}
+                        if page_label in CONTEXTUAL_INSTALLER_PAGES
+                        else set()
+                    ),
                 )
             )
             for release, parts in document.release_blocks.items():

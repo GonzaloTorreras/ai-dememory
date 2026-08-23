@@ -34,7 +34,7 @@
             <span>Canonical: Markdown</span>
             <span>Generated: SQLite FTS</span>
             <span>Runtime: Python 3.11+</span>
-            <span>Published route: 2.1.0; source preparation: 2.1.1</span>
+            <span>Published stable route: 2.1.1</span>
           </div>
         </div>
       </header>
@@ -55,7 +55,7 @@
             <h2>The system boundary</h2>
             <p>The public repository distributes code and fixtures. An isolated installed tool operates against one explicitly bound private vault. No generated index is authoritative.</p>
             <div class="callout">
-              <p><strong>Release lens:</strong> 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.</p>
+              <p><strong>Release lens:</strong> <code>v2.1.1</code> is the current stable GitHub and PyPI release, peeling to <code>3dd65a18c5f26c5d03f24c5f3bb719769b581fa6</code>. Start with <code>pipx install ai-dememory</code>, then <code>ai-dememory init ~/code/my-memory --wizard</code>. The RC releases are historical TestPyPI evidence, not installation routes.</p>
             </div>
             <ol class="diagram-outline">
               <li><strong>AI client:</strong> Codex, Claude, or another local MCP-capable host requests context.</li>

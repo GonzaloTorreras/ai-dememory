@@ -12,7 +12,7 @@ Users should not fork `ai-dememory` to store memory. Forking mixes private data
 with upstream tool code, complicates upgrades, and makes accidental disclosure
 more likely.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
 
 ## Recommended Channels
 
@@ -22,7 +22,7 @@ Publish `ai-dememory` as a Python application package with the
 `ai-dememory` console script. Users install with:
 
 ```bash
-pipx install ai-dememory==2.1.0
+pipx install ai-dememory
 ```
 
 This keeps application dependencies isolated and makes upgrades simple.
@@ -30,7 +30,7 @@ This keeps application dependencies isolated and makes upgrades simple.
 `uv` users can install the same package with:
 
 ```bash
-uv tool install ai-dememory==2.1.0
+uv tool install ai-dememory
 ```
 
 ### Source checkout: contributors only
@@ -43,12 +43,10 @@ installation route or a fallback for the published package.
 The package includes a vault template and exposes:
 
 ```bash
-ai-dememory init ./my-memory --wizard --require-version 2.1.0
+ai-dememory init ./my-memory --wizard
 ```
 
-This is the concise wizard-first setup path for the published 2.1.0 package.
-The compatibility flag is required until the pending stable publication is
-verified and the user documentation can be promoted separately.
+This is the concise wizard-first setup path for the stable package.
 
 ### Optional: GitHub template repo
 
@@ -84,18 +82,17 @@ for the CLI.
 ### Docker source-image diagnostics: maintainers only
 
 The repository Dockerfile supports isolated CI and release diagnostics from a
-trusted checkout. It is not a distribution channel while 2.1.1 is still pending
-tag-bound PyPI publication and external readback: building `ai-dememory:local`
-would run unpublished source instead of the published 2.1.0 package. Users
-should use the installed CLI and its generated MCP configuration; the eventual
-Docker mode remains local-only, with no exposed ports, after its separately
-verified release route is documented.
+trusted checkout. It is not a distribution channel: building
+`ai-dememory:local` runs checkout source rather than the installed package.
+Users should use the installed CLI and its generated MCP configuration. Any
+future Docker user route remains local-only, with no exposed ports, after a
+separately verified release route is documented.
 
 ## Setup UX Target
 
 ```bash
-pipx install ai-dememory==2.1.0
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+pipx install ai-dememory
+ai-dememory init ~/code/my-memory --wizard
 ```
 
 The wizard chooses a bounded resource policy and writes the vault-local
@@ -107,11 +104,7 @@ ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
 `ai-dememory --version` is the ordinary confirmation after an install or
-upgrade. The `version-check` subcommand remains available for CI or
-support diagnostics; it is not part of first-run setup.
-
-The published compatibility route is the only user-facing setup route while
-release verification is pending.
+upgrade. It is not part of first-run setup.
 
 ## Stable Release Requirements
 

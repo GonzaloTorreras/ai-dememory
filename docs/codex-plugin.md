@@ -6,29 +6,27 @@ The repository includes a local Codex plugin scaffold under
 
 That repo-local plugin source and marketplace metadata are an extension preview;
 installing or refreshing them neither installs nor upgrades the `ai-dememory`
-CLI, and cannot turn checked-out 2.1.1 source into a runtime. While publication
-is pending, the plugin requires the published 2.1.0 CLI route below.
+CLI, and cannot turn checked-out source into a runtime. The plugin requires the
+installed PyPI CLI described below.
 
 The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The checked-in source/plugin configuration is not a substitute for the
-published package route.
-
-The published stable 2.1.0 package is the only user-installable route in this
-interim state.
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release. The
+checked-in source/plugin configuration is not a substitute for the published
+package route.
 
 Install the matching stable package in an isolated environment:
 
 ```bash
-pipx install ai-dememory==2.1.0
+pipx install ai-dememory
 ```
 
 Create or select a private vault through the wizard:
 
 ```bash
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+ai-dememory init ~/code/my-memory --wizard
 ```
 
 The wizard-first route is the only plugin setup command. Do not infer another
@@ -37,7 +35,7 @@ package install command from plugin metadata.
 When upgrading an existing installation, replace it with the selected release:
 
 ```bash
-pipx install --force ai-dememory==2.1.0
+pipx install --force ai-dememory
 ```
 
 Generate the optional, vault-specific Codex fragment only when you want to use
@@ -290,7 +288,7 @@ Scheduler planning in normal plugin use targets the installed CLI. The MCP
 daily/weekly `run_command`, and reviewed `cron_entries` for hosts where user
 systemd timers are unavailable. Its Docker-specific plan fields remain for
 maintainer-only checkout and CI validation; they are not a local-image route for
-plugin users while stable publication is pending.
+plugin users.
 The matching CLI command is `ai-dememory schedule plan --json`; plugin setup
 skills should prefer it over parsing `schedule setup --dry-run` output when
 they need a structured local preview outside MCP.
@@ -459,6 +457,5 @@ and manual capture examples.
 Codex can discover the repo plugin through `.agents/plugins/marketplace.json`.
 After installing or refreshing that marketplace, install the `ai-dememory`
 plugin from the Codex plugin directory. That only makes the extension
-discoverable; it does not install or upgrade the CLI. During this pending
-release, install the published 2.1.0 package first and use the wizard and
-vault-specific MCP fragment above.
+discoverable; it does not install or upgrade the CLI. Install the stable PyPI
+package first, then use the wizard and vault-specific MCP fragment above.

@@ -32,13 +32,12 @@ description: "Use when Codex needs to operate the installed ai-dememory tool aga
   commands may be repository-bounded, but they must not turn public fixtures
   into a private-memory destination.
 
-The source tree is preparing 2.1.1, but the currently published compatibility
-route is 2.1.0 until tag-bound PyPI publication and external readback complete.
-For first run, install `pipx install ai-dememory==2.1.0`, then use
-`ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0`; it
-creates the vault and records the operational policy. Do not substitute the
-pending source version or remove the legacy gate while this release state is
-pending. Use the separate
+`ai-dememory 2.1.1` is the current stable PyPI release. For first run, use
+`pipx install ai-dememory`, then `ai-dememory init ~/code/my-memory --wizard`;
+it creates the vault and records the operational policy. `--require-version`
+remains a legacy-compatible diagnostic, not a normal setup gate. `v2.1.1rc1`
+and `v2.1.1rc2` are historical TestPyPI evidence, not installation routes. Use
+the separate
 `ai-dememory --root <vault> onboard` contract only when reviewed
 personal/project memory is wanted. Use
 `ai-dememory hook-event dispatch --root <vault>` (or an `AI_DEMEMORY_ROOT`

@@ -10,14 +10,11 @@ contains demo/validation fixtures only; it is never the vault to connect.
 
 ## User Path: Install, Create A Vault, Then Connect A Client
 
-2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
-
-The published stable 2.1.0 package is the only user-installable route in this
-interim state.
+Install the stable PyPI package, then create a separately bound private vault.
 
 ```bash
-pipx install ai-dememory==2.1.0
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+pipx install ai-dememory
+ai-dememory init ~/code/my-memory --wizard
 ```
 
 Generate a fragment only for a client you intend to connect. Read it and copy it
@@ -68,28 +65,23 @@ When upgrading an existing stable installation, regenerate the fragment for
 each vault before replacing the previous host entry:
 
 ```bash
-pipx install --force ai-dememory==2.1.0
+pipx install --force ai-dememory
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-Regenerate the fragment from the exact published package rather than treating a
-source checkout or release candidate as a fallback. Version diagnostics are for
-CI or support work, not setup.
+Regenerate the fragment from the installed stable package rather than treating a
+source checkout as a fallback. Version diagnostics are for CI or support work,
+not setup.
 
-## Docker Is Deferred During This Pending Release
+## Docker Diagnostics Are Maintainer-only
 
-The Dockerfile supports a future local stdio transport, but its image must be
-built from a source checkout. While 2.1.1 has not completed tag-bound PyPI
-publication and external readback, telling an end user to build
-`ai-dememory:local` would silently switch them from the published 2.1.0 package
-to unpublished source. Docker is therefore not an installation or MCP setup
-route in this interim state.
+The Dockerfile supports isolated CI and checkout diagnostics. It is not an
+installation or MCP setup route: building `ai-dememory:local` runs source
+code and must not replace the installed CLI.
 
-Use the installed 2.1.0 CLI and the generated `mcp-config` fragment above. Once
-the stable 2.1.1 package and its exact release evidence have been read back,
-this guide can publish a verified Docker recipe. That future mode remains local
-stdio only and must not expose a network port without a separate authentication,
-authorization, and privacy design.
+Use the installed CLI and the generated `mcp-config` fragment above. Any future
+Docker user route remains local stdio only and must not expose a network port
+without a separate authentication, authorization, and privacy design.
 
 ## Maintainer-only Checkout Diagnostics
 

@@ -12,12 +12,17 @@ reproducible evidence changes.
 - Public `main` is a moving source branch. Resolve its current SHA before a
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
-- Last externally verified public stable tag `v2.1.0`:
-  `f43e55d824e7b085b5a7f8518e6dad9d5ddaef99`
-- Current source prepares stable `2.1.1`. Its user documentation keeps the
-  currently published `2.1.0` compatibility route while a tag, PyPI
-  publication, and external readback are still required before that source
-  state becomes published release evidence.
+- Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
+  its annotated tag peels to
+  `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
+- [`ai-dememory 2.1.1`](https://pypi.org/project/ai-dememory/2.1.1/) is
+  available from public PyPI as a non-yanked wheel and source distribution. The canonical
+  [release workflow 32662792807](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662792807)
+  completed validation, provenance-attested build, protected PyPI publication,
+  exact-version verification, and GitHub Release creation. Its public package
+  route is the unpinned CLI install followed by `ai-dememory init
+  ~/code/my-memory --wizard`; `--require-version` remains a legacy-compatible
+  diagnostic option, not normal setup guidance.
 - Historical prerelease evidence: [`v2.1.1rc2`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2),
   an annotated tag whose peeled ref resolves to
   `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is published on
@@ -35,13 +40,13 @@ reproducible evidence changes.
   release evidence.
 
 The immutable release facts above were read back from the canonical public tag,
-GitHub Release, release workflow, and TestPyPI index. Current `main` is source
-state rather than release evidence and must be read back separately. This status
-file does not substitute for the exact checks required by a later stable release.
+GitHub Release, release workflow, PyPI index, and artifact hashes. Current
+`main` is source state rather than release evidence and must be read back
+separately. This status file does not substitute for exact release checks.
 
 ## Current Maintenance Correction
 
-The `2.1.1` stable preparation carries forward the two evaluated maintenance
+The released `2.1.1` maintenance correction carries forward the two evaluated
 increments without changing the V3 execution DAG. `2.1.1rc1` corrected an
 unintended 2.1.0 compatibility contract; `2.1.1rc2` supplied the optional
 local-API onboarding hint and documentation follow-up.
@@ -54,12 +59,10 @@ local-API onboarding hint and documentation follow-up.
 - Resolution: new generated configuration, plans, plugin defaults, and Docker
   defaults omit the pin. Legacy configuration that still contains it is accepted
   as a no-op. `version-check` remains an explicit CI/support diagnostic.
-- Release coupling: source and plugin carry a release-pending `2.1.1` identity
-  while documentation and static site retain the currently published `2.1.0`
-  compatibility route; `2.1.1rc1` and `2.1.1rc2` remain immutable TestPyPI
-  evidence. The source state must not be presented as a published PyPI release
-  until the protected tag/publication workflows and exact index readback
-  succeed.
+- Release result: `v2.1.1` is now the public PyPI/GitHub stable release; its
+  wheel and source hashes match the GitHub Release assets. `2.1.1rc1` and
+  `2.1.1rc2` remain immutable TestPyPI evidence only, not active installation
+  routes.
 - Post-release first-run UX: `ai-dememory init ~/code/my-memory --wizard`
   after installing the exact stable package. Client configuration remains an
   optional, inspect-before-copy action.
@@ -169,7 +172,22 @@ local-API onboarding hint and documentation follow-up.
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
 
-## Verified Release-Candidate Evidence
+## Verified Stable And Release-Candidate Evidence
+
+- PR [#44](https://github.com/GonzaloTorreras/ai-dememory/pull/44) was merged
+  at `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6` after an independent exact-head
+  review found no actionable P0/P1/P2 issue; its CI and Pages validation passed.
+- The protected tag workflow
+  [32662727498](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662727498)
+  created annotated `v2.1.1` and verified its peeled commit.
+- The canonical stable release workflow
+  [32662792807](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662792807)
+  passed validation, artifact build/checksums/attestation, protected PyPI
+  publication, exact-index verification, and immutable GitHub Release creation.
+- The public [v2.1.1 GitHub Release](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1)
+  includes the wheel, source distribution, release notes, and SHA256SUMS. PyPI
+  readback confirmed both package files as non-yanked and their SHA-256 values
+  match the release assets.
 
 - PR [#42](https://github.com/GonzaloTorreras/ai-dememory/pull/42) was merged
   at `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce` after release documentation
@@ -226,16 +244,12 @@ remain intact.
 
 ## Next Legal Action
 
-1. Review and merge the stable `2.1.1` preparation only after exact-head review
-   and green CI. Then create its tag from the exact green `main` SHA, publish
-   through the protected PyPI workflow, and read back the package index,
-   GitHub Release, artifact hashes, and peeled tag.
-2. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
+1. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
    silently replace a package route with mutable source behavior or restore an
    active prerelease installation route.
-3. Do not merge, tag, publish, deploy, or alter external configuration without
+2. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-4. Continue `BRG-003` with the remaining strict-resolver inventory and
+3. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader and
    review-state boundary is covered for current entry points; provider/import/
    capture stateful actions are also covered. Preserve the intentional rootless

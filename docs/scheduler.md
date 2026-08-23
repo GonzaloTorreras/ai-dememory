@@ -8,12 +8,9 @@ The implementation contract for scheduler ownership, Docker mode, Codex plugin
 skills, and hook boundaries is defined in
 [scheduler-plugin-blueprint.md](scheduler-plugin-blueprint.md).
 
-**Release-pending Docker boundary:** 2.1.1 is source preparation while the
-published 2.1.0 CLI remains the user-operable package. Building
-`ai-dememory:local` would run that pending source, so normal users must use the
-installed CLI in this guide. Docker material below is limited to explicitly
-labelled maintainer diagnostics until the stable tag, PyPI publication, and
-external readback are complete.
+**Docker boundary:** normal users should use the installed CLI in this guide.
+Building `ai-dememory:local` runs a trusted checkout and is therefore limited
+to explicitly labelled maintainer diagnostics below.
 
 ## Maintenance Profiles
 
@@ -90,7 +87,7 @@ ai-dememory schedule setup --dry-run
 This subsection is for a contributor or CI/release maintainer validating a
 trusted checkout. It assumes an exact local image already exists for that
 diagnostic. It is not a user installation, scheduler setup, or fallback for the
-published CLI while 2.1.1 publication is pending:
+installed CLI:
 
 ```bash
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
@@ -187,8 +184,8 @@ commands while still reporting pending review work.
 MCP clients can call `memory.schedule_plan` to preview the installed-CLI
 schedule and equivalent reviewed cron export entries. Its Docker-specific plan
 fields are for the maintainer-only diagnostic above; they do not make a local
-image a normal user route while publication is pending. The tool is read-only
-and returns `mutates_system=false`.
+image a normal user route. The tool is read-only and returns
+`mutates_system=false`.
 Use `ai-dememory schedule doctor --json` or MCP `memory.schedule_environment`
 to check whether scheduler, Docker, and optional crontab commands are discoverable
 without running them.

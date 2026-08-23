@@ -99,7 +99,7 @@ review remains required before PR readiness.
 | --- | --- |
 | Home mental model | `docs/architecture.md`, `README.md` |
 | Installation | `docs/install.md`, `pyproject.toml` |
-| Published capability boundary | `README.md`, `docs/install.md`, the published 2.1.0 compatibility contract and pending 2.1.1 release preparation |
+| Published capability boundary | `README.md`, `docs/install.md`, and the stable 2.1.1 PyPI installation contract |
 | Intensity/model policy | `docs/adr/0257-bounded-autonomy-and-resource-profiles.md`, `scripts/resource_policy.py` |
 | MCP setup | `docs/local-mcp.md`, `docs/mcp-tool-profiles.md` |
 | Python/Node boundary | `docs/adr/0254-python-node-runtime-boundary.md` |
@@ -108,11 +108,15 @@ review remains required before PR readiness.
 | Pages delivery boundary | `docs/adr/0259-manual-github-pages-deployment.md`, `.github/workflows/pages-validate.yml`, `.github/workflows/pages.yml`, `scripts/ci_guard.py`, `scripts/pages_artifact_guard.py` |
 
 The structural guard verifies that every listed source exists, keeps published
-2.1.0 command blocks free of mutable VCS install paths, derives profile numbers
+2.1.1 setup blocks free of mutable VCS install paths, derives profile numbers
 and idle leases from `scripts/resource_policy.py`, and keeps the approved
 `SECURITY.md` plus private-reporting route aligned with the security page.
 
-2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+`2.1.1` is the current stable PyPI route: `pipx install ai-dememory`, then
+`ai-dememory init ~/code/my-memory --wizard`. `--require-version` remains a
+legacy-compatible diagnostic, not normal installation guidance. The
+`2.1.1rc1` and `2.1.1rc2` TestPyPI releases remain historical evidence, not
+alternative installation routes.
 
 ## Local Preview
 

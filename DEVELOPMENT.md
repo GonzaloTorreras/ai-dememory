@@ -59,10 +59,12 @@ generated configuration while continuing to accept legacy configuration.
 `v2.1.1rc2`, resolving to
 `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`, adds the small optional local API
 onboarding/documentation follow-up. Both release candidates are historical
-evidence, not installation routes. This source line is prepared as stable
-`2.1.1`; its exact tag and PyPI publication remain pending the protected
-release workflow and external readback. The last externally verified PyPI
-stable release remains `2.1.0` until those checks finish. This work does not
+evidence, not installation routes. Stable `v2.1.1` peels to
+`3dd65a18c5f26c5d03f24c5f3bb719769b581fa6` and is published on PyPI after
+the protected release workflow `32662792807` completed and the public package
+index was read back. First-run setup is `pipx install ai-dememory` followed by
+`ai-dememory init ~/code/my-memory --wizard`; `--require-version` remains a
+legacy-compatible diagnostic, not a normal setup gate. This work does not
 advance the V3 plan or complete V3 `ONB-001`.
 
 The next legal product implementation frontier is batch `B04b`:
