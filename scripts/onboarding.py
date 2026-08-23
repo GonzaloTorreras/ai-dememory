@@ -21,7 +21,7 @@ from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.cli import build_mcp_config
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from command_render import render_copy_command
-from config_file import load_config_path
+from config_file import parse_config_text, read_config_bytes
 from hook_event import hook_config
 from memorylib import path_is_link_like, slugify
 from resource_policy import (
@@ -154,10 +154,11 @@ def _setup_plan(
     schedule_preserved = False
     if write_config:
         config_path = safe_target(root, ".ai-dememory.toml")
-        current_config = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+        current_config_bytes = read_config_bytes(config_path, root=root)
+        current_config = current_config_bytes.decode("utf-8") if current_config_bytes is not None else ""
         existing_schedule = (
-            load_config_path(config_path).get("schedule", {})
-            if config_path.exists()
+            parse_config_text(current_config).get("schedule", {})
+            if current_config_bytes is not None
             else {}
         )
         schedule_preserved = bool(
@@ -169,7 +170,16 @@ def _setup_plan(
             normalized,
             preserve_schedule=schedule_preserved,
         )
-        writes.append(planned_write(root, config_path, updated_config, kind="config", allow_update=True))
+        writes.append(
+            planned_write(
+                root,
+                config_path,
+                updated_config,
+                kind="config",
+                allow_update=True,
+                current_bytes=current_config_bytes,
+            )
+        )
 
     conflicts = [item["path"] for item in writes if item["status"] == "conflict"]
     if schedule_preserved:
@@ -245,11 +255,16 @@ def _apply_setup_plan(
         raise ValueError("setup conflicts must be reviewed before apply: " + ", ".join(plan["conflicts"]))
 
     changed: list[str] = []
-    batch: list[tuple[Path, str, bool, str | None]] = []
+    batch: list[tuple[Path, str, bool, str | None, Path | None]] = []
     for item in plan["writes"]:
         relative_path = str(item["path"])
         target = safe_target(root, relative_path)
-        assert_write_precondition(target, item.get("current_sha256"))
+        is_config = item["kind"] == "config"
+        assert_write_precondition(
+            target,
+            item.get("current_sha256"),
+            root=root if is_config else None,
+        )
         if item["status"] == "unchanged":
             continue
         batch.append(
@@ -258,6 +273,7 @@ def _apply_setup_plan(
                 str(payloads[relative_path]),
                 item["kind"] == "config",
                 item.get("current_sha256"),
+                root if is_config else None,
             )
         )
         changed.append(relative_path)
@@ -779,9 +795,23 @@ def merge_toml_section(text: str, section: str, values: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def planned_write(root: Path, path: Path, content: str, *, kind: str, allow_update: bool) -> dict[str, Any]:
-    if path.exists():
-        current_bytes = path.read_bytes()
+_UNSET_CURRENT_BYTES = object()
+
+
+def planned_write(
+    root: Path,
+    path: Path,
+    content: str,
+    *,
+    kind: str,
+    allow_update: bool,
+    current_bytes: bytes | None | object = _UNSET_CURRENT_BYTES,
+) -> dict[str, Any]:
+    if current_bytes is _UNSET_CURRENT_BYTES:
+        current_bytes = path.read_bytes() if path.exists() else None
+    if current_bytes is not None:
+        if not isinstance(current_bytes, bytes):
+            raise TypeError("current bytes must be bytes or None")
         current = current_bytes.decode("utf-8")
         status = "unchanged" if current == content else ("update" if allow_update else "conflict")
         current_sha256: str | None = hashlib.sha256(current_bytes).hexdigest()
@@ -811,7 +841,10 @@ def safe_target(root: Path, relative_path: str) -> Path:
     return target
 
 
-def current_file_sha256(path: Path) -> str | None:
+def current_file_sha256(path: Path, *, root: Path | None = None) -> str | None:
+    if root is not None:
+        content = read_config_bytes(path, root=root)
+        return hashlib.sha256(content).hexdigest() if content is not None else None
     if not path.exists():
         return None
     if not path.is_file() or path_is_link_like(path):
@@ -819,26 +852,26 @@ def current_file_sha256(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def assert_write_precondition(path: Path, expected_sha256: object) -> None:
+def assert_write_precondition(path: Path, expected_sha256: object, *, root: Path | None = None) -> None:
     expected = str(expected_sha256) if isinstance(expected_sha256, str) else None
-    if current_file_sha256(path) != expected:
+    if current_file_sha256(path, root=root) != expected:
         raise ValueError(f"onboarding target changed after review: {path}")
 
 
-def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None]]) -> None:
+def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None, Path | None]]) -> None:
     """Stage every file first, then commit with best-effort rollback on failure."""
-    staged: list[tuple[Path, Path, bool, str | None]] = []
+    staged: list[tuple[Path, Path, bool, str | None, Path | None]] = []
     states: list[dict[str, Any]] = []
     committed = False
     try:
         # Validate the complete reviewed snapshot before creating directories or
         # temporary files. Per-target checks below still close races that occur
         # after this batch-wide preflight.
-        for path, _, _, expected_sha256 in batch:
-            assert_write_precondition(path, expected_sha256)
+        for path, _, _, expected_sha256, config_root in batch:
+            assert_write_precondition(path, expected_sha256, root=config_root)
 
-        for path, content, allow_update, expected_sha256 in batch:
-            assert_write_precondition(path, expected_sha256)
+        for path, content, allow_update, expected_sha256, config_root in batch:
+            assert_write_precondition(path, expected_sha256, root=config_root)
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.exists() and not allow_update and path.read_text(encoding="utf-8") != content:
                 raise FileExistsError(f"refusing to overwrite canonical memory: {path}")
@@ -846,12 +879,12 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None]]) -> None:
             temp_path = Path(temp_name)
             with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
                 stream.write(content)
-            staged.append((path, temp_path, allow_update, expected_sha256))
+            staged.append((path, temp_path, allow_update, expected_sha256, config_root))
 
-        for path, temp_path, allow_update, expected_sha256 in staged:
+        for path, temp_path, allow_update, expected_sha256, config_root in staged:
             state: dict[str, Any] = {"path": path, "backup": None, "installed": False}
             states.append(state)
-            assert_write_precondition(path, expected_sha256)
+            assert_write_precondition(path, expected_sha256, root=config_root)
             if path.exists():
                 if not allow_update:
                     if path.read_text(encoding="utf-8") == temp_path.read_text(encoding="utf-8"):
@@ -863,7 +896,7 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None]]) -> None:
                     raise FileExistsError(f"onboarding backup path already exists: {backup}")
                 os.replace(path, backup)
                 state["backup"] = backup
-                if current_file_sha256(backup) != expected_sha256:
+                if current_file_sha256(backup, root=config_root) != expected_sha256:
                     os.replace(backup, path)
                     state["backup"] = None
                     raise ValueError(f"onboarding target changed during apply: {path}")
@@ -889,7 +922,7 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None]]) -> None:
             ) from original_error
         raise
     finally:
-        for _, temp_path, _, _ in staged:
+        for _, temp_path, _, _, _ in staged:
             if temp_path.exists():
                 temp_path.unlink()
         if committed:

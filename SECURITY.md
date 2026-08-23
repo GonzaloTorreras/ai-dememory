@@ -156,6 +156,10 @@ default, or misleading security claim in supported code.
 - Local-first operation is a deployment boundary, not end-to-end data isolation.
   Users remain responsible for the OS account, filesystem permissions, backups,
   selected MCP/AI host, and any private-vault remote.
+- Vault-root binding starts from the root selected by the local user. Keep that
+  root and its parent on a stable, trusted filesystem: path checks can reject
+  escapes below the bound root, but cannot make a root that is replaced before
+  an operation begins trustworthy.
 - Secret scanning is heuristic and bounded. It reduces accidental storage and
   egress but cannot prove that arbitrary prose contains no personal or sensitive
   information.
