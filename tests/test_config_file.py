@@ -272,6 +272,21 @@ class RootBoundConfigReadTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("config path changed while reading", stderr.getvalue())
 
+    def test_review_cli_normalizes_a_safe_config_read_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            root.mkdir()
+            stderr = io.StringIO()
+
+            with (
+                patch("review_memory.load_config", side_effect=ValueError("config path must not contain symlinks")),
+                redirect_stderr(stderr),
+            ):
+                exit_code = review_main(["--root", str(root), "review", "configure-mode", "--mode", "strict"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("config path must not contain symlinks", stderr.getvalue())
+
     def test_setup_plan_keeps_the_validated_config_fingerprint_after_a_swap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)

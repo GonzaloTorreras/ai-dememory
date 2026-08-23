@@ -480,7 +480,9 @@ def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = Non
     mode = REVIEW_MODES.get(canonical_review_mode(mode_name))
     if not mode:
         raise ReviewError(f"unknown review mode: {mode_name}")
-    config = _load_review_root_config(root)
+    # Keep the direct API's established ValueError contract for unsafe config.
+    # The CLI boundary below still normalizes it into a controlled exit.
+    config = load_config(root)
     current = dict(config.get("review", {}))
     current.update(review_mode_config_values(mode_name, reviewer))
     return _set_review_config_section(root, "review", current)
@@ -3029,7 +3031,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Updated {repo_relative_path(path, root)}")
             return 0
-    except ReviewError as exc:
+    except (ReviewError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
