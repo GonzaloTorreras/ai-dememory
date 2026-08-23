@@ -106,7 +106,9 @@ class AiReleaseGuardTests(unittest.TestCase):
 
         self.assertEqual(readme.name, "README-PYPI.md")
         self.assertIn("# ai DeMemory", text)
-        self.assertIn("ai-dememory init /path/to/my-memory --wizard", text)
+        self.assertIn("python -m pip install --upgrade ai-dememory", text)
+        self.assertIn("Do not assume the default PyPI command installs a prerelease.", text)
+        self.assertIn("Use the wizard-first command documented by that matching release", text)
         for stale_claim in ("untagged", "unpublished", "source candidate"):
             self.assertNotIn(stale_claim, lowered)
 
