@@ -16,6 +16,7 @@ from scripts.docs_site_guard import (
     HISTORICAL_PRERELEASE_CONTRACTS,
     PUBLIC_SKILL_FIRST_RUN_GUIDES,
     PUBLIC_SKILL_GUIDE_ROOTS,
+    PUBLIC_SOURCE_ROUTE_DOCS,
     RELEASE_PENDING_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
@@ -33,26 +34,46 @@ from scripts.docs_site_guard import (
 )
 
 
-class DocumentationSiteGuardTests(unittest.TestCase):
-    def test_published_2_1_0_contract_keeps_the_legacy_wizard_gate_separate_from_source(self) -> None:
-        contract = STABLE_RELEASE_CONTRACTS["2.1.0"]
+FUTURE_PENDING_VERSION = "2.1.2"
+FUTURE_PENDING_CONTRACT = {
+    "published_version": "2.1.1",
+    "scope_markers": (
+        "2.1.2 is source release preparation, not an installable route until "
+        "tag-bound PyPI publication and external readback complete.",
+        "2.1.1 is the currently published PyPI compatibility route while "
+        "release verification is pending.",
+    ),
+}
 
-        self.assertIn("pipx install ai-dememory==2.1.0", contract["required"])
+
+class DocumentationSiteGuardTests(unittest.TestCase):
+    def _future_pending_contract(self):
+        return patch.dict(
+            RELEASE_PENDING_CONTRACTS,
+            {FUTURE_PENDING_VERSION: FUTURE_PENDING_CONTRACT},
+            clear=True,
+        )
+
+    def test_published_2_1_1_contract_is_wizard_first_without_a_runtime_pin(self) -> None:
+        contract = STABLE_RELEASE_CONTRACTS["2.1.1"]
+
+        self.assertIn("pipx install ai-dememory", contract["required"])
+        self.assertIn("pipx install --force ai-dememory", contract["required"])
         self.assertIn(
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard",
             contract["required"],
         )
         self.assertIn(
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
             contract["required"],
         )
-        self.assertIn(
-            "ai-dememory init ~/code/my-memory --wizard",
-            contract["source_only"],
+        self.assertEqual((), contract["source_only"])
+        self.assertFalse(
+            any("==" in command or "--require-version" in command for command in contract["required"])
         )
 
-    def test_all_published_compatibility_wizard_guides_require_the_legacy_gate(self) -> None:
-        command = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+    def test_all_stable_wizard_guides_use_the_unpinned_first_run_command(self) -> None:
+        command = "ai-dememory init ~/code/my-memory --wizard"
         for relative in (
             "README.md",
             "docs/install.md",
@@ -66,7 +87,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             with self.subTest(path=relative):
                 self.assertIn(command, STABLE_DOC_REQUIRED_COMMANDS[relative])
 
-    def test_public_skill_surfaces_use_the_published_compatibility_route(self) -> None:
+    def test_public_skill_surfaces_use_the_published_stable_route(self) -> None:
         expected = {
             "skills/ai-dememory/SKILL.md",
             "skills/ai-dememory/agents/openai.yaml",
@@ -85,49 +106,38 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
         self.assertSetEqual(expected, discovered)
         first_run = (
-            "pipx install ai-dememory==2.1.0",
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "pipx install ai-dememory",
+            "ai-dememory init ~/code/my-memory --wizard",
         )
-        pending_commands = public_skill_guide_required_commands("2.1.0", "2.1.1")
-        self.assertSetEqual(set(PUBLIC_SKILL_FIRST_RUN_GUIDES), set(pending_commands))
-        for relative in pending_commands:
+        stable_commands = public_skill_guide_required_commands("2.1.1", "2.1.1")
+        self.assertSetEqual(set(PUBLIC_SKILL_FIRST_RUN_GUIDES), set(stable_commands))
+        for relative in stable_commands:
             with self.subTest(path=relative):
-                self.assertEqual(first_run, pending_commands[relative])
+                self.assertEqual(first_run, stable_commands[relative])
         self.assertEqual(
             [],
-            audit_public_skill_guides(REPO_ROOT, "2.1.0", "2.1.1"),
+            audit_public_skill_guides(REPO_ROOT, "2.1.1", "2.1.1"),
         )
 
-    def test_public_skill_first_run_contract_drops_legacy_gate_after_stable_publication(self) -> None:
+    def test_public_skill_first_run_contract_does_not_depend_on_release_identity(self) -> None:
         expected = (
-            "pipx install ai-dememory==2.1.1",
+            "pipx install ai-dememory",
             "ai-dememory init ~/code/my-memory --wizard",
         )
         self.assertEqual(
             {relative: expected for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES},
             public_skill_guide_required_commands("2.1.1", "2.1.1"),
         )
-        pinned = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
-        unpinned = "ai-dememory init ~/code/my-memory --wizard"
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary)
             for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
                 shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
-            for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES:
-                guide = copied / relative
-                guide.write_text(
-                    guide.read_text(encoding="utf-8")
-                    .replace("pipx install ai-dememory==2.1.0", "pipx install ai-dememory==2.1.1", 1)
-                    .replace(pinned, unpinned, 1),
-                    encoding="utf-8",
-                )
             self.assertEqual(
                 [],
                 audit_public_skill_guides(copied, "2.1.1", "2.1.1"),
             )
 
-    def test_public_skill_guard_rejects_unpinned_wizard_while_release_is_pending(self) -> None:
-        pinned = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+    def test_public_skill_guard_rejects_a_persistent_wizard_gate_on_the_stable_line(self) -> None:
         unpinned = "ai-dememory init ~/code/my-memory --wizard"
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary)
@@ -137,22 +147,22 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 with self.subTest(path=relative):
                     guide = copied / relative
                     guide.write_text(
-                        guide.read_text(encoding="utf-8").replace(pinned, unpinned, 1),
+                        guide.read_text(encoding="utf-8").replace(
+                            unpinned,
+                            f"{unpinned} --require-version 2.1.1",
+                            1,
+                        ),
                         encoding="utf-8",
                     )
-                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+                    errors = audit_public_skill_guides(copied, "2.1.1", "2.1.1")
                     self.assertTrue(
                         any(
                             error.startswith(f"{relative}:")
-                            and "release-pending documentation must gate wizard commands with exactly "
-                            "--require-version 2.1.0" in error
+                            and "stable documentation must not retain a persistent --require-version gate"
+                            in error
                             for error in errors
                         ),
                         errors,
-                    )
-                    guide.write_text(
-                        guide.read_text(encoding="utf-8").replace(unpinned, pinned, 1),
-                        encoding="utf-8",
                     )
 
     def test_public_skill_guard_rejects_quoted_frontmatter_wizard_while_release_is_pending(self) -> None:
@@ -497,7 +507,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             errors,
         )
 
-    def test_release_pending_source_routes_are_rejected_in_user_sections(self) -> None:
+    def test_source_routes_are_rejected_in_stable_user_sections(self) -> None:
         fixtures = (
             (
                 "docs/local-mcp.md",
@@ -540,6 +550,15 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 "source dispatcher",
             ),
             ("docs/install.md", "pip install .", "local source install"),
+            ("docs/install.md", "pi\\\np install .", "local source install"),
+            ("docs/install.md", "p^ip install .", "local source install"),
+            ("docs/install.md", "p%EMPTY%ip install .", "local source install"),
+            ("docs/scheduler.md", "do^cker build .", "source Docker build"),
+            (
+                "docs/local-mcp.md",
+                "py^thon3 scripts/ai_dememory.py doctor",
+                "source dispatcher",
+            ),
             ("docs/install.md", "pip install -e .", "local source install"),
             ("docs/install.md", "pip install --editable=.", "local source install"),
             ("docs/install.md", "pip install -e=.", "local source install"),
@@ -568,7 +587,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 text = f"# User path\n\n```sh\n{command}\n```\n"
                 errors = _pending_source_execution_errors(
                     text,
-                    "2.1.0",
+                    "2.1.1",
                     "2.1.1",
                     relative,
                     allow_explicit_maintainer_sections=True,
@@ -578,7 +597,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     errors,
                 )
 
-    def test_release_pending_source_routes_ignore_echo_but_not_later_segments(self) -> None:
+    def test_source_routes_ignore_echo_but_not_later_segments(self) -> None:
         for command in (
             "echo python3 scripts/ai_dememory.py doctor",
             "echo docker build .",
@@ -588,7 +607,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     [],
                     _pending_source_execution_errors(
                         f"# User path\n\n```sh\n{command}\n```\n",
-                        "2.1.0",
+                        "2.1.1",
                         "2.1.1",
                         "docs/local-mcp.md",
                         allow_explicit_maintainer_sections=True,
@@ -597,14 +616,28 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
         errors = _pending_source_execution_errors(
             "# User path\n\n```sh\necho docker build .; docker build .\n```\n",
-            "2.1.0",
+            "2.1.1",
             "2.1.1",
             "docs/local-mcp.md",
             allow_explicit_maintainer_sections=True,
         )
         self.assertTrue(any("must not execute a source Docker build" in error for error in errors), errors)
 
-    def test_release_pending_source_routes_remain_available_in_reviewed_maintainer_sections(self) -> None:
+    def test_dynamic_source_route_precheck_leaves_literal_prose_alone(self) -> None:
+        prose = "The fragment p^ip install . is a cmd syntax example, not a copyable command."
+
+        self.assertEqual(
+            [],
+            _pending_source_execution_errors(
+                prose,
+                "2.1.1",
+                "2.1.1",
+                "docs/install.md",
+                allow_explicit_maintainer_sections=True,
+            ),
+        )
+
+    def test_source_routes_remain_available_in_reviewed_maintainer_sections(self) -> None:
         for relative in (
             "docs/local-mcp.md",
             "docs/mcp-client-config.md",
@@ -616,14 +649,110 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     [],
                     _pending_source_execution_errors(
                         (REPO_ROOT / relative).read_text(encoding="utf-8"),
-                        "2.1.0",
+                        "2.1.1",
                         "2.1.1",
                         relative,
                         allow_explicit_maintainer_sections=True,
                     ),
                 )
 
-    def test_public_skill_guard_rejects_pending_source_dispatcher(self) -> None:
+    def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:
+        allowed = _pending_source_execution_errors(
+            "# Scheduler\n\n### Maintainer-only Docker schedule diagnostics\n\n"
+            "```bash\npython3 scripts/ai_dememory.py doctor\n```\n",
+            "2.1.1",
+            "2.1.1",
+            "docs/scheduler.md",
+            allow_explicit_maintainer_sections=True,
+        )
+        rejected = _pending_source_execution_errors(
+            "# Scheduler\n\n## User path\n\n"
+            "```bash\npython3 scripts/ai_dememory.py doctor\n```\n",
+            "2.1.1",
+            "2.1.1",
+            "docs/scheduler.md",
+            allow_explicit_maintainer_sections=True,
+        )
+
+        self.assertEqual([], allowed)
+        self.assertTrue(any("must not execute a source dispatcher" in error for error in rejected), rejected)
+
+    def test_full_audit_covers_the_curated_public_source_route_set(self) -> None:
+        portal_user_product_guides = {
+            "docs/README.md",
+            "docs/local-api.md",
+            "docs/hooks.md",
+            "docs/schema.md",
+            "docs/memory-quality.md",
+            "docs/review-workflows.md",
+            "docs/import-capture.md",
+            "docs/source-grounded-query-design.md",
+            "docs/sleep-consolidation.md",
+            "docs/architecture.md",
+            "docs/memory-graph.md",
+            "docs/mcp-v2.md",
+            "docs/mcp-v2-gap-analysis.md",
+            "docs/public-modernization-roadmap.md",
+        }
+        expected_guides = {
+            *STABLE_INSTALL_DOCS,
+            "README-PYPI.md",
+            *portal_user_product_guides,
+        }
+        self.assertSetEqual(set(PUBLIC_SOURCE_ROUTE_DOCS), expected_guides)
+
+        guarded_routes = {
+            relative: [("python3 scripts/ai_dememory.py doctor", "source dispatcher")]
+            for relative in PUBLIC_SOURCE_ROUTE_DOCS
+        }
+        for relative in portal_user_product_guides:
+            guarded_routes[relative].extend(
+                (
+                    ("pip install .", "local source install"),
+                    ("p^ip install .", "local source install"),
+                    ("p%EMPTY%ip install .", "local source install"),
+                    ("pi\\\np install .", "local source install"),
+                    ("docker build .", "source Docker build"),
+                )
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "repo"
+            shutil.copytree(
+                REPO_ROOT,
+                copied,
+                ignore=shutil.ignore_patterns(
+                    ".git",
+                    "__pycache__",
+                    ".pytest_cache",
+                ),
+            )
+            for relative, routes in guarded_routes.items():
+                guide = copied / relative
+                guide.write_text(
+                    "# User route regression\n\n"
+                    "```bash\n"
+                    + "\n".join(command for command, _ in routes)
+                    + "\n```\n\n"
+                    + guide.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+
+            errors = audit_site(copied)
+
+        for relative, routes in guarded_routes.items():
+            for _, route in routes:
+                with self.subTest(path=relative, route=route):
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and f"public user guidance must not execute a {route}" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_public_skill_guard_rejects_source_dispatcher(self) -> None:
         relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary)
@@ -636,12 +765,37 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+            errors = audit_public_skill_guides(copied, "2.1.1", "2.1.1")
 
         self.assertTrue(
             any(
                 error.startswith(f"{relative}:")
-                and "release-pending user guidance must not execute a source dispatcher" in error
+                and "public user guidance must not execute a source dispatcher" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_public_skill_guard_rejects_dynamic_source_installer(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            guide.write_text(
+                guide.read_text(encoding="utf-8")
+                + "\n```cmd\np^ip install .\n```\n",
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.1", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "must not execute a local source install through dynamic or fragmented shell syntax"
+                in error
                 for error in errors
             ),
             errors,
@@ -649,23 +803,23 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
     def test_release_scope_supports_source_equal_to_stable(self) -> None:
         self.assertEqual(
-            release_scope_markers("2.1.0", "2.1.0"),
-            ("published stable 2.1.0",),
+            release_scope_markers("2.1.1", "2.1.1"),
+            ("current stable", "2.1.1"),
         )
-        self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/release line: 2.1.0")
+        self.assertEqual(site_release_lens("2.1.1", "2.1.1"), "Stable release: 2.1.1")
 
     def test_release_scope_models_the_explicit_release_pending_source(self) -> None:
-        pending = RELEASE_PENDING_CONTRACTS["2.1.1"]
-        self.assertEqual("2.1.0", pending["published_version"])
-        self.assertNotIn("package_command", pending)
-        self.assertEqual(
-            release_scope_markers("2.1.0", "2.1.1"),
-            ("published stable 2.1.0", *pending["scope_markers"]),
-        )
-        self.assertEqual(
-            site_release_lens("2.1.0", "2.1.1"),
-            pending["scope_markers"][0],
-        )
+        with self._future_pending_contract():
+            self.assertEqual("2.1.1", FUTURE_PENDING_CONTRACT["published_version"])
+            self.assertNotIn("package_command", FUTURE_PENDING_CONTRACT)
+            self.assertEqual(
+                release_scope_markers("2.1.1", FUTURE_PENDING_VERSION),
+                ("current stable", "2.1.1", *FUTURE_PENDING_CONTRACT["scope_markers"]),
+            )
+            self.assertEqual(
+                site_release_lens("2.1.1", FUTURE_PENDING_VERSION),
+                FUTURE_PENDING_CONTRACT["scope_markers"][0],
+            )
 
     def test_future_source_still_requires_an_explicit_active_or_pending_contract(self) -> None:
         self.assertEqual(
@@ -674,20 +828,19 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 "requires exactly one explicit active TestPyPI prerelease contract or "
                 "a release-pending contract"
             ],
-            _release_contract_errors("2.1.0", "2.1.2rc1"),
+            _release_contract_errors("2.1.1", "2.1.2rc1"),
         )
 
     def test_release_pending_source_requires_zero_active_prerelease_contracts(self) -> None:
+        self.assertEqual({}, RELEASE_PENDING_CONTRACTS)
         self.assertEqual({}, ACTIVE_PRERELEASE_CONTRACTS)
         self.assertEqual((), ACTIVE_PRERELEASE_REQUIRED_COMMANDS)
-        self.assertEqual([], _release_contract_errors("2.1.0", "2.1.1"))
-
-        with patch.dict(
+        with self._future_pending_contract(), patch.dict(
             ACTIVE_PRERELEASE_CONTRACTS,
             {"2.1.2rc1": {"scope_marker": "test fixture"}},
             clear=True,
         ):
-            errors = _release_contract_errors("2.1.0", "2.1.1")
+            errors = _release_contract_errors("2.1.1", FUTURE_PENDING_VERSION)
 
         self.assertEqual(
             [
@@ -711,13 +864,13 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         self.assertNotIn("2.1.1rc2", ACTIVE_PRERELEASE_CONTRACTS)
         errors = _stable_command_errors(
             "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
-            "2.1.0",
+            "2.1.1",
             "fixture",
             source_version="2.1.1",
         )
         self.assertTrue(any("not allowlisted" in error for error in errors), errors)
 
-    def test_release_pending_user_docs_keep_only_the_published_compatibility_route(self) -> None:
+    def test_stable_user_docs_keep_only_the_published_wizard_first_route(self) -> None:
         for relative in STABLE_INSTALL_DOCS:
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -725,7 +878,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     [],
                     _stable_command_errors(
                         text,
-                        "2.1.0",
+                        "2.1.1",
                         relative,
                         source_version="2.1.1",
                     ),
@@ -736,15 +889,15 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 text = " ".join(
                     (REPO_ROOT / relative).read_text(encoding="utf-8").lower().split()
                 ).replace("`", "")
-                self.assertIn("published stable 2.1.0", text)
-                for marker in RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"]:
-                    self.assertIn(marker.casefold(), text)
+                self.assertIn("current stable", text)
+                self.assertIn("2.1.1", text)
                 self.assertNotIn("testpypi prerelease 2.1.1rc2", text)
                 self.assertNotIn("source candidate 2.1.1rc2 is unreleased", text)
 
         install = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
-        self.assertIn("ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0", install)
-        self.assertNotIn("ai-dememory==2.1.1", install)
+        self.assertIn("ai-dememory init ~/code/my-memory --wizard", install)
+        self.assertNotIn("--require-version", install)
+        self.assertNotIn("ai-dememory==", install)
         self.assertNotIn(
             "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
             install,
@@ -1226,7 +1379,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertEqual([], audit_site(REPO_ROOT, copied))
 
-    def test_guard_rejects_missing_published_compatibility_wizard_command(self) -> None:
+    def test_guard_rejects_missing_stable_wizard_command(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
@@ -1241,8 +1394,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             errors = audit_site(REPO_ROOT, copied)
             self.assertTrue(
                 any(
-                    "published 2.1.0 command block is missing "
-                    "'ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0'"
+                    "stable 2.1.1 command block is missing "
+                    "'ai-dememory init ~/code/my-memory --wizard'"
                     for error in errors
                 )
             )
@@ -1268,20 +1421,20 @@ class DocumentationSiteGuardTests(unittest.TestCase):
     def test_guard_rejects_mutable_vcs_install_in_any_stable_doc(self) -> None:
         errors = _stable_command_errors(
             "pipx install git+https://github.com/GonzaloTorreras/ai-dememory.git",
-            "2.1.0",
+            "2.1.1",
             "fixture",
         )
         self.assertTrue(any("not allowlisted" in error for error in errors))
 
-    def test_guard_rejects_unpinned_install_in_stable_block(self) -> None:
+    def test_guard_rejects_version_pinned_install_in_stable_block(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    "pipx install ai-dememory==2.1.0",
                     "pipx install ai-dememory",
+                    "pipx install ai-dememory==2.1.1",
                     1,
                 ),
                 encoding="utf-8",
@@ -1348,10 +1501,10 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
     def test_guard_rejects_release_markers_on_hidden_content(self) -> None:
         hidden_forms = (
-            'data-release="published-2.1.0" hidden',
-            'data-release="published-2.1.0" aria-hidden="true"',
-            'data-release="published-2.1.0" style="display: none"',
-            'data-release="published-2.1.0" style="visibility: hidden"',
+            'data-release="stable-2.1.1" hidden',
+            'data-release="stable-2.1.1" aria-hidden="true"',
+            'data-release="stable-2.1.1" style="display: none"',
+            'data-release="stable-2.1.1" style="visibility: hidden"',
         )
         for hidden_form in hidden_forms:
             with self.subTest(hidden_form=hidden_form), tempfile.TemporaryDirectory() as temporary:
@@ -1360,7 +1513,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home = copied / "index.html"
                 home.write_text(
                     home.read_text(encoding="utf-8").replace(
-                        'data-release="published-2.1.0"',
+                        'data-release="stable-2.1.1"',
                         hidden_form,
                         1,
                     ),
@@ -1378,8 +1531,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    '<div class="code-block" data-copy-block data-release="published-2.1.0">',
-                    '<template><div class="code-block" data-copy-block data-release="published-2.1.0">',
+                    '<div class="code-block" data-copy-block data-release="stable-2.1.1">',
+                    '<template><div class="code-block" data-copy-block data-release="stable-2.1.1">',
                     1,
                 ).replace("</main>", "</template>\n</main>", 1),
                 encoding="utf-8",
@@ -1390,14 +1543,14 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             self.assertTrue(any("non-rendered content" in error for error in errors))
 
     def test_guard_rejects_ambiguous_or_noncanonical_release_markup(self) -> None:
-        canonical = '<div class="code-block" data-copy-block data-release="published-2.1.0">'
+        canonical = '<div class="code-block" data-copy-block data-release="stable-2.1.1">'
         mutations = (
-            '<div class="code-block visually-hidden" data-copy-block data-release="published-2.1.0">',
-            '<div style="display:none" style="" class="code-block" data-copy-block data-release="published-2.1.0">',
-            '<dialog><div class="code-block" data-copy-block data-release="published-2.1.0">',
-            '<datalist><div class="code-block" data-copy-block data-release="published-2.1.0">',
-            '<span hidden/></span><div class="code-block" data-copy-block data-release="published-2.1.0">',
-            '<div hidden></span><div class="code-block" data-copy-block data-release="published-2.1.0">',
+            '<div class="code-block visually-hidden" data-copy-block data-release="stable-2.1.1">',
+            '<div style="display:none" style="" class="code-block" data-copy-block data-release="stable-2.1.1">',
+            '<dialog><div class="code-block" data-copy-block data-release="stable-2.1.1">',
+            '<datalist><div class="code-block" data-copy-block data-release="stable-2.1.1">',
+            '<span hidden/></span><div class="code-block" data-copy-block data-release="stable-2.1.1">',
+            '<div hidden></span><div class="code-block" data-copy-block data-release="stable-2.1.1">',
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
@@ -1432,8 +1585,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
-                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+                    "ai-dememory init ~/code/my-memory --wizard</code>",
+                    "ai-dememory init ~/code/my-memory --wizard"
                     "<span hidden>\npython -m pip install $PKG</span></code>",
                     1,
                 ),
@@ -1459,8 +1612,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home = copied / "index.html"
                 home.write_text(
                     home.read_text(encoding="utf-8").replace(
-                        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
-                        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+                        "ai-dememory init ~/code/my-memory --wizard</code>",
+                        "ai-dememory init ~/code/my-memory --wizard"
                         f"\n{comment}</code>",
                         1,
                     ),
@@ -1842,8 +1995,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
-                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+                    "ai-dememory init ~/code/my-memory --wizard</code>",
+                    "ai-dememory init ~/code/my-memory --wizard"
                     f"\n{command_lines}</code>",
                     1,
                 ),
@@ -1854,7 +2007,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    "published 2.1.0 command block contains an unapproved literal command"
+                    "2.1.1 command block contains an unapproved literal command"
                     in error
                     for error in errors
                 ),
@@ -1883,14 +2036,12 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 errors,
             )
 
-    def test_guard_rejects_non_exact_package_variants(self) -> None:
+    def test_guard_rejects_unapproved_package_variants(self) -> None:
         commands = (
             "pipx install ai-dememory==2.1.0rc1",
             "pipx install ai-dememory==2.1.0.post1",
-            "pipx install --force ai-dememory",
             "pipx reinstall ai-dememory",
             "pipx upgrade ai-dememory",
-            "uv tool install ai-dememory",
             "python3 -m pip install --upgrade ai-dememory",
             "pipx install --index-url https://pypi.org/simple ai-dememory",
             "pipx install --pip-args=--pre ai-dememory",
@@ -1926,8 +2077,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         for command in commands:
             with self.subTest(command=command):
                 errors = _stable_command_errors(
-                    f"{command}\nai-dememory version-check 2.1.0\n",
-                    "2.1.0",
+                    f"{command}\nai-dememory version-check 2.1.1\n",
+                    "2.1.1",
                     "fixture",
                 )
                 self.assertTrue(
@@ -1935,6 +2086,25 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         "not allowlisted" in error or "literal shell syntax" in error
                         for error in errors
                     )
+                )
+
+    def test_guard_allows_unpinned_package_commands(self) -> None:
+        for command in (
+            "pipx install ai-dememory",
+            "pipx install --force ai-dememory",
+            "uv tool install ai-dememory",
+            "python3 -m pip install ai-dememory",
+            "py -3 -m pip install ai-dememory",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(
+                        command,
+                        "2.1.1",
+                        "fixture",
+                        source_version="2.1.1",
+                    ),
                 )
 
     def test_guard_does_not_count_echo_or_comment_as_release_commands(self) -> None:
@@ -1945,15 +2115,15 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 for page in copied.rglob("*.html"):
                     page.write_text(
                         page.read_text(encoding="utf-8").replace(
-                            "pipx install ai-dememory==2.1.0",
-                            f"{prefix}pipx install ai-dememory==2.1.0",
+                            "pipx install ai-dememory",
+                            f"{prefix}pipx install ai-dememory",
                         ),
                         encoding="utf-8",
                     )
 
                 errors = audit_site(REPO_ROOT, copied)
 
-                self.assertTrue(any("command block is missing 'pipx install ai-dememory==2.1.0'" in error for error in errors))
+                self.assertTrue(any("command block is missing 'pipx install ai-dememory'" in error for error in errors))
 
     def test_guard_rejects_corruption_of_one_site_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1962,8 +2132,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    "pipx install ai-dememory==2.1.0",
-                    "echo pipx install ai-dememory==2.1.0",
+                    "pipx install ai-dememory",
+                    "echo pipx install ai-dememory",
                     1,
                 ),
                 encoding="utf-8",
@@ -1982,11 +2152,13 @@ class DocumentationSiteGuardTests(unittest.TestCase):
     def test_guard_allows_mcp_config_without_runtime_version_gate(self) -> None:
         for command in (
             "ai-dememory mcp-config --client codex",
-            "ai-dememory mcp-config --client codex --require-version 2.1.0rc1",
             'ai-dememory --root "/tmp/My Vault" mcp-config --client codex',
         ):
             with self.subTest(command=command):
-                self.assertEqual([], _stable_command_errors(command, "2.1.0", "fixture"))
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(command, "2.1.1", "fixture", source_version="2.1.1"),
+                )
 
         for command in (
             "ai-dememory mcp-config --client codex; echo reviewed",
@@ -1994,7 +2166,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "ai-dememory mcp-config --client codex | Out-File config.toml",
         ):
             with self.subTest(command=command):
-                errors = _stable_command_errors(command, "2.1.0", "fixture")
+                errors = _stable_command_errors(command, "2.1.1", "fixture")
                 self.assertTrue(any("shell chaining or redirection" in error for error in errors))
 
     def test_guard_rejects_shell_whitespace_wrappers_and_hidden_continuations(self) -> None:
@@ -2006,7 +2178,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "narrow-no-break-space": "ai-dememory\u202fmcp-config --client codex",
             "powershell-call": "& ai-dememory mcp-config --client codex",
             "bash-package-continuation": (
-                "pipx install \\\n  ai-dememory\nai-dememory version-check 2.1.0"
+                "pipx install \\\n  ai-dememory==2.1.1"
             ),
         }
         for label, command in fixtures.items():
@@ -2644,130 +2816,50 @@ python3 -m pip install -e .
 
     def test_guard_rejects_a_persistent_version_gate_on_the_published_stable_line(self) -> None:
         errors = _stable_command_errors(
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
-            "2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
+            "2.1.1",
             "fixture",
-            source_version="2.1.0",
+            source_version="2.1.1",
         )
         self.assertTrue(
             any("must not retain a persistent --require-version gate" in error for error in errors),
             errors,
         )
 
-    def test_guard_rejects_unpinned_wizard_commands_while_release_is_pending(self) -> None:
-        for command in (
-            "ai-dememory init ~/code/my-memory --wizard",
-            "ai-dememory --root ~/code/my-memory setup wizard",
-        ):
-            with self.subTest(command=command):
-                errors = _stable_command_errors(
-                    command,
-                    "2.1.0",
+    def test_future_pending_contract_preserves_unpinned_wizard_guidance(self) -> None:
+        with self._future_pending_contract():
+            self.assertEqual(
+                [],
+                _stable_command_errors(
+                    "ai-dememory init ~/code/my-memory --wizard",
+                    "2.1.1",
                     "fixture",
-                    source_version="2.1.1",
-                )
-                self.assertTrue(
-                    any(
-                        "release-pending documentation must gate wizard commands with exactly "
-                        "--require-version 2.1.0" in error
-                        for error in errors
-                    ),
-                    errors,
-                )
-
-    def test_guard_rejects_the_pending_source_version_in_a_wizard_or_package_command(self) -> None:
-        wizard_errors = _stable_command_errors(
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
-            "2.1.0",
-            "fixture",
-            source_version="2.1.1",
-        )
+                    source_version=FUTURE_PENDING_VERSION,
+                ),
+            )
+            errors = _stable_command_errors(
+                "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
+                "2.1.1",
+                "fixture",
+                source_version=FUTURE_PENDING_VERSION,
+            )
         self.assertTrue(
             any(
-                "release-pending documentation must gate wizard commands with exactly "
-                "--require-version 2.1.0" in error
-                for error in wizard_errors
+                "release-pending public documentation must not pass --require-version" in error
+                for error in errors
             ),
-            wizard_errors,
-        )
-        package_errors = _stable_command_errors(
-            "pipx install ai-dememory==2.1.1",
-            "2.1.0",
-            "fixture",
-            source_version="2.1.1",
-        )
-        self.assertTrue(any("not allowlisted" in error for error in package_errors), package_errors)
-
-    def test_guard_rejects_version_gates_on_non_wizard_pending_sensitive_markdown(self) -> None:
-        markdown = """```bash
-ai-dememory --root ~/code/my-memory mcp-config --client codex --require-version 2.1.1
-ai-dememory --root ~/code/my-memory setup plan --json --require-version 2.1.0
-ai-dememory --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
-```"""
-
-        errors = _stable_command_errors(
-            markdown,
-            "2.1.0",
-            "fixture",
-            source_version="2.1.1",
+            errors,
         )
 
-        non_wizard_errors = [
-            error
-            for error in errors
-            if "release-pending documentation must not pass --require-version to "
-            "non-wizard sensitive commands" in error
-        ]
-        self.assertEqual(3, len(non_wizard_errors), errors)
-
-    def test_guard_allows_non_executable_legacy_configuration_prose_while_release_is_pending(self) -> None:
-        prose = (
-            "Legacy generated configuration may retain `--require-version 2.1.1`; "
-            "it remains a compatibility input rather than a copyable command."
-        )
-
-        self.assertEqual(
-            [],
-            _stable_command_errors(
-                prose,
-                "2.1.0",
-                "fixture",
-                source_version="2.1.1",
-            ),
-        )
-
-    def test_guard_allows_non_executable_generated_configuration_pins_while_release_is_pending(self) -> None:
-        snapshots = (
-            """command = \"ai-dememory\"
-args = [\"--root\", \"~/code/my-memory\", \"mcp\", \"--stdio\", \"--require-version\", \"2.1.0\"]
-""",
-            """{
-  \"command\": \"ai-dememory\",
-  \"args\": [\"--root\", \"~/code/my-memory\", \"mcp\", \"--stdio\", \"--require-version\", \"2.1.0\"]
-}
-""",
-        )
-        for snapshot in snapshots:
-            with self.subTest(snapshot=snapshot):
-                self.assertEqual(
-                    [],
-                    _stable_command_errors(
-                        snapshot,
-                        "2.1.0",
-                        "fixture",
-                        source_version="2.1.1",
-                    ),
-                )
-
-    def test_guard_rejects_an_unpinned_wizard_in_the_pending_site(self) -> None:
+    def test_guard_rejects_persistent_version_gates_in_the_stable_site(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
             install = copied / "install" / "index.html"
             install.write_text(
                 install.read_text(encoding="utf-8").replace(
-                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
                     "ai-dememory init ~/code/my-memory --wizard",
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
                     1,
                 ),
                 encoding="utf-8",
@@ -2778,85 +2870,8 @@ args = [\"--root\", \"~/code/my-memory\", \"mcp\", \"--stdio\", \"--require-vers
             self.assertTrue(
                 any(
                     error.startswith("site/install/index.html:")
-                    and "release-pending documentation must gate wizard commands with exactly "
-                    "--require-version 2.1.0" in error
-                    for error in errors
-                ),
-                errors,
-            )
-
-    def test_guard_rejects_a_non_wizard_version_gate_in_the_pending_site(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            copied = Path(temporary) / "site"
-            shutil.copytree(SITE_ROOT, copied)
-            install = copied / "install" / "index.html"
-            install.write_text(
-                install.read_text(encoding="utf-8").replace(
-                    "ai-dememory --root ~/code/my-memory mcp-config --client codex",
-                    "ai-dememory --root ~/code/my-memory mcp-config --client codex "
-                    "--require-version 2.1.1",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-
-            errors = audit_site(REPO_ROOT, copied)
-
-            self.assertTrue(
-                any(
-                    error.startswith("site/install/index.html:")
-                    and "release-pending documentation must not pass --require-version to "
-                    "non-wizard sensitive commands" in error
-                    for error in errors
-                ),
-                errors,
-            )
-
-    def test_guard_requires_release_pending_markers_on_public_site(self) -> None:
-        marker = RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"][1]
-        with tempfile.TemporaryDirectory() as temporary:
-            copied = Path(temporary) / "site"
-            shutil.copytree(SITE_ROOT, copied)
-            home = copied / "index.html"
-            home.write_text(
-                home.read_text(encoding="utf-8").replace(
-                    marker,
-                    "published route marker removed",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-
-            errors = audit_site(REPO_ROOT, copied)
-
-            self.assertTrue(
-                any(
-                    "site/index.html: release-pending source truth marker is missing"
+                    and "stable documentation must not retain a persistent --require-version gate"
                     in error
-                    for error in errors
-                ),
-                errors,
-            )
-
-    def test_guard_rejects_a_pending_source_package_command_in_the_site(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            copied = Path(temporary) / "site"
-            shutil.copytree(SITE_ROOT, copied)
-            home = copied / "index.html"
-            home.write_text(
-                home.read_text(encoding="utf-8").replace(
-                    "pipx install ai-dememory==2.1.0",
-                    "pipx install ai-dememory==2.1.1",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-
-            errors = audit_site(REPO_ROOT, copied)
-
-            self.assertTrue(
-                any(
-                    "site/index.html" in error and "package command is not allowlisted" in error
                     for error in errors
                 ),
                 errors,
@@ -2902,21 +2917,23 @@ ai-dememory init ~/code/my-memory --wizard</code></pre></div></main>""",
 
     def test_install_commands_remain_available_without_javascript(self) -> None:
         install = (SITE_ROOT / "install/index.html").read_text(encoding="utf-8")
-        self.assertIn("pipx install ai-dememory==2.1.0", install)
+        self.assertIn("pipx install ai-dememory", install)
+        self.assertIn("uv tool install ai-dememory", install)
+        self.assertIn("pipx install --force ai-dememory", install)
         self.assertIn(
-            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard",
             install,
         )
+        self.assertNotIn("--require-version", install)
+        self.assertNotIn("ai-dememory==", install)
         self.assertIn("ai-dememory --root ~/code/my-memory mcp-config --client codex", install)
         self.assertNotIn(
             "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
             install,
         )
         self.assertNotIn('data-release="source-2.1.1rc2"', install)
-        self.assertIn('data-release="published-2.1.0"', install)
-        self.assertIn("published stable 2.1.0", install)
-        for marker in RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"]:
-            self.assertIn(marker, install)
+        self.assertIn('data-release="stable-2.1.1"', install)
+        self.assertIn("Stable release: 2.1.1", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
 

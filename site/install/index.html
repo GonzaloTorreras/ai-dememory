@@ -32,9 +32,9 @@
           <p>Install the isolated Python application, then let one guided flow create a separate private vault and preview its bounded operating policy.</p>
           <div class="page-meta">
             <span>Python 3.11+</span>
-            <span>Release line: 2.1.0</span>
-            <span>2.1.1 source preparation</span>
-            <span>Compatibility wizard setup</span>
+            <span>Stable release: 2.1.1</span>
+            <span>Published on PyPI</span>
+            <span>Guided wizard setup</span>
           </div>
         </div>
       </header>
@@ -42,8 +42,8 @@
       <div class="container page-layout">
         <nav class="page-toc" aria-label="On this page">
           <strong>On this page</strong>
-          <a href="#install-tool">Install exact 2.1.0</a>
-          <a href="#create-vault">Use the published wizard</a>
+          <a href="#install-tool">Install ai-dememory</a>
+          <a href="#create-vault">Use the wizard</a>
           <a href="#choose-intensity">Choose an intensity</a>
           <a href="#connect-client">Connect a client (optional)</a>
           <a href="#upgrade">Update or diagnose</a>
@@ -51,17 +51,17 @@
 
         <div>
           <div class="callout">
-            <p>2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The published stable 2.1.0 compatibility route is the only user-installable path in this interim state.</p>
+            <p>ai-dememory 2.1.1 is the current stable PyPI release. Install the package, then use the wizard to create a separate private vault.</p>
           </div>
           <section class="content-section" id="install-tool">
-            <h2>1. Install published 2.1.0</h2>
-            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. The exact pin selects the currently published compatibility package.</p>
-            <div class="code-block" data-copy-block data-release="published-2.1.0">
-              <pre tabindex="0"><code>pipx install ai-dememory==2.1.0</code></pre>
+            <h2>1. Install ai-dememory</h2>
+            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+              <pre tabindex="0"><code>pipx install ai-dememory</code></pre>
             </div>
             <p>Equivalent with uv:</p>
-            <div class="code-block" data-copy-block data-release="published-2.1.0">
-              <pre tabindex="0"><code>uv tool install ai-dememory==2.1.0</code></pre>
+            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+              <pre tabindex="0"><code>uv tool install ai-dememory</code></pre>
             </div>
             <div class="callout callout-safe">
               <p>Installation is passive. It does not create a vault, scan provider folders, install hooks or scheduled jobs, or start a model.</p>
@@ -69,10 +69,10 @@
           </section>
 
           <section class="content-section" id="create-vault">
-            <h2>2. Use the published 2.1.0 wizard</h2>
-            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. The 2.1.0 wizard creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>. Its version flag is required by this published compatibility package.</p>
-            <div class="code-block" data-copy-block data-release="published-2.1.0">
-              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code></pre>
+            <h2>2. Use the wizard</h2>
+            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. The wizard creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+              <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
             </div>
             <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
             <ul class="checklist">
@@ -136,7 +136,7 @@
           <section class="content-section" id="connect-client">
             <h2>4. Connect an AI client (optional)</h2>
             <p>Generate vault-bound configuration only when you are ready to connect Codex, Claude, or another client. Inspect it before copying it into the host configuration. The wizard stops here because it cannot safely choose or edit a host application's settings on your behalf.</p>
-            <div class="code-block" data-copy-block data-release="published-2.1.0">
+            <div class="code-block" data-copy-block data-release="stable-2.1.1">
               <pre tabindex="0"><code>ai-dememory --root ~/code/my-memory mcp-config --client codex</code></pre>
             </div>
             <p>The generated runtime configuration binds the vault, makes <code>core</code> the reduced four-tool server-enforced default, and uses a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
@@ -145,13 +145,13 @@
           </section>
 
           <section class="content-section" id="upgrade">
-            <h2>5. Update or diagnose the published installation</h2>
-            <p>Repair an existing pipx installation with the same immutable package pin. Use the normal version output when diagnosing a PATH or package issue.</p>
-            <div class="code-block" data-copy-block data-release="published-2.1.0">
-              <pre tabindex="0"><code>pipx install --force ai-dememory==2.1.0
+            <h2>5. Update or diagnose the installation</h2>
+            <p>Repair an existing pipx installation with the current stable package. Use the normal version output when diagnosing a PATH or package issue.</p>
+            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+              <pre tabindex="0"><code>pipx install --force ai-dememory
 ai-dememory --version</code></pre>
             </div>
-            <p>The <code>version-check</code> subcommand remains an exact diagnostic for CI and support work; it is not a prerequisite for installation or the wizard. Once you add Markdown to a vault, run <code>ai-dememory --root ~/code/my-memory index</code> to rebuild its disposable search index.</p>
+            <p>Once you add Markdown to a vault, run <code>ai-dememory --root ~/code/my-memory index</code> to rebuild its disposable search index.</p>
           </section>
         </div>
       </div>

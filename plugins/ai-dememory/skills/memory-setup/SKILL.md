@@ -11,15 +11,10 @@ files, or promote memory.
 
 ## First Run
 
-1. The source tree is preparing 2.1.1, but 2.1.0 is the currently published
-   compatibility route until tag-bound PyPI publication and external readback
-   complete. Install `pipx install ai-dememory==2.1.0`, then for a
-   human-guided first run launch
-   `ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0`.
+1. Install the stable package with `pipx install ai-dememory`, then launch
+   `ai-dememory init ~/code/my-memory --wizard` for a human-guided first run.
    The wizard creates the vault, previews the available intensity and
-   model-policy choices, and records only the selected vault-local policy. Do
-   not substitute the pending source version or remove the legacy gate while
-   this release state is pending.
+   model-policy choices, and records only the selected vault-local policy.
 2. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
    write, and `plan_sha256`. Confirm only after that preview; the wizard applies
    the exact same in-memory operating policy and fingerprint without asking for

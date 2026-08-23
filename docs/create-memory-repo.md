@@ -3,12 +3,12 @@
 User memory belongs in a private vault repository, not in the tool distribution
 repo.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+**Release scope:** Use the current stable PyPI package for vault setup.
 
 ## CLI Path
 
 ```bash
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+ai-dememory init ~/code/my-memory --wizard
 cd ~/code/my-memory
 git init
 git add README.md .ai-dememory.toml .ai-dememory-ignore.toml .gitignore memories inbox templates quality working
@@ -56,7 +56,7 @@ For users who prefer GitHub UI setup:
 8. Users clone their private repo and install the selected release with:
 
    ```bash
-   pipx install ai-dememory==2.1.0
+   pipx install ai-dememory
    ```
 
 The export command copies the same template used by `ai-dememory init`. It

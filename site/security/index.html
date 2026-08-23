@@ -34,7 +34,7 @@
             <span>Private vault</span>
             <span>Server-enforced profiles</span>
             <span>Review-gated durability</span>
-            <span>Published route: 2.1.0; source preparation: 2.1.1</span>
+            <span>Published stable route: 2.1.1</span>
           </div>
         </div>
       </header>
@@ -55,7 +55,7 @@
             <h2>What the design protects</h2>
             <p>The primary security goals are to keep personal memory out of the public distribution repository, constrain which local data a client can retrieve, preserve provenance, and prevent unreviewed content from silently becoming durable truth.</p>
             <div class="callout">
-              <p>2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The controls described here remain the public design boundary; do not infer an unpublished installation route from them.</p>
+              <p><code>v2.1.1</code> is the current stable GitHub and PyPI release, peeling to <code>3dd65a18c5f26c5d03f24c5f3bb719769b581fa6</code>. Start with <code>pipx install ai-dememory</code>, then <code>ai-dememory init ~/code/my-memory --wizard</code>. The RC releases remain historical TestPyPI evidence, not installation routes. The controls described here remain the public design boundary.</p>
             </div>
             <ul class="checklist">
               <li>The vault root is explicit and separate from the source repository.</li>

@@ -22,10 +22,9 @@ Markdown and can be rebuilt.
 
 ## Release Status
 
-- Current release line: `ai-dememory` 2.1.0.
-- 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete.
-- 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
-- The published stable 2.1.0 package is the only user-installable route in this interim state.
+- Current stable release: `ai-dememory` 2.1.1 on PyPI.
+- Use the installed CLI and the wizard below; no version pin or compatibility
+  flag is required for normal setup.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Python 3.11+ is the only headless runtime. Node is not an installation or
@@ -41,14 +40,14 @@ operations are contributor material, not installation steps.
 
 ## Quick Start
 
-### Published 2.1.0: compatibility setup
+### Install and create a private vault
 
-Install the exact published package and create a separate private vault with its
-version-gated wizard:
+Install the stable package and create a separate private vault with the
+interactive wizard:
 
 ```bash
-pipx install ai-dememory==2.1.0
-ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
+pipx install ai-dememory
+ai-dememory init ~/code/my-memory --wizard
 ```
 
 The wizard previews its plan, shows resource limits, and asks before it writes
@@ -56,13 +55,9 @@ the vault operational config. It never imports chats, creates personal memory,
 installs hooks or schedules, or edits a client configuration.
 
 The complete instructions live in the [installation guide](docs/install.md).
-The compatibility gate is required by the published 2.1.0 wizard; it is not a
-separate diagnostic ritual. A post-publication documentation update will promote
-the clean 2.1.1 wizard path only after the protected workflow and package-index
-readback succeed.
 
-`uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
-line. On Windows, use a private path such as `D:\Memory\my-vault` instead of
+`uv` users can substitute `uv tool install ai-dememory` for the first line.
+On Windows, use a private path such as `D:\Memory\my-vault` instead of
 the example path.
 
 ### Connect a client when you are ready
@@ -80,13 +75,11 @@ runtime arguments during first-run setup.
 
 ### Update or diagnose an installation
 
-For an existing pipx install, repair it with the same immutable package pin.
-`--version` is the normal diagnostic when you need to confirm what is on PATH;
-`version-check` remains available for CI and compatibility diagnostics, not as a
-required user ritual.
+For an existing pipx install, repair it with the current stable package.
+`--version` is the normal diagnostic when you need to confirm what is on PATH.
 
 ```bash
-pipx install --force ai-dememory==2.1.0
+pipx install --force ai-dememory
 ai-dememory --version
 ```
 

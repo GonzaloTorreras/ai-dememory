@@ -9,7 +9,7 @@ and create a private vault outside this public source repository. The command
 name is `ai-dememory`; contributor source commands are not a user-install
 alternative.
 
-2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+The current stable PyPI package provides this optional local API.
 
 The API requires an explicit absolute `--root <vault>` (or `~` path after home
 expansion) or `AI_DEMEMORY_ROOT` runtime binding. It never searches the current
@@ -24,11 +24,10 @@ precedence over the environment.
 | A local dashboard or script that can call loopback HTTP without a cross-origin browser request | This loopback REST API |
 | No local HTTP consumer | Skip the API entirely |
 
-The published 2.1.0 package exposes the API as an optional, manual command for
+The installed package exposes the API as an optional, manual command for
 dashboards and scripts. Its wizard never starts a server, edits a client
-configuration, or creates a schedule. Follow the published route in the
-installation guide before using this guide; the API is not an additional install
-path.
+configuration, or creates a schedule. Follow the installation guide before
+using this guide; the API is not an additional install path.
 
 The API serves JSON only and emits no CORS headers, so a browser page served
 from another origin cannot call it directly. An advanced local UI can use a

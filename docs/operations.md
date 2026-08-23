@@ -11,12 +11,9 @@ root, for example `ai-dememory --root ~/code/my-memory <command>`. Later
 references to a shorter `ai-dememory <command>` assume that same private-vault
 binding. Source-checkout commands are confined to the maintainer section below.
 
-**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
 
-## After Installing Published 2.1.0
-
-The published stable 2.1.0 package remains the applicable maintenance route
-while the newer source identity is pending publication.
+## After Installing Or Upgrading
 
 If a vault already uses an MCP client, upgrade the normal PyPI installation,
 then refresh that vault-bound client fragment because older MCP configuration
@@ -24,18 +21,18 @@ does not carry the complete 2.1 profile, root, allowlist, and idle-lease
 contract:
 
 ```bash
-pipx install --force ai-dememory==2.1.0
+pipx install --force ai-dememory
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 ```
 
 Inspect and replace the old host entry yourself; the generator does not edit
-host configuration. Use the exact published PyPI package rather than a release
-candidate or mutable checkout.
+host configuration. Use the installed PyPI package rather than a mutable
+checkout.
 
-`ai-dememory version-check 2.1.0` remains available for CI or support
-diagnostics; normal install, wizard, and client configuration paths do not
-need it.
+`ai-dememory --version` is sufficient for an ordinary PATH or package
+diagnostic; normal install, wizard, and client configuration paths do not need
+it.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for
@@ -196,11 +193,9 @@ ai-dememory --root ~/code/my-memory schedule cron --json
 ```
 
 Docker-backed schedules are intentionally absent from this normal operations
-route while only PyPI 2.1.0 is published. A local image would be built from the
-pending 2.1.1 source checkout, so it cannot substitute for the installed CLI.
-The release pipeline retains its isolated Docker smoke; users should use the
-installed-CLI schedule plan and setup commands above until stable publication
-and external readback complete.
+route. A local image is built from a checkout, so it cannot substitute for the
+installed CLI. The release pipeline retains its isolated Docker smoke; users
+should use the installed-CLI schedule plan and setup commands above.
 
 The plan reports the effective `minimal`, `balanced`, or `active` resource
 policy, resolved root, exact command, a vault-specific task namespace, and
@@ -225,7 +220,7 @@ installs only weekly maintenance; `balanced` and `active` install daily and
 weekly jobs by default. The maintainer-only Docker validation path requires an
 immutable image digest, runs without network access, and applies
 intensity-specific CPU, memory, and PID caps; it is not a user maintenance route
-while stable publication is pending.
+under this guide.
 The resource policy also bounds provider candidates, bytes per file, scanned
 directory entries, report retention, tree-supervised job timeout, and pending
 hook captures. Canonical and secret scans, graph pages/nodes/edges, MCP
