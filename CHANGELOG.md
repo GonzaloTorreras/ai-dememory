@@ -332,4 +332,3 @@ for the detailed implementation record.
 - Exercise the complete AI-operated Trusted Publishing path on TestPyPI.
 - Verify OIDC identity, exact-artifact smoke, checksums, attestations,
   post-index installation and GitHub prerelease creation before stable launch.
-
