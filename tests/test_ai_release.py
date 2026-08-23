@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -96,6 +97,18 @@ class AiReleaseGuardTests(unittest.TestCase):
         self.assertEqual(identity.tag, f"v{version}")
         self.assertEqual(identity.prerelease, bool(re.search(r"(?:a|b|rc)[0-9]+$", version)))
         self.assertIn(f"## [{version}] - ", identity.changelog_heading)
+
+    def test_packaged_readme_is_release_state_neutral(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        readme = ROOT / str(metadata["project"]["readme"])
+        text = readme.read_text(encoding="utf-8")
+        lowered = text.lower()
+
+        self.assertEqual(readme.name, "README-PYPI.md")
+        self.assertIn("# ai DeMemory", text)
+        self.assertIn("ai-dememory init /path/to/my-memory --wizard", text)
+        for stale_claim in ("untagged", "unpublished", "source candidate"):
+            self.assertNotIn(stale_claim, lowered)
 
     def test_dated_version_has_matching_release_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -954,3 +967,4 @@ lazy continuation of the feature paragraph
 
 if __name__ == "__main__":
     unittest.main()
+
