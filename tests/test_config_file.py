@@ -21,7 +21,12 @@ import config_file  # noqa: E402
 from config_file import CONFIG_NAME, MAX_CONFIG_BYTES, load_config, load_config_path  # noqa: E402
 import onboarding  # noqa: E402
 from onboarding import operational_setup_plan  # noqa: E402
-from review_memory import ReviewError, load_review_config, main as review_main  # noqa: E402
+from review_memory import (  # noqa: E402
+    ReviewError,
+    configure_review_mode,
+    load_review_config,
+    main as review_main,
+)
 
 
 def make_symlink_or_skip(test_case: unittest.TestCase, target: Path, link: Path) -> None:
@@ -286,6 +291,19 @@ class RootBoundConfigReadTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("config path must not contain symlinks", stderr.getvalue())
+
+    def test_configure_review_mode_preserves_safe_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            root.mkdir()
+            (root / CONFIG_NAME).write_text("[review]\nmode = \"strict\"\n", encoding="utf-8")
+
+            with patch(
+                "review_memory.set_section",
+                side_effect=ValueError("config path changed while reading"),
+            ):
+                with self.assertRaisesRegex(ValueError, "config path changed while reading"):
+                    configure_review_mode(root, "strict")
 
     def test_setup_plan_keeps_the_validated_config_fingerprint_after_a_swap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

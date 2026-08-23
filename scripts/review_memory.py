@@ -462,13 +462,6 @@ def review_mode_dict(mode: ReviewMode, active: bool = False) -> dict[str, Any]:
     return data
 
 
-def _set_review_config_section(root: Path, section: str, values: dict[str, Any]) -> Path:
-    try:
-        return set_section(root, section, values)
-    except (OSError, ValueError) as exc:
-        raise ReviewError(str(exc)) from exc
-
-
 def _set_review_state_section(root: Path, section: str, values: dict[str, Any]) -> Path:
     try:
         return set_section_path(ignore_path(root), section, values, root=root)
@@ -485,7 +478,7 @@ def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = Non
     config = load_config(root)
     current = dict(config.get("review", {}))
     current.update(review_mode_config_values(mode_name, reviewer))
-    return _set_review_config_section(root, "review", current)
+    return set_section(root, "review", current)
 
 
 def review_mode_config_values(mode_name: str, reviewer: str | None = None) -> dict[str, Any]:
