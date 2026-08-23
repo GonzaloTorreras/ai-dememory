@@ -33,8 +33,8 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Release line: 2.1.0</span>
-            <span>TestPyPI prerelease: 2.1.1rc2</span>
-            <span>Earlier prerelease: 2.1.1rc1</span>
+            <span>2.1.1 source preparation</span>
+            <span>Compatibility wizard setup</span>
           </div>
         </div>
       </header>
@@ -42,23 +42,25 @@
       <div class="container page-layout">
         <nav class="page-toc" aria-label="On this page">
           <strong>On this page</strong>
-          <a href="#install-tool">Install published 2.1.0</a>
-          <a href="#create-vault">Use the stable wizard</a>
-          <a href="#candidate">See the current TestPyPI prerelease</a>
-          <a href="#choose-intensity">Choose a prerelease intensity</a>
+          <a href="#install-tool">Install exact 2.1.0</a>
+          <a href="#create-vault">Use the published wizard</a>
+          <a href="#choose-intensity">Choose an intensity</a>
           <a href="#connect-client">Connect a client (optional)</a>
           <a href="#upgrade">Update or diagnose</a>
         </nav>
 
         <div>
+          <div class="callout">
+            <p>2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The published stable 2.1.0 compatibility route is the only user-installable path in this interim state.</p>
+          </div>
           <section class="content-section" id="install-tool">
-            <h2>1. Install exact 2.1.0</h2>
-            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. The exact pin prevents a silent downgrade to an older package.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+            <h2>1. Install published 2.1.0</h2>
+            <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path. The exact pin selects the currently published compatibility package.</p>
+            <div class="code-block" data-copy-block data-release="published-2.1.0">
               <pre tabindex="0"><code>pipx install ai-dememory==2.1.0</code></pre>
             </div>
             <p>Equivalent with uv:</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+            <div class="code-block" data-copy-block data-release="published-2.1.0">
               <pre tabindex="0"><code>uv tool install ai-dememory==2.1.0</code></pre>
             </div>
             <div class="callout callout-safe">
@@ -68,11 +70,11 @@
 
           <section class="content-section" id="create-vault">
             <h2>2. Use the published 2.1.0 wizard</h2>
-            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. Published 2.1.0 creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+            <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. The 2.1.0 wizard creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>. Its version flag is required by this published compatibility package.</p>
+            <div class="code-block" data-copy-block data-release="published-2.1.0">
               <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code></pre>
             </div>
-            <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The trailing exact-version gate is a 2.1.0 compatibility detail, not a separate diagnostic step. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
+            <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
             <ul class="checklist">
               <li>Markdown remains canonical and human-editable.</li>
               <li>The SQLite full-text index is generated and rebuildable.</li>
@@ -80,20 +82,9 @@
             </ul>
           </section>
 
-          <section class="content-section" id="candidate">
-            <h2>3. TestPyPI prerelease 2.1.1rc2: the simplified wizard</h2>
-            <p>TestPyPI prerelease 2.1.1rc2 is available for evaluation. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.1rc2">
-              <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
-ai-dememory init ~/code/my-memory --wizard</code></pre>
-            </div>
-            <p>Use an isolated virtual environment for this TestPyPI evaluation. It is an explicit evaluation route, not a PyPI stable upgrade; its immutable tag, package build, and exact-index installation have already been verified.</p>
-            <p>The earlier 2.1.1rc1 prerelease remains historical evidence. It is not a second recommended installation path, so this page keeps one current TestPyPI package command.</p>
-          </section>
-
           <section class="content-section" id="choose-intensity">
-            <h2>4. Choose a bounded prerelease intensity</h2>
-            <p>The prerelease wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
+            <h2>3. Choose a bounded intensity</h2>
+            <p>The wizard asks for an intensity. It controls local work and context envelopes, not a language model, and is not a promise of fixed machine cost.</p>
             <table class="profile-table">
               <caption>Built-in operating profiles</caption>
               <thead>
@@ -129,7 +120,7 @@ ai-dememory init ~/code/my-memory --wizard</code></pre>
                 </tr>
               </tbody>
             </table>
-            <p><strong>Balanced is recommended for a first candidate installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
+            <p><strong>Balanced is recommended for a first installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
 
             <h3>Model policy is separate</h3>
             <ul>
@@ -143,20 +134,20 @@ ai-dememory init ~/code/my-memory --wizard</code></pre>
           </section>
 
           <section class="content-section" id="connect-client">
-            <h2>5. Connect an AI client (optional)</h2>
+            <h2>4. Connect an AI client (optional)</h2>
             <p>Generate vault-bound configuration only when you are ready to connect Codex, Claude, or another client. Inspect it before copying it into the host configuration. The wizard stops here because it cannot safely choose or edit a host application's settings on your behalf.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+            <div class="code-block" data-copy-block data-release="published-2.1.0">
               <pre tabindex="0"><code>ai-dememory --root ~/code/my-memory mcp-config --client codex</code></pre>
             </div>
-            <p>In published 2.1.0, the generated runtime configuration persists the historical exact-version pin; the candidate removes that generated pin. Both bind the vault, make <code>core</code> the reduced four-tool server-enforced default, and use a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
+            <p>The generated runtime configuration binds the vault, makes <code>core</code> the reduced four-tool server-enforced default, and uses a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
             <p>If a local dashboard or script needs HTTP instead of MCP stdio, the optional API runs only when you start it. Read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-api.md">canonical Local API guide</a> for the loopback-only default and network-binding safeguards.</p>
             <p><a href="../architecture/#process-lifecycle">See the process lifecycle</a> or read the <a href="https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/local-mcp.md">full MCP guide on GitHub</a>.</p>
           </section>
 
           <section class="content-section" id="upgrade">
-            <h2>6. Update or diagnose a stable installation</h2>
+            <h2>5. Update or diagnose the published installation</h2>
             <p>Repair an existing pipx installation with the same immutable package pin. Use the normal version output when diagnosing a PATH or package issue.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.0">
+            <div class="code-block" data-copy-block data-release="published-2.1.0">
               <pre tabindex="0"><code>pipx install --force ai-dememory==2.1.0
 ai-dememory --version</code></pre>
             </div>

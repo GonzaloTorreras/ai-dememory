@@ -11,13 +11,12 @@ root, for example `ai-dememory --root ~/code/my-memory <command>`. Later
 references to a shorter `ai-dememory <command>` assume that same private-vault
 binding. Source-checkout commands are confined to the maintainer section below.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. TestPyPI prerelease `2.1.1rc2` is the current evaluation route, not a
-PyPI stable release. It keeps the same bounded profiles and idle leases while
-removing the generated compatibility pin. `2.1.1rc1` remains historical release
-evidence; it does not create a second set of published operational commands.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
 
-## After Installing Exact 2.1.0
+## After Installing Published 2.1.0
+
+The published stable 2.1.0 package remains the applicable maintenance route
+while the newer source identity is pending publication.
 
 If a vault already uses an MCP client, upgrade the normal PyPI installation,
 then refresh that vault-bound client fragment because older MCP configuration
@@ -31,17 +30,12 @@ ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 ```
 
 Inspect and replace the old host entry yourself; the generator does not edit
-host configuration. If the pipx environment came from a release candidate or a
-mutable Git checkout, rebuild it with `pipx uninstall ai-dememory` followed by
-`pipx install ai-dememory==2.1.0`.
+host configuration. Use the exact published PyPI package rather than a release
+candidate or mutable checkout.
 
 `ai-dememory version-check 2.1.0` remains available for CI or support
 diagnostics; normal install, wizard, and client configuration paths do not
 need it.
-
-For the TestPyPI prerelease, use the same operational steps after its exact
-evaluation install; its wizard-first command omits the legacy stable pin. Do
-not substitute it into a PyPI installation command.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for

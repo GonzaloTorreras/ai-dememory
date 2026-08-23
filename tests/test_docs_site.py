@@ -5,17 +5,21 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.docs_site_guard import (
     REPO_ROOT,
     SITE_ROOT,
     NESTED_SHELL_MAX_DEPTH,
     ACTIVE_PRERELEASE_CONTRACTS,
+    HISTORICAL_PRERELEASE_CONTRACTS,
+    RELEASE_PENDING_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
     STABLE_INSTALL_DOCS,
     STABLE_RELEASE_CONTRACTS,
     ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
+    _release_contract_errors,
     _stable_command_errors,
     audit_site,
     release_scope_markers,
@@ -24,7 +28,7 @@ from scripts.docs_site_guard import (
 
 
 class DocumentationSiteGuardTests(unittest.TestCase):
-    def test_stable_2_1_contract_keeps_the_legacy_wizard_gate_separate_from_source(self) -> None:
+    def test_published_2_1_0_contract_keeps_the_legacy_wizard_gate_separate_from_source(self) -> None:
         contract = STABLE_RELEASE_CONTRACTS["2.1.0"]
 
         self.assertIn("pipx install ai-dememory==2.1.0", contract["required"])
@@ -41,7 +45,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             contract["source_only"],
         )
 
-    def test_all_stable_wizard_guides_require_the_legacy_gate(self) -> None:
+    def test_all_published_compatibility_wizard_guides_require_the_legacy_gate(self) -> None:
         command = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
         for relative in (
             "README.md",
@@ -63,44 +67,70 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
         self.assertEqual(site_release_lens("2.1.0", "2.1.0"), "Source/release line: 2.1.0")
 
-    def test_release_scope_distinguishes_the_current_testpypi_prerelease(self) -> None:
+    def test_release_scope_models_the_explicit_release_pending_source(self) -> None:
+        pending = RELEASE_PENDING_CONTRACTS["2.1.1"]
+        self.assertEqual("2.1.0", pending["published_version"])
+        self.assertNotIn("package_command", pending)
         self.assertEqual(
-            release_scope_markers("2.1.0", "2.1.1rc2"),
-            ("published stable 2.1.0", "testpypi prerelease 2.1.1rc2"),
+            release_scope_markers("2.1.0", "2.1.1"),
+            ("published stable 2.1.0", *pending["scope_markers"]),
         )
         self.assertEqual(
-            site_release_lens("2.1.0", "2.1.1rc2"),
-            "TestPyPI prerelease: 2.1.1rc2",
+            site_release_lens("2.1.0", "2.1.1"),
+            pending["scope_markers"][0],
         )
 
-    def test_release_scope_keeps_the_current_route_when_source_advances(self) -> None:
+    def test_future_source_still_requires_an_explicit_active_or_pending_contract(self) -> None:
         self.assertEqual(
-            release_scope_markers("2.1.0", "2.1.2rc1"),
+            [
+                "docs site guard: source differing from the published stable package "
+                "requires exactly one explicit active TestPyPI prerelease contract or "
+                "a release-pending contract"
+            ],
+            _release_contract_errors("2.1.0", "2.1.2rc1"),
+        )
+
+    def test_release_pending_source_requires_zero_active_prerelease_contracts(self) -> None:
+        self.assertEqual({}, ACTIVE_PRERELEASE_CONTRACTS)
+        self.assertEqual((), ACTIVE_PRERELEASE_REQUIRED_COMMANDS)
+        self.assertEqual([], _release_contract_errors("2.1.0", "2.1.1"))
+
+        with patch.dict(
+            ACTIVE_PRERELEASE_CONTRACTS,
+            {"2.1.2rc1": {"scope_marker": "test fixture"}},
+            clear=True,
+        ):
+            errors = _release_contract_errors("2.1.0", "2.1.1")
+
+        self.assertEqual(
+            [
+                "docs site guard: release-pending source must not retain an active "
+                "TestPyPI prerelease contract"
+            ],
+            errors,
+        )
+
+    def test_rc2_is_retained_as_historical_evidence_not_an_active_package_route(self) -> None:
+        historical = HISTORICAL_PRERELEASE_CONTRACTS["2.1.1rc2"]
+        self.assertEqual(
+            historical["status_evidence"],
             (
-                "published stable 2.1.0",
-                "testpypi prerelease 2.1.1rc2",
-                "source candidate 2.1.2rc1 is unreleased",
+                "v2.1.1rc2",
+                "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
+                "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
             ),
         )
-        self.assertEqual(
-            site_release_lens("2.1.0", "2.1.2rc1"),
-            "Source candidate: 2.1.2rc1, unreleased",
+        self.assertEqual("historical prerelease evidence", historical["status_marker"])
+        self.assertNotIn("2.1.1rc2", ACTIVE_PRERELEASE_CONTRACTS)
+        errors = _stable_command_errors(
+            "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
+            "2.1.0",
+            "fixture",
+            source_version="2.1.1",
         )
+        self.assertTrue(any("not allowlisted" in error for error in errors), errors)
 
-    def test_current_prerelease_contract_has_one_wizard_first_testpypi_route(self) -> None:
-        self.assertEqual(set(ACTIVE_PRERELEASE_CONTRACTS), {"2.1.1rc2"})
-        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
-        self.assertEqual(
-            prerelease["package_command"],
-            "python -m pip install --index-url https://test.pypi.org/simple/ "
-            "ai-dememory==2.1.1rc2",
-        )
-        self.assertEqual(
-            ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
-            ("ai-dememory init ~/code/my-memory --wizard",),
-        )
-
-    def test_stable_user_docs_pin_the_legacy_artifact_and_keep_current_prerelease_scope_explicit(self) -> None:
+    def test_release_pending_user_docs_keep_only_the_published_compatibility_route(self) -> None:
         for relative in STABLE_INSTALL_DOCS:
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -110,7 +140,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         text,
                         "2.1.0",
                         relative,
-                        source_version="2.1.1rc2",
+                        source_version="2.1.1",
                     ),
                 )
 
@@ -120,15 +150,18 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                     (REPO_ROOT / relative).read_text(encoding="utf-8").lower().split()
                 ).replace("`", "")
                 self.assertIn("published stable 2.1.0", text)
-                self.assertIn("testpypi prerelease 2.1.1rc2", text)
+                for marker in RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"]:
+                    self.assertIn(marker.casefold(), text)
+                self.assertNotIn("testpypi prerelease 2.1.1rc2", text)
                 self.assertNotIn("source candidate 2.1.1rc2 is unreleased", text)
 
         install = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
-        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
-        self.assertIn("TestPyPI Prerelease 2.1.1rc2", install)
-        self.assertIn(prerelease["package_command"], install)
-        for command in ACTIVE_PRERELEASE_REQUIRED_COMMANDS:
-            self.assertIn(command, install)
+        self.assertIn("ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0", install)
+        self.assertNotIn("ai-dememory==2.1.1", install)
+        self.assertNotIn(
+            "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
+            install,
+        )
 
     def test_checked_in_site_passes_guard(self) -> None:
         self.assertEqual([], audit_site())
@@ -606,7 +639,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertEqual([], audit_site(REPO_ROOT, copied))
 
-    def test_guard_rejects_missing_legacy_and_current_prerelease_wizard_commands(self) -> None:
+    def test_guard_rejects_missing_published_compatibility_wizard_command(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
@@ -621,16 +654,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             errors = audit_site(REPO_ROOT, copied)
             self.assertTrue(
                 any(
-                    "stable 2.1.0 command block is missing "
+                    "published 2.1.0 command block is missing "
                     "'ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0'"
-                    in error
-                    for error in errors
-                )
-            )
-            self.assertTrue(
-                any(
-                    "active prerelease 2.1.1rc2 command block is missing "
-                    "'ai-dememory init ~/code/my-memory --wizard'" in error
                     for error in errors
                 )
             )
@@ -736,10 +761,10 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
     def test_guard_rejects_release_markers_on_hidden_content(self) -> None:
         hidden_forms = (
-            'data-release="stable-2.1.0" hidden',
-            'data-release="stable-2.1.0" aria-hidden="true"',
-            'data-release="stable-2.1.0" style="display: none"',
-            'data-release="stable-2.1.0" style="visibility: hidden"',
+            'data-release="published-2.1.0" hidden',
+            'data-release="published-2.1.0" aria-hidden="true"',
+            'data-release="published-2.1.0" style="display: none"',
+            'data-release="published-2.1.0" style="visibility: hidden"',
         )
         for hidden_form in hidden_forms:
             with self.subTest(hidden_form=hidden_form), tempfile.TemporaryDirectory() as temporary:
@@ -748,7 +773,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home = copied / "index.html"
                 home.write_text(
                     home.read_text(encoding="utf-8").replace(
-                        'data-release="stable-2.1.0"',
+                        'data-release="published-2.1.0"',
                         hidden_form,
                         1,
                     ),
@@ -766,8 +791,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    '<div class="code-block" data-copy-block data-release="stable-2.1.0">',
-                    '<template><div class="code-block" data-copy-block data-release="stable-2.1.0">',
+                    '<div class="code-block" data-copy-block data-release="published-2.1.0">',
+                    '<template><div class="code-block" data-copy-block data-release="published-2.1.0">',
                     1,
                 ).replace("</main>", "</template>\n</main>", 1),
                 encoding="utf-8",
@@ -778,14 +803,14 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             self.assertTrue(any("non-rendered content" in error for error in errors))
 
     def test_guard_rejects_ambiguous_or_noncanonical_release_markup(self) -> None:
-        canonical = '<div class="code-block" data-copy-block data-release="stable-2.1.0">'
+        canonical = '<div class="code-block" data-copy-block data-release="published-2.1.0">'
         mutations = (
-            '<div class="code-block visually-hidden" data-copy-block data-release="stable-2.1.0">',
-            '<div style="display:none" style="" class="code-block" data-copy-block data-release="stable-2.1.0">',
-            '<dialog><div class="code-block" data-copy-block data-release="stable-2.1.0">',
-            '<datalist><div class="code-block" data-copy-block data-release="stable-2.1.0">',
-            '<span hidden/></span><div class="code-block" data-copy-block data-release="stable-2.1.0">',
-            '<div hidden></span><div class="code-block" data-copy-block data-release="stable-2.1.0">',
+            '<div class="code-block visually-hidden" data-copy-block data-release="published-2.1.0">',
+            '<div style="display:none" style="" class="code-block" data-copy-block data-release="published-2.1.0">',
+            '<dialog><div class="code-block" data-copy-block data-release="published-2.1.0">',
+            '<datalist><div class="code-block" data-copy-block data-release="published-2.1.0">',
+            '<span hidden/></span><div class="code-block" data-copy-block data-release="published-2.1.0">',
+            '<div hidden></span><div class="code-block" data-copy-block data-release="published-2.1.0">',
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
@@ -820,8 +845,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    "ai-dememory init ~/code/my-memory --wizard</code>",
-                    "ai-dememory init ~/code/my-memory --wizard"
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
                     "<span hidden>\npython -m pip install $PKG</span></code>",
                     1,
                 ),
@@ -847,8 +872,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home = copied / "index.html"
                 home.write_text(
                     home.read_text(encoding="utf-8").replace(
-                        "ai-dememory init ~/code/my-memory --wizard</code>",
-                        "ai-dememory init ~/code/my-memory --wizard"
+                        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code>",
+                        "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
                         f"\n{comment}</code>",
                         1,
                     ),
@@ -1242,7 +1267,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
             self.assertTrue(
                 any(
-                    "stable 2.1.0 command block contains an unapproved literal command"
+                    "published 2.1.0 command block contains an unapproved literal command"
                     in error
                     for error in errors
                 ),
@@ -2030,47 +2055,132 @@ python3 -m pip install -e .
             _stable_command_errors(source_commands, "2.1.0", "source fixture"),
         )
 
-    def test_guard_allows_the_current_testpypi_prerelease_after_source_advances(self) -> None:
-        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
+    def test_guard_rejects_a_persistent_version_gate_on_the_published_stable_line(self) -> None:
+        errors = _stable_command_errors(
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+            "2.1.0",
+            "fixture",
+            source_version="2.1.0",
+        )
+        self.assertTrue(
+            any("must not retain a persistent --require-version gate" in error for error in errors),
+            errors,
+        )
+
+    def test_guard_rejects_unpinned_wizard_commands_while_release_is_pending(self) -> None:
+        for command in (
+            "ai-dememory init ~/code/my-memory --wizard",
+            "ai-dememory --root ~/code/my-memory setup wizard",
+        ):
+            with self.subTest(command=command):
+                errors = _stable_command_errors(
+                    command,
+                    "2.1.0",
+                    "fixture",
+                    source_version="2.1.1",
+                )
+                self.assertTrue(
+                    any(
+                        "release-pending documentation must gate wizard commands with exactly "
+                        "--require-version 2.1.0" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+    def test_guard_rejects_the_pending_source_version_in_a_wizard_or_package_command(self) -> None:
+        wizard_errors = _stable_command_errors(
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
+            "2.1.0",
+            "fixture",
+            source_version="2.1.1",
+        )
+        self.assertTrue(
+            any(
+                "release-pending documentation must gate wizard commands with exactly "
+                "--require-version 2.1.0" in error
+                for error in wizard_errors
+            ),
+            wizard_errors,
+        )
+        package_errors = _stable_command_errors(
+            "pipx install ai-dememory==2.1.1",
+            "2.1.0",
+            "fixture",
+            source_version="2.1.1",
+        )
+        self.assertTrue(any("not allowlisted" in error for error in package_errors), package_errors)
+
+    def test_guard_rejects_version_gates_on_non_wizard_pending_sensitive_markdown(self) -> None:
+        markdown = """```bash
+ai-dememory --root ~/code/my-memory mcp-config --client codex --require-version 2.1.1
+ai-dememory --root ~/code/my-memory setup plan --json --require-version 2.1.0
+ai-dememory --root ~/code/my-memory mcp --stdio --require-bound-root --require-version 2.1.0
+```"""
+
+        errors = _stable_command_errors(
+            markdown,
+            "2.1.0",
+            "fixture",
+            source_version="2.1.1",
+        )
+
+        non_wizard_errors = [
+            error
+            for error in errors
+            if "release-pending documentation must not pass --require-version to "
+            "non-wizard sensitive commands" in error
+        ]
+        self.assertEqual(3, len(non_wizard_errors), errors)
+
+    def test_guard_allows_non_executable_legacy_configuration_prose_while_release_is_pending(self) -> None:
+        prose = (
+            "Legacy generated configuration may retain `--require-version 2.1.1`; "
+            "it remains a compatibility input rather than a copyable command."
+        )
+
         self.assertEqual(
             [],
             _stable_command_errors(
-                prerelease["package_command"],
+                prose,
                 "2.1.0",
                 "fixture",
-                source_version="2.1.1rc2",
+                source_version="2.1.1",
             ),
         )
-        errors = _stable_command_errors(
-            "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.2rc1",
-            "2.1.0",
-            "fixture",
-            source_version="2.1.1rc2",
-        )
-        self.assertTrue(any("not allowlisted" in error for error in errors))
 
-    def test_guard_rejects_indirect_package_sources_in_prerelease_blocks(self) -> None:
-        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
-        indirect_commands = (
-            "python -m pip install --index-url https://test.pypi.org/simple/ $PKG",
-            "python -m pip install --index-url https://test.pypi.org/simple/ --requirement requirements.txt",
-            "pipx install $PKG",
-            "uv tool install $PKG",
-            "pypy3 -m pip install $PKG",
-            'zsh -c "python -m pip install $PKG"',
-            "pipenv run pip install $PKG",
-            "poetry run pip install $PKG",
-            "conda run -n review python -m pip install $PKG",
+    def test_guard_allows_non_executable_generated_configuration_pins_while_release_is_pending(self) -> None:
+        snapshots = (
+            """command = \"ai-dememory\"
+args = [\"--root\", \"~/code/my-memory\", \"mcp\", \"--stdio\", \"--require-version\", \"2.1.0\"]
+""",
+            """{
+  \"command\": \"ai-dememory\",
+  \"args\": [\"--root\", \"~/code/my-memory\", \"mcp\", \"--stdio\", \"--require-version\", \"2.1.0\"]
+}
+""",
         )
-        indirect_lines = "\n".join(indirect_commands)
+        for snapshot in snapshots:
+            with self.subTest(snapshot=snapshot):
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(
+                        snapshot,
+                        "2.1.0",
+                        "fixture",
+                        source_version="2.1.1",
+                    ),
+                )
+
+    def test_guard_rejects_an_unpinned_wizard_in_the_pending_site(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary) / "site"
             shutil.copytree(SITE_ROOT, copied)
-            home = copied / "index.html"
-            home.write_text(
-                home.read_text(encoding="utf-8").replace(
-                    prerelease["package_command"],
-                    f"{prerelease['package_command']}\n{indirect_lines}",
+            install = copied / "install" / "index.html"
+            install.write_text(
+                install.read_text(encoding="utf-8").replace(
+                    "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+                    "ai-dememory init ~/code/my-memory --wizard",
                     1,
                 ),
                 encoding="utf-8",
@@ -2080,7 +2190,111 @@ python3 -m pip install -e .
 
             self.assertTrue(
                 any(
-                    "active prerelease 2.1.1rc2 command block must contain only the approved prerelease install and wizard commands"
+                    error.startswith("site/install/index.html:")
+                    and "release-pending documentation must gate wizard commands with exactly "
+                    "--require-version 2.1.0" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_a_non_wizard_version_gate_in_the_pending_site(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            install = copied / "install" / "index.html"
+            install.write_text(
+                install.read_text(encoding="utf-8").replace(
+                    "ai-dememory --root ~/code/my-memory mcp-config --client codex",
+                    "ai-dememory --root ~/code/my-memory mcp-config --client codex "
+                    "--require-version 2.1.1",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    error.startswith("site/install/index.html:")
+                    and "release-pending documentation must not pass --require-version to "
+                    "non-wizard sensitive commands" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_requires_release_pending_markers_on_public_site(self) -> None:
+        marker = RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"][1]
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    marker,
+                    "published route marker removed",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "site/index.html: release-pending source truth marker is missing"
+                    in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_a_pending_source_package_command_in_the_site(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            home = copied / "index.html"
+            home.write_text(
+                home.read_text(encoding="utf-8").replace(
+                    "pipx install ai-dememory==2.1.0",
+                    "pipx install ai-dememory==2.1.1",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "site/index.html" in error and "package command is not allowlisted" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_guard_rejects_a_historical_prerelease_command_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "site"
+            shutil.copytree(SITE_ROOT, copied)
+            install = copied / "install" / "index.html"
+            install.write_text(
+                install.read_text(encoding="utf-8").replace(
+                    "</main>",
+                    """<div class=\"code-block\" data-copy-block data-release=\"source-2.1.1rc2\"><pre tabindex=\"0\"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
+ai-dememory init ~/code/my-memory --wizard</code></pre></div></main>""",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_site(REPO_ROOT, copied)
+
+            self.assertTrue(
+                any(
+                    "unknown release marker 'source-2.1.1rc2'"
                     in error
                     for error in errors
                 ),
@@ -2106,18 +2320,16 @@ python3 -m pip install -e .
             "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
             install,
         )
-        self.assertIn("ai-dememory init ~/code/my-memory --wizard", install)
         self.assertIn("ai-dememory --root ~/code/my-memory mcp-config --client codex", install)
-        prerelease = ACTIVE_PRERELEASE_CONTRACTS["2.1.1rc2"]
-        self.assertIn(prerelease["install_marker"], install)
-        self.assertIn(prerelease["package_command"], install)
-        self.assertIn("Use an isolated virtual environment for this TestPyPI evaluation", install)
-        self.assertNotIn("Source candidate: 2.1.1rc2, unreleased", install)
-        self.assertNotIn("The checked-out 2.1.1rc2 source candidate is unreleased.", install)
-        self.assertNotIn("not installable from a package index until it is tagged and published", install)
-        self.assertIn('data-release="source-2.1.1rc2"', install)
-        self.assertNotIn('data-release="source-2.1.1rc1"', install)
-        self.assertNotIn("pipx install ai-dememory==2.1.1rc1", install)
+        self.assertNotIn(
+            "python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2",
+            install,
+        )
+        self.assertNotIn('data-release="source-2.1.1rc2"', install)
+        self.assertIn('data-release="published-2.1.0"', install)
+        self.assertIn("published stable 2.1.0", install)
+        for marker in RELEASE_PENDING_CONTRACTS["2.1.1"]["scope_markers"]:
+            self.assertIn(marker, install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))
 
@@ -2153,23 +2365,19 @@ python3 -m pip install -e .
         self.assertIn("git ls-remote origin refs/heads/main", status)
         self.assertNotIn("- Public `main`:\n  `", status)
 
-    def test_development_status_records_current_rc2_release_evidence(self) -> None:
+    def test_development_status_retains_rc2_as_historical_release_evidence(self) -> None:
         status = (REPO_ROOT / "docs" / "development-status.md").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("v2.1.1rc2", status)
-        self.assertIn(
-            "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
-            status,
-        )
-        self.assertIn(
-            "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
-            status,
-        )
+        historical = HISTORICAL_PRERELEASE_CONTRACTS["2.1.1rc2"]
+        for evidence in historical["status_evidence"]:
+            with self.subTest(evidence=evidence):
+                self.assertIn(evidence, status)
+        self.assertIn(historical["status_marker"], status.casefold())
         self.assertNotRegex(
             status.casefold(),
-            r"(?s)\b2\.1\.1rc2\b.{0,240}\b(?:untagged|unpublished)\b",
+            r"(?s)\b2\.1\.1rc2\b.{0,120}\b(?:is|remains)\s+(?:the\s+)?(?:current|active)\b",
         )
 
     def test_clipboard_fallback_selects_commands_and_updates_accessible_status(self) -> None:

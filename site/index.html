@@ -144,26 +144,14 @@
 
       <section class="band band-green" aria-labelledby="install-heading">
         <div class="container install-grid">
-          <div class="code-block" data-copy-block data-release="stable-2.1.0">
+          <div class="code-block" data-copy-block data-release="published-2.1.0">
             <pre tabindex="0"><code>pipx install ai-dememory==2.1.0
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0</code></pre>
           </div>
           <div class="install-copy">
-            <h2 id="install-heading">Published stable: guided setup</h2>
-            <p>This is the published 2.1.0 route. Its historical version gate belongs only to the stable wizard flow; connecting an AI client, imports, hooks, and schedules remain separate choices.</p>
+            <h2 id="install-heading">Published 2.1.0: guided compatibility setup</h2>
+            <p>2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The published stable 2.1.0 compatibility route is the only user-installable path in this interim state. The version-gated wizard is intentional; connecting an AI client, imports, hooks, and schedules remain separate choices.</p>
             <a class="text-link" href="install/">Read the installation guide <span aria-hidden="true">→</span></a>
-          </div>
-        </div>
-        <div class="container install-grid">
-          <div class="code-block" data-copy-block data-release="source-2.1.1rc2">
-            <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
-ai-dememory init ~/code/my-memory --wizard</code></pre>
-          </div>
-          <div class="install-copy">
-            <h2>TestPyPI prerelease: simpler first run</h2>
-            <p>TestPyPI prerelease 2.1.1rc2 is available for evaluation. Run it inside an isolated virtual environment, then install that exact package before using its simpler wizard; 2.1.0 remains the stable PyPI route.</p>
-            <p>The earlier 2.1.1rc1 prerelease remains historical release evidence; rc2 is the single current evaluation route.</p>
-            <a class="text-link" href="install/#candidate">Read the prerelease route <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>

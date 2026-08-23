@@ -51,19 +51,19 @@ requirements are satisfied. Planning status is not runtime completion.
 ## Current Frontier
 
 `BRG-014` in batch `B04a` is complete: operational setup and optional durable
-onboarding are separate, fingerprint-bound flows, and the release candidate
-passed TestPyPI publication, post-index installation, wizard and MCP lifecycle
-verification. Stable `v2.1.0` remains the public baseline. The
-backward-compatible maintenance correction introduced in `2.1.1rc1` removes
-the persistent `--require-version` pin from generated configuration while
-continuing to accept legacy configuration. The current TestPyPI evaluation
-prerelease is annotated `v2.1.1rc2`, resolving to
-`ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`; it adds the small optional local
-API onboarding/documentation follow-up and has post-index release evidence.
-`2.1.1rc1` remains historical evidence, not a second recommended installation
-route. `2.1.0` remains the PyPI stable line until a separately prepared and
-approved `2.1.1` release. This work does not advance the V3 plan or complete
-V3 `ONB-001`.
+onboarding are separate, fingerprint-bound flows, and the `2.1.1` release
+candidates passed TestPyPI publication, post-index installation, wizard, and
+MCP lifecycle verification. The backward-compatible maintenance correction
+introduced in `2.1.1rc1` removes the persistent `--require-version` pin from
+generated configuration while continuing to accept legacy configuration.
+`v2.1.1rc2`, resolving to
+`ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`, adds the small optional local API
+onboarding/documentation follow-up. Both release candidates are historical
+evidence, not installation routes. This source line is prepared as stable
+`2.1.1`; its exact tag and PyPI publication remain pending the protected
+release workflow and external readback. The last externally verified PyPI
+stable release remains `2.1.0` until those checks finish. This work does not
+advance the V3 plan or complete V3 `ONB-001`.
 
 The next legal product implementation frontier is batch `B04b`:
 

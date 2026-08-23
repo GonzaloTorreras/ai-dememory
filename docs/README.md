@@ -10,11 +10,12 @@ ai DeMemory has two deliberately separate locations:
 Choose the guide for the task in front of you. Installation does not require
 reading source-checkout or release procedures.
 
+2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+
 ## Install And Start A Vault
 
-- [Install](install.md): the stable 2.1.0 path, the published TestPyPI
-  2.1.1rc2 evaluation path, plus the wizard and bounded intensities. The
-  earlier 2.1.1rc1 prerelease remains historical release evidence.
+- [Install](install.md): the published 2.1.0 compatibility wizard path and
+  bounded intensities.
 - [Create a memory repository](create-memory-repo.md): create a reusable
   private GitHub vault template when one local vault is not enough.
 - [Operations](operations.md): diagnose, upgrade, maintain, and recover an
@@ -27,8 +28,8 @@ reading source-checkout or release procedures.
 - [MCP client configuration](mcp-client-config.md): inspectable configuration
   for Codex, Claude, and generic clients.
 - [Local REST API](local-api.md): optional loopback HTTP for a local script or
-  dashboard. The current published 2.1.1rc2 prerelease may suggest it after
-  the wizard; start it manually with `ai-dememory --root ~/code/my-memory api`.
+  dashboard. Start it manually with
+  `ai-dememory --root ~/code/my-memory api`.
   It runs in the foreground and is not started automatically.
 - [Hooks](hooks.md) and [scheduler](scheduler.md): optional, trust-gated local
   integrations and maintenance automation.

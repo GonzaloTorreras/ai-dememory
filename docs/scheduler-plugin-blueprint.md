@@ -3,11 +3,7 @@
 This blueprint defines the v2 implementation boundary for recurring local
 maintenance and the Codex plugin surface.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. `2.1.1rc2` is the current evaluation prerelease on TestPyPI, not a PyPI
-stable release. It preserves the passive installation and scheduler boundaries
-below while simplifying only newly generated setup. `2.1.1rc1` remains
-historical release evidence.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
 
 ## Scheduler Contract
 
@@ -120,10 +116,6 @@ Recommended local setup:
    `ai-dememory --root ~/code/my-memory schedule setup --dry-run` or reviewed
    cron export from the scheduler plan when a human wants shell-ready output.
 7. Install only the reviewed hook or schedule pieces the user wants.
-
-The current tagged TestPyPI prerelease uses
-`ai-dememory init ~/code/my-memory --wizard` after its exact evaluation install;
-do not substitute it into a stable PyPI install or host scheduler configuration.
 
 MCP clients should use `memory.setup_plan` and `memory.setup_health` for this
 flow. Both tools are read-only and report explicit side-effect flags so plugin

@@ -12,11 +12,7 @@ Users should not fork `ai-dememory` to store memory. Forking mixes private data
 with upstream tool code, complicates upgrades, and makes accidental disclosure
 more likely.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. `2.1.1rc2` is the current immutable TestPyPI prerelease for evaluation,
-not a PyPI stable release. `2.1.1rc1` remains historical release evidence. A
-reviewed local checkout is contributor development, not a substitute for the
-current immutable evaluation package.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
 
 ## Recommended Channels
 
@@ -37,18 +33,10 @@ This keeps application dependencies isolated and makes upgrades simple.
 uv tool install ai-dememory==2.1.0
 ```
 
-### Development snapshot: reviewed local checkout
+### Source checkout: contributors only
 
-For unreleased commits:
-
-```bash
-git clone https://github.com/GonzaloTorreras/ai-dememory.git
-cd ai-dememory
-pipx install .
-```
-
-Review the selected commit before the local install. Stable user instructions
-never execute a mutable VCS URL or an ephemeral package runner.
+Contributor development is documented in `DEVELOPMENT.md`. It is not a user
+installation route or a fallback for the published package.
 
 ### Vault creation: CLI template
 
@@ -59,8 +47,8 @@ ai-dememory init ./my-memory --wizard --require-version 2.1.0
 ```
 
 This is the concise wizard-first setup path for the published 2.1.0 package.
-The TestPyPI prerelease removes the trailing legacy pin for new configuration;
-its exact evaluation package route is documented in [Installation](install.md).
+The compatibility flag is required until the pending stable publication is
+verified and the user documentation can be promoted separately.
 
 ### Optional: GitHub template repo
 
@@ -118,9 +106,8 @@ ai-dememory --root ~/code/my-memory mcp-config --client codex
 upgrade. The `version-check` subcommand remains available for CI or
 support diagnostics; it is not part of first-run setup.
 
-The tagged and TestPyPI-published `2.1.1rc2` prerelease uses
-`ai-dememory init ~/code/my-memory --wizard` after its exact evaluation install.
-It does not change the stable PyPI route above.
+The published compatibility route is the only user-facing setup route while
+release verification is pending.
 
 ## Stable Release Requirements
 

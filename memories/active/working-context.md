@@ -22,21 +22,22 @@ review_after: 2026-08-26
 # Demo Active Working Context
 
 The public repository is the canonical development and package-distribution
-source. PyPI exposes published stable 2.1.0. `v2.1.1rc2` is the annotated
-current TestPyPI prerelease, resolving to
-`ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`, with a matching GitHub prerelease
-and exact-index installation evidence. It is an evaluation route, not a stable
-PyPI release. `2.1.1rc1` remains historical release evidence, not a second
-recommended installation route. Continue strengthening Markdown-canonical
-storage, SQLite FTS retrieval, MCP interfaces, local review workflows, and
-generated maintenance artifacts on clean branches based on public `origin/main`.
+source. Current source prepares stable `2.1.1`; its exact tag and PyPI
+publication require the protected workflow and external readback before they
+become release evidence. `v2.1.1rc2`, resolving to
+`ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`, is immutable TestPyPI evaluation
+evidence with a matching GitHub prerelease and exact-index installation;
+`2.1.1rc1` is also historical evidence. Neither is an active recommended
+installation route. Continue strengthening Markdown-canonical storage, SQLite
+FTS retrieval, MCP interfaces, local review workflows, and generated
+maintenance artifacts on clean branches based on public `origin/main`.
 
 The historical private checkout is research input only: port decisions
 semantically, renumber conflicting ADRs, and regenerate every test and release
 claim in the public repository. This checked-in memory is public demo data;
 real user memory belongs in a separately bound private vault.
 
-The current 2.1.0 line is a bounded-autonomy hardening release: package-owned
+The 2.1.1 source line preserves the bounded-autonomy hardening: package-owned
 children use explicit process ownership and idle leases; public/private MCP
 surfaces are separated; scans, graph responses, protocol queues and generated
 history have hard ceilings; scheduler receipts bind exact root/command/plan

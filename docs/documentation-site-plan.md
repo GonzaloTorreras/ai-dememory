@@ -96,8 +96,9 @@ Non-goals for the first site:
    review gate visually unavoidable.
 3. **Three separate places:** public source repository, installed executable,
    and private vault. Never show them as one folder or one sync target.
-4. **Five-minute stable setup:** exact 2.1.0 PyPI, vault, health, setup-plan,
-   wizard and MCP commands with no hidden side effects.
+4. **Five-minute published setup:** exact 2.1.0 PyPI, vault, health, setup-plan,
+   wizard and MCP commands with no hidden side effects while 2.1.1 release
+   preparation is pending publication and external readback.
 5. **Bounded 2.1 onboarding:** explain `minimal`, `balanced`, and `active` as
    bounded operating envelopes available in the stable package. State
    separately that model policy does not let ai DeMemory call a model or
@@ -109,7 +110,7 @@ Non-goals for the first site:
 ### Guides: complete one job
 
 - Install and create a private vault.
-- Complete the stable 2.1.0 setup-plan, preview-first wizard and client path.
+- Complete the published 2.1.0 setup-plan, preview-first wizard and client path.
 - Connect Codex, Claude, or another MCP client.
 - Search, inspect evidence, and assemble bounded context.
 - Review a proposal and apply an explicit decision.

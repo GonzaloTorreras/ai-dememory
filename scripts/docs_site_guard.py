@@ -80,32 +80,40 @@ STABLE_RELEASE_CONTRACTS = {
     },
 }
 
-# This is the first-run command paired with the one current, documented
-# TestPyPI prerelease block. A future source candidate must not gain another
-# copyable route merely because it supports the same wizard syntax.
-ACTIVE_PRERELEASE_REQUIRED_COMMANDS = (
-    "ai-dememory init ~/code/my-memory --wizard",
-)
-
-# This mapping intentionally contains only the prerelease package that is
-# currently documented as an evaluation route. Add or replace an entry only
-# after its immutable tag, canonical release workflow, TestPyPI readback, and
-# GitHub prerelease have been verified. Historical prereleases belong in
-# release evidence, not in the active copyable-install surface.
-ACTIVE_PRERELEASE_CONTRACTS = {
-    "2.1.1rc2": {
-        "scope_marker": "testpypi prerelease 2.1.1rc2",
-        "site_lens": "TestPyPI prerelease: 2.1.1rc2",
-        "install_marker": "TestPyPI prerelease 2.1.1rc2 is available for evaluation",
-        "package_command": (
-            "python -m pip install --index-url https://test.pypi.org/simple/ "
-            "ai-dememory==2.1.1rc2"
+# A release-preparation source can be ahead of its last published stable
+# package, but only as an explicit, reviewable state. This is not a broad
+# source-version exception: it binds the source to the exact published
+# compatibility route and requires truthful public markers. In particular, it
+# never grants a package command for the pending source version.
+RELEASE_PENDING_CONTRACTS = {
+    "2.1.1": {
+        "published_version": "2.1.0",
+        "scope_markers": (
+            "2.1.1 is source release preparation, not an installable route until "
+            "tag-bound PyPI publication and external readback complete.",
+            "2.1.0 is the currently published PyPI compatibility route while "
+            "release verification is pending.",
         ),
+    },
+}
+
+# A pending source has no active TestPyPI package route. A future candidate may
+# add exactly one reviewed contract only after its immutable tag, release
+# workflow, TestPyPI readback, and GitHub prerelease exist. Historical
+# prereleases are release evidence only and never a copyable-install surface.
+ACTIVE_PRERELEASE_REQUIRED_COMMANDS: tuple[str, ...] = ()
+ACTIVE_PRERELEASE_CONTRACTS: dict[str, dict[str, object]] = {}
+
+# Retain the immutable rc2 provenance in the public handoff without treating
+# it as an installation option. Do not add package commands to this contract.
+HISTORICAL_PRERELEASE_CONTRACTS = {
+    "2.1.1rc2": {
         "status_evidence": (
             "v2.1.1rc2",
             "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
             "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
         ),
+        "status_marker": "historical prerelease evidence",
     },
 }
 
@@ -320,12 +328,94 @@ ALLOWED_CSS_DATA_LABELS = frozenset(
         "Recall",
     }
 )
+
+
+def _release_pending_contract(
+    stable_version: str,
+    source_version: str | None,
+) -> dict[str, object] | None:
+    """Return the only legal published-stable/source-pending pairing, if any."""
+    if source_version is None:
+        return None
+    contract = RELEASE_PENDING_CONTRACTS.get(source_version)
+    if contract is None:
+        return None
+    if contract.get("published_version") != stable_version:
+        return None
+    return contract
+
+
+def _release_contract_errors(stable_version: str, source_version: str) -> list[str]:
+    """Reject implicit package availability when source and PyPI differ.
+
+    ``source != stable`` is deliberately not enough to authorize a candidate.
+    The only exception is a listed pending contract tied to the exact published
+    compatibility version, and that state must not retain a TestPyPI route.
+    """
+    pending_contract = RELEASE_PENDING_CONTRACTS.get(source_version)
+    if pending_contract is not None:
+        errors: list[str] = []
+        if source_version == stable_version:
+            errors.append(
+                "docs site guard: a release-pending source must differ from its "
+                "published stable package"
+            )
+        if pending_contract.get("published_version") != stable_version:
+            errors.append(
+                "docs site guard: release-pending source does not bind to the "
+                "documented published stable package"
+            )
+        markers = pending_contract.get("scope_markers")
+        if not isinstance(markers, tuple) or len(markers) != 2 or not all(
+            isinstance(marker, str) and marker for marker in markers
+        ):
+            errors.append(
+                "docs site guard: release-pending source must define two explicit "
+                "public scope markers"
+            )
+        if ACTIVE_PRERELEASE_CONTRACTS:
+            errors.append(
+                "docs site guard: release-pending source must not retain an active "
+                "TestPyPI prerelease contract"
+            )
+        if ACTIVE_PRERELEASE_REQUIRED_COMMANDS:
+            errors.append(
+                "docs site guard: release-pending source must not retain active "
+                "prerelease command requirements"
+            )
+        return errors
+    if source_version == stable_version:
+        if ACTIVE_PRERELEASE_CONTRACTS:
+            return [
+                "docs site guard: active TestPyPI prerelease contracts must be empty "
+                "when source version matches the documented stable release"
+            ]
+        return []
+    if len(ACTIVE_PRERELEASE_CONTRACTS) != 1:
+        return [
+            "docs site guard: source differing from the published stable package "
+            "requires exactly one explicit active TestPyPI prerelease contract or "
+            "a release-pending contract"
+        ]
+    return []
+
+
+def _published_release_label(stable_version: str, source_version: str) -> str:
+    if _release_pending_contract(stable_version, source_version) is not None:
+        return f"published-{stable_version}"
+    return f"stable-{stable_version}"
+
+
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
     markers = [f"published stable {stable_version}"]
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    if pending_contract is not None:
+        markers.extend(pending_contract["scope_markers"])
+        return tuple(markers)
     if source_version != stable_version:
-        # The one current documented TestPyPI route stays available while the
-        # checked-out source advances. Its availability is explicitly reviewed
-        # rather than inferred from source version; historical prereleases are
+        # A reviewed TestPyPI route may stay available while a future source
+        # candidate advances. Its availability is explicitly reviewed rather
+        # than inferred from source version; historical prereleases are
         # deliberately excluded from this active documentation contract.
         markers.extend(
             contract["scope_marker"]
@@ -337,6 +427,9 @@ def release_scope_markers(stable_version: str, source_version: str) -> tuple[str
 
 
 def site_release_lens(stable_version: str, source_version: str) -> str:
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    if pending_contract is not None:
+        return pending_contract["scope_markers"][0]
     if source_version != stable_version:
         contract = ACTIVE_PRERELEASE_CONTRACTS.get(source_version)
         if contract is not None:
@@ -1958,6 +2051,26 @@ def _all_root_values(tokens: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _option_values(tokens: tuple[str, ...], option: str) -> tuple[str, ...]:
+    """Return literal values supplied for a non-abbreviated CLI option."""
+    tokens = _ai_dememory_tokens(tokens)
+    values: list[str] = []
+    index = 1
+    while index < len(tokens):
+        argument = tokens[index]
+        if argument == option:
+            if index + 1 >= len(tokens):
+                values.append("")
+                break
+            values.append(tokens[index + 1])
+            index += 2
+            continue
+        if argument.startswith(f"{option}="):
+            values.append(argument.partition("=")[2])
+        index += 1
+    return tuple(values)
+
+
 def _normalized_package_command(command: str) -> str:
     normalized = re.sub(
         r"ai[-_.]+dememory",
@@ -1977,10 +2090,9 @@ def _approved_package_commands(stable_version: str) -> set[str]:
         f"python3 -m pip install {expected_spec}",
         f"py -3 -m pip install {expected_spec}",
     }
-    # The source checkout can advance beyond the current documented TestPyPI
-    # prerelease. Its exact package command remains permitted until the active
-    # contract is deliberately replaced; never infer index availability from
-    # ``source_version`` alone.
+    # Only an explicit active prerelease contract may add an index command.
+    # With stable source this mapping is required to be empty, so historical
+    # TestPyPI artifacts are evidence rather than allowlisted installs.
     commands.update(
         contract["package_command"]
         for contract in ACTIVE_PRERELEASE_CONTRACTS.values()
@@ -2287,6 +2399,51 @@ def _stable_command_errors(
             *direct_mcp_segments,
             *init_wizard_segments,
         )
+        pending_contract = _release_pending_contract(stable_version, source_version)
+        if pending_contract is not None:
+            for segment in segments:
+                normalized_segment = _ai_dememory_tokens(segment)
+                if (
+                    not normalized_segment
+                    or not _tokens_contain_sensitive_cli(normalized_segment)
+                ):
+                    continue
+                version_values = _option_values(segment, "--require-version")
+                if not version_values:
+                    if (
+                        _is_setup_wizard_tokens(segment)
+                        or _is_init_wizard_tokens(segment)
+                    ):
+                        errors.append(
+                            f"{label}:{line_number}: release-pending documentation must gate "
+                            f"wizard commands with exactly --require-version {stable_version}: "
+                            f"{command!r}"
+                        )
+                    continue
+                if (
+                    _is_setup_wizard_tokens(segment)
+                    or _is_init_wizard_tokens(segment)
+                ):
+                    if version_values == (stable_version,):
+                        continue
+                    errors.append(
+                        f"{label}:{line_number}: release-pending documentation must gate "
+                        f"wizard commands with exactly --require-version {stable_version}: "
+                        f"{command!r}"
+                    )
+                    continue
+                errors.append(
+                    f"{label}:{line_number}: release-pending documentation must not pass "
+                    f"--require-version to non-wizard sensitive commands: {command!r}"
+                )
+        elif source_version == stable_version and any(
+            token == "--require-version" or token.startswith("--require-version=")
+            for token in _ai_dememory_tokens(tokens)
+        ):
+            errors.append(
+                f"{label}:{line_number}: stable documentation must not retain a persistent "
+                f"--require-version gate: {command!r}"
+            )
         for segment in sensitive_segments:
             root_values = _all_root_values(segment)
             if len(root_values) > 1:
@@ -2913,20 +3070,23 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     project = metadata["project"]
     source_version = str(project["version"])
     requires_python = str(project["requires-python"])
-    if len(ACTIVE_PRERELEASE_CONTRACTS) != 1:
-        errors.append(
-            "docs site guard: exactly one active TestPyPI prerelease contract is required"
-        )
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
     stable_match = re.search(r"Current release line: `ai-dememory` ([0-9]+(?:\.[0-9]+){2})", readme)
     if not stable_match:
         errors.append("README.md: current release line is not machine-readable")
         return
     stable_version = stable_match.group(1)
+    errors.extend(_release_contract_errors(stable_version, source_version))
+    pending_contract = _release_pending_contract(stable_version, source_version)
     stable_contract = STABLE_RELEASE_CONTRACTS.get(stable_version)
     if stable_contract is not None:
         for relative in STABLE_INSTALL_DOCS:
             text = (repo_root / relative).read_text(encoding="utf-8")
+            if source_version == stable_version and "--require-version" in text:
+                errors.append(
+                    f"{relative}: stable installation documentation must not retain "
+                    "--require-version"
+                )
             errors.extend(
                 _stable_command_errors(
                     text,
@@ -2959,6 +3119,19 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 "docs/development-status.md: current prerelease "
                 f"{prerelease_version} is still described as untagged or unpublished"
             )
+    for prerelease_version, prerelease_contract in HISTORICAL_PRERELEASE_CONTRACTS.items():
+        for evidence in prerelease_contract["status_evidence"]:
+            if evidence not in development_status:
+                errors.append(
+                    "docs/development-status.md: historical prerelease "
+                    f"{prerelease_version} is missing release evidence {evidence!r}"
+                )
+        marker = str(prerelease_contract["status_marker"])
+        if marker not in normalized_status:
+            errors.append(
+                "docs/development-status.md: historical prerelease "
+                f"{prerelease_version} must be explicitly labelled {marker!r}"
+            )
     scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
         # Markdown prose may wrap a release sentence across physical lines.
@@ -2968,7 +3141,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             (repo_root / relative).read_text(encoding="utf-8").lower().split()
         ).replace("`", "")
         for marker in scope_markers:
-            if marker not in scope_text:
+            if marker.casefold() not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
 
     install = (site_root / "install/index.html").read_text(encoding="utf-8")
@@ -2980,7 +3153,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         (f"pipx install --force ai-dememory=={stable_version}", "exact stable upgrade command"),
         (
             f"ai-dememory init ~/code/my-memory --wizard --require-version {stable_version}",
-            "legacy wizard-first vault command",
+            "published compatibility wizard-first vault command",
         ),
         (
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
@@ -2988,9 +3161,9 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         ),
         ("complete historical MCP surface", "admin compatibility warning"),
     ]
-    # The one current TestPyPI route remains visible and copyable after source
-    # moves on. A future source candidate is a separate status claim, never an
-    # implied package installation route.
+    # An active TestPyPI route is visible only while the checked-out source is
+    # not the documented stable line. A future source candidate is a separate
+    # status claim, never an implied package installation route.
     for prerelease_contract in ACTIVE_PRERELEASE_CONTRACTS.values():
         install_expectations.extend(
             [
@@ -3006,8 +3179,14 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 ),
             ]
         )
+    if pending_contract is not None:
+        install_expectations.extend(
+            (marker, "release-pending source truth marker")
+            for marker in pending_contract["scope_markers"]
+        )
     source_is_unreleased_candidate = (
         source_version != stable_version
+        and pending_contract is None
         and source_version not in ACTIVE_PRERELEASE_CONTRACTS
     )
     if source_is_unreleased_candidate:
@@ -3029,9 +3208,15 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     else:
         release_blocks: dict[str, list[str]] = {}
         release_block_texts: dict[str, list[str]] = {}
+        published_label = _published_release_label(stable_version, source_version)
         for page in site_root.rglob("*.html"):
             document = _parse_page(page)
             page_label = page.relative_to(site_root).as_posix()
+            if source_version == stable_version and "--require-version" in document.auditable_text:
+                errors.append(
+                    f"site/{page_label}: stable visible documentation must not retain "
+                    "--require-version"
+                )
             errors.extend(
                 f"site/{page_label}: {violation}"
                 for violation in document.release_block_violations
@@ -3056,27 +3241,35 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 release_block_texts.setdefault(release, []).extend(
                     "".join(block) for block in blocks
                 )
-            page_stable_blocks = [
+            if pending_contract is not None and page_label in {"index.html", "install/index.html"}:
+                page_text = " ".join(document.auditable_text.casefold().split())
+                for marker in release_scope_markers(stable_version, source_version):
+                    normalized_marker = " ".join(marker.casefold().split())
+                    if normalized_marker not in page_text:
+                        errors.append(
+                            f"site/{page_label}: release-pending source truth marker is missing "
+                            f"{marker!r}"
+                        )
+            page_published_blocks = [
                 "".join(block)
                 for block in document.release_block_texts.get(
-                    f"stable-{stable_version}", []
+                    published_label, []
                 )
             ]
-            page_stable_text = "\n".join(page_stable_blocks)
+            page_published_text = "\n".join(page_published_blocks)
             required_page_commands = SITE_PAGE_REQUIRED_COMMANDS.get(page_label, ())
             if required_page_commands:
                 errors.extend(
                     _stable_command_errors(
-                        page_stable_text,
+                        page_published_text,
                         stable_version,
                         f"site/{page_label}",
                         source_version=source_version,
                         required_executable_commands=required_page_commands,
                     )
                 )
-        stable_label = f"stable-{stable_version}"
         known_release_labels = {
-            stable_label,
+            published_label,
             *(
                 f"source-{prerelease_version}"
                 for prerelease_version in ACTIVE_PRERELEASE_CONTRACTS
@@ -3087,24 +3280,24 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 errors.append(
                     f"site: copyable command block uses an unknown release marker {release!r}"
                 )
-        stable_text = "\n".join(release_blocks.get(stable_label, []))
-        stable_commands = {
+        published_text = "\n".join(release_blocks.get(published_label, []))
+        published_commands = {
             command
-            for block in release_block_texts.get(stable_label, [])
+            for block in release_block_texts.get(published_label, [])
             for command in _executable_command_lines(block)
         }
-        if not stable_text:
-            errors.append(f"site: no command block is labelled {stable_label!r}")
+        if not published_text:
+            errors.append(f"site: no command block is labelled {published_label!r}")
         for command in contract["required"]:
-            if command not in stable_commands:
-                errors.append(f"site: stable {stable_version} command block is missing {command!r}")
+            if command not in published_commands:
+                errors.append(f"site: published {stable_version} command block is missing {command!r}")
         for command in REQUIRED_COMMANDS:
-            if command not in stable_commands:
+            if command not in published_commands:
                 errors.append(f"site: required first-run command is missing: {command!r}")
         for marker in contract["source_only"]:
-            if marker in stable_commands:
-                errors.append(f"site: stable {stable_version} command block contains source-only marker {marker!r}")
-        for block in release_block_texts.get(stable_label, []):
+            if marker in published_commands:
+                errors.append(f"site: published {stable_version} command block contains source-only marker {marker!r}")
+        for block in release_block_texts.get(published_label, []):
             literal_commands = tuple(
                 line.strip() for line in block.splitlines() if line.strip()
             )
@@ -3115,10 +3308,10 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             )
             if unapproved_commands:
                 errors.append(
-                    f"site: stable {stable_version} command block contains an unapproved literal command: "
+                    f"site: published {stable_version} command block contains an unapproved literal command: "
                     f"{unapproved_commands!r}"
                 )
-            errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
+            errors.extend(_stable_command_errors(block, stable_version, "site published block"))
 
         # The one current, immutable TestPyPI prerelease owns a copyable
         # command block. An untagged source candidate cannot add another one.

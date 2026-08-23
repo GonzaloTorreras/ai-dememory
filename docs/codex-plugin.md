@@ -8,15 +8,13 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. TestPyPI prerelease `2.1.1rc2` is the current evaluation route, not a
-PyPI stable release. The checked-in plugin configuration follows that current
-prerelease contract; it must not be presented as the stable 2.1.0 runtime
-contract. `2.1.1rc1` remains historical release evidence, not a second
-recommended installation route.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending. The checked-in source/plugin configuration is not a substitute for the
+published package route.
 
-For published 2.1.0 compatibility, install the matching PyPI package in an
-isolated environment:
+The published stable 2.1.0 package is the only user-installable route in this
+interim state.
+
+Install the matching stable package in an isolated environment:
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -28,10 +26,8 @@ Create or select a private vault through the wizard:
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
-The TestPyPI prerelease simplifies this first-run command to
-`ai-dememory init ~/code/my-memory --wizard`; follow the
-[installation guide](install.md) for its exact evaluation package route. Do
-not infer another package install command from plugin metadata.
+The wizard-first route is the only plugin setup command. Do not infer another
+package install command from plugin metadata.
 
 When upgrading an existing installation, replace it with the selected release:
 

@@ -12,17 +12,20 @@ reproducible evidence changes.
 - Public `main` is a moving source branch. Resolve its current SHA before a
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
-- Public stable tag `v2.1.0`:
+- Last externally verified public stable tag `v2.1.0`:
   `f43e55d824e7b085b5a7f8518e6dad9d5ddaef99`
-- Current published stable release line in user documentation: `2.1.0` on
-  PyPI.
-- Current prerelease: [`v2.1.1rc2`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2),
+- Current source prepares stable `2.1.1`. Its user documentation keeps the
+  currently published `2.1.0` compatibility route while a tag, PyPI
+  publication, and external readback are still required before that source
+  state becomes published release evidence.
+- Historical prerelease evidence: [`v2.1.1rc2`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2),
   an annotated tag whose peeled ref resolves to
   `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is published on
   [TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.1rc2/) through the
   successful canonical release
   [workflow 32647839323](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647839323).
-  It is the current evaluation route, not a stable PyPI release.
+  It is release-candidate evidence, not an active installation route or a
+  stable PyPI release.
 - `v2.1.1rc1` remains historical prerelease evidence, not a second recommended
   installation route.
 - Python 3.11+ remains the only headless runtime. Node is not an installation
@@ -38,10 +41,10 @@ file does not substitute for the exact checks required by a later stable release
 
 ## Current Maintenance Correction
 
-The earlier `2.1.1rc1` release candidate corrected an unintended 2.1.0
-compatibility contract without changing the V3 execution DAG. The published
-`2.1.1rc2` TestPyPI prerelease is the current evaluation artifact for its local
-API onboarding hint and documentation boundaries.
+The `2.1.1` stable preparation carries forward the two evaluated maintenance
+increments without changing the V3 execution DAG. `2.1.1rc1` corrected an
+unintended 2.1.0 compatibility contract; `2.1.1rc2` supplied the optional
+local-API onboarding hint and documentation follow-up.
 
 - Planning mapping: compatible maintenance remediation of completed `BRG-014`
   in `B04a`; it does not advance `B04b` or claim a V3 milestone.
@@ -51,18 +54,18 @@ API onboarding hint and documentation boundaries.
 - Resolution: new generated configuration, plans, plugin defaults, and Docker
   defaults omit the pin. Legacy configuration that still contains it is accepted
   as a no-op. `version-check` remains an explicit CI/support diagnostic.
-- Release coupling: `2.1.0` remains the published stable PyPI package and
-  retains its historical explicit wizard version flag. `2.1.1rc2` is the
-  immutable TestPyPI-only evaluation prerelease with the new wizard-first
-  command; `2.1.1rc1` remains historical evidence. The documentation and static
-  site keep the stable and current prerelease routes distinct.
-- Prerelease first-run UX: `ai-dememory init ~/code/my-memory --wizard` after
-  installing the exact TestPyPI prerelease. Client configuration remains an
+- Release coupling: source and plugin carry a release-pending `2.1.1` identity
+  while documentation and static site retain the currently published `2.1.0`
+  compatibility route; `2.1.1rc1` and `2.1.1rc2` remain immutable TestPyPI
+  evidence. The source state must not be presented as a published PyPI release
+  until the protected tag/publication workflows and exact index readback
+  succeed.
+- Post-release first-run UX: `ai-dememory init ~/code/my-memory --wizard`
+  after installing the exact stable package. Client configuration remains an
   optional, inspect-before-copy action.
-- Current-prerelease follow-up: after a completed operational wizard, the
-  current evaluation package may suggest the optional foreground loopback API
-  command for a dashboard or script. It does not start, install, configure, or
-  schedule the API.
+- Optional API follow-up: after a completed operational wizard, the package may
+  suggest the foreground loopback API command for a dashboard or script. It
+  does not start, install, configure, or schedule the API.
 - Preserved safeguards: explicit vault binding, `--require-bound-root`,
   server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
   and bounded resource policy.
@@ -166,7 +169,7 @@ API onboarding hint and documentation boundaries.
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
 
-## Verified Release Evidence
+## Verified Release-Candidate Evidence
 
 - PR [#42](https://github.com/GonzaloTorreras/ai-dememory/pull/42) was merged
   at `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce` after release documentation
@@ -223,13 +226,13 @@ remain intact.
 
 ## Next Legal Action
 
-1. Keep 2.1.0 as the stable PyPI route and `2.1.1rc2` as the single current
-   TestPyPI evaluation route. Retain `2.1.1rc1` as historical evidence; do not
-   silently replace a package route with mutable source behavior.
-2. Prepare and decide whether to promote stable `2.1.1` without publishing it
-   as part of this documentation update. Before any stable release, obtain a
-   fresh exact-head review and green CI, then require separate exact-tag
-   authorization, publication authorization, and external readback.
+1. Review and merge the stable `2.1.1` preparation only after exact-head review
+   and green CI. Then create its tag from the exact green `main` SHA, publish
+   through the protected PyPI workflow, and read back the package index,
+   GitHub Release, artifact hashes, and peeled tag.
+2. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
+   silently replace a package route with mutable source behavior or restore an
+   active prerelease installation route.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
 4. Continue `BRG-003` with the remaining strict-resolver inventory and
