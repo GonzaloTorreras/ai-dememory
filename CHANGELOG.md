@@ -47,6 +47,8 @@ remains the current published stable PyPI release.
 - Separate the public installation and local-use paths from source-checkout,
   contributor, and release material; document the installed `ai-dememory api`
   command instead of presenting the source wrapper as a normal user command.
+- Keep the package-index long description release-state-neutral instead of
+  freezing live repository publication status into an immutable artifact.
 - Keep wizard follow-up actions conditional and remove stale wording that made
   an unreleased source checkout look like a normal installation route.
 
@@ -330,4 +332,3 @@ for the detailed implementation record.
 - Exercise the complete AI-operated Trusted Publishing path on TestPyPI.
 - Verify OIDC identity, exact-artifact smoke, checksums, attestations,
   post-index installation and GitHub prerelease creation before stable launch.
-
