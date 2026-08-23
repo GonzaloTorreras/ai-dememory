@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 import shutil
 import tempfile
@@ -22,6 +23,7 @@ from scripts.docs_site_guard import (
     STABLE_RELEASE_CONTRACTS,
     ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
     _release_contract_errors,
+    _pending_source_execution_errors,
     _stable_command_errors,
     audit_public_skill_guides,
     audit_site,
@@ -153,19 +155,24 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         encoding="utf-8",
                     )
 
-    def test_public_skill_guard_rejects_folded_frontmatter_wizard_while_release_is_pending(self) -> None:
+    def test_public_skill_guard_rejects_quoted_frontmatter_wizard_while_release_is_pending(self) -> None:
         relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        replacement = (
+            'description: "ai-dememory init ~/code/my-memory --wizard '
+            '--require-version 2.1.1"'
+        )
         with tempfile.TemporaryDirectory() as temporary:
             copied = Path(temporary)
             for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
                 shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
             guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
             guide.write_text(
-                guide.read_text(encoding="utf-8").replace(
-                    "description: ",
-                    "description: >\n  ai-dememory\n  init ~/code/my-memory --wizard "
-                    "--require-version 2.1.1\n  ",
-                    1,
+                re.sub(
+                    r"(?m)^description: .*$",
+                    lambda _: replacement,
+                    original,
+                    count=1,
                 ),
                 encoding="utf-8",
             )
@@ -175,8 +182,466 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         self.assertTrue(
             any(
                 error.startswith(f"{relative}:")
-                and "rendered Markdown must not create a security-sensitive command "
-                "across soft line breaks" in error
+                and "public skill frontmatter 'description' must not include an executable command"
+                in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_public_skill_guard_rejects_quoted_frontmatter_cli_command(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            guide.write_text(
+                re.sub(
+                    r"(?m)^description: .*$",
+                    lambda _: 'description: "ai-dememory hooks install"',
+                    original,
+                    count=1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "public skill frontmatter 'description' must not include an executable command"
+                in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_public_skill_guard_rejects_folded_frontmatter_mcp_config_continuation(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            guide.write_text(
+                re.sub(
+                    r"(?m)^description: .*$",
+                    lambda _: (
+                        "description: >\n"
+                        "  ai-dememory --root ~/code/my-memory mcp-config --client codex\n"
+                        "  --require-version 2.1.1"
+                    ),
+                    original,
+                    count=1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "frontmatter 'description' must use a single-line plain or quote-only scalar"
+                in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_public_skill_guard_rejects_unsupported_frontmatter_scalar_syntax(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        unsupported_values = (
+            '["ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1"]',
+            '"ai-dememory\\u002dinit ~/code/my-memory --wizard --require-version 2.1.1"',
+            "!!str ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
+            "*command",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            for value in unsupported_values:
+                with self.subTest(value=value):
+                    guide.write_text(
+                        re.sub(
+                            r"(?m)^description: .*$",
+                            lambda _: f"description: {value}",
+                            original,
+                            count=1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and "public skill frontmatter 'description'" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_public_skill_guard_rejects_dynamic_frontmatter_shell_syntax(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        dynamic_values = (
+            '"$(ai-dememory init ~/code/my-memory --wizard)"',
+            '"ai-dememory$IFS init ~/code/my-memory --wizard"',
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            for value in dynamic_values:
+                with self.subTest(value=value):
+                    guide.write_text(
+                        re.sub(
+                            r"(?m)^description: .*$",
+                            lambda _: f"description: {value}",
+                            original,
+                            count=1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and "frontmatter 'description' must not use dynamic shell syntax" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_public_skill_guard_rejects_metadata_installer_and_python_dispatchers(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        command_values = (
+            '"pipx install git+https://example.invalid/ai-dememory.git"',
+            '"Run ai-dememory hooks install"',
+            '"bash -c \'ai-dememory hooks install\'"',
+            '"python3 -m ai_dememory_tool init ~/code/my-memory --wizard"',
+            '"py -3 -m ai_dememory_tool init ~/code/my-memory --wizard"',
+            '"python3 -u scripts/ai_dememory.py doctor"',
+            '"py -3 -u scripts/ai_dememory.py doctor"',
+            '"python3 -u -m scripts.ai_dememory doctor"',
+            '"ai_dememory.py hooks install"',
+            '"scripts/ai_dememory.py hooks install"',
+            '"./scripts/ai_dememory.py hooks install"',
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            for value in command_values:
+                with self.subTest(value=value):
+                    guide.write_text(
+                        re.sub(
+                            r"(?m)^description: .*$",
+                            lambda _: f"description: {value}",
+                            original,
+                            count=1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and "frontmatter 'description' must not include an executable command"
+                            in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_public_skill_metadata_allows_shell_prose(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        prose_values = (
+            '"Bash users can run local diagnostics."',
+            '"PowerShell users can inspect a vault."',
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            original = guide.read_text(encoding="utf-8")
+            for value in prose_values:
+                with self.subTest(value=value):
+                    guide.write_text(
+                        re.sub(
+                            r"(?m)^description: .*$",
+                            lambda _: f"description: {value}",
+                            original,
+                            count=1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    self.assertEqual([], audit_public_skill_guides(copied, "2.1.0", "2.1.1"))
+
+    def test_public_agent_yaml_rejects_quoted_bare_cli_command(self) -> None:
+        relative = "skills/ai-dememory/agents/openai.yaml"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            agent_config = copied / relative
+            original = agent_config.read_text(encoding="utf-8")
+            agent_config.write_text(
+                re.sub(
+                    r"(?m)^  default_prompt: .*$",
+                    lambda _: (
+                        '  default_prompt: "ai-dememory init ~/code/my-memory --wizard '
+                        '--require-version 2.1.1"'
+                    ),
+                    original,
+                    count=1,
+                ),
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "public agent YAML 'default_prompt' must not include an executable command"
+                in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_public_agent_yaml_rejects_skill_token_cli_continuation(self) -> None:
+        relative = "skills/ai-dememory/agents/openai.yaml"
+        continuations = (
+            "$ai-dememory hooks install",
+            "$ai-dememory init ~/code/my-memory --wizard --require-version 2.1.1",
+            "$$ai-dememory hooks install",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            agent_config = copied / relative
+            original = agent_config.read_text(encoding="utf-8")
+            for continuation in continuations:
+                with self.subTest(continuation=continuation):
+                    agent_config.write_text(
+                        re.sub(
+                            r"(?m)^  default_prompt: .*$",
+                            lambda _: f'  default_prompt: "{continuation}"',
+                            original,
+                            count=1,
+                        ),
+                        encoding="utf-8",
+                    )
+
+                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and (
+                                "must not turn the $ai-dememory skill token into a CLI command"
+                                in error
+                                or "must not use dynamic shell syntax" in error
+                            )
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
+    def test_public_skill_guard_rejects_unknown_yaml_schema(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/unexpected.yaml"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            unexpected = copied / relative
+            unexpected.write_text("command: ai-dememory init ~/code/my-memory --wizard\n", encoding="utf-8")
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertIn(
+            f"{relative}: public skill YAML is not an explicitly supported schema",
+            errors,
+        )
+
+    def test_public_skill_guard_rejects_unknown_json_schema(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/unexpected.json"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            unexpected = copied / relative
+            unexpected.write_text(
+                '{"description": "ai-dememory init ~/code/my-memory --wizard"}\n',
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertIn(
+            f"{relative}: public skill JSON is not an explicitly supported schema",
+            errors,
+        )
+
+    def test_release_pending_source_routes_are_rejected_in_user_sections(self) -> None:
+        fixtures = (
+            (
+                "docs/local-mcp.md",
+                "docker build -t alternate-image .",
+                "source Docker build",
+            ),
+            (
+                "docs/local-mcp.md",
+                "docker image build .",
+                "source Docker build",
+            ),
+            (
+                "docs/local-mcp.md",
+                "docker buildx build .",
+                "source Docker build",
+            ),
+            (
+                "docs/local-mcp.md",
+                "docker compose build",
+                "source Docker build",
+            ),
+            (
+                "docs/local-mcp.md",
+                "docker compose -f compose.yaml build",
+                "source Docker build",
+            ),
+            (
+                "docs/local-mcp.md",
+                "docker-compose build",
+                "source Docker build",
+            ),
+            (
+                "docs/operations.md",
+                "py -3 -u scripts/ai_dememory.py doctor",
+                "source dispatcher",
+            ),
+            (
+                "docs/operations.md",
+                "python3 -u -m scripts.ai_dememory doctor",
+                "source dispatcher",
+            ),
+            ("docs/install.md", "pip install .", "local source install"),
+            ("docs/install.md", "pip install -e .", "local source install"),
+            ("docs/install.md", "pip install --editable=.", "local source install"),
+            ("docs/install.md", "pip install -e=.", "local source install"),
+            ("docs/install.md", "python3 -m pip install .", "local source install"),
+            (
+                "docs/install.md",
+                "python3 -m pip install --editable=.",
+                "local source install",
+            ),
+            ("docs/install.md", "pipx install .", "local source install"),
+            ("docs/install.md", "pipx install -e=.", "local source install"),
+            ("docs/install.md", "uv tool install .", "local source install"),
+            ("docs/install.md", "uv tool install --editable=.", "local source install"),
+            ("docs/install.md", "pip install file:.", "local source install"),
+            ("docs/install.md", "pip install file:./", "local source install"),
+            ("docs/install.md", "pip install $PWD", "local source install"),
+            ("docs/install.md", "pip install ${PWD}", "local source install"),
+            ("docs/install.md", "pip install $(pwd)", "local source install"),
+            ("docs/install.md", "pip install %CD%", "local source install"),
+            ("docs/install.md", "pip install $env:CD", "local source install"),
+            ("docs/install.md", "poetry install", "local source install"),
+            ("docs/install.md", "uv sync", "local source install"),
+        )
+        for relative, command, route in fixtures:
+            with self.subTest(path=relative, command=command):
+                text = f"# User path\n\n```sh\n{command}\n```\n"
+                errors = _pending_source_execution_errors(
+                    text,
+                    "2.1.0",
+                    "2.1.1",
+                    relative,
+                    allow_explicit_maintainer_sections=True,
+                )
+                self.assertTrue(
+                    any(f"must not execute a {route}" in error for error in errors),
+                    errors,
+                )
+
+    def test_release_pending_source_routes_ignore_echo_but_not_later_segments(self) -> None:
+        for command in (
+            "echo python3 scripts/ai_dememory.py doctor",
+            "echo docker build .",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    [],
+                    _pending_source_execution_errors(
+                        f"# User path\n\n```sh\n{command}\n```\n",
+                        "2.1.0",
+                        "2.1.1",
+                        "docs/local-mcp.md",
+                        allow_explicit_maintainer_sections=True,
+                    ),
+                )
+
+        errors = _pending_source_execution_errors(
+            "# User path\n\n```sh\necho docker build .; docker build .\n```\n",
+            "2.1.0",
+            "2.1.1",
+            "docs/local-mcp.md",
+            allow_explicit_maintainer_sections=True,
+        )
+        self.assertTrue(any("must not execute a source Docker build" in error for error in errors), errors)
+
+    def test_release_pending_source_routes_remain_available_in_reviewed_maintainer_sections(self) -> None:
+        for relative in (
+            "docs/local-mcp.md",
+            "docs/mcp-client-config.md",
+            "docs/operations.md",
+            "docs/codex-plugin.md",
+        ):
+            with self.subTest(path=relative):
+                self.assertEqual(
+                    [],
+                    _pending_source_execution_errors(
+                        (REPO_ROOT / relative).read_text(encoding="utf-8"),
+                        "2.1.0",
+                        "2.1.1",
+                        relative,
+                        allow_explicit_maintainer_sections=True,
+                    ),
+                )
+
+    def test_public_skill_guard_rejects_pending_source_dispatcher(self) -> None:
+        relative = "plugins/ai-dememory/skills/memory-setup/SKILL.md"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            guide = copied / relative
+            guide.write_text(
+                guide.read_text(encoding="utf-8")
+                + "\n```sh\npython3 scripts/ai_dememory.py doctor\n```\n",
+                encoding="utf-8",
+            )
+
+            errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+
+        self.assertTrue(
+            any(
+                error.startswith(f"{relative}:")
+                and "release-pending user guidance must not execute a source dispatcher" in error
                 for error in errors
             ),
             errors,

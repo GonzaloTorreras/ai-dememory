@@ -81,11 +81,15 @@ A skill can teach Codex how to use an installed `ai-dememory` command and a
 user vault. It should be onboarding glue, not the primary distribution mechanism
 for the CLI.
 
-### Local Docker image
+### Docker source-image diagnostics: maintainers only
 
-The repo includes a Dockerfile for local stdio MCP usage. Users bind-mount a
-private vault at `/memory`; the image exposes no ports and is not a remote
-server.
+The repository Dockerfile supports isolated CI and release diagnostics from a
+trusted checkout. It is not a distribution channel while 2.1.1 is still pending
+tag-bound PyPI publication and external readback: building `ai-dememory:local`
+would run unpublished source instead of the published 2.1.0 package. Users
+should use the installed CLI and its generated MCP configuration; the eventual
+Docker mode remains local-only, with no exposed ports, after its separately
+verified release route is documented.
 
 ## Setup UX Target
 

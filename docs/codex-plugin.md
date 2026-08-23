@@ -4,6 +4,11 @@ The repository includes a local Codex plugin scaffold under
 `plugins/ai-dememory/` and a repo marketplace at
 `.agents/plugins/marketplace.json`.
 
+That repo-local plugin source and marketplace metadata are an extension preview;
+installing or refreshing them neither installs nor upgrades the `ai-dememory`
+CLI, and cannot turn checked-out 2.1.1 source into a runtime. While publication
+is pending, the plugin requires the published 2.1.0 CLI route below.
+
 The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
@@ -68,8 +73,14 @@ The 600-second idle lease is intentional process hygiene. It lets a completed
 Codex task release an abandoned plugin server even if the host keeps its stdio
 pipe open. Codex can start a fresh bounded server on the next tool call.
 
-Smoke test the checked-in plugin config from a source checkout with the
-installed CLI:
+## Maintainer-only Plugin Template Diagnostics
+
+Skip this section for normal plugin use. It is for a contributor or CI/release
+maintainer verifying the checked-in template from a trusted source checkout;
+neither command is an installation route, a user runtime fallback, or a command
+to copy into Codex configuration.
+
+Smoke test the checked-in template with the installed CLI:
 
 ```bash
 python3 scripts/ai_dememory.py mcp-client-smoke \
@@ -77,7 +88,8 @@ python3 scripts/ai_dememory.py mcp-client-smoke \
   --command ai-dememory
 ```
 
-Without an installed CLI, override the plugin launch command to the local script:
+Only when checking the source checkout itself before package installation, a
+maintainer may override the plugin launch command to the local script:
 
 ```powershell
 py -3 scripts\ai_dememory.py mcp-client-smoke --config plugins\ai-dememory\.mcp.json --command py --command-arg -3 --command-arg scripts\ai_dememory.py
@@ -273,11 +285,12 @@ For an actual maintenance pass, the skill should ask the user to run
 `ai-dememory --root <vault-path> maintenance run --profile daily --dry-run` first, then the
 explicit non-dry-run CLI command only after review.
 
-Scheduler planning can target either the installed CLI or the local Docker
-image. The MCP `memory.schedule_plan` tool is read-only and returns the OS
-scheduler commands plus the daily/weekly `run_command`, for example with
-`mode=docker` and `image=ai-dememory:local`. It also returns reviewed
-`cron_entries` for hosts where user systemd timers are unavailable.
+Scheduler planning in normal plugin use targets the installed CLI. The MCP
+`memory.schedule_plan` tool is read-only and returns the OS scheduler commands,
+daily/weekly `run_command`, and reviewed `cron_entries` for hosts where user
+systemd timers are unavailable. Its Docker-specific plan fields remain for
+maintainer-only checkout and CI validation; they are not a local-image route for
+plugin users while stable publication is pending.
 The matching CLI command is `ai-dememory schedule plan --json`; plugin setup
 skills should prefer it over parsing `schedule setup --dry-run` output when
 they need a structured local preview outside MCP.
@@ -445,4 +458,7 @@ and manual capture examples.
 
 Codex can discover the repo plugin through `.agents/plugins/marketplace.json`.
 After installing or refreshing that marketplace, install the `ai-dememory`
-plugin from the Codex plugin directory.
+plugin from the Codex plugin directory. That only makes the extension
+discoverable; it does not install or upgrade the CLI. During this pending
+release, install the published 2.1.0 package first and use the wizard and
+vault-specific MCP fragment above.

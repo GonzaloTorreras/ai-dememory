@@ -76,31 +76,27 @@ Regenerate the fragment from the exact published package rather than treating a
 source checkout or release candidate as a fallback. Version diagnostics are for
 CI or support work, not setup.
 
-## Docker: Local Stdio Only
+## Docker Is Deferred During This Pending Release
 
-Docker is an optional local stdio transport. It does not expose a port or turn
-MCP into a remote service. Build the image from a trusted source checkout, then
-generate the client configuration for an already initialized private vault:
+The Dockerfile supports a future local stdio transport, but its image must be
+built from a source checkout. While 2.1.1 has not completed tag-bound PyPI
+publication and external readback, telling an end user to build
+`ai-dememory:local` would silently switch them from the published 2.1.0 package
+to unpublished source. Docker is therefore not an installation or MCP setup
+route in this interim state.
 
-```bash
-docker build -t ai-dememory:local .
-ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory
-```
+Use the installed 2.1.0 CLI and the generated `mcp-config` fragment above. Once
+the stable 2.1.1 package and its exact release evidence have been read back,
+this guide can publish a verified Docker recipe. That future mode remains local
+stdio only and must not expose a network port without a separate authentication,
+authorization, and privacy design.
 
-The generated configuration owns the exact mount, image, profile, root binding,
-and idle lease; this guide intentionally does not provide a raw `docker run`
-recipe. It binds the selected vault at `/memory` and appends
-`mcp --stdio --idle-timeout-seconds 600 --require-version 2.1.0 --profile core --require-bound-root`.
-That is generated legacy compatibility state for published 2.1.0, not a
-user-facing `mcp-config` invocation to hand-assemble.
-Do not expose the container as a network service without a separate
-authentication, authorization, and privacy design.
+## Maintainer-only Checkout Diagnostics
 
-## Maintainer Checkout Recipe
-
-The following source-checkout form exists for development and CI diagnostics.
-It is not an installation path and must never point at the public repository as
-a vault:
+The following source-checkout commands are only for a contributor or CI/release
+maintainer verifying a trusted checkout. They do not create an installable
+Docker route, cannot replace the published package, and must never be copied
+into a client setup or pointed at the public repository as a vault:
 
 ```bash
 python3 scripts/ai_dememory.py --root /path/to/private-vault mcp-config --client codex \

@@ -192,11 +192,15 @@ Preview scheduler installation before writing OS scheduler state:
 ai-dememory --root ~/code/my-memory schedule plan --json
 ai-dememory --root ~/code/my-memory schedule plan --intensity minimal --json
 ai-dememory --root ~/code/my-memory schedule setup --dry-run
-IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
-ai-dememory --root ~/code/my-memory schedule plan --json --mode docker --image "$IMAGE_ID"
-ai-dememory --root ~/code/my-memory schedule setup --dry-run --mode docker --image "$IMAGE_ID"
 ai-dememory --root ~/code/my-memory schedule cron --json
 ```
+
+Docker-backed schedules are intentionally absent from this normal operations
+route while only PyPI 2.1.0 is published. A local image would be built from the
+pending 2.1.1 source checkout, so it cannot substitute for the installed CLI.
+The release pipeline retains its isolated Docker smoke; users should use the
+installed-CLI schedule plan and setup commands above until stable publication
+and external readback complete.
 
 The plan reports the effective `minimal`, `balanced`, or `active` resource
 policy, resolved root, exact command, a vault-specific task namespace, and
@@ -218,8 +222,10 @@ The receipted cadence and intensity remain authoritative for status and full
 removal even if resource-policy defaults change later.
 `minimal`
 installs only weekly maintenance; `balanced` and `active` install daily and
-weekly jobs by default. Docker schedules require an immutable image digest, run
-without network access, and apply intensity-specific CPU, memory, and PID caps.
+weekly jobs by default. The maintainer-only Docker validation path requires an
+immutable image digest, runs without network access, and applies
+intensity-specific CPU, memory, and PID caps; it is not a user maintenance route
+while stable publication is pending.
 The resource policy also bounds provider candidates, bytes per file, scanned
 directory entries, report retention, tree-supervised job timeout, and pending
 hook captures. Canonical and secret scans, graph pages/nodes/edges, MCP
@@ -396,8 +402,9 @@ review workflow tools.
   --json --summary` to see the selected `vault`, `distribution`, or `unknown`
   profile.
 - MCP client cannot start: verify the installed `ai-dememory` command is on
-  `PATH` and set `AI_DEMEMORY_ROOT` to the explicit private vault. A source-
-  development launch may use the repository as `cwd`, but never as the vault.
+  `PATH` and set `AI_DEMEMORY_ROOT` to the explicit private vault. The
+  maintainer-only source-checkout diagnostics may use the repository as `cwd`,
+  but never as the vault or as a user runtime fallback.
 - MCP runtime smoke refuses to run: create the PR first and set
   `AI_DEMEMORY_PR_URL` to the draft PR URL.
 - Scheduler install fails: run `ai-dememory schedule setup --dry-run`, inspect

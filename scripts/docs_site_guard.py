@@ -34,6 +34,37 @@ PUBLIC_SKILL_FIRST_RUN_GUIDES = frozenset(
         "plugins/ai-dememory/skills/memory-setup/SKILL.md",
     }
 )
+PUBLIC_SKILL_FRONTMATTER_FIELDS = frozenset({"name", "description"})
+PUBLIC_SKILL_FRONTMATTER_NAME_RE = re.compile(r"[a-z][a-z0-9-]*\Z")
+PUBLIC_SKILL_FRONTMATTER_ENTRY_RE = re.compile(
+    r"(?P<key>[A-Za-z][A-Za-z0-9_-]*):[ \t]+(?P<value>\S.*)\Z"
+)
+PUBLIC_AGENT_SKILL_YAML_SCHEMAS = {
+    "skills/ai-dememory/agents/openai.yaml": {
+        "interface": (
+            "display_name",
+            "short_description",
+            "default_prompt",
+        )
+    }
+}
+PUBLIC_AGENT_SKILL_LITERAL_TOKEN_RE = re.compile(
+    r"(?<![$A-Za-z0-9_])\$ai-dememory(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+# A pending-release exception is intentionally narrower than a generic Markdown
+# heading convention.  These are the reviewed, user-facing docs that retain
+# source-checkout diagnostics, and only their exact labelled sections may do so.
+PENDING_SOURCE_MAINTAINER_SECTION_TITLES = {
+    "docs/local-mcp.md": ("Maintainer-only Checkout Diagnostics",),
+    "docs/mcp-client-config.md": ("Maintainer-Only Checkout And PR Checks",),
+    "docs/operations.md": ("Maintainer: Source Checkout Release Validation",),
+    "docs/codex-plugin.md": ("Maintainer-only Plugin Template Diagnostics",),
+    "docs/distribution.md": (
+        "Source checkout: contributors only",
+        "Docker source-image diagnostics: maintainers only",
+    ),
+}
 
 REQUIRED_PAGES = (
     "index.html",
@@ -458,7 +489,7 @@ EXECUTABLE_COMMAND_START_RE = re.compile(
     r"ai-dememory(?:\.exe)?|pipx(?:\.exe)?|uvx(?:\.exe)?|uv(?:\.exe)?|pip(?:3(?:\.\d+)?)?(?:\.exe)?|"
     r"python(?:3(?:\.\d+)?)?(?:\.exe)?|py(?:\.exe)?(?:[ \t]+-3(?:\.\d+)?)?|"
     r"cd|pushd|echo|sudo|command|env|cmd(?:\.exe)?|powershell(?:\.exe)?|"
-    r"pwsh(?:\.exe)?|bash|sh|wsl(?:\.exe)?|docker(?:\.exe)?|start|call"
+    r"pwsh(?:\.exe)?|bash|sh|wsl(?:\.exe)?|docker(?:\.exe)?|docker-compose(?:\.exe)?|poetry(?:\.exe)?|start|call"
     r")[\"']?(?:[ \t]|$)",
     re.IGNORECASE,
 )
@@ -1055,9 +1086,11 @@ EXECUTABLE_LAUNCHER_NAMES = frozenset(
         "cmd",
         "command",
         "docker",
+        "docker-compose",
         "echo",
         "env",
         "pipx",
+        "poetry",
         "pushd",
         "pwsh",
         "py",
@@ -1522,6 +1555,29 @@ DOCKER_GLOBAL_OPTIONS_REQUIRING_VALUE = frozenset(
         "-c",
         "-h",
         "-l",
+    }
+)
+
+CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE = frozenset(
+    {
+        "-f",
+        "-p",
+        "-t",
+        "--build-arg",
+        "--cache-from",
+        "--cache-to",
+        "--env-file",
+        "--file",
+        "--label",
+        "--platform",
+        "--profile",
+        "--progress",
+        "--project-directory",
+        "--project-name",
+        "--secret",
+        "--ssh",
+        "--tag",
+        "--target",
     }
 )
 
@@ -2495,6 +2551,655 @@ def public_skill_guide_required_commands(
     return {relative: commands for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES}
 
 
+def _public_skill_cli_command_names() -> tuple[frozenset[str], list[str]]:
+    """Derive public CLI command names from the checked-in dispatcher source.
+
+    Frontmatter policy must recognize every current top-level command without
+    maintaining a second hand-written command list.  This is deliberately a
+    bounded AST read rather than an import: importing the CLI would execute
+    dependency and environment setup while a documentation guard is running.
+    """
+
+    source_path = REPO_ROOT / "ai_dememory_tool" / "cli.py"
+    try:
+        source = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return frozenset(), [
+            "public skill command namespace cannot read ai_dememory_tool/cli.py: "
+            f"{exc}"
+        ]
+    try:
+        module = ast.parse(source, filename=str(source_path))
+    except SyntaxError as exc:
+        return frozenset(), [
+            "public skill command namespace cannot parse ai_dememory_tool/cli.py: "
+            f"{exc.msg}"
+        ]
+
+    command_maps: dict[str, ast.Dict] = {}
+    for node in module.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if (
+            not isinstance(target, ast.Name)
+            or target.id not in {"LOCAL_COMMANDS", "COMMANDS"}
+        ):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            return frozenset(), [
+                "public skill command namespace requires literal "
+                f"{target.id} mapping in ai_dememory_tool/cli.py"
+            ]
+        command_maps[target.id] = node.value
+
+    missing_maps = {"LOCAL_COMMANDS", "COMMANDS"}.difference(command_maps)
+    if missing_maps:
+        return frozenset(), [
+            "public skill command namespace is missing literal mappings: "
+            f"{', '.join(sorted(missing_maps))}"
+        ]
+
+    command_names = {"dev"}
+    for map_name, command_map in command_maps.items():
+        for key in command_map.keys:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return frozenset(), [
+                    "public skill command namespace requires string keys in "
+                    f"{map_name}"
+                ]
+            command_names.add(key.value.casefold())
+    return frozenset(command_names), []
+
+
+def _public_skill_frontmatter(
+    relative: str,
+    text: str,
+) -> tuple[dict[str, str], str, list[str]]:
+    """Read the deliberately small, fail-closed SKILL.md metadata subset.
+
+    Public skill metadata is displayed by hosts but is not a command transport.
+    The checked-in skills need only a one-line ``name`` and ``description``.
+    Rejecting YAML features outside that subset avoids a dependency-bearing YAML
+    parser and prevents quoted, folded, flow, tag, alias, or escape syntax from
+    changing the command text that reaches a host.
+    """
+
+    lines = text.splitlines()
+    errors: list[str] = []
+    if not lines or lines[0].strip() != "---":
+        return {}, text, [f"{relative}: public skill must start with frontmatter"]
+
+    closing_index = next(
+        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        None,
+    )
+    if closing_index is None:
+        return {}, text, [f"{relative}: public skill frontmatter is missing its closing delimiter"]
+
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(lines[1:closing_index], start=2):
+        entry = PUBLIC_SKILL_FRONTMATTER_ENTRY_RE.fullmatch(line)
+        if entry is None:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter must use a single-line "
+                "name or description scalar"
+            )
+            continue
+        key = entry.group("key")
+        raw_value = entry.group("value")
+        if key not in PUBLIC_SKILL_FRONTMATTER_FIELDS:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter field {key!r} is not allowed"
+            )
+            continue
+        if key in values:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter field {key!r} is duplicated"
+            )
+            continue
+        value = _public_skill_frontmatter_scalar(relative, line_number, key, raw_value, errors)
+        if value is not None:
+            values[key] = value
+
+    missing = PUBLIC_SKILL_FRONTMATTER_FIELDS.difference(values)
+    for key in sorted(missing):
+        errors.append(f"{relative}: public skill frontmatter is missing {key!r}")
+    if "name" in values and PUBLIC_SKILL_FRONTMATTER_NAME_RE.fullmatch(values["name"]) is None:
+        errors.append(f"{relative}: public skill frontmatter name must be a simple slug")
+
+    body = "\n".join(lines[closing_index + 1 :]).lstrip("\n")
+    return values, body, errors
+
+
+def _public_skill_frontmatter_scalar(
+    relative: str,
+    line_number: int,
+    key: str,
+    raw_value: str,
+    errors: list[str],
+    *,
+    surface: str = "public skill frontmatter",
+    allow_literal_skill_token: bool = False,
+) -> str | None:
+    """Normalize the only scalar forms accepted in public skill metadata."""
+
+    dynamic_probe = raw_value
+    if allow_literal_skill_token:
+        dynamic_probe = PUBLIC_AGENT_SKILL_LITERAL_TOKEN_RE.sub("", dynamic_probe)
+    if DYNAMIC_SHELL_SYNTAX_RE.search(dynamic_probe) is not None:
+        errors.append(
+            f"{relative}:{line_number}: {surface} {key!r} must not use dynamic shell syntax"
+        )
+        return None
+
+    if raw_value.startswith(('"', "'")):
+        quote = raw_value[0]
+        if (
+            len(raw_value) < 2
+            or not raw_value.endswith(quote)
+            or quote in raw_value[1:-1]
+            or "\\" in raw_value
+        ):
+            errors.append(
+                f"{relative}:{line_number}: {surface} {key!r} must not use "
+                "escapes, multiline, flow, tag, or alias syntax"
+            )
+            return None
+        return raw_value[1:-1]
+
+    if (
+        raw_value.startswith(("!", "&", "*", "[", "{", "|", ">", "-", "#"))
+        or any(character in raw_value for character in "\\[]{}&*!|>#'\"")
+    ):
+        errors.append(
+            f"{relative}:{line_number}: {surface} {key!r} must use "
+            "a single-line plain or quote-only scalar"
+        )
+        return None
+    return raw_value
+
+
+def _metadata_cli_command_index(
+    tokens: tuple[str, ...],
+    start: int,
+    command_names: frozenset[str],
+) -> int | None:
+    """Return a real top-level CLI command after an installed launcher."""
+
+    index = start
+    while index < len(tokens):
+        argument = tokens[index]
+        if argument == "--root":
+            index += 2
+            continue
+        if argument.startswith("--root="):
+            index += 1
+            continue
+        break
+    if index < len(tokens) and tokens[index].casefold() in command_names:
+        return index
+    return None
+
+
+def _is_python_source_dispatcher(tokens: tuple[str, ...], script_index: int) -> bool:
+    """Recognize the checked-in Python dispatcher without accepting arbitrary scripts."""
+
+    script_path = tokens[script_index].replace("\\", "/")
+    is_path_dispatcher = script_path in {
+        "scripts/ai_dememory.py",
+        "./scripts/ai_dememory.py",
+    }
+    is_module_dispatcher = tokens[script_index].casefold() == "scripts.ai_dememory"
+    if not is_path_dispatcher and not is_module_dispatcher:
+        return False
+    for launcher_index, launcher_token in enumerate(tokens[:script_index]):
+        launcher = _launcher_name(launcher_token)
+        if PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher) is None:
+            continue
+        intervening = tokens[launcher_index + 1 : script_index]
+        if is_path_dispatcher:
+            # Any interpreter flags before the checked-in dispatcher still run
+            # source code. Treat uncommon flag forms as source execution too.
+            return True
+        if any(argument == "-m" for argument in intervening):
+            return True
+    return False
+
+
+def _tokens_contain_source_dispatcher(tokens: tuple[str, ...]) -> bool:
+    """Detect a Python/py call to the public source-checkout dispatcher."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            if _is_python_source_dispatcher(segment, index):
+                return True
+    return False
+
+
+def _source_execution_segments(tokens: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    """Keep non-executing echo text out of release-pending route checks.
+
+    Shell operators are already split by ``_shell_segments``.  Thus an
+    ``echo ...; docker build .`` still leaves the Docker invocation as a
+    separately inspectable segment, while ``echo docker build .`` remains a
+    literal display command rather than a source-build route.
+    """
+
+    return tuple(
+        segment
+        for segment in _shell_segments(tokens)[0]
+        if not segment or _launcher_name(segment[0]) != "echo"
+    )
+
+
+def _container_build_subcommand_index(
+    segment: tuple[str, ...],
+    index: int,
+) -> int | None:
+    """Find ``build`` after container-subcommand options without losing values."""
+
+    while index < len(segment):
+        argument = segment[index]
+        if argument.casefold() == "build":
+            return index
+        if not argument.startswith("-") or argument == "--":
+            return None
+        option = argument.casefold().split("=", 1)[0]
+        if "=" not in argument and option in CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE:
+            if index + 1 >= len(segment):
+                return None
+            index += 2
+            continue
+        if "=" not in argument and option not in CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE:
+            # Unknown pre-build flags are not safe to interpret.  If they still
+            # lead to ``build``, treat the route as a pending source build.
+            return next(
+                (
+                    position
+                    for position in range(index + 1, len(segment))
+                    if segment[position].casefold() == "build"
+                ),
+                None,
+            )
+        index += 1
+    return None
+
+
+def _leading_container_build(
+    segment: tuple[str, ...],
+    launcher_index: int,
+) -> tuple[int, bool] | None:
+    """Find a supported Docker/Compose build action and its source semantics."""
+
+    launcher = _launcher_name(segment[launcher_index])
+    if launcher == "docker-compose":
+        build_index = _container_build_subcommand_index(segment, launcher_index + 1)
+        return (build_index, True) if build_index is not None else None
+
+    if launcher != "docker":
+        return None
+    index = launcher_index + 1
+    while index < len(segment):
+        argument = segment[index]
+        folded = argument.casefold()
+        if folded == "build":
+            return index, False
+        if not argument.startswith("-") or argument == "--":
+            break
+        option = folded.split("=", 1)[0]
+        if "=" not in argument and option in DOCKER_GLOBAL_OPTIONS_REQUIRING_VALUE:
+            if index + 1 >= len(segment) or segment[index + 1] == "--":
+                break
+            index += 2
+        else:
+            index += 1
+    if index >= len(segment) or segment[index].casefold() not in {"image", "buildx", "compose"}:
+        return None
+    compose_build = segment[index].casefold() == "compose"
+    build_index = _container_build_subcommand_index(segment, index + 1)
+    return (build_index, compose_build) if build_index is not None else None
+
+
+def _tokens_build_source_docker_image(tokens: tuple[str, ...]) -> bool:
+    """Detect a Docker build that uses the checked-out local build context."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            build = _leading_container_build(segment, index)
+            if build is None:
+                continue
+            build_index, implicit_checkout_context = build
+            if implicit_checkout_context:
+                return True
+            tail = segment[build_index + 1 :]
+            if any(
+                argument in {".", "./", ".\\"}
+                or argument.startswith(("./", ".\\"))
+                for argument in tail
+            ):
+                return True
+    return False
+
+
+def _is_local_source_argument(token: str) -> bool:
+    """Return whether an installer argument resolves outside the stable package.
+
+    Editable assignments are package arguments even though their path is joined
+    to the option (``--editable=.``).  A local ``file:`` URI and a shell or
+    PowerShell expansion after an installer verb are likewise not a stable,
+    reviewable package route while source is release-pending.
+    """
+
+    argument = token
+    option, separator, assigned_value = token.partition("=")
+    if separator and option.casefold() in {"--editable", "-e"}:
+        argument = assigned_value
+
+    if DYNAMIC_SHELL_SYNTAX_RE.search(argument) is not None:
+        return True
+    if argument.casefold().startswith("file:"):
+        return True
+
+    return (
+        argument in {".", "./", ".\\"}
+        or argument.startswith(("./", ".\\", ".["))
+    )
+
+
+def _tokens_install_local_source(tokens: tuple[str, ...]) -> bool:
+    """Detect pending-release installs/builds that consume the local checkout."""
+
+    for segment in _shell_segments(tokens)[0]:
+        folded = tuple(value.casefold() for value in segment)
+        for index, token in enumerate(segment):
+            launcher = _launcher_name(token)
+            if launcher == "poetry" and index + 1 < len(segment) and folded[index + 1] == "install":
+                return True
+            if launcher == "uv" and index + 1 < len(segment) and folded[index + 1] == "sync":
+                return True
+        for command_end in _package_installer_command_ends(segment):
+            if any(_is_local_source_argument(value) for value in segment[command_end:]):
+                return True
+    return False
+
+
+def _tokens_contain_nested_shell_execution(tokens: tuple[str, ...]) -> bool:
+    """Treat actual nested-shell execution shapes as metadata command transport."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, argument in enumerate(segment):
+            launcher = _launcher_name(argument)
+            arguments = segment[index + 1 :]
+            if launcher in {"bash", "sh"}:
+                if any(
+                    value.startswith("-")
+                    and not value.startswith("--")
+                    and "c" in value[1:].casefold()
+                    for value in arguments
+                ):
+                    return True
+                if any(
+                    value.startswith(("./", ".\\", "/", "~/"))
+                    or value.casefold().endswith((".sh", ".bash"))
+                    for value in arguments
+                ):
+                    return True
+            elif launcher == "cmd":
+                if any(value.casefold() in {"/c", "/k"} for value in arguments):
+                    return True
+                if any(value.casefold().endswith((".cmd", ".bat")) for value in arguments):
+                    return True
+            elif launcher in {"powershell", "pwsh"}:
+                if any(
+                    value.casefold() in {"-c", "-command", "-file", "-encodedcommand"}
+                    for value in arguments
+                ):
+                    return True
+                if any(value.casefold().endswith(".ps1") for value in arguments):
+                    return True
+    return False
+
+
+def _metadata_contains_command_shape(
+    value: str,
+    command_names: frozenset[str],
+) -> bool:
+    """Recognize commands in normalized host metadata without banning prose.
+
+    A product mention such as ``ai-dememory tool`` is descriptive prose.  A bare
+    launcher followed by a command derived from the CLI source, a source
+    dispatcher, an installer, a mutable runner, or a local Docker build is an
+    executable transport and is forbidden in host metadata.
+    """
+
+    try:
+        tokens = _preferred_shell_tokens(value)
+    except ValueError:
+        # The scalar grammar already rejects quotes and escapes that could make
+        # tokenization ambiguous. Treat any remaining malformed shell form as
+        # non-command prose and let the bounded scalar check be authoritative.
+        return False
+    if _package_installer_command_ends(tokens) or _tokens_contain_mutable_runner(tokens):
+        return True
+    if (
+        _tokens_contain_nested_shell_execution(tokens)
+        or _tokens_contain_source_dispatcher(tokens)
+        or _tokens_execute_internal_python_entrypoint(tokens)
+        or _tokens_build_source_docker_image(tokens)
+        or _tokens_install_local_source(tokens)
+    ):
+        return True
+    for segment in _shell_segments(tokens)[0]:
+        for index, argument in enumerate(segment):
+            launcher = _launcher_name(argument)
+            if launcher == "ai_dememory.py":
+                return True
+            if launcher != "ai-dememory":
+                continue
+            command_index = _metadata_cli_command_index(segment, index + 1, command_names)
+            if command_index is not None:
+                return True
+    return False
+
+
+def _public_skill_metadata_command_errors(
+    values: dict[str, str],
+    relative: str,
+    command_names: frozenset[str],
+    *,
+    surface: str,
+) -> list[str]:
+    """Keep host-visible public metadata out of every command transport."""
+
+    errors: list[str] = []
+    for key, value in values.items():
+        normalized = " ".join(value.split())
+        if key == "name" and normalized.casefold() == "ai-dememory":
+            continue
+        if _metadata_contains_command_shape(normalized, command_names):
+            errors.append(
+                f"{relative}: {surface} {key!r} must not include an executable command"
+            )
+    return errors
+
+
+def _public_agent_skill_token_command_errors(
+    values: dict[str, str],
+    relative: str,
+    command_names: frozenset[str],
+) -> list[str]:
+    """Allow the agent skill token itself, but never a CLI continuation of it."""
+
+    value = values.get("default_prompt")
+    if value is None:
+        return []
+    try:
+        tokens = _preferred_shell_tokens(value)
+    except ValueError:
+        return []
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            if token.casefold() != "$ai-dememory":
+                continue
+            if _metadata_cli_command_index(segment, index + 1, command_names) is not None:
+                return [
+                    f"{relative}: public agent YAML 'default_prompt' must not turn the "
+                    "$ai-dememory skill token into a CLI command"
+                ]
+    return []
+
+
+def _public_agent_skill_yaml_errors(
+    relative: str,
+    text: str,
+    command_names: frozenset[str],
+) -> list[str]:
+    """Validate the only supported standalone public agent YAML surface.
+
+    Agent metadata is host-visible, not a command channel. Unknown YAML files
+    are rejected instead of accepting another YAML dialect that could change a
+    quoted or folded value after this guard has inspected its raw spelling.
+    """
+
+    schema = PUBLIC_AGENT_SKILL_YAML_SCHEMAS.get(relative)
+    if schema is None:
+        return [f"{relative}: public skill YAML is not an explicitly supported schema"]
+
+    lines = text.splitlines()
+    errors: list[str] = []
+    if not lines or lines[0] != "interface:":
+        return [f"{relative}: public agent YAML must begin with the interface mapping"]
+    expected_fields = schema["interface"]
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(lines[1:], start=2):
+        if not line:
+            errors.append(f"{relative}:{line_number}: public agent YAML must not contain blank lines")
+            continue
+        match = re.fullmatch(
+            r"  (?P<key>[A-Za-z][A-Za-z0-9_-]*):[ \t]+(?P<value>\S.*)", line
+        )
+        if match is None:
+            errors.append(
+                f"{relative}:{line_number}: public agent YAML must use a simple "
+                "single-line interface scalar"
+            )
+            continue
+        key = match.group("key")
+        if key not in expected_fields:
+            errors.append(f"{relative}:{line_number}: public agent YAML field {key!r} is not allowed")
+            continue
+        if key in values:
+            errors.append(f"{relative}:{line_number}: public agent YAML field {key!r} is duplicated")
+            continue
+        value = _public_skill_frontmatter_scalar(
+            relative,
+            line_number,
+            key,
+            match.group("value"),
+            errors,
+            surface="public agent YAML",
+            allow_literal_skill_token=key == "default_prompt",
+        )
+        if value is not None:
+            values[key] = value
+
+    for key in expected_fields:
+        if key not in values:
+            errors.append(f"{relative}: public agent YAML is missing {key!r}")
+    return (
+        errors
+        + _public_skill_metadata_command_errors(
+            values,
+            relative,
+            command_names,
+            surface="public agent YAML",
+        )
+        + _public_agent_skill_token_command_errors(values, relative, command_names)
+    )
+
+
+def _is_explicit_maintainer_source_section(
+    text: str,
+    line_number: int,
+    label: str,
+) -> bool:
+    """Allow only the reviewed source-diagnostic sections of known user docs."""
+
+    allowed_titles = PENDING_SOURCE_MAINTAINER_SECTION_TITLES.get(label, ())
+    if not allowed_titles:
+        return False
+    headings: list[tuple[int, int, str]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        match = re.fullmatch(r"(?P<marks>#{1,6})[ \t]+(?P<title>.*?)[ \t]*#*", line)
+        if match is not None:
+            headings.append((index, len(match.group("marks")), match.group("title")))
+
+    for index, level, title in headings:
+        if title not in allowed_titles or index > line_number:
+            continue
+        end = next(
+            (
+                later_index
+                for later_index, later_level, _ in headings
+                if later_index > index and later_level <= level
+            ),
+            len(text.splitlines()) + 1,
+        )
+        if index < line_number < end:
+            return True
+    return False
+
+
+def _pending_source_execution_errors(
+    text: str,
+    stable_version: str,
+    source_version: str,
+    label: str,
+    *,
+    allow_explicit_maintainer_sections: bool,
+) -> list[str]:
+    """Keep release-pending user guidance on the published compatibility route."""
+
+    if _release_pending_contract(stable_version, source_version) is None:
+        return []
+
+    errors: list[str] = []
+    for line_number, command, _, _ in _executable_command_entries(text):
+        try:
+            tokens = _preferred_shell_tokens(command)
+        except ValueError:
+            continue
+        source_segments = _source_execution_segments(tokens)
+        source_dispatcher = any(
+            _tokens_contain_source_dispatcher(segment) for segment in source_segments
+        )
+        local_docker_build = any(
+            _tokens_build_source_docker_image(segment) for segment in source_segments
+        )
+        local_source_install = any(
+            _tokens_install_local_source(segment) for segment in source_segments
+        )
+        if not source_dispatcher and not local_docker_build and not local_source_install:
+            continue
+        if allow_explicit_maintainer_sections and _is_explicit_maintainer_source_section(
+            text, line_number, label
+        ):
+            continue
+        if source_dispatcher:
+            route = "source dispatcher"
+        elif local_docker_build:
+            route = "source Docker build"
+        else:
+            route = "local source install"
+        errors.append(
+            f"{label}:{line_number}: release-pending user guidance must not execute a {route}; "
+            "use the published compatibility route or move the recipe below an explicit "
+            "Maintainer-only/Maintainer: Source Checkout heading"
+        )
+    return errors
+
+
 def audit_public_skill_guides(
     repo_root: Path,
     stable_version: str,
@@ -2514,6 +3219,8 @@ def audit_public_skill_guides(
     required_commands = public_skill_guide_required_commands(
         stable_version, source_version
     )
+    command_names, command_namespace_errors = _public_skill_cli_command_names()
+    errors.extend(command_namespace_errors)
     for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
         root = repo_root / relative_root
         if not root.is_dir():
@@ -2534,6 +3241,35 @@ def audit_public_skill_guides(
                     f"{relative}: stable public skill guidance must not retain "
                     "--require-version"
                 )
+            if relative.endswith(".md"):
+                frontmatter, body, frontmatter_errors = _public_skill_frontmatter(relative, text)
+                errors.extend(frontmatter_errors)
+                errors.extend(
+                    _public_skill_metadata_command_errors(
+                        frontmatter,
+                        relative,
+                        command_names,
+                        surface="public skill frontmatter",
+                    )
+                )
+                text = body
+            elif path.suffix.casefold() in {".yaml", ".yml"}:
+                errors.extend(_public_agent_skill_yaml_errors(relative, text, command_names))
+                continue
+            elif path.suffix.casefold() == ".json":
+                errors.append(
+                    f"{relative}: public skill JSON is not an explicitly supported schema"
+                )
+                continue
+            errors.extend(
+                _pending_source_execution_errors(
+                    text,
+                    stable_version,
+                    source_version,
+                    relative,
+                    allow_explicit_maintainer_sections=False,
+                )
+            )
             errors.extend(
                 _stable_command_errors(
                     text,
@@ -3180,6 +3916,15 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                         relative, ()
                     ),
                     require_explicit_mcp_root=relative in EXPLICIT_ROOT_MCP_DOCS,
+                )
+            )
+            errors.extend(
+                _pending_source_execution_errors(
+                    text,
+                    stable_version,
+                    source_version,
+                    relative,
+                    allow_explicit_maintainer_sections=True,
                 )
             )
         errors.extend(
