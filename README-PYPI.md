@@ -5,20 +5,27 @@ than one AI assistant. It provides a Python CLI, an optional local MCP server,
 review-first memory workflows, and a private vault whose Markdown files remain
 the canonical data.
 
-## Install and start
+## Install
 
-Use Python 3.11 or newer and install the package from the index you intend to
-use:
+Use Python 3.11 or newer. For a published stable release on the default PyPI
+index:
 
 ```bash
 python -m pip install --upgrade ai-dememory
-ai-dememory init /path/to/my-memory --wizard
 ```
 
-The wizard creates bounded local operating policy. It does not start a daemon,
-schedule background work, call a model, or promote durable memories. Follow-up
-actions such as MCP configuration, a loopback-only local API, indexing, hooks,
-and schedules are optional and explicit.
+Prereleases and non-default indexes require the exact version and index command
+on the matching [GitHub Release](https://github.com/GonzaloTorreras/ai-dememory/releases).
+Do not assume the default PyPI command installs a prerelease.
+
+## Start
+
+Use the wizard-first command documented by that matching release; older
+releases can retain a compatibility flag. The wizard creates bounded local
+operating policy. It does not start a daemon, schedule background work, call a
+model, or promote durable memories. Follow-up actions such as MCP
+configuration, a loopback-only local API, indexing, hooks, and schedules are
+optional and explicit.
 
 ## Trust boundary
 
