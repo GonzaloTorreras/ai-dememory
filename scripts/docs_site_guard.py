@@ -20,6 +20,21 @@ from urllib.parse import unquote, urlsplit
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_ROOT = REPO_ROOT / "site"
 
+# These directories are distributed as public agent instructions. They are a
+# first-run surface just like README/install.md: adding another text guide here
+# must not silently create a route to an unpublished source package.
+PUBLIC_SKILL_GUIDE_ROOTS = (
+    Path("skills/ai-dememory"),
+    Path("plugins/ai-dememory/skills"),
+)
+PUBLIC_SKILL_GUIDE_SUFFIXES = frozenset({".json", ".md", ".yaml", ".yml"})
+PUBLIC_SKILL_FIRST_RUN_GUIDES = frozenset(
+    {
+        "skills/ai-dememory/SKILL.md",
+        "plugins/ai-dememory/skills/memory-setup/SKILL.md",
+    }
+)
+
 REQUIRED_PAGES = (
     "index.html",
     "install/index.html",
@@ -2466,6 +2481,106 @@ def _stable_command_errors(
     return errors
 
 
+def public_skill_guide_required_commands(
+    stable_version: str,
+    source_version: str,
+) -> dict[str, tuple[str, str]]:
+    """Return first-run commands that are legal for the active release state."""
+
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    wizard = f"ai-dememory init ~/code/my-memory --wizard"
+    if pending_contract is not None:
+        wizard = f"{wizard} --require-version {stable_version}"
+    commands = (f"pipx install ai-dememory=={stable_version}", wizard)
+    return {relative: commands for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES}
+
+
+_SKILL_FRONTMATTER_RE = re.compile(
+    r"\A---[ \t]*\r?\n(?P<metadata>.*?)^---[ \t]*(?:\r?\n|\Z)",
+    re.DOTALL | re.MULTILINE,
+)
+_SKILL_METADATA_COMMAND_RE = re.compile(
+    r"\bai[-_.]+dememory(?:\.exe)?\b[^\r\n]*(?:\b(?:init|mcp-config|version-check)\b|"
+    r"--wizard\b|\bsetup[ \t]+(?:wizard|plan)\b|\bmcp\b[^\r\n]*--stdio\b)",
+    re.IGNORECASE,
+)
+
+
+def _skill_guide_auditable_text(relative: str, text: str, errors: list[str]) -> str:
+    """Exclude declarative Markdown metadata without allowing hidden commands."""
+
+    if not relative.endswith(".md"):
+        return text
+    match = _SKILL_FRONTMATTER_RE.match(text)
+    if match is None:
+        return text
+    metadata = match.group("metadata")
+    if (
+        STABLE_PACKAGE_COMMAND_RE.search(metadata) is not None
+        or _SKILL_METADATA_COMMAND_RE.search(metadata) is not None
+    ):
+        errors.append(
+            f"{relative}: public skill metadata must not contain an executable "
+            "installation or sensitive ai-dememory command"
+        )
+    return text[match.end() :]
+
+
+def audit_public_skill_guides(
+    repo_root: Path,
+    stable_version: str,
+    source_version: str,
+) -> list[str]:
+    """Audit every checked-in public skill instruction surface.
+
+    Public skills are often copied into an agent without the surrounding
+    documentation site, so they cannot rely on site-only release validation.
+    Discover text files below each public skill root rather than maintaining a
+    partial allowlist; the two first-run guides additionally require commands
+    derived from the active stable/pending release contract.
+    """
+
+    errors: list[str] = []
+    discovered: set[str] = set()
+    required_commands = public_skill_guide_required_commands(
+        stable_version, source_version
+    )
+    for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+        root = repo_root / relative_root
+        if not root.is_dir():
+            errors.append(f"{relative_root.as_posix()}: public skill guide root is missing")
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix.casefold() not in PUBLIC_SKILL_GUIDE_SUFFIXES:
+                continue
+            relative = path.relative_to(repo_root).as_posix()
+            discovered.add(relative)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                errors.append(f"{relative}: public skill guide must be UTF-8 text")
+                continue
+            if source_version == stable_version and "--require-version" in text:
+                errors.append(
+                    f"{relative}: stable public skill guidance must not retain "
+                    "--require-version"
+                )
+            auditable_text = _skill_guide_auditable_text(relative, text, errors)
+            errors.extend(
+                _stable_command_errors(
+                    auditable_text,
+                    stable_version,
+                    relative,
+                    source_version=source_version,
+                    required_executable_commands=required_commands.get(relative, ()),
+                )
+            )
+    for relative in sorted(required_commands):
+        if relative not in discovered:
+            errors.append(f"{relative}: required public first-run skill guide is missing")
+    return errors
+
+
 HTML_VOID_TAGS = {
     "area",
     "base",
@@ -3099,6 +3214,9 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     require_explicit_mcp_root=relative in EXPLICIT_ROOT_MCP_DOCS,
                 )
             )
+        errors.extend(
+            audit_public_skill_guides(repo_root, stable_version, source_version)
+        )
     development_status = (repo_root / "docs" / "development-status.md").read_text(
         encoding="utf-8"
     )

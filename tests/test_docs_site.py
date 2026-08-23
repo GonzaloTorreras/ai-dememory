@@ -13,6 +13,8 @@ from scripts.docs_site_guard import (
     NESTED_SHELL_MAX_DEPTH,
     ACTIVE_PRERELEASE_CONTRACTS,
     HISTORICAL_PRERELEASE_CONTRACTS,
+    PUBLIC_SKILL_FIRST_RUN_GUIDES,
+    PUBLIC_SKILL_GUIDE_ROOTS,
     RELEASE_PENDING_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
@@ -21,7 +23,9 @@ from scripts.docs_site_guard import (
     ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
     _release_contract_errors,
     _stable_command_errors,
+    audit_public_skill_guides,
     audit_site,
+    public_skill_guide_required_commands,
     release_scope_markers,
     site_release_lens,
 )
@@ -59,6 +63,95 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         ):
             with self.subTest(path=relative):
                 self.assertIn(command, STABLE_DOC_REQUIRED_COMMANDS[relative])
+
+    def test_public_skill_surfaces_use_the_published_compatibility_route(self) -> None:
+        expected = {
+            "skills/ai-dememory/SKILL.md",
+            "skills/ai-dememory/agents/openai.yaml",
+            "plugins/ai-dememory/skills/memory-maintenance/SKILL.md",
+            "plugins/ai-dememory/skills/memory-recall/SKILL.md",
+            "plugins/ai-dememory/skills/memory-review-inbox/SKILL.md",
+            "plugins/ai-dememory/skills/memory-setup/SKILL.md",
+            "plugins/ai-dememory/skills/memory-working-session/SKILL.md",
+        }
+        discovered = {
+            path.relative_to(REPO_ROOT).as_posix()
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS
+            for path in (REPO_ROOT / relative_root).rglob("*")
+            if path.is_file() and path.suffix.casefold() in {".json", ".md", ".yaml", ".yml"}
+        }
+
+        self.assertSetEqual(expected, discovered)
+        first_run = (
+            "pipx install ai-dememory==2.1.0",
+            "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0",
+        )
+        pending_commands = public_skill_guide_required_commands("2.1.0", "2.1.1")
+        self.assertSetEqual(set(PUBLIC_SKILL_FIRST_RUN_GUIDES), set(pending_commands))
+        for relative in pending_commands:
+            with self.subTest(path=relative):
+                self.assertEqual(first_run, pending_commands[relative])
+        self.assertEqual(
+            [],
+            audit_public_skill_guides(REPO_ROOT, "2.1.0", "2.1.1"),
+        )
+
+    def test_public_skill_first_run_contract_drops_legacy_gate_after_stable_publication(self) -> None:
+        expected = (
+            "pipx install ai-dememory==2.1.1",
+            "ai-dememory init ~/code/my-memory --wizard",
+        )
+        self.assertEqual(
+            {relative: expected for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES},
+            public_skill_guide_required_commands("2.1.1", "2.1.1"),
+        )
+        pinned = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+        unpinned = "ai-dememory init ~/code/my-memory --wizard"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES:
+                guide = copied / relative
+                guide.write_text(
+                    guide.read_text(encoding="utf-8")
+                    .replace("pipx install ai-dememory==2.1.0", "pipx install ai-dememory==2.1.1", 1)
+                    .replace(pinned, unpinned, 1),
+                    encoding="utf-8",
+                )
+            self.assertEqual(
+                [],
+                audit_public_skill_guides(copied, "2.1.1", "2.1.1"),
+            )
+
+    def test_public_skill_guard_rejects_unpinned_wizard_while_release_is_pending(self) -> None:
+        pinned = "ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0"
+        unpinned = "ai-dememory init ~/code/my-memory --wizard"
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+                shutil.copytree(REPO_ROOT / relative_root, copied / relative_root)
+            for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES:
+                with self.subTest(path=relative):
+                    guide = copied / relative
+                    guide.write_text(
+                        guide.read_text(encoding="utf-8").replace(pinned, unpinned, 1),
+                        encoding="utf-8",
+                    )
+                    errors = audit_public_skill_guides(copied, "2.1.0", "2.1.1")
+                    self.assertTrue(
+                        any(
+                            error.startswith(f"{relative}:")
+                            and "release-pending documentation must gate wizard commands with exactly "
+                            "--require-version 2.1.0" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+                    guide.write_text(
+                        guide.read_text(encoding="utf-8").replace(unpinned, pinned, 1),
+                        encoding="utf-8",
+                    )
 
     def test_release_scope_supports_source_equal_to_stable(self) -> None:
         self.assertEqual(
