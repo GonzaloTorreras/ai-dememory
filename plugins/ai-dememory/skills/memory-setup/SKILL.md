@@ -11,10 +11,15 @@ files, or promote memory.
 
 ## First Run
 
-1. For a human-guided first run, launch
-   `ai-dememory init <vault> --wizard`. The wizard creates the vault, previews
-   the available intensity and model-policy choices, and records only the
-   selected vault-local policy.
+1. The source tree is preparing 2.1.1, but 2.1.0 is the currently published
+   compatibility route until tag-bound PyPI publication and external readback
+   complete. Install `pipx install ai-dememory==2.1.0`, then for a
+   human-guided first run launch
+   `ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0`.
+   The wizard creates the vault, previews the available intensity and
+   model-policy choices, and records only the selected vault-local policy. Do
+   not substitute the pending source version or remove the legacy gate while
+   this release state is pending.
 2. Inspect the printed `resource_policy`, integrations, `.ai-dememory.toml`
    write, and `plan_sha256`. Confirm only after that preview; the wizard applies
    the exact same in-memory operating policy and fingerprint without asking for
@@ -45,7 +50,7 @@ durable memory.
 ## Integrations
 
 - Generate and inspect an absolute-vault-bound MCP config only if the selected
-  client needs it: `ai-dememory --root <vault> mcp-config --client <client>`.
+  client needs it: `ai-dememory --root ~/code/my-memory mcp-config --client codex`.
   Generated servers enforce `core` by default and fail closed without
   `AI_DEMEMORY_ROOT` or `--root`.
 - Generate hooks with

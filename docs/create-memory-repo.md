@@ -3,10 +3,7 @@
 User memory belongs in a private vault repository, not in the tool distribution
 repo.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. `2.1.1rc2` is the current evaluation prerelease on TestPyPI, not a PyPI
-stable release. It removes the stable setup pin for newly generated
-configuration; `2.1.1rc1` remains historical release evidence.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
 
 ## CLI Path
 
@@ -38,11 +35,6 @@ you add the first reviewed notes, build the disposable search index:
 ```bash
 ai-dememory --root ~/code/my-memory index
 ```
-
-The current TestPyPI `2.1.1rc2` prerelease uses the corresponding first-run
-command `ai-dememory init ~/code/my-memory --wizard`. Install that exact
-evaluation package through the [installation guide](install.md); do not
-substitute it into the PyPI stable route.
 
 ## GitHub Template Path
 

@@ -9,14 +9,44 @@ accepted by the release identity guard.
 
 No changes yet.
 
-## [2.1.1] - Unreleased
+## [2.1.1] - 2026-08-23
 
-This stable release entry is intentionally reserved. `2.1.1rc2` is the current
-TestPyPI evaluation artifact, published from immutable `v2.1.1rc2` with
-post-index verification. The earlier `2.1.1rc1` prerelease remains historical
-release evidence, not a second recommended installation route. `2.1.0`
-remains the current published stable PyPI release. A stable `2.1.1` promotion
-requires its own reviewed, explicitly authorized release decision.
+`2.1.1` promotes the reviewed maintenance package evaluated through
+`2.1.1rc1` and `2.1.1rc2`. The prerelease entries below remain the immutable
+historical record for those evaluation artifacts.
+
+### Added
+
+- After a guided operational setup completes, the wizard can suggest the
+  optional foreground local API command for dashboards and scripts. It remains
+  loopback-only by default and is never started, installed, or configured by
+  the wizard.
+
+### Fixed
+
+- Stop persisting `--require-version` into generated MCP client configuration,
+  setup-plan output, the bundled plugin, and Docker defaults. Existing legacy
+  configuration that contains the flag remains accepted as a no-op; the
+  explicit `version-check` command remains available for diagnostics.
+- Require a deterministic, explicitly bound vault for stateful MCP runtime,
+  local API, hooks, setup/onboarding, maintenance, provider, import and capture
+  commands. Empty bindings and implicit checkout fallbacks fail closed while
+  intentional rootless diagnostics remain read-only.
+- Bind configuration and review-state reads and writes to the selected vault
+  root. Unsafe external paths, links, unstable file identity, descriptor
+  replacement, non-regular input, oversized input and invalid UTF-8 are
+  rejected before their contents are used.
+
+### Documentation
+
+- Make the normal installation path wizard-first and keep MCP configuration,
+  diagnostics, indexing, hooks, schedulers and advanced setup planning as
+  optional follow-up actions.
+- Separate public installation and local-use guidance from contributor and
+  source-checkout material, and document the installed `ai-dememory api`
+  command instead of presenting the source wrapper as a normal user command.
+
+[Compare v2.1.0...v2.1.1](https://github.com/GonzaloTorreras/ai-dememory/compare/v2.1.0...v2.1.1)
 
 ## [2.1.1rc2] - 2026-08-23
 

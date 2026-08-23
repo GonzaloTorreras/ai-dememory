@@ -3,53 +3,36 @@
 This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
-**Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. TestPyPI prerelease 2.1.1rc2 is the current tagged evaluation route, not
-a PyPI stable release. TestPyPI prerelease 2.1.1rc1 remains historical release
-evidence rather than a second recommended installation path.
+**Release scope:** 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
 
-## Published Stable 2.1.0: Legacy First Run
+## Published 2.1.0: Compatibility Wizard Setup
 
 Use `pipx` for normal CLI use: it keeps the Python application isolated while
 putting `ai-dememory` on your `PATH`.
+
+The published stable 2.1.0 package is the only user-installable route in this
+interim state.
 
 ```bash
 pipx install ai-dememory==2.1.0
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ```
 
-This is the shortest truthful wizard-first path for the published package. Its
-trailing compatibility gate is legacy 2.1.0 behavior. The exact tagged
-[v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md)
-keeps the full historical detail. `version-check` is a CI/support diagnostic,
-not an installation prerequisite.
+This is the shortest truthful first-run path for the published package. Its
+compatibility gate is required by the 2.1.0 wizard, not a separate installation
+step. The later source behavior that omits the persistent gate is deliberately
+withheld from user instructions until its tag-bound PyPI release is read back.
 
 `uv` users can replace the first command with
 `uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
 `D:\Memory\my-vault`.
-
-## TestPyPI Prerelease 2.1.1rc2: Wizard-First Evaluation
-
-The current reviewed TestPyPI prerelease removes the persistent
-`--require-version` pin from new setup and MCP configuration. In an isolated
-Python environment, install the exact prerelease and then run the wizard:
-
-```bash
-python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
-ai-dememory init ~/code/my-memory --wizard
-```
 
 The wizard previews the bounded operational setup, shows its limits and exact
 fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
 import chats, create personal memory, install hooks or schedules, or edit a
 client configuration. `balanced` is the recommended first-run intensity.
 
-This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
-next stable release will provide its own immutable package command.
-
-The earlier 2.1.1rc1 TestPyPI prerelease remains an immutable historical
-artifact. New evaluations should use the later rc2 route above, so the wizard
-is still the only first-run action presented here.
+This interim compatibility route intentionally presents one first-run command.
 
 ## Connect An AI Client (Optional)
 
@@ -62,11 +45,9 @@ host application's configuration on your behalf.
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-That invocation is the same in 2.1.0 and the TestPyPI prerelease. Stable 2.1.0
-then persists the gate inside the generated runtime configuration; the prerelease
-omits that generated pin. The generated runtime command contains the bound vault,
-a reduced `core` profile, and an idle lease. First-run users do not need to type
-those internal arguments themselves.
+The generated runtime command contains the bound vault, a reduced `core`
+profile, and an idle lease. First-run users do not need to hand-assemble its
+internal runtime arguments.
 
 ## Upgrade Or Diagnose
 
@@ -84,10 +65,10 @@ If `pipx` is unavailable, use a virtual environment or see the
 checkout and the development instructions in `DEVELOPMENT.md`; local/editable
 installs are not a normal user path.
 
-## What The Prerelease Wizard Configures
+## What The Published Wizard Configures
 
-The prerelease interactive wizard changes operational policy only. Personal
-values, preferences, recommendations, and project profiles stay in the separate,
+The interactive wizard changes operational policy only. Personal values,
+preferences, recommendations, and project profiles stay in the separate,
 optional `onboard` review/apply flow. For automation, the machine-readable
 `setup plan --json` preview remains available, but it is not needed before an
 interactive first run.

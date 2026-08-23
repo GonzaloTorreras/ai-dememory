@@ -22,19 +22,10 @@ Markdown and can be rebuilt.
 
 ## Release Status
 
-- Current release line: `ai-dememory` 2.1.0. Published stable 2.1.0 is the
-  only package line available from PyPI; use the exact pinned install instead
-  of falling back to an older package.
-- TestPyPI prerelease 2.1.1rc2 is the current evaluation release, tagged at
-  `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is not a PyPI stable release;
-  its source behavior, tag, package, and index installation were verified by
-  the immutable release workflow. Use the exact
-  [TestPyPI route](https://test.pypi.org/project/ai-dememory/2.1.1rc2/) or
-  [GitHub prerelease](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2)
-  below.
-- TestPyPI prerelease 2.1.1rc1 remains a historical evaluation artifact. It is
-  not the recommended first-run route now that the later immutable rc2 package
-  is available.
+- Current release line: `ai-dememory` 2.1.0.
+- 2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete.
+- 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+- The published stable 2.1.0 package is the only user-installable route in this interim state.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
   older clients.
 - Python 3.11+ is the only headless runtime. Node is not an installation or
@@ -50,12 +41,10 @@ operations are contributor material, not installation steps.
 
 ## Quick Start
 
-### Published stable 2.1.0: legacy compatibility route
+### Published 2.1.0: compatibility setup
 
-The currently published package requires its version-gated wizard. The trailing
-`--require-version 2.1.0` is a required option for this legacy package, not a
-second command or a diagnostic ritual. Install the exact public package and
-create a separate private vault:
+Install the exact published package and create a separate private vault with its
+version-gated wizard:
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -66,37 +55,15 @@ The wizard previews its plan, shows resource limits, and asks before it writes
 the vault operational config. It never imports chats, creates personal memory,
 installs hooks or schedules, or edits a client configuration.
 
-The complete immutable stable instructions live in the
-[v2.1.0 installation guide](https://github.com/GonzaloTorreras/ai-dememory/blob/v2.1.0/docs/install.md).
-The compatibility gate is omitted from newly generated configuration in the
-next release line; it remains accepted so already-generated 2.1.0 client
-configuration does not strand an upgrade.
+The complete instructions live in the [installation guide](docs/install.md).
+The compatibility gate is required by the published 2.1.0 wizard; it is not a
+separate diagnostic ritual. A post-publication documentation update will promote
+the clean 2.1.1 wizard path only after the protected workflow and package-index
+readback succeed.
 
 `uv` users can substitute `uv tool install ai-dememory==2.1.0` for the first
 line. On Windows, use a private path such as `D:\Memory\my-vault` instead of
 the example path.
-
-### TestPyPI prerelease 2.1.1rc2: wizard-first evaluation
-
-The current TestPyPI prerelease removes the persistent compatibility pin from
-newly generated configuration and may suggest the optional local API only
-after the wizard completes. For an evaluation install in an isolated Python
-environment, use the exact package, then make the first run a single
-wizard-first command:
-
-```bash
-# inside an isolated virtual environment
-python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
-ai-dememory init ~/code/my-memory --wizard
-```
-
-This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
-next stable guide will replace the legacy 2.1.0 path only after a separately
-prepared, reviewed, tagged, and published `2.1.1` release.
-
-The earlier 2.1.1rc1 TestPyPI prerelease remains available as historical
-release evidence; use rc2 for a new evaluation rather than keeping two active
-installation routes.
 
 ### Connect a client when you are ready
 

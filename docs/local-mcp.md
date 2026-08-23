@@ -10,8 +10,10 @@ contains demo/validation fixtures only; it is never the vault to connect.
 
 ## User Path: Install, Create A Vault, Then Connect A Client
 
-Published stable 2.1.0 is the PyPI release. Its historical wizard compatibility
-argument is required only for this stable package:
+2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+
+The published stable 2.1.0 package is the only user-installable route in this
+interim state.
 
 ```bash
 pipx install ai-dememory==2.1.0
@@ -31,12 +33,6 @@ example. The produced Codex fragment belongs in `~/.codex/config.toml` or a
 trusted project's `.codex/config.toml`; Claude and generic clients receive their
 native JSON shape. Full field examples are in
 [MCP client configuration](mcp-client-config.md).
-
-The current TestPyPI prerelease `2.1.1rc2` is an evaluation route, not a PyPI
-upgrade. After its exact install from [Installation](install.md), use the
-shorter wizard-first command `ai-dememory init ~/code/my-memory --wizard`.
-Prerelease-generated MCP configuration omits the legacy stable pin. The earlier
-`2.1.1rc1` prerelease is historical evidence, not a second recommended route.
 
 ## What The Generated Fragment Protects
 
@@ -76,33 +72,31 @@ pipx install --force ai-dememory==2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-If a host package or Docker image came from a release candidate or mutable
-checkout, rebuild it with the exact stable package first.
-`ai-dememory version-check 2.1.0` remains a CI/support diagnostic, not a setup step.
+Regenerate the fragment from the exact published package rather than treating a
+source checkout or release candidate as a fallback. Version diagnostics are for
+CI or support work, not setup.
 
-## Docker: Local Stdio Only
+## Docker Is Deferred During This Pending Release
 
-Docker is an optional local stdio transport. It does not expose a port or turn
-MCP into a remote service. Build the image from a trusted source checkout, then
-generate the client configuration for an already initialized private vault:
+The Dockerfile supports a future local stdio transport, but its image must be
+built from a source checkout. While 2.1.1 has not completed tag-bound PyPI
+publication and external readback, telling an end user to build
+`ai-dememory:local` would silently switch them from the published 2.1.0 package
+to unpublished source. Docker is therefore not an installation or MCP setup
+route in this interim state.
 
-```bash
-docker build -t ai-dememory:local .
-ai-dememory mcp-config --client codex --mode docker --root ~/code/my-memory
-```
+Use the installed 2.1.0 CLI and the generated `mcp-config` fragment above. Once
+the stable 2.1.1 package and its exact release evidence have been read back,
+this guide can publish a verified Docker recipe. That future mode remains local
+stdio only and must not expose a network port without a separate authentication,
+authorization, and privacy design.
 
-The generated configuration owns the exact mount, image, profile, root binding,
-and idle lease; this guide intentionally does not provide a raw `docker run`
-recipe. It binds the selected vault at `/memory` and appends
-`mcp --stdio --idle-timeout-seconds 600 --profile core --require-bound-root`.
-Do not expose the container as a network service without a separate
-authentication, authorization, and privacy design.
+## Maintainer-only Checkout Diagnostics
 
-## Maintainer Checkout Recipe
-
-The following source-checkout form exists for development and CI diagnostics.
-It is not an installation path and must never point at the public repository as
-a vault:
+The following source-checkout commands are only for a contributor or CI/release
+maintainer verifying a trusted checkout. They do not create an installable
+Docker route, cannot replace the published package, and must never be copied
+into a client setup or pointed at the public repository as a vault:
 
 ```bash
 python3 scripts/ai_dememory.py --root /path/to/private-vault mcp-config --client codex \

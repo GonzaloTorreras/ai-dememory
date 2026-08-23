@@ -8,6 +8,13 @@ The implementation contract for scheduler ownership, Docker mode, Codex plugin
 skills, and hook boundaries is defined in
 [scheduler-plugin-blueprint.md](scheduler-plugin-blueprint.md).
 
+**Release-pending Docker boundary:** 2.1.1 is source preparation while the
+published 2.1.0 CLI remains the user-operable package. Building
+`ai-dememory:local` would run that pending source, so normal users must use the
+installed CLI in this guide. Docker material below is limited to explicitly
+labelled maintainer diagnostics until the stable tag, PyPI publication, and
+external readback are complete.
+
 ## Maintenance Profiles
 
 Daily maintenance:
@@ -78,8 +85,12 @@ ai-dememory schedule plan --intensity minimal --json
 ai-dememory schedule setup --dry-run
 ```
 
-Preview a Docker-backed schedule when you want recurring maintenance to run
-through the local image instead of the installed CLI:
+### Maintainer-only Docker schedule diagnostics
+
+This subsection is for a contributor or CI/release maintainer validating a
+trusted checkout. It assumes an exact local image already exists for that
+diagnostic. It is not a user installation, scheduler setup, or fallback for the
+published CLI while 2.1.1 publication is pending:
 
 ```bash
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' ai-dememory:local)"
@@ -173,9 +184,11 @@ schedule config contains an invalid time or weekly day, the status response
 reports `valid=false` with validation errors and returns no platform status
 commands while still reporting pending review work.
 
-MCP clients can also call `memory.schedule_plan` to preview installed-CLI or
-Docker scheduler commands and the equivalent reviewed cron export entries. The
-tool is read-only and returns `mutates_system=false`.
+MCP clients can call `memory.schedule_plan` to preview the installed-CLI
+schedule and equivalent reviewed cron export entries. Its Docker-specific plan
+fields are for the maintainer-only diagnostic above; they do not make a local
+image a normal user route while publication is pending. The tool is read-only
+and returns `mutates_system=false`.
 Use `ai-dememory schedule doctor --json` or MCP `memory.schedule_environment`
 to check whether scheduler, Docker, and optional crontab commands are discoverable
 without running them.
@@ -185,7 +198,6 @@ timers:
 
 ```bash
 ai-dememory schedule cron
-ai-dememory schedule cron --mode docker --image "$IMAGE_ID"
 ai-dememory schedule cron --json
 ```
 
@@ -199,8 +211,9 @@ Platform behavior:
 - Linux/WSL uses systemd user timers.
 - Cron export is available for hosts where user systemd timers are unavailable.
 - macOS writes LaunchAgents.
-- Docker mode still uses the host scheduler. Generated daily and weekly run
-  commands bind-mount the vault and set `AI_DEMEMORY_ROOT=/memory`.
+- The maintainer-only Docker validation path still uses the host scheduler; its
+  generated daily and weekly commands bind-mount the vault and set
+  `AI_DEMEMORY_ROOT=/memory`.
 
 Resource intensities:
 
@@ -214,11 +227,13 @@ Maintenance subprocesses run in owned process groups/trees. Deadlines terminate
 and reap descendants, including grandchildren; Git receives closed stdin and a
 non-interactive environment. Windows uses a kill-on-close Job Object and POSIX
 uses a new session/process group. Installed mode guarantees tree cleanup and
-wall-clock deadlines, not native host CPU/memory quotas. Docker additionally
-enforces the table's CPU, memory and PID caps and uses `--network none`; no
-intensity enables runtime model calls, embeddings, or durable auto-promotion.
+wall-clock deadlines, not native host CPU/memory quotas. The maintainer-only
+Docker validation path additionally enforces the table's CPU, memory, and PID
+caps and uses `--network none`; no intensity enables runtime model calls,
+embeddings, or durable auto-promotion.
 
-Docker scheduled jobs run the same profiles as the installed CLI:
+For maintainer-only checkout validation, Docker scheduled jobs use the same
+profiles as the installed CLI:
 
 ```bash
 docker run --rm \

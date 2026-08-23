@@ -6,26 +6,19 @@ create a separate private vault, generate a fragment, and copy it into the
 client yourself. A source checkout may be a development working directory, but
 it must never be the vault.
 
-Published stable 2.1.0 is the current PyPI release. TestPyPI prerelease
-`2.1.1rc2` is the current evaluation route only. The stable generated
-configuration keeps its historical runtime pin; the prerelease removes that
-emitted pin. The earlier `2.1.1rc1` prerelease is historical evidence, not a
-second recommended route.
+2.1.1 is source release preparation, not an installable route until tag-bound PyPI publication and external readback complete. 2.1.0 is the currently published PyPI compatibility route while release verification is pending.
+
+The published stable 2.1.0 package is the only user-installable route in this
+interim state.
 
 ## Generate, Do Not Hand Assemble
 
-For stable 2.1.0, create the vault with its required legacy compatibility
-argument and generate a fragment only for the client you use:
+Create the vault and generate a fragment only for the client you use:
 
 ```bash
 ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
-
-For TestPyPI `2.1.1rc2`, the first command becomes
-`ai-dememory init ~/code/my-memory --wizard` after its exact evaluation install
-from [Installation](install.md). Do not substitute that prerelease route for
-the published PyPI installation.
 
 `mcp-config` prints configuration; it does not edit a host. Regenerate and
 inspect it when you upgrade an existing stable install:
@@ -41,8 +34,8 @@ installation or setup command.
 ## What To Copy
 
 For Codex, copy the generated TOML into `~/.codex/config.toml` or a trusted
-project's `.codex/config.toml`. The following is the stable 2.1.0 shape; do not
-copy the legacy `--require-version` value into a prerelease-generated fragment:
+project's `.codex/config.toml`. The following is the generated legacy
+compatibility state for published 2.1.0:
 
 ```toml
 [mcp_servers.ai-dememory]
@@ -54,6 +47,10 @@ enabled_tools = ["memory.search", "memory.get", "memory.context", "memory.doctor
 AI_DEMEMORY_ROOT = "D:\\memory-vault"
 ```
 
+The version guard above is generated legacy compatibility state for the
+published package. Generate and inspect it with the clean `mcp-config` command
+shown earlier; do not hand-assemble that runtime argument list.
+
 Claude and generic clients use their own JSON configuration shape. The essential
 contract is the installed `ai-dememory` command, `mcp --stdio`, an explicit
 `AI_DEMEMORY_ROOT`, a server profile, and `--require-bound-root`. An unbound
@@ -63,7 +60,7 @@ public source checkout.
 ```json
 {
   "command": "ai-dememory",
-  "args": ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--profile", "core", "--require-bound-root"],
+  "args": ["mcp", "--stdio", "--idle-timeout-seconds", "600", "--require-version", "2.1.0", "--profile", "core", "--require-bound-root"],
   "env": {
     "AI_DEMEMORY_ROOT": "D:\\memory-vault"
   }

@@ -9,7 +9,6 @@ Run:
 ```bash
 ai-dememory roadmap status
 ai-dememory roadmap status --json
-python3 scripts/ai_dememory.py roadmap status --json
 ```
 
 The command checks for representative evidence files for each phase:

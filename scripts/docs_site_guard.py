@@ -20,6 +20,52 @@ from urllib.parse import unquote, urlsplit
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SITE_ROOT = REPO_ROOT / "site"
 
+# These directories are distributed as public agent instructions. They are a
+# first-run surface just like README/install.md: adding another text guide here
+# must not silently create a route to an unpublished source package.
+PUBLIC_SKILL_GUIDE_ROOTS = (
+    Path("skills/ai-dememory"),
+    Path("plugins/ai-dememory/skills"),
+)
+PUBLIC_SKILL_GUIDE_SUFFIXES = frozenset({".json", ".md", ".yaml", ".yml"})
+PUBLIC_SKILL_FIRST_RUN_GUIDES = frozenset(
+    {
+        "skills/ai-dememory/SKILL.md",
+        "plugins/ai-dememory/skills/memory-setup/SKILL.md",
+    }
+)
+PUBLIC_SKILL_FRONTMATTER_FIELDS = frozenset({"name", "description"})
+PUBLIC_SKILL_FRONTMATTER_NAME_RE = re.compile(r"[a-z][a-z0-9-]*\Z")
+PUBLIC_SKILL_FRONTMATTER_ENTRY_RE = re.compile(
+    r"(?P<key>[A-Za-z][A-Za-z0-9_-]*):[ \t]+(?P<value>\S.*)\Z"
+)
+PUBLIC_AGENT_SKILL_YAML_SCHEMAS = {
+    "skills/ai-dememory/agents/openai.yaml": {
+        "interface": (
+            "display_name",
+            "short_description",
+            "default_prompt",
+        )
+    }
+}
+PUBLIC_AGENT_SKILL_LITERAL_TOKEN_RE = re.compile(
+    r"(?<![$A-Za-z0-9_])\$ai-dememory(?![A-Za-z0-9_-])",
+    re.IGNORECASE,
+)
+# A pending-release exception is intentionally narrower than a generic Markdown
+# heading convention.  These are the reviewed, user-facing docs that retain
+# source-checkout diagnostics, and only their exact labelled sections may do so.
+PENDING_SOURCE_MAINTAINER_SECTION_TITLES = {
+    "docs/local-mcp.md": ("Maintainer-only Checkout Diagnostics",),
+    "docs/mcp-client-config.md": ("Maintainer-Only Checkout And PR Checks",),
+    "docs/operations.md": ("Maintainer: Source Checkout Release Validation",),
+    "docs/codex-plugin.md": ("Maintainer-only Plugin Template Diagnostics",),
+    "docs/distribution.md": (
+        "Source checkout: contributors only",
+        "Docker source-image diagnostics: maintainers only",
+    ),
+}
+
 REQUIRED_PAGES = (
     "index.html",
     "install/index.html",
@@ -80,32 +126,40 @@ STABLE_RELEASE_CONTRACTS = {
     },
 }
 
-# This is the first-run command paired with the one current, documented
-# TestPyPI prerelease block. A future source candidate must not gain another
-# copyable route merely because it supports the same wizard syntax.
-ACTIVE_PRERELEASE_REQUIRED_COMMANDS = (
-    "ai-dememory init ~/code/my-memory --wizard",
-)
-
-# This mapping intentionally contains only the prerelease package that is
-# currently documented as an evaluation route. Add or replace an entry only
-# after its immutable tag, canonical release workflow, TestPyPI readback, and
-# GitHub prerelease have been verified. Historical prereleases belong in
-# release evidence, not in the active copyable-install surface.
-ACTIVE_PRERELEASE_CONTRACTS = {
-    "2.1.1rc2": {
-        "scope_marker": "testpypi prerelease 2.1.1rc2",
-        "site_lens": "TestPyPI prerelease: 2.1.1rc2",
-        "install_marker": "TestPyPI prerelease 2.1.1rc2 is available for evaluation",
-        "package_command": (
-            "python -m pip install --index-url https://test.pypi.org/simple/ "
-            "ai-dememory==2.1.1rc2"
+# A release-preparation source can be ahead of its last published stable
+# package, but only as an explicit, reviewable state. This is not a broad
+# source-version exception: it binds the source to the exact published
+# compatibility route and requires truthful public markers. In particular, it
+# never grants a package command for the pending source version.
+RELEASE_PENDING_CONTRACTS = {
+    "2.1.1": {
+        "published_version": "2.1.0",
+        "scope_markers": (
+            "2.1.1 is source release preparation, not an installable route until "
+            "tag-bound PyPI publication and external readback complete.",
+            "2.1.0 is the currently published PyPI compatibility route while "
+            "release verification is pending.",
         ),
+    },
+}
+
+# A pending source has no active TestPyPI package route. A future candidate may
+# add exactly one reviewed contract only after its immutable tag, release
+# workflow, TestPyPI readback, and GitHub prerelease exist. Historical
+# prereleases are release evidence only and never a copyable-install surface.
+ACTIVE_PRERELEASE_REQUIRED_COMMANDS: tuple[str, ...] = ()
+ACTIVE_PRERELEASE_CONTRACTS: dict[str, dict[str, object]] = {}
+
+# Retain the immutable rc2 provenance in the public handoff without treating
+# it as an installation option. Do not add package commands to this contract.
+HISTORICAL_PRERELEASE_CONTRACTS = {
+    "2.1.1rc2": {
         "status_evidence": (
             "v2.1.1rc2",
             "https://test.pypi.org/project/ai-dememory/2.1.1rc2/",
             "https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2",
         ),
+        "status_marker": "historical prerelease evidence",
     },
 }
 
@@ -320,12 +374,94 @@ ALLOWED_CSS_DATA_LABELS = frozenset(
         "Recall",
     }
 )
+
+
+def _release_pending_contract(
+    stable_version: str,
+    source_version: str | None,
+) -> dict[str, object] | None:
+    """Return the only legal published-stable/source-pending pairing, if any."""
+    if source_version is None:
+        return None
+    contract = RELEASE_PENDING_CONTRACTS.get(source_version)
+    if contract is None:
+        return None
+    if contract.get("published_version") != stable_version:
+        return None
+    return contract
+
+
+def _release_contract_errors(stable_version: str, source_version: str) -> list[str]:
+    """Reject implicit package availability when source and PyPI differ.
+
+    ``source != stable`` is deliberately not enough to authorize a candidate.
+    The only exception is a listed pending contract tied to the exact published
+    compatibility version, and that state must not retain a TestPyPI route.
+    """
+    pending_contract = RELEASE_PENDING_CONTRACTS.get(source_version)
+    if pending_contract is not None:
+        errors: list[str] = []
+        if source_version == stable_version:
+            errors.append(
+                "docs site guard: a release-pending source must differ from its "
+                "published stable package"
+            )
+        if pending_contract.get("published_version") != stable_version:
+            errors.append(
+                "docs site guard: release-pending source does not bind to the "
+                "documented published stable package"
+            )
+        markers = pending_contract.get("scope_markers")
+        if not isinstance(markers, tuple) or len(markers) != 2 or not all(
+            isinstance(marker, str) and marker for marker in markers
+        ):
+            errors.append(
+                "docs site guard: release-pending source must define two explicit "
+                "public scope markers"
+            )
+        if ACTIVE_PRERELEASE_CONTRACTS:
+            errors.append(
+                "docs site guard: release-pending source must not retain an active "
+                "TestPyPI prerelease contract"
+            )
+        if ACTIVE_PRERELEASE_REQUIRED_COMMANDS:
+            errors.append(
+                "docs site guard: release-pending source must not retain active "
+                "prerelease command requirements"
+            )
+        return errors
+    if source_version == stable_version:
+        if ACTIVE_PRERELEASE_CONTRACTS:
+            return [
+                "docs site guard: active TestPyPI prerelease contracts must be empty "
+                "when source version matches the documented stable release"
+            ]
+        return []
+    if len(ACTIVE_PRERELEASE_CONTRACTS) != 1:
+        return [
+            "docs site guard: source differing from the published stable package "
+            "requires exactly one explicit active TestPyPI prerelease contract or "
+            "a release-pending contract"
+        ]
+    return []
+
+
+def _published_release_label(stable_version: str, source_version: str) -> str:
+    if _release_pending_contract(stable_version, source_version) is not None:
+        return f"published-{stable_version}"
+    return f"stable-{stable_version}"
+
+
 def release_scope_markers(stable_version: str, source_version: str) -> tuple[str, ...]:
     markers = [f"published stable {stable_version}"]
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    if pending_contract is not None:
+        markers.extend(pending_contract["scope_markers"])
+        return tuple(markers)
     if source_version != stable_version:
-        # The one current documented TestPyPI route stays available while the
-        # checked-out source advances. Its availability is explicitly reviewed
-        # rather than inferred from source version; historical prereleases are
+        # A reviewed TestPyPI route may stay available while a future source
+        # candidate advances. Its availability is explicitly reviewed rather
+        # than inferred from source version; historical prereleases are
         # deliberately excluded from this active documentation contract.
         markers.extend(
             contract["scope_marker"]
@@ -337,6 +473,9 @@ def release_scope_markers(stable_version: str, source_version: str) -> tuple[str
 
 
 def site_release_lens(stable_version: str, source_version: str) -> str:
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    if pending_contract is not None:
+        return pending_contract["scope_markers"][0]
     if source_version != stable_version:
         contract = ACTIVE_PRERELEASE_CONTRACTS.get(source_version)
         if contract is not None:
@@ -350,7 +489,7 @@ EXECUTABLE_COMMAND_START_RE = re.compile(
     r"ai-dememory(?:\.exe)?|pipx(?:\.exe)?|uvx(?:\.exe)?|uv(?:\.exe)?|pip(?:3(?:\.\d+)?)?(?:\.exe)?|"
     r"python(?:3(?:\.\d+)?)?(?:\.exe)?|py(?:\.exe)?(?:[ \t]+-3(?:\.\d+)?)?|"
     r"cd|pushd|echo|sudo|command|env|cmd(?:\.exe)?|powershell(?:\.exe)?|"
-    r"pwsh(?:\.exe)?|bash|sh|wsl(?:\.exe)?|docker(?:\.exe)?|start|call"
+    r"pwsh(?:\.exe)?|bash|sh|wsl(?:\.exe)?|docker(?:\.exe)?|docker-compose(?:\.exe)?|poetry(?:\.exe)?|start|call"
     r")[\"']?(?:[ \t]|$)",
     re.IGNORECASE,
 )
@@ -947,9 +1086,11 @@ EXECUTABLE_LAUNCHER_NAMES = frozenset(
         "cmd",
         "command",
         "docker",
+        "docker-compose",
         "echo",
         "env",
         "pipx",
+        "poetry",
         "pushd",
         "pwsh",
         "py",
@@ -1414,6 +1555,29 @@ DOCKER_GLOBAL_OPTIONS_REQUIRING_VALUE = frozenset(
         "-c",
         "-h",
         "-l",
+    }
+)
+
+CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE = frozenset(
+    {
+        "-f",
+        "-p",
+        "-t",
+        "--build-arg",
+        "--cache-from",
+        "--cache-to",
+        "--env-file",
+        "--file",
+        "--label",
+        "--platform",
+        "--profile",
+        "--progress",
+        "--project-directory",
+        "--project-name",
+        "--secret",
+        "--ssh",
+        "--tag",
+        "--target",
     }
 )
 
@@ -1958,6 +2122,26 @@ def _all_root_values(tokens: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(values)
 
 
+def _option_values(tokens: tuple[str, ...], option: str) -> tuple[str, ...]:
+    """Return literal values supplied for a non-abbreviated CLI option."""
+    tokens = _ai_dememory_tokens(tokens)
+    values: list[str] = []
+    index = 1
+    while index < len(tokens):
+        argument = tokens[index]
+        if argument == option:
+            if index + 1 >= len(tokens):
+                values.append("")
+                break
+            values.append(tokens[index + 1])
+            index += 2
+            continue
+        if argument.startswith(f"{option}="):
+            values.append(argument.partition("=")[2])
+        index += 1
+    return tuple(values)
+
+
 def _normalized_package_command(command: str) -> str:
     normalized = re.sub(
         r"ai[-_.]+dememory",
@@ -1977,10 +2161,9 @@ def _approved_package_commands(stable_version: str) -> set[str]:
         f"python3 -m pip install {expected_spec}",
         f"py -3 -m pip install {expected_spec}",
     }
-    # The source checkout can advance beyond the current documented TestPyPI
-    # prerelease. Its exact package command remains permitted until the active
-    # contract is deliberately replaced; never infer index availability from
-    # ``source_version`` alone.
+    # Only an explicit active prerelease contract may add an index command.
+    # With stable source this mapping is required to be empty, so historical
+    # TestPyPI artifacts are evidence rather than allowlisted installs.
     commands.update(
         contract["package_command"]
         for contract in ACTIVE_PRERELEASE_CONTRACTS.values()
@@ -2287,6 +2470,51 @@ def _stable_command_errors(
             *direct_mcp_segments,
             *init_wizard_segments,
         )
+        pending_contract = _release_pending_contract(stable_version, source_version)
+        if pending_contract is not None:
+            for segment in segments:
+                normalized_segment = _ai_dememory_tokens(segment)
+                if (
+                    not normalized_segment
+                    or not _tokens_contain_sensitive_cli(normalized_segment)
+                ):
+                    continue
+                version_values = _option_values(segment, "--require-version")
+                if not version_values:
+                    if (
+                        _is_setup_wizard_tokens(segment)
+                        or _is_init_wizard_tokens(segment)
+                    ):
+                        errors.append(
+                            f"{label}:{line_number}: release-pending documentation must gate "
+                            f"wizard commands with exactly --require-version {stable_version}: "
+                            f"{command!r}"
+                        )
+                    continue
+                if (
+                    _is_setup_wizard_tokens(segment)
+                    or _is_init_wizard_tokens(segment)
+                ):
+                    if version_values == (stable_version,):
+                        continue
+                    errors.append(
+                        f"{label}:{line_number}: release-pending documentation must gate "
+                        f"wizard commands with exactly --require-version {stable_version}: "
+                        f"{command!r}"
+                    )
+                    continue
+                errors.append(
+                    f"{label}:{line_number}: release-pending documentation must not pass "
+                    f"--require-version to non-wizard sensitive commands: {command!r}"
+                )
+        elif source_version == stable_version and any(
+            token == "--require-version" or token.startswith("--require-version=")
+            for token in _ai_dememory_tokens(tokens)
+        ):
+            errors.append(
+                f"{label}:{line_number}: stable documentation must not retain a persistent "
+                f"--require-version gate: {command!r}"
+            )
         for segment in sensitive_segments:
             root_values = _all_root_values(segment)
             if len(root_values) > 1:
@@ -2306,6 +2534,754 @@ def _stable_command_errors(
             errors.append(
                 f"{label}:{line_number}: executable line mentions version-check but is not an analyzable ai-dememory command: {command!r}"
             )
+    return errors
+
+
+def public_skill_guide_required_commands(
+    stable_version: str,
+    source_version: str,
+) -> dict[str, tuple[str, str]]:
+    """Return first-run commands that are legal for the active release state."""
+
+    pending_contract = _release_pending_contract(stable_version, source_version)
+    wizard = f"ai-dememory init ~/code/my-memory --wizard"
+    if pending_contract is not None:
+        wizard = f"{wizard} --require-version {stable_version}"
+    commands = (f"pipx install ai-dememory=={stable_version}", wizard)
+    return {relative: commands for relative in PUBLIC_SKILL_FIRST_RUN_GUIDES}
+
+
+def _public_skill_cli_command_names() -> tuple[frozenset[str], list[str]]:
+    """Derive public CLI command names from the checked-in dispatcher source.
+
+    Frontmatter policy must recognize every current top-level command without
+    maintaining a second hand-written command list.  This is deliberately a
+    bounded AST read rather than an import: importing the CLI would execute
+    dependency and environment setup while a documentation guard is running.
+    """
+
+    source_path = REPO_ROOT / "ai_dememory_tool" / "cli.py"
+    try:
+        source = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return frozenset(), [
+            "public skill command namespace cannot read ai_dememory_tool/cli.py: "
+            f"{exc}"
+        ]
+    try:
+        module = ast.parse(source, filename=str(source_path))
+    except SyntaxError as exc:
+        return frozenset(), [
+            "public skill command namespace cannot parse ai_dememory_tool/cli.py: "
+            f"{exc.msg}"
+        ]
+
+    command_maps: dict[str, ast.Dict] = {}
+    for node in module.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if (
+            not isinstance(target, ast.Name)
+            or target.id not in {"LOCAL_COMMANDS", "COMMANDS"}
+        ):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            return frozenset(), [
+                "public skill command namespace requires literal "
+                f"{target.id} mapping in ai_dememory_tool/cli.py"
+            ]
+        command_maps[target.id] = node.value
+
+    missing_maps = {"LOCAL_COMMANDS", "COMMANDS"}.difference(command_maps)
+    if missing_maps:
+        return frozenset(), [
+            "public skill command namespace is missing literal mappings: "
+            f"{', '.join(sorted(missing_maps))}"
+        ]
+
+    command_names = {"dev"}
+    for map_name, command_map in command_maps.items():
+        for key in command_map.keys:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return frozenset(), [
+                    "public skill command namespace requires string keys in "
+                    f"{map_name}"
+                ]
+            command_names.add(key.value.casefold())
+    return frozenset(command_names), []
+
+
+def _public_skill_frontmatter(
+    relative: str,
+    text: str,
+) -> tuple[dict[str, str], str, list[str]]:
+    """Read the deliberately small, fail-closed SKILL.md metadata subset.
+
+    Public skill metadata is displayed by hosts but is not a command transport.
+    The checked-in skills need only a one-line ``name`` and ``description``.
+    Rejecting YAML features outside that subset avoids a dependency-bearing YAML
+    parser and prevents quoted, folded, flow, tag, alias, or escape syntax from
+    changing the command text that reaches a host.
+    """
+
+    lines = text.splitlines()
+    errors: list[str] = []
+    if not lines or lines[0].strip() != "---":
+        return {}, text, [f"{relative}: public skill must start with frontmatter"]
+
+    closing_index = next(
+        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        None,
+    )
+    if closing_index is None:
+        return {}, text, [f"{relative}: public skill frontmatter is missing its closing delimiter"]
+
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(lines[1:closing_index], start=2):
+        entry = PUBLIC_SKILL_FRONTMATTER_ENTRY_RE.fullmatch(line)
+        if entry is None:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter must use a single-line "
+                "name or description scalar"
+            )
+            continue
+        key = entry.group("key")
+        raw_value = entry.group("value")
+        if key not in PUBLIC_SKILL_FRONTMATTER_FIELDS:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter field {key!r} is not allowed"
+            )
+            continue
+        if key in values:
+            errors.append(
+                f"{relative}:{line_number}: public skill frontmatter field {key!r} is duplicated"
+            )
+            continue
+        value = _public_skill_frontmatter_scalar(relative, line_number, key, raw_value, errors)
+        if value is not None:
+            values[key] = value
+
+    missing = PUBLIC_SKILL_FRONTMATTER_FIELDS.difference(values)
+    for key in sorted(missing):
+        errors.append(f"{relative}: public skill frontmatter is missing {key!r}")
+    if "name" in values and PUBLIC_SKILL_FRONTMATTER_NAME_RE.fullmatch(values["name"]) is None:
+        errors.append(f"{relative}: public skill frontmatter name must be a simple slug")
+
+    body = "\n".join(lines[closing_index + 1 :]).lstrip("\n")
+    return values, body, errors
+
+
+def _public_skill_frontmatter_scalar(
+    relative: str,
+    line_number: int,
+    key: str,
+    raw_value: str,
+    errors: list[str],
+    *,
+    surface: str = "public skill frontmatter",
+    allow_literal_skill_token: bool = False,
+) -> str | None:
+    """Normalize the only scalar forms accepted in public skill metadata."""
+
+    dynamic_probe = raw_value
+    if allow_literal_skill_token:
+        dynamic_probe = PUBLIC_AGENT_SKILL_LITERAL_TOKEN_RE.sub("", dynamic_probe)
+    if DYNAMIC_SHELL_SYNTAX_RE.search(dynamic_probe) is not None:
+        errors.append(
+            f"{relative}:{line_number}: {surface} {key!r} must not use dynamic shell syntax"
+        )
+        return None
+
+    if raw_value.startswith(('"', "'")):
+        quote = raw_value[0]
+        if (
+            len(raw_value) < 2
+            or not raw_value.endswith(quote)
+            or quote in raw_value[1:-1]
+            or "\\" in raw_value
+        ):
+            errors.append(
+                f"{relative}:{line_number}: {surface} {key!r} must not use "
+                "escapes, multiline, flow, tag, or alias syntax"
+            )
+            return None
+        return raw_value[1:-1]
+
+    if (
+        raw_value.startswith(("!", "&", "*", "[", "{", "|", ">", "-", "#"))
+        or any(character in raw_value for character in "\\[]{}&*!|>#'\"")
+    ):
+        errors.append(
+            f"{relative}:{line_number}: {surface} {key!r} must use "
+            "a single-line plain or quote-only scalar"
+        )
+        return None
+    return raw_value
+
+
+def _metadata_cli_command_index(
+    tokens: tuple[str, ...],
+    start: int,
+    command_names: frozenset[str],
+) -> int | None:
+    """Return a real top-level CLI command after an installed launcher."""
+
+    index = start
+    while index < len(tokens):
+        argument = tokens[index]
+        if argument == "--root":
+            index += 2
+            continue
+        if argument.startswith("--root="):
+            index += 1
+            continue
+        break
+    if index < len(tokens) and tokens[index].casefold() in command_names:
+        return index
+    return None
+
+
+def _is_python_source_dispatcher(tokens: tuple[str, ...], script_index: int) -> bool:
+    """Recognize the checked-in Python dispatcher without accepting arbitrary scripts."""
+
+    script_path = tokens[script_index].replace("\\", "/")
+    is_path_dispatcher = script_path in {
+        "scripts/ai_dememory.py",
+        "./scripts/ai_dememory.py",
+    }
+    is_module_dispatcher = tokens[script_index].casefold() == "scripts.ai_dememory"
+    if not is_path_dispatcher and not is_module_dispatcher:
+        return False
+    for launcher_index, launcher_token in enumerate(tokens[:script_index]):
+        launcher = _launcher_name(launcher_token)
+        if PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher) is None:
+            continue
+        intervening = tokens[launcher_index + 1 : script_index]
+        if is_path_dispatcher:
+            # Any interpreter flags before the checked-in dispatcher still run
+            # source code. Treat uncommon flag forms as source execution too.
+            return True
+        if any(argument == "-m" for argument in intervening):
+            return True
+    return False
+
+
+def _tokens_contain_source_dispatcher(tokens: tuple[str, ...]) -> bool:
+    """Detect a Python/py call to the public source-checkout dispatcher."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            if _is_python_source_dispatcher(segment, index):
+                return True
+    return False
+
+
+def _source_execution_segments(tokens: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    """Keep non-executing echo text out of release-pending route checks.
+
+    Shell operators are already split by ``_shell_segments``.  Thus an
+    ``echo ...; docker build .`` still leaves the Docker invocation as a
+    separately inspectable segment, while ``echo docker build .`` remains a
+    literal display command rather than a source-build route.
+    """
+
+    return tuple(
+        segment
+        for segment in _shell_segments(tokens)[0]
+        if not segment or _launcher_name(segment[0]) != "echo"
+    )
+
+
+def _container_build_subcommand_index(
+    segment: tuple[str, ...],
+    index: int,
+) -> int | None:
+    """Find ``build`` after container-subcommand options without losing values."""
+
+    while index < len(segment):
+        argument = segment[index]
+        if argument.casefold() == "build":
+            return index
+        if not argument.startswith("-") or argument == "--":
+            return None
+        option = argument.casefold().split("=", 1)[0]
+        if "=" not in argument and option in CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE:
+            if index + 1 >= len(segment):
+                return None
+            index += 2
+            continue
+        if "=" not in argument and option not in CONTAINER_BUILD_OPTIONS_REQUIRING_VALUE:
+            # Unknown pre-build flags are not safe to interpret.  If they still
+            # lead to ``build``, treat the route as a pending source build.
+            return next(
+                (
+                    position
+                    for position in range(index + 1, len(segment))
+                    if segment[position].casefold() == "build"
+                ),
+                None,
+            )
+        index += 1
+    return None
+
+
+def _leading_container_build(
+    segment: tuple[str, ...],
+    launcher_index: int,
+) -> tuple[int, bool] | None:
+    """Find a supported Docker/Compose build action and its source semantics."""
+
+    launcher = _launcher_name(segment[launcher_index])
+    if launcher == "docker-compose":
+        build_index = _container_build_subcommand_index(segment, launcher_index + 1)
+        return (build_index, True) if build_index is not None else None
+
+    if launcher != "docker":
+        return None
+    index = launcher_index + 1
+    while index < len(segment):
+        argument = segment[index]
+        folded = argument.casefold()
+        if folded == "build":
+            return index, False
+        if not argument.startswith("-") or argument == "--":
+            break
+        option = folded.split("=", 1)[0]
+        if "=" not in argument and option in DOCKER_GLOBAL_OPTIONS_REQUIRING_VALUE:
+            if index + 1 >= len(segment) or segment[index + 1] == "--":
+                break
+            index += 2
+        else:
+            index += 1
+    if index >= len(segment) or segment[index].casefold() not in {"image", "buildx", "compose"}:
+        return None
+    compose_build = segment[index].casefold() == "compose"
+    build_index = _container_build_subcommand_index(segment, index + 1)
+    return (build_index, compose_build) if build_index is not None else None
+
+
+def _tokens_build_source_docker_image(tokens: tuple[str, ...]) -> bool:
+    """Detect a Docker build that uses the checked-out local build context."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            build = _leading_container_build(segment, index)
+            if build is None:
+                continue
+            build_index, implicit_checkout_context = build
+            if implicit_checkout_context:
+                return True
+            tail = segment[build_index + 1 :]
+            if any(
+                argument in {".", "./", ".\\"}
+                or argument.startswith(("./", ".\\"))
+                for argument in tail
+            ):
+                return True
+    return False
+
+
+def _is_local_source_argument(token: str) -> bool:
+    """Return whether an installer argument resolves outside the stable package.
+
+    Editable assignments are package arguments even though their path is joined
+    to the option (``--editable=.``).  A local ``file:`` URI and a shell or
+    PowerShell expansion after an installer verb are likewise not a stable,
+    reviewable package route while source is release-pending.
+    """
+
+    argument = token
+    option, separator, assigned_value = token.partition("=")
+    if separator and option.casefold() in {"--editable", "-e"}:
+        argument = assigned_value
+
+    if DYNAMIC_SHELL_SYNTAX_RE.search(argument) is not None:
+        return True
+    if argument.casefold().startswith("file:"):
+        return True
+
+    return (
+        argument in {".", "./", ".\\"}
+        or argument.startswith(("./", ".\\", ".["))
+    )
+
+
+def _tokens_install_local_source(tokens: tuple[str, ...]) -> bool:
+    """Detect pending-release installs/builds that consume the local checkout."""
+
+    for segment in _shell_segments(tokens)[0]:
+        folded = tuple(value.casefold() for value in segment)
+        for index, token in enumerate(segment):
+            launcher = _launcher_name(token)
+            if launcher == "poetry" and index + 1 < len(segment) and folded[index + 1] == "install":
+                return True
+            if launcher == "uv" and index + 1 < len(segment) and folded[index + 1] == "sync":
+                return True
+        for command_end in _package_installer_command_ends(segment):
+            if any(_is_local_source_argument(value) for value in segment[command_end:]):
+                return True
+    return False
+
+
+def _tokens_contain_nested_shell_execution(tokens: tuple[str, ...]) -> bool:
+    """Treat actual nested-shell execution shapes as metadata command transport."""
+
+    for segment in _shell_segments(tokens)[0]:
+        for index, argument in enumerate(segment):
+            launcher = _launcher_name(argument)
+            arguments = segment[index + 1 :]
+            if launcher in {"bash", "sh"}:
+                if any(
+                    value.startswith("-")
+                    and not value.startswith("--")
+                    and "c" in value[1:].casefold()
+                    for value in arguments
+                ):
+                    return True
+                if any(
+                    value.startswith(("./", ".\\", "/", "~/"))
+                    or value.casefold().endswith((".sh", ".bash"))
+                    for value in arguments
+                ):
+                    return True
+            elif launcher == "cmd":
+                if any(value.casefold() in {"/c", "/k"} for value in arguments):
+                    return True
+                if any(value.casefold().endswith((".cmd", ".bat")) for value in arguments):
+                    return True
+            elif launcher in {"powershell", "pwsh"}:
+                if any(
+                    value.casefold() in {"-c", "-command", "-file", "-encodedcommand"}
+                    for value in arguments
+                ):
+                    return True
+                if any(value.casefold().endswith(".ps1") for value in arguments):
+                    return True
+    return False
+
+
+def _metadata_contains_command_shape(
+    value: str,
+    command_names: frozenset[str],
+) -> bool:
+    """Recognize commands in normalized host metadata without banning prose.
+
+    A product mention such as ``ai-dememory tool`` is descriptive prose.  A bare
+    launcher followed by a command derived from the CLI source, a source
+    dispatcher, an installer, a mutable runner, or a local Docker build is an
+    executable transport and is forbidden in host metadata.
+    """
+
+    try:
+        tokens = _preferred_shell_tokens(value)
+    except ValueError:
+        # The scalar grammar already rejects quotes and escapes that could make
+        # tokenization ambiguous. Treat any remaining malformed shell form as
+        # non-command prose and let the bounded scalar check be authoritative.
+        return False
+    if _package_installer_command_ends(tokens) or _tokens_contain_mutable_runner(tokens):
+        return True
+    if (
+        _tokens_contain_nested_shell_execution(tokens)
+        or _tokens_contain_source_dispatcher(tokens)
+        or _tokens_execute_internal_python_entrypoint(tokens)
+        or _tokens_build_source_docker_image(tokens)
+        or _tokens_install_local_source(tokens)
+    ):
+        return True
+    for segment in _shell_segments(tokens)[0]:
+        for index, argument in enumerate(segment):
+            launcher = _launcher_name(argument)
+            if launcher == "ai_dememory.py":
+                return True
+            if launcher != "ai-dememory":
+                continue
+            command_index = _metadata_cli_command_index(segment, index + 1, command_names)
+            if command_index is not None:
+                return True
+    return False
+
+
+def _public_skill_metadata_command_errors(
+    values: dict[str, str],
+    relative: str,
+    command_names: frozenset[str],
+    *,
+    surface: str,
+) -> list[str]:
+    """Keep host-visible public metadata out of every command transport."""
+
+    errors: list[str] = []
+    for key, value in values.items():
+        normalized = " ".join(value.split())
+        if key == "name" and normalized.casefold() == "ai-dememory":
+            continue
+        if _metadata_contains_command_shape(normalized, command_names):
+            errors.append(
+                f"{relative}: {surface} {key!r} must not include an executable command"
+            )
+    return errors
+
+
+def _public_agent_skill_token_command_errors(
+    values: dict[str, str],
+    relative: str,
+    command_names: frozenset[str],
+) -> list[str]:
+    """Allow the agent skill token itself, but never a CLI continuation of it."""
+
+    value = values.get("default_prompt")
+    if value is None:
+        return []
+    try:
+        tokens = _preferred_shell_tokens(value)
+    except ValueError:
+        return []
+    for segment in _shell_segments(tokens)[0]:
+        for index, token in enumerate(segment):
+            if token.casefold() != "$ai-dememory":
+                continue
+            if _metadata_cli_command_index(segment, index + 1, command_names) is not None:
+                return [
+                    f"{relative}: public agent YAML 'default_prompt' must not turn the "
+                    "$ai-dememory skill token into a CLI command"
+                ]
+    return []
+
+
+def _public_agent_skill_yaml_errors(
+    relative: str,
+    text: str,
+    command_names: frozenset[str],
+) -> list[str]:
+    """Validate the only supported standalone public agent YAML surface.
+
+    Agent metadata is host-visible, not a command channel. Unknown YAML files
+    are rejected instead of accepting another YAML dialect that could change a
+    quoted or folded value after this guard has inspected its raw spelling.
+    """
+
+    schema = PUBLIC_AGENT_SKILL_YAML_SCHEMAS.get(relative)
+    if schema is None:
+        return [f"{relative}: public skill YAML is not an explicitly supported schema"]
+
+    lines = text.splitlines()
+    errors: list[str] = []
+    if not lines or lines[0] != "interface:":
+        return [f"{relative}: public agent YAML must begin with the interface mapping"]
+    expected_fields = schema["interface"]
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(lines[1:], start=2):
+        if not line:
+            errors.append(f"{relative}:{line_number}: public agent YAML must not contain blank lines")
+            continue
+        match = re.fullmatch(
+            r"  (?P<key>[A-Za-z][A-Za-z0-9_-]*):[ \t]+(?P<value>\S.*)", line
+        )
+        if match is None:
+            errors.append(
+                f"{relative}:{line_number}: public agent YAML must use a simple "
+                "single-line interface scalar"
+            )
+            continue
+        key = match.group("key")
+        if key not in expected_fields:
+            errors.append(f"{relative}:{line_number}: public agent YAML field {key!r} is not allowed")
+            continue
+        if key in values:
+            errors.append(f"{relative}:{line_number}: public agent YAML field {key!r} is duplicated")
+            continue
+        value = _public_skill_frontmatter_scalar(
+            relative,
+            line_number,
+            key,
+            match.group("value"),
+            errors,
+            surface="public agent YAML",
+            allow_literal_skill_token=key == "default_prompt",
+        )
+        if value is not None:
+            values[key] = value
+
+    for key in expected_fields:
+        if key not in values:
+            errors.append(f"{relative}: public agent YAML is missing {key!r}")
+    return (
+        errors
+        + _public_skill_metadata_command_errors(
+            values,
+            relative,
+            command_names,
+            surface="public agent YAML",
+        )
+        + _public_agent_skill_token_command_errors(values, relative, command_names)
+    )
+
+
+def _is_explicit_maintainer_source_section(
+    text: str,
+    line_number: int,
+    label: str,
+) -> bool:
+    """Allow only the reviewed source-diagnostic sections of known user docs."""
+
+    allowed_titles = PENDING_SOURCE_MAINTAINER_SECTION_TITLES.get(label, ())
+    if not allowed_titles:
+        return False
+    headings: list[tuple[int, int, str]] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        match = re.fullmatch(r"(?P<marks>#{1,6})[ \t]+(?P<title>.*?)[ \t]*#*", line)
+        if match is not None:
+            headings.append((index, len(match.group("marks")), match.group("title")))
+
+    for index, level, title in headings:
+        if title not in allowed_titles or index > line_number:
+            continue
+        end = next(
+            (
+                later_index
+                for later_index, later_level, _ in headings
+                if later_index > index and later_level <= level
+            ),
+            len(text.splitlines()) + 1,
+        )
+        if index < line_number < end:
+            return True
+    return False
+
+
+def _pending_source_execution_errors(
+    text: str,
+    stable_version: str,
+    source_version: str,
+    label: str,
+    *,
+    allow_explicit_maintainer_sections: bool,
+) -> list[str]:
+    """Keep release-pending user guidance on the published compatibility route."""
+
+    if _release_pending_contract(stable_version, source_version) is None:
+        return []
+
+    errors: list[str] = []
+    for line_number, command, _, _ in _executable_command_entries(text):
+        try:
+            tokens = _preferred_shell_tokens(command)
+        except ValueError:
+            continue
+        source_segments = _source_execution_segments(tokens)
+        source_dispatcher = any(
+            _tokens_contain_source_dispatcher(segment) for segment in source_segments
+        )
+        local_docker_build = any(
+            _tokens_build_source_docker_image(segment) for segment in source_segments
+        )
+        local_source_install = any(
+            _tokens_install_local_source(segment) for segment in source_segments
+        )
+        if not source_dispatcher and not local_docker_build and not local_source_install:
+            continue
+        if allow_explicit_maintainer_sections and _is_explicit_maintainer_source_section(
+            text, line_number, label
+        ):
+            continue
+        if source_dispatcher:
+            route = "source dispatcher"
+        elif local_docker_build:
+            route = "source Docker build"
+        else:
+            route = "local source install"
+        errors.append(
+            f"{label}:{line_number}: release-pending user guidance must not execute a {route}; "
+            "use the published compatibility route or move the recipe below an explicit "
+            "Maintainer-only/Maintainer: Source Checkout heading"
+        )
+    return errors
+
+
+def audit_public_skill_guides(
+    repo_root: Path,
+    stable_version: str,
+    source_version: str,
+) -> list[str]:
+    """Audit every checked-in public skill instruction surface.
+
+    Public skills are often copied into an agent without the surrounding
+    documentation site, so they cannot rely on site-only release validation.
+    Discover text files below each public skill root rather than maintaining a
+    partial allowlist; the two first-run guides additionally require commands
+    derived from the active stable/pending release contract.
+    """
+
+    errors: list[str] = []
+    discovered: set[str] = set()
+    required_commands = public_skill_guide_required_commands(
+        stable_version, source_version
+    )
+    command_names, command_namespace_errors = _public_skill_cli_command_names()
+    errors.extend(command_namespace_errors)
+    for relative_root in PUBLIC_SKILL_GUIDE_ROOTS:
+        root = repo_root / relative_root
+        if not root.is_dir():
+            errors.append(f"{relative_root.as_posix()}: public skill guide root is missing")
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix.casefold() not in PUBLIC_SKILL_GUIDE_SUFFIXES:
+                continue
+            relative = path.relative_to(repo_root).as_posix()
+            discovered.add(relative)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                errors.append(f"{relative}: public skill guide must be UTF-8 text")
+                continue
+            if source_version == stable_version and "--require-version" in text:
+                errors.append(
+                    f"{relative}: stable public skill guidance must not retain "
+                    "--require-version"
+                )
+            if relative.endswith(".md"):
+                frontmatter, body, frontmatter_errors = _public_skill_frontmatter(relative, text)
+                errors.extend(frontmatter_errors)
+                errors.extend(
+                    _public_skill_metadata_command_errors(
+                        frontmatter,
+                        relative,
+                        command_names,
+                        surface="public skill frontmatter",
+                    )
+                )
+                text = body
+            elif path.suffix.casefold() in {".yaml", ".yml"}:
+                errors.extend(_public_agent_skill_yaml_errors(relative, text, command_names))
+                continue
+            elif path.suffix.casefold() == ".json":
+                errors.append(
+                    f"{relative}: public skill JSON is not an explicitly supported schema"
+                )
+                continue
+            errors.extend(
+                _pending_source_execution_errors(
+                    text,
+                    stable_version,
+                    source_version,
+                    relative,
+                    allow_explicit_maintainer_sections=False,
+                )
+            )
+            errors.extend(
+                _stable_command_errors(
+                    text,
+                    stable_version,
+                    relative,
+                    source_version=source_version,
+                    required_executable_commands=required_commands.get(relative, ()),
+                )
+            )
+    for relative in sorted(required_commands):
+        if relative not in discovered:
+            errors.append(f"{relative}: required public first-run skill guide is missing")
     return errors
 
 
@@ -2913,20 +3889,23 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     project = metadata["project"]
     source_version = str(project["version"])
     requires_python = str(project["requires-python"])
-    if len(ACTIVE_PRERELEASE_CONTRACTS) != 1:
-        errors.append(
-            "docs site guard: exactly one active TestPyPI prerelease contract is required"
-        )
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
     stable_match = re.search(r"Current release line: `ai-dememory` ([0-9]+(?:\.[0-9]+){2})", readme)
     if not stable_match:
         errors.append("README.md: current release line is not machine-readable")
         return
     stable_version = stable_match.group(1)
+    errors.extend(_release_contract_errors(stable_version, source_version))
+    pending_contract = _release_pending_contract(stable_version, source_version)
     stable_contract = STABLE_RELEASE_CONTRACTS.get(stable_version)
     if stable_contract is not None:
         for relative in STABLE_INSTALL_DOCS:
             text = (repo_root / relative).read_text(encoding="utf-8")
+            if source_version == stable_version and "--require-version" in text:
+                errors.append(
+                    f"{relative}: stable installation documentation must not retain "
+                    "--require-version"
+                )
             errors.extend(
                 _stable_command_errors(
                     text,
@@ -2939,6 +3918,18 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                     require_explicit_mcp_root=relative in EXPLICIT_ROOT_MCP_DOCS,
                 )
             )
+            errors.extend(
+                _pending_source_execution_errors(
+                    text,
+                    stable_version,
+                    source_version,
+                    relative,
+                    allow_explicit_maintainer_sections=True,
+                )
+            )
+        errors.extend(
+            audit_public_skill_guides(repo_root, stable_version, source_version)
+        )
     development_status = (repo_root / "docs" / "development-status.md").read_text(
         encoding="utf-8"
     )
@@ -2959,6 +3950,19 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 "docs/development-status.md: current prerelease "
                 f"{prerelease_version} is still described as untagged or unpublished"
             )
+    for prerelease_version, prerelease_contract in HISTORICAL_PRERELEASE_CONTRACTS.items():
+        for evidence in prerelease_contract["status_evidence"]:
+            if evidence not in development_status:
+                errors.append(
+                    "docs/development-status.md: historical prerelease "
+                    f"{prerelease_version} is missing release evidence {evidence!r}"
+                )
+        marker = str(prerelease_contract["status_marker"])
+        if marker not in normalized_status:
+            errors.append(
+                "docs/development-status.md: historical prerelease "
+                f"{prerelease_version} must be explicitly labelled {marker!r}"
+            )
     scope_markers = release_scope_markers(stable_version, source_version)
     for relative in RELEASE_SCOPE_DOCS:
         # Markdown prose may wrap a release sentence across physical lines.
@@ -2968,7 +3972,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             (repo_root / relative).read_text(encoding="utf-8").lower().split()
         ).replace("`", "")
         for marker in scope_markers:
-            if marker not in scope_text:
+            if marker.casefold() not in scope_text:
                 errors.append(f"{relative}: release capability scope is missing {marker!r}")
 
     install = (site_root / "install/index.html").read_text(encoding="utf-8")
@@ -2980,7 +3984,7 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         (f"pipx install --force ai-dememory=={stable_version}", "exact stable upgrade command"),
         (
             f"ai-dememory init ~/code/my-memory --wizard --require-version {stable_version}",
-            "legacy wizard-first vault command",
+            "published compatibility wizard-first vault command",
         ),
         (
             "ai-dememory --root ~/code/my-memory mcp-config --client codex",
@@ -2988,9 +3992,9 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         ),
         ("complete historical MCP surface", "admin compatibility warning"),
     ]
-    # The one current TestPyPI route remains visible and copyable after source
-    # moves on. A future source candidate is a separate status claim, never an
-    # implied package installation route.
+    # An active TestPyPI route is visible only while the checked-out source is
+    # not the documented stable line. A future source candidate is a separate
+    # status claim, never an implied package installation route.
     for prerelease_contract in ACTIVE_PRERELEASE_CONTRACTS.values():
         install_expectations.extend(
             [
@@ -3006,8 +4010,14 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 ),
             ]
         )
+    if pending_contract is not None:
+        install_expectations.extend(
+            (marker, "release-pending source truth marker")
+            for marker in pending_contract["scope_markers"]
+        )
     source_is_unreleased_candidate = (
         source_version != stable_version
+        and pending_contract is None
         and source_version not in ACTIVE_PRERELEASE_CONTRACTS
     )
     if source_is_unreleased_candidate:
@@ -3029,9 +4039,15 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
     else:
         release_blocks: dict[str, list[str]] = {}
         release_block_texts: dict[str, list[str]] = {}
+        published_label = _published_release_label(stable_version, source_version)
         for page in site_root.rglob("*.html"):
             document = _parse_page(page)
             page_label = page.relative_to(site_root).as_posix()
+            if source_version == stable_version and "--require-version" in document.auditable_text:
+                errors.append(
+                    f"site/{page_label}: stable visible documentation must not retain "
+                    "--require-version"
+                )
             errors.extend(
                 f"site/{page_label}: {violation}"
                 for violation in document.release_block_violations
@@ -3056,27 +4072,35 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 release_block_texts.setdefault(release, []).extend(
                     "".join(block) for block in blocks
                 )
-            page_stable_blocks = [
+            if pending_contract is not None and page_label in {"index.html", "install/index.html"}:
+                page_text = " ".join(document.auditable_text.casefold().split())
+                for marker in release_scope_markers(stable_version, source_version):
+                    normalized_marker = " ".join(marker.casefold().split())
+                    if normalized_marker not in page_text:
+                        errors.append(
+                            f"site/{page_label}: release-pending source truth marker is missing "
+                            f"{marker!r}"
+                        )
+            page_published_blocks = [
                 "".join(block)
                 for block in document.release_block_texts.get(
-                    f"stable-{stable_version}", []
+                    published_label, []
                 )
             ]
-            page_stable_text = "\n".join(page_stable_blocks)
+            page_published_text = "\n".join(page_published_blocks)
             required_page_commands = SITE_PAGE_REQUIRED_COMMANDS.get(page_label, ())
             if required_page_commands:
                 errors.extend(
                     _stable_command_errors(
-                        page_stable_text,
+                        page_published_text,
                         stable_version,
                         f"site/{page_label}",
                         source_version=source_version,
                         required_executable_commands=required_page_commands,
                     )
                 )
-        stable_label = f"stable-{stable_version}"
         known_release_labels = {
-            stable_label,
+            published_label,
             *(
                 f"source-{prerelease_version}"
                 for prerelease_version in ACTIVE_PRERELEASE_CONTRACTS
@@ -3087,24 +4111,24 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
                 errors.append(
                     f"site: copyable command block uses an unknown release marker {release!r}"
                 )
-        stable_text = "\n".join(release_blocks.get(stable_label, []))
-        stable_commands = {
+        published_text = "\n".join(release_blocks.get(published_label, []))
+        published_commands = {
             command
-            for block in release_block_texts.get(stable_label, [])
+            for block in release_block_texts.get(published_label, [])
             for command in _executable_command_lines(block)
         }
-        if not stable_text:
-            errors.append(f"site: no command block is labelled {stable_label!r}")
+        if not published_text:
+            errors.append(f"site: no command block is labelled {published_label!r}")
         for command in contract["required"]:
-            if command not in stable_commands:
-                errors.append(f"site: stable {stable_version} command block is missing {command!r}")
+            if command not in published_commands:
+                errors.append(f"site: published {stable_version} command block is missing {command!r}")
         for command in REQUIRED_COMMANDS:
-            if command not in stable_commands:
+            if command not in published_commands:
                 errors.append(f"site: required first-run command is missing: {command!r}")
         for marker in contract["source_only"]:
-            if marker in stable_commands:
-                errors.append(f"site: stable {stable_version} command block contains source-only marker {marker!r}")
-        for block in release_block_texts.get(stable_label, []):
+            if marker in published_commands:
+                errors.append(f"site: published {stable_version} command block contains source-only marker {marker!r}")
+        for block in release_block_texts.get(published_label, []):
             literal_commands = tuple(
                 line.strip() for line in block.splitlines() if line.strip()
             )
@@ -3115,10 +4139,10 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
             )
             if unapproved_commands:
                 errors.append(
-                    f"site: stable {stable_version} command block contains an unapproved literal command: "
+                    f"site: published {stable_version} command block contains an unapproved literal command: "
                     f"{unapproved_commands!r}"
                 )
-            errors.extend(_stable_command_errors(block, stable_version, "site stable block"))
+            errors.extend(_stable_command_errors(block, stable_version, "site published block"))
 
         # The one current, immutable TestPyPI prerelease owns a copyable
         # command block. An untagged source candidate cannot add another one.
