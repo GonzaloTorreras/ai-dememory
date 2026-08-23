@@ -6,11 +6,11 @@ create a separate private vault, generate a fragment, and copy it into the
 client yourself. A source checkout may be a development working directory, but
 it must never be the vault.
 
-Published stable 2.1.0 is the current PyPI release. TestPyPI prerelease 2.1.1rc1
-is an evaluation route only. The stable generated configuration keeps its
-historical runtime pin; the prerelease removes that emitted pin. Source
-candidate 2.1.1rc2 is unreleased and cannot be installed from a package index
-yet, so it does not replace the documented TestPyPI route.
+Published stable 2.1.0 is the current PyPI release. TestPyPI prerelease
+`2.1.1rc2` is the current evaluation route only. The stable generated
+configuration keeps its historical runtime pin; the prerelease removes that
+emitted pin. The earlier `2.1.1rc1` prerelease is historical evidence, not a
+second recommended route.
 
 ## Generate, Do Not Hand Assemble
 
@@ -22,7 +22,7 @@ ai-dememory init ~/code/my-memory --wizard --require-version 2.1.0
 ai-dememory --root ~/code/my-memory mcp-config --client codex
 ```
 
-For TestPyPI 2.1.1rc1, the first command becomes
+For TestPyPI `2.1.1rc2`, the first command becomes
 `ai-dememory init ~/code/my-memory --wizard` after its exact evaluation install
 from [Installation](install.md). Do not substitute that prerelease route for
 the published PyPI installation.

@@ -12,11 +12,10 @@ references to a shorter `ai-dememory <command>` assume that same private-vault
 binding. Source-checkout commands are confined to the maintainer section below.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. TestPyPI prerelease 2.1.1rc1 is an evaluation route, not a PyPI stable
-release. The prerelease keeps the same bounded profiles and idle leases while
-removing the generated compatibility pin. Source candidate 2.1.1rc2 is
-unreleased and not installable from a package index; it does not alter the
-published operational commands below.
+PyPI. TestPyPI prerelease `2.1.1rc2` is the current evaluation route, not a
+PyPI stable release. It keeps the same bounded profiles and idle leases while
+removing the generated compatibility pin. `2.1.1rc1` remains historical release
+evidence; it does not create a second set of published operational commands.
 
 ## After Installing Exact 2.1.0
 

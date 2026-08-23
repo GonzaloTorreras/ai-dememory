@@ -4,10 +4,9 @@ This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
 **Release scope:** Published stable 2.1.0 is the only package available from
-PyPI. TestPyPI prerelease 2.1.1rc1 is a tagged evaluation route, not a PyPI
-stable release. Source candidate 2.1.1rc2 is unreleased and not installable
-from a package index until it is tagged and published. This guide keeps all
-three states distinct.
+PyPI. TestPyPI prerelease 2.1.1rc2 is the current tagged evaluation route, not
+a PyPI stable release. TestPyPI prerelease 2.1.1rc1 remains historical release
+evidence rather than a second recommended installation path.
 
 ## Published Stable 2.1.0: Legacy First Run
 
@@ -29,14 +28,14 @@ not an installation prerequisite.
 `uv tool install ai-dememory==2.1.0`. On Windows, use a private path such as
 `D:\Memory\my-vault`.
 
-## TestPyPI Prerelease 2.1.1rc1: Wizard-First Evaluation
+## TestPyPI Prerelease 2.1.1rc2: Wizard-First Evaluation
 
-The reviewed TestPyPI prerelease removes the persistent `--require-version`
-pin from new setup and MCP configuration. In an isolated Python environment,
-install the exact prerelease and then run the wizard:
+The current reviewed TestPyPI prerelease removes the persistent
+`--require-version` pin from new setup and MCP configuration. In an isolated
+Python environment, install the exact prerelease and then run the wizard:
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
+python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
 ai-dememory init ~/code/my-memory --wizard
 ```
 
@@ -48,12 +47,9 @@ client configuration. `balanced` is the recommended first-run intensity.
 This is an explicit TestPyPI evaluation route, not a PyPI stable upgrade. The
 next stable release will provide its own immutable package command.
 
-## Current Source Candidate 2.1.1rc2: Not Installable Yet
-
-The checked-out source includes follow-up onboarding and documentation work.
-It is neither a replacement for the published 2.1.1rc1 evaluation package nor
-a third install command. Wait for its own immutable tag, TestPyPI publication,
-and exact-index readback before treating it as an evaluation route.
+The earlier 2.1.1rc1 TestPyPI prerelease remains an immutable historical
+artifact. New evaluations should use the later rc2 route above, so the wizard
+is still the only first-run action presented here.
 
 ## Connect An AI Client (Optional)
 

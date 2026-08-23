@@ -22,11 +22,11 @@ precedence over the environment.
 | A local dashboard or script that can call loopback HTTP without a cross-origin browser request | This loopback REST API |
 | No local HTTP consumer | Skip the API entirely |
 
-The current unreleased 2.1.1rc2 source line's operational wizard may show the
-API command as an optional next action for dashboards and scripts. It never
-starts a server, edits a client configuration, or creates a schedule for it.
-That source candidate is not an additional package-install route: use a
-published package before following this guide.
+The current TestPyPI `2.1.1rc2` evaluation package's operational wizard may
+show the API command as an optional next action for dashboards and scripts. It
+never starts a server, edits a client configuration, or creates a schedule for
+it. Follow the published stable or current TestPyPI route in the installation
+guide before using this guide; the API is not an additional install path.
 
 The API serves JSON only and emits no CORS headers, so a browser page served
 from another origin cannot call it directly. An advanced local UI can use a

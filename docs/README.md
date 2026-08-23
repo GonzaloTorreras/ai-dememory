@@ -13,8 +13,8 @@ reading source-checkout or release procedures.
 ## Install And Start A Vault
 
 - [Install](install.md): the stable 2.1.0 path, the published TestPyPI
-  2.1.1rc1 evaluation path, and the current 2.1.1rc2 source candidate's
-  explicit non-installable status, plus the wizard and bounded intensities.
+  2.1.1rc2 evaluation path, plus the wizard and bounded intensities. The
+  earlier 2.1.1rc1 prerelease remains historical release evidence.
 - [Create a memory repository](create-memory-repo.md): create a reusable
   private GitHub vault template when one local vault is not enough.
 - [Operations](operations.md): diagnose, upgrade, maintain, and recover an
@@ -27,7 +27,7 @@ reading source-checkout or release procedures.
 - [MCP client configuration](mcp-client-config.md): inspectable configuration
   for Codex, Claude, and generic clients.
 - [Local REST API](local-api.md): optional loopback HTTP for a local script or
-  dashboard. The current unreleased 2.1.1rc2 source line may suggest it after
+  dashboard. The current published 2.1.1rc2 prerelease may suggest it after
   the wizard; start it manually with `ai-dememory --root ~/code/my-memory api`.
   It runs in the foreground and is not started automatically.
 - [Hooks](hooks.md) and [scheduler](scheduler.md): optional, trust-gated local

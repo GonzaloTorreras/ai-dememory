@@ -33,8 +33,8 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Release line: 2.1.0</span>
-            <span>TestPyPI prerelease: 2.1.1rc1</span>
-            <span>Source candidate: 2.1.1rc2, unreleased</span>
+            <span>TestPyPI prerelease: 2.1.1rc2</span>
+            <span>Earlier prerelease: 2.1.1rc1</span>
           </div>
         </div>
       </header>
@@ -44,7 +44,7 @@
           <strong>On this page</strong>
           <a href="#install-tool">Install published 2.1.0</a>
           <a href="#create-vault">Use the stable wizard</a>
-          <a href="#candidate">See the TestPyPI prerelease</a>
+          <a href="#candidate">See the current TestPyPI prerelease</a>
           <a href="#choose-intensity">Choose a prerelease intensity</a>
           <a href="#connect-client">Connect a client (optional)</a>
           <a href="#upgrade">Update or diagnose</a>
@@ -81,14 +81,14 @@
           </section>
 
           <section class="content-section" id="candidate">
-            <h2>3. TestPyPI prerelease 2.1.1rc1: the simplified wizard</h2>
-            <p>TestPyPI prerelease 2.1.1rc1 is available for evaluation. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
-            <div class="code-block" data-copy-block data-release="source-2.1.1rc1">
-              <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc1
+            <h2>3. TestPyPI prerelease 2.1.1rc2: the simplified wizard</h2>
+            <p>TestPyPI prerelease 2.1.1rc2 is available for evaluation. It removes the persistent compatibility pin from new setup and generated configuration; it does not loosen vault binding, profiles, allowlists, or idle leases.</p>
+            <div class="code-block" data-copy-block data-release="source-2.1.1rc2">
+              <pre tabindex="0"><code>python -m pip install --index-url https://test.pypi.org/simple/ ai-dememory==2.1.1rc2
 ai-dememory init ~/code/my-memory --wizard</code></pre>
             </div>
             <p>Use an isolated virtual environment for this TestPyPI evaluation. It is an explicit evaluation route, not a PyPI stable upgrade; its immutable tag, package build, and exact-index installation have already been verified.</p>
-            <p>The checked-out 2.1.1rc2 source candidate is unreleased. It is not installable from a package index until it is tagged and published, so this page deliberately keeps the verified 2.1.1rc1 package command above.</p>
+            <p>The earlier 2.1.1rc1 prerelease remains historical evidence. It is not a second recommended installation path, so this page keeps one current TestPyPI package command.</p>
           </section>
 
           <section class="content-section" id="choose-intensity">

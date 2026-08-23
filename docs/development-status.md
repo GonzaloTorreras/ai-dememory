@@ -16,13 +16,15 @@ reproducible evidence changes.
   `f43e55d824e7b085b5a7f8518e6dad9d5ddaef99`
 - Current published stable release line in user documentation: `2.1.0` on
   PyPI.
-- Current prerelease: `v2.1.1rc1`, an annotated tag resolving to
-  `a5140a81e4d153c8e7f41b0f2a88649030942c51` and published on
-  [TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.1rc1/). It is an
-  evaluation route, not a stable PyPI release.
-- Current source candidate: `2.1.1rc2` in the repository source. It is
-  untagged and unpublished; it must not be presented as an installable package
-  or as the immutable `v2.1.1rc1` release artifact.
+- Current prerelease: [`v2.1.1rc2`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2),
+  an annotated tag whose peeled ref resolves to
+  `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is published on
+  [TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.1rc2/) through the
+  successful canonical release
+  [workflow 32647839323](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647839323).
+  It is the current evaluation route, not a stable PyPI release.
+- `v2.1.1rc1` remains historical prerelease evidence, not a second recommended
+  installation route.
 - Python 3.11+ remains the only headless runtime. Node is not an installation
   or background-process dependency.
 - The former private checkout is historical input only. Private vaults,
@@ -36,9 +38,9 @@ file does not substitute for the exact checks required by a later stable release
 
 ## Current Maintenance Correction
 
-The published `2.1.1rc1` release candidate corrected an unintended 2.1.0
-compatibility contract without changing the V3 execution DAG. The current
-`2.1.1rc2` source candidate is a separate, untagged follow-up for its local
+The earlier `2.1.1rc1` release candidate corrected an unintended 2.1.0
+compatibility contract without changing the V3 execution DAG. The published
+`2.1.1rc2` TestPyPI prerelease is the current evaluation artifact for its local
 API onboarding hint and documentation boundaries.
 
 - Planning mapping: compatible maintenance remediation of completed `BRG-014`
@@ -50,18 +52,17 @@ API onboarding hint and documentation boundaries.
   defaults omit the pin. Legacy configuration that still contains it is accepted
   as a no-op. `version-check` remains an explicit CI/support diagnostic.
 - Release coupling: `2.1.0` remains the published stable PyPI package and
-  retains its historical explicit wizard version flag. `2.1.1rc1` is the
+  retains its historical explicit wizard version flag. `2.1.1rc2` is the
   immutable TestPyPI-only evaluation prerelease with the new wizard-first
-  command. `2.1.1rc2` is an unpublished source candidate, not a substitute
-  package command. The documentation and static site keep all three states
-  separate.
+  command; `2.1.1rc1` remains historical evidence. The documentation and static
+  site keep the stable and current prerelease routes distinct.
 - Prerelease first-run UX: `ai-dememory init ~/code/my-memory --wizard` after
   installing the exact TestPyPI prerelease. Client configuration remains an
   optional, inspect-before-copy action.
-- Source-only follow-up: after a completed operational wizard, the current
-  candidate may suggest the optional foreground loopback API command for a
-  dashboard or script. It does not start, install, configure, or schedule the
-  API.
+- Current-prerelease follow-up: after a completed operational wizard, the
+  current evaluation package may suggest the optional foreground loopback API
+  command for a dashboard or script. It does not start, install, configure, or
+  schedule the API.
 - Preserved safeguards: explicit vault binding, `--require-bound-root`,
   server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
   and bounded resource policy.
@@ -167,6 +168,23 @@ API onboarding hint and documentation boundaries.
 
 ## Verified Release Evidence
 
+- PR [#42](https://github.com/GonzaloTorreras/ai-dememory/pull/42) was merged
+  at `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce` after release documentation
+  truth was decoupled from the immutable package long description.
+- The exact `main` CI run
+  [32646728226](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32646728226)
+  passed for `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`.
+- The protected tag workflow
+  [32647689405](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647689405)
+  created annotated `v2.1.1rc2` and verified its exact peeled commit.
+- The canonical release workflow
+  [32647839323](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647839323)
+  passed validation, artifact build/checksums/attestation, TestPyPI publication,
+  exact-version index installation, and immutable GitHub prerelease creation.
+- The immutable GitHub prerelease
+  [v2.1.1rc2](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2)
+  is published with wheel, source distribution, release notes, and SHA256SUMS.
+- The following `rc1` evidence is retained as historical release record.
 - PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21) was merged
   after a fresh independent exact-head compatibility/security review found no
   actionable P0/P1/P2 issue. Root binding, `--require-bound-root`,
@@ -191,8 +209,9 @@ API onboarding hint and documentation boundaries.
 - The immutable GitHub prerelease
   [v2.1.1rc1](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc1)
   is published with wheel, source distribution, release notes, and SHA256SUMS.
-- No stable PyPI publication, Pages deployment, vault mutation, or host
-  configuration write was performed by this maintenance correction.
+- The RC2 workflow intentionally skipped stable PyPI publication. No Pages
+  deployment, vault mutation, or host configuration write was performed by
+  this maintenance correction.
 
 ## Resolved Historical Drift
 
@@ -204,13 +223,13 @@ remain intact.
 
 ## Next Legal Action
 
-1. Keep 2.1.0 stable PyPI instructions, the published `2.1.1rc1` TestPyPI
-   evaluation route, and the untagged `2.1.1rc2` source candidate distinct.
-   Do not silently replace a package route with source behavior.
-2. Before any later rc2 package release, obtain a fresh exact-head review and
-   green CI, then require separate exact-tag authorization, publication
-   authorization, and external readback. A stable `2.1.1` source version is a
-   separate decision after that evidence.
+1. Keep 2.1.0 as the stable PyPI route and `2.1.1rc2` as the single current
+   TestPyPI evaluation route. Retain `2.1.1rc1` as historical evidence; do not
+   silently replace a package route with mutable source behavior.
+2. Prepare and decide whether to promote stable `2.1.1` without publishing it
+   as part of this documentation update. Before any stable release, obtain a
+   fresh exact-head review and green CI, then require separate exact-tag
+   authorization, publication authorization, and external readback.
 3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
 4. Continue `BRG-003` with the remaining strict-resolver inventory and
