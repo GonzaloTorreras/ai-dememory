@@ -40,4 +40,3 @@ ai_dememory_tool = [
   "templates/vault/.ai-dememory-ignore.toml",
   "templates/vault/.gitignore",
 ]
-
