@@ -31,7 +31,9 @@ remains the current published stable PyPI release.
 - Require a deterministic, explicitly bound vault for MCP runtime, local API,
   hooks, setup/onboarding, maintenance and provider commands. Empty bindings
   and implicit checkout fallbacks now fail closed; intentional rootless
-  diagnostics remain read-only.
+  diagnostics remain read-only. Clients that previously relied on a CWD or an
+  empty root must pass an explicit absolute `--root` or `AI_DEMEMORY_ROOT`;
+  existing deliberate bindings remain compatible.
 - Bind configuration and review-state reads and writes to that vault root.
   External paths, symlinks/junctions, hard links, unstable file identity,
   descriptor replacement, non-regular input, oversized input and invalid UTF-8
