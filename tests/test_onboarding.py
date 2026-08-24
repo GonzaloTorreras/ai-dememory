@@ -516,7 +516,9 @@ class OnboardingTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(config_exists)
-        save_default.assert_called_once_with(root)
+        # The runtime resolver normalizes aliases such as macOS /var and the
+        # Windows short temp path before selecting the vault.
+        save_default.assert_called_once_with(root.resolve())
         self.assertIn("stores only its absolute path", output.getvalue())
         self.assertIn("Local default vault recorded", output.getvalue())
 
