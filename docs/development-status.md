@@ -189,13 +189,17 @@ This compatible `BRG-003` / `B04b` correction is prepared on
   ceilings, host-AI policy, schedule boundary, and review-first Stop proposals.
   It keeps durable personal onboarding separate and offers the local selector
   only after a successful apply with an explicit `[y/N]` decision.
+- A test-only portability follow-up verifies the canonical selected path rather
+  than a platform alias of the temporary directory. This preserves the intended
+  runtime behavior on macOS `/var` and Windows short-path aliases.
 - Source metadata and public documentation call this `2.1.2` an unreleased
   candidate. Stable `2.1.1` remains the only published PyPI/GitHub install
   route until a new tag, package publication, and external readback complete.
-- Local evidence before commit: `python -B -m unittest discover -s tests -t .`
-  completed with 929 passing tests and 59 expected skips; the documentation
-  guard, static Pages validation tests, targeted MCP checks, visual QA, and a
-  fresh security review passed. After the candidate commit,
+- Local evidence before this handoff-only status update:
+  `python -B -m unittest discover -s tests -t .` completed with 929 passing
+  tests and 59 expected skips; the documentation guard, static Pages validation
+  tests, targeted MCP checks, visual QA, and a fresh security review passed.
+  After the candidate commit,
   `pages_artifact_guard.py` passed against its tracked, blob-matched `site/`
   tree. The candidate still requires CI on its PR.
 
