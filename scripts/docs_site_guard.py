@@ -139,7 +139,15 @@ STABLE_RELEASE_CONTRACTS = {
 # opt-in that binds the source to one already-published compatibility route.
 # In particular, a future pending entry never grants a package command for the
 # pending source version.
-RELEASE_PENDING_CONTRACTS: dict[str, dict[str, object]] = {}
+RELEASE_PENDING_CONTRACTS: dict[str, dict[str, object]] = {
+    "2.1.2": {
+        "published_version": "2.1.1",
+        "scope_markers": (
+            "Source candidate: 2.1.2, unreleased",
+            "not installable from a package index until it is tagged and published",
+        ),
+    },
+}
 
 # A pending source has no active TestPyPI package route. A future candidate may
 # add exactly one reviewed contract only after its immutable tag, release

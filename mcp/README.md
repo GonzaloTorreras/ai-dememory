@@ -247,6 +247,11 @@ python3 scripts/mcp_inventory.py --check-docs
 python3 mcp/server/memory_mcp.py --root ~/code/my-memory --require-bound-root --call memory.search --args '{"query":"codex","limit":3}'
 ```
 
-Only `--list-tools` is rootless static metadata. Direct `--call` and `--stdio`
-runtime sessions need `--root <private-vault>` or `AI_DEMEMORY_ROOT`; they do
-not discover a vault from the current directory or this public checkout.
+Only `--list-tools` is rootless static metadata. In the unreleased 2.1.2 source
+candidate, direct `--call` and `--stdio` runtime sessions resolve a vault in
+this order: `--root <private-vault>`, `AI_DEMEMORY_ROOT`, then a local default
+deliberately saved with `ai-dememory vault use <absolute-vault-path>`.
+`--require-bound-root` requires one usable binding from that same order. They
+never discover a vault from the current directory or this public checkout. The
+published 2.1.1 package supports the first two bindings only until 2.1.2 is
+released.

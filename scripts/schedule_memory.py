@@ -39,6 +39,12 @@ WEEKDAYS = {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6
 SCHEDULER_COMMAND_TIMEOUT_SECONDS = 60
 SCHEDULE_VERIFICATION_TTL_SECONDS = 300
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SCHEDULE_ROOT_HELP = (
+    "Vault root. Resolution order: --root, "
+    "AI_DEMEMORY_ROOT, then a saved local default selected with `ai-dememory "
+    "vault use <absolute-vault-path>`; `ai-dememory schedule` never uses the "
+    "working directory to discover a vault."
+)
 
 
 @dataclass(frozen=True)
@@ -1560,7 +1566,7 @@ def add_schedule_options(
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help=SCHEDULE_ROOT_HELP)
     parser.add_argument("--command", default="ai-dememory", help="Installed CLI command used by the scheduler.")
     subparsers = parser.add_subparsers(dest="command_name", required=True)
     plan = subparsers.add_parser(
@@ -1608,7 +1614,9 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.error(
             f"schedule {args.command_name} requires an explicit vault binding; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+            "pass --root <vault-path>, set AI_DEMEMORY_ROOT, or invoke "
+            "`ai-dememory schedule` after saving a local default with "
+            "`ai-dememory vault use <absolute-vault-path>`"
         )
     root = repo_root(explicit_root)
     if args.command_name == "plan":

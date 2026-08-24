@@ -41,6 +41,11 @@ MAX_REQUEST_THREADS = 8
 REQUEST_TIMEOUT_SECONDS = 15
 MUTATION_INTENT_HEADER = "X-AI-DeMemory-Intent"
 MUTATION_INTENT_VALUE = "reviewed-local-write"
+RUNTIME_VAULT_ROOT_HELP = (
+    "Vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local "
+    "default selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
+    "uses the working directory to discover a vault."
+)
 
 
 class ApiError(Exception):
@@ -326,7 +331,7 @@ def serve(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--host", default="127.0.0.1", help="Bind host. Defaults to loopback only.")
     parser.add_argument("--port", type=int, default=8765, help="Bind port.")
     parser.add_argument("--api-key", default=None, help="Optional API key. Defaults to AI_DEMEMORY_API_KEY.")

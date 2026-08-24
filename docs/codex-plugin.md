@@ -13,7 +13,9 @@ The plugin bundles skills for setup, recall, inbox review, and maintenance,
 MCP configuration for the installed `ai-dememory` CLI, and optional lifecycle
 hooks for small session-event metadata capture.
 
-**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release. The
+**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
+Source candidate: 2.1.2, unreleased; it is not installable from a package index
+until it is tagged and published. The
 checked-in source/plugin configuration is not a substitute for the published
 package route.
 
@@ -61,11 +63,15 @@ The plugin MCP config launches:
 ai-dememory mcp --stdio --idle-timeout-seconds 600 --profile public --require-bound-root
 ```
 
-The checked-in template deliberately has no private vault path and therefore
-fails closed until the installation binds `AI_DEMEMORY_ROOT`. Run the setup
-wizard, or pass an explicit `--root <vault>` when generating Codex config, then
-install that vault-specific configuration; never point it at the public package
-checkout.
+The checked-in template deliberately has no private vault path. In the
+unreleased 2.1.2 source candidate it resolves a runtime vault in this order:
+an explicit `--root`, `AI_DEMEMORY_ROOT`, then a local default deliberately
+saved with `ai-dememory vault use <absolute-vault-path>`. It never infers a
+vault from the current directory, client project, or public package checkout.
+If none of those bindings is usable, it fails closed. The published 2.1.1
+package supports the first two bindings only until 2.1.2 is released. Generate
+a vault-specific fragment with explicit `--root <vault>` for a configuration
+you will inspect, move, share, or use with more than one vault.
 
 The 600-second idle lease is intentional process hygiene. It lets a completed
 Codex task release an abandoned plugin server even if the host keeps its stdio
@@ -392,10 +398,14 @@ same provider, event, and payload fingerprint reuse the existing inbox file.
 JSON hook payloads use canonical sorted-key fingerprints, while non-JSON
 payloads use raw-text fingerprints.
 
-The checked-in generic hook template deliberately has no vault path, so it
-returns an inert `{}` until an absolute `AI_DEMEMORY_ROOT` is configured.
-Generate a vault-specific fragment to embed an absolute `--root`; stateful hook
-commands never infer a vault from the client project or this source checkout.
+The checked-in generic hook template deliberately has no vault path. In the
+2.1.2 source candidate it can use a local default deliberately saved with
+`ai-dememory vault use <absolute-vault-path>` after `--root` and
+`AI_DEMEMORY_ROOT`; otherwise it returns an inert `{}`. The published 2.1.1
+package requires `AI_DEMEMORY_ROOT` for this generic template. Generate a
+vault-specific fragment to embed an absolute `--root` for portable hook
+configuration. Stateful hook commands never infer a vault from the client
+project, current directory, or this source checkout.
 
 Generate provider hook fragments with:
 

@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from ai_dememory_tool import cli as unified_cli
+from ai_dememory_tool.vault_binding import VaultBinding, VaultBindingError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +82,19 @@ class InteractiveStdin:
 
 
 class OnboardingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Keep rootless setup/onboard tests independent of a developer's local
+        # default-vault selector.
+        self._default_selector_home = tempfile.TemporaryDirectory()
+        self._default_selector_patch = patch.dict(
+            os.environ,
+            {"AI_DEMEMORY_CONFIG_HOME": self._default_selector_home.name},
+            clear=False,
+        )
+        self._default_selector_patch.start()
+        self.addCleanup(self._default_selector_home.cleanup)
+        self.addCleanup(self._default_selector_patch.stop)
+
     def test_preview_is_side_effect_free_and_complete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -372,8 +386,44 @@ class OnboardingTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(prompt.call_count, len(prompted_answers))
+        prompt_text = "\n".join(str(call.args[0]) for call in prompt.call_args_list)
+        self.assertIn("optional reviewed personal baseline", output.getvalue())
+        self.assertIn("Values: principles", output.getvalue())
         self.assertIn("durable baseline only", output.getvalue())
         self.assertIn("--apply --expect-plan-sha256", output.getvalue())
+        self.assertNotIn("Intensity [", prompt_text)
+        self.assertNotIn("Host-AI policy", prompt_text)
+
+    def test_interactive_onboard_retries_each_missing_required_baseline_field(self) -> None:
+        prompted_answers = [
+            "",
+            "Unit Test Reviewer",
+            "",
+            "Prefer clear, safe work.",
+            "",
+            "Run narrow tests first.",
+            "",
+            "Recall reviewed memory.",
+            "",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ) as prompt, redirect_stdout(output):
+                exit_code = onboarding_main(["--root", tmp])
+
+        rendered = output.getvalue()
+        prompt_text = "\n".join(str(call.args[0]) for call in prompt.call_args_list)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(prompt.call_count, len(prompted_answers))
+        self.assertIn("Reviewer name is required", rendered)
+        self.assertIn("Values is required", rendered)
+        self.assertIn("Working preferences is required", rendered)
+        self.assertIn("Recommendations for agents is required", rendered)
+        self.assertIn("plan_sha256:", rendered)
+        self.assertNotIn("Intensity [", prompt_text)
+        self.assertNotIn("Host-AI policy", prompt_text)
 
     def test_operational_setup_rejects_non_object_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "JSON object"):
@@ -384,6 +434,7 @@ class OnboardingTests(unittest.TestCase):
             "",
             "",
             "yes",
+            "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -413,8 +464,93 @@ class OnboardingTests(unittest.TestCase):
             output.getvalue(),
         )
         self.assertIn("Optional durable baseline", output.getvalue())
+        self.assertIn("setup wizard — operational setup only", output.getvalue())
+        self.assertIn("These are ceilings, not jobs", output.getvalue())
+        self.assertIn("If you later install a schedule explicitly", output.getvalue())
+        self.assertIn("0 model calls and 0 embedding calls", output.getvalue())
+        self.assertIn("No local default was recorded", output.getvalue())
         self.assertFalse(memories_exist)
         self.assertIn('intensity = "balanced"', config)
+
+    def test_guided_wizard_explains_catalog_and_never_prompts_for_personal_memory(self) -> None:
+        prompted_answers = [
+            "active",
+            "proposals",
+            "n",
+            "no",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ) as prompt, redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp])
+
+        rendered = output.getvalue()
+        prompt_text = "\n".join(str(call.args[0]) for call in prompt.call_args_list)
+        self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
+        for name in ("minimal", "balanced", "active"):
+            self.assertIn(f"- {name}:", rendered)
+        for name in ("off", "advisory", "proposals"):
+            self.assertIn(f"- {name}:", rendered)
+        self.assertIn("does not create personal values", rendered)
+        self.assertIn("Stop proposals stay review-first", rendered)
+        self.assertNotIn("Reviewer name", prompt_text)
+        self.assertNotIn("Values (required", prompt_text)
+
+    def test_guided_wizard_can_remember_the_applied_vault_as_local_default(self) -> None:
+        prompted_answers = ["", "", "yes", "yes"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            saved = VaultBinding(root.resolve(), "default")
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ), patch(
+                "ai_dememory_tool.vault_binding.save_default_vault",
+                return_value=saved,
+            ) as save_default, redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp])
+
+            config_exists = (root / ".ai-dememory.toml").exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(config_exists)
+        # The runtime resolver normalizes aliases such as macOS /var and the
+        # Windows short temp path before selecting the vault.
+        save_default.assert_called_once_with(root.resolve())
+        self.assertIn("stores only its absolute path", output.getvalue())
+        self.assertIn("Local default vault recorded", output.getvalue())
+
+    def test_default_vault_failure_does_not_undo_successful_operational_setup(self) -> None:
+        prompted_answers = ["", "", "yes", "yes"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = io.StringIO()
+            with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
+                "builtins.input", side_effect=prompted_answers
+            ), patch(
+                "ai_dememory_tool.vault_binding.save_default_vault",
+                side_effect=VaultBindingError("selector is unavailable"),
+            ), redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp])
+
+            config = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('intensity = "balanced"', config)
+        self.assertIn("Could not record the local default", output.getvalue())
+        self.assertIn("Setup remains complete", output.getvalue())
+
+    def test_operational_dry_run_does_not_offer_a_default_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = io.StringIO()
+            with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
+                exit_code = operational_main(["--root", tmp, "--dry-run"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Preview:", output.getvalue())
+        self.assertNotIn("local default", output.getvalue())
 
     def test_guided_next_actions_show_one_valid_mcp_client_example(self) -> None:
         output = io.StringIO()
@@ -848,6 +984,7 @@ class OnboardingTests(unittest.TestCase):
             "balanced",
             "off",
             "yes",
+            "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "vault"

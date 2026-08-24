@@ -23,6 +23,8 @@ Markdown and can be rebuilt.
 ## Release Status
 
 - Current stable release: `ai-dememory` 2.1.1 on PyPI.
+- Source candidate: 2.1.2, unreleased. It is not installable from a package
+  index until it is tagged and published.
 - Use the installed CLI and the wizard below; no version pin or compatibility
   flag is required for normal setup.
 - MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
@@ -54,6 +56,12 @@ The wizard previews its plan, shows resource limits, and asks before it writes
 the vault operational config. It never imports chats, creates personal memory,
 installs hooks or schedules, or edits a client configuration.
 
+In the upcoming 2.1.2 correction, a successful interactive setup can remember
+that vault as this machine's local default. That explicit opt-in stores only
+its absolute path outside the vault; it never stores or moves memory. `--root`
+and `AI_DEMEMORY_ROOT` override it whenever you deliberately select another
+vault. See the operations runbook for managing an existing default.
+
 The complete instructions live in the [installation guide](docs/install.md).
 
 `uv` users can substitute `uv tool install ai-dememory` for the first line.
@@ -72,6 +80,19 @@ ai-dememory --root ~/code/my-memory mcp-config --client codex
 The generated fragment binds the vault, uses the reduced server-enforced
 `core` profile, and sets an idle lease. You do not need to type its internal
 runtime arguments during first-run setup.
+
+### Optionally add a personal baseline
+
+The setup wizard intentionally does not ask for personal values or agent
+preferences. If you later choose to record a reviewed durable baseline, run
+the separate flow below and inspect its preview before applying it:
+
+```bash
+ai-dememory --root ~/code/my-memory onboard
+```
+
+It explains each required field, retries a blank answer, and never changes the
+operational policy chosen by the wizard.
 
 ### Update or diagnose an installation
 

@@ -38,10 +38,8 @@ FUTURE_PENDING_VERSION = "2.1.2"
 FUTURE_PENDING_CONTRACT = {
     "published_version": "2.1.1",
     "scope_markers": (
-        "2.1.2 is source release preparation, not an installable route until "
-        "tag-bound PyPI publication and external readback complete.",
-        "2.1.1 is the currently published PyPI compatibility route while "
-        "release verification is pending.",
+        "Source candidate: 2.1.2, unreleased",
+        "not installable from a package index until it is tagged and published",
     ),
 }
 
@@ -832,7 +830,10 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         )
 
     def test_release_pending_source_requires_zero_active_prerelease_contracts(self) -> None:
-        self.assertEqual({}, RELEASE_PENDING_CONTRACTS)
+        self.assertEqual(
+            {FUTURE_PENDING_VERSION: FUTURE_PENDING_CONTRACT},
+            RELEASE_PENDING_CONTRACTS,
+        )
         self.assertEqual({}, ACTIVE_PRERELEASE_CONTRACTS)
         self.assertEqual((), ACTIVE_PRERELEASE_REQUIRED_COMMANDS)
         with self._future_pending_contract(), patch.dict(
@@ -1501,10 +1502,10 @@ class DocumentationSiteGuardTests(unittest.TestCase):
 
     def test_guard_rejects_release_markers_on_hidden_content(self) -> None:
         hidden_forms = (
-            'data-release="stable-2.1.1" hidden',
-            'data-release="stable-2.1.1" aria-hidden="true"',
-            'data-release="stable-2.1.1" style="display: none"',
-            'data-release="stable-2.1.1" style="visibility: hidden"',
+            'data-release="published-2.1.1" hidden',
+            'data-release="published-2.1.1" aria-hidden="true"',
+            'data-release="published-2.1.1" style="display: none"',
+            'data-release="published-2.1.1" style="visibility: hidden"',
         )
         for hidden_form in hidden_forms:
             with self.subTest(hidden_form=hidden_form), tempfile.TemporaryDirectory() as temporary:
@@ -1513,7 +1514,7 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                 home = copied / "index.html"
                 home.write_text(
                     home.read_text(encoding="utf-8").replace(
-                        'data-release="stable-2.1.1"',
+                        'data-release="published-2.1.1"',
                         hidden_form,
                         1,
                     ),
@@ -1531,8 +1532,8 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             home = copied / "index.html"
             home.write_text(
                 home.read_text(encoding="utf-8").replace(
-                    '<div class="code-block" data-copy-block data-release="stable-2.1.1">',
-                    '<template><div class="code-block" data-copy-block data-release="stable-2.1.1">',
+                    '<div class="code-block" data-copy-block data-release="published-2.1.1">',
+                    '<template><div class="code-block" data-copy-block data-release="published-2.1.1">',
                     1,
                 ).replace("</main>", "</template>\n</main>", 1),
                 encoding="utf-8",
@@ -1543,14 +1544,14 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             self.assertTrue(any("non-rendered content" in error for error in errors))
 
     def test_guard_rejects_ambiguous_or_noncanonical_release_markup(self) -> None:
-        canonical = '<div class="code-block" data-copy-block data-release="stable-2.1.1">'
+        canonical = '<div class="code-block" data-copy-block data-release="published-2.1.1">'
         mutations = (
-            '<div class="code-block visually-hidden" data-copy-block data-release="stable-2.1.1">',
-            '<div style="display:none" style="" class="code-block" data-copy-block data-release="stable-2.1.1">',
-            '<dialog><div class="code-block" data-copy-block data-release="stable-2.1.1">',
-            '<datalist><div class="code-block" data-copy-block data-release="stable-2.1.1">',
-            '<span hidden/></span><div class="code-block" data-copy-block data-release="stable-2.1.1">',
-            '<div hidden></span><div class="code-block" data-copy-block data-release="stable-2.1.1">',
+            '<div class="code-block visually-hidden" data-copy-block data-release="published-2.1.1">',
+            '<div style="display:none" style="" class="code-block" data-copy-block data-release="published-2.1.1">',
+            '<dialog><div class="code-block" data-copy-block data-release="published-2.1.1">',
+            '<datalist><div class="code-block" data-copy-block data-release="published-2.1.1">',
+            '<span hidden/></span><div class="code-block" data-copy-block data-release="published-2.1.1">',
+            '<div hidden></span><div class="code-block" data-copy-block data-release="published-2.1.1">',
         )
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
@@ -2870,7 +2871,7 @@ python3 -m pip install -e .
             self.assertTrue(
                 any(
                     error.startswith("site/install/index.html:")
-                    and "stable documentation must not retain a persistent --require-version gate"
+                    and "release-pending public documentation must not pass --require-version"
                     in error
                     for error in errors
                 ),
@@ -2932,7 +2933,7 @@ ai-dememory init ~/code/my-memory --wizard</code></pre></div></main>""",
             install,
         )
         self.assertNotIn('data-release="source-2.1.1rc2"', install)
-        self.assertIn('data-release="stable-2.1.1"', install)
+        self.assertIn('data-release="published-2.1.1"', install)
         self.assertIn("Stable release: 2.1.1", install)
         self.assertNotIn('class="copy-button"', install)
         self.assertIn("document.createElement(\"button\")", (SITE_ROOT / "assets/site.js").read_text(encoding="utf-8"))

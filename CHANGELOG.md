@@ -5,9 +5,29 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
-## [Unreleased]
+## [2.1.2] - Unreleased
 
-No changes yet.
+### Added
+
+- Add an explicit, per-user default-vault selector. After the user chooses a
+  local initialized vault, runtime commands resolve `--root`, then
+  `AI_DEMEMORY_ROOT`, then that selector without rediscovering an arbitrary
+  working directory. The selector stores only an absolute local path and can
+  be inspected, changed, or cleared with `ai-dememory vault`.
+
+### Fixed
+
+- Make `ai-dememory setup wizard` and other strict runtime commands usable
+  from any directory after a vault has been deliberately selected, while
+  preserving fail-closed handling for stale or unsafe selections.
+- Prevent an in-process CLI invocation from leaking a resolved vault into the
+  next invocation, so clearing or replacing a default takes effect immediately.
+
+### Changed
+
+- Explain the operational wizard before prompting, including intensity ceilings,
+  schedule state, host-AI policy, model-cost boundary and Stop proposals.
+  Keep optional personal-baseline questions in the distinct `onboard` flow.
 
 ## [2.1.1] - 2026-08-23
 

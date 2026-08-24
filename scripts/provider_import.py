@@ -42,7 +42,15 @@ MAX_EXPORT_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20
 MAX_SCAN_ENTRIES = 2500
 CAPTURE_KINDS = {"chatgpt", "claude", "codex", "cursor", "windsurf", "markdown", "text", "conversation"}
-VAULT_BINDING_HELP = "Requires --root <vault-path> or AI_DEMEMORY_ROOT."
+VAULT_BINDING_HELP = (
+    "Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local default "
+    "selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
+    "uses the working directory to discover a vault."
+)
+PROVIDER_ROOT_HELP = (
+    f"Vault root. {VAULT_BINDING_HELP} `detect` is read-only and does not "
+    "require a vault binding."
+)
 
 
 @dataclass(frozen=True)
@@ -758,7 +766,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         default=None,
-        help="Vault root. Required unless AI_DEMEMORY_ROOT is set (except read-only detect).",
+        help=PROVIDER_ROOT_HELP,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

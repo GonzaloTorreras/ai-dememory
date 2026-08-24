@@ -4,6 +4,8 @@ This repository distributes the `ai-dememory` tool. Personal memory belongs in
 a separate private vault, never in this public repository.
 
 **Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
+Source candidate: 2.1.2, unreleased; it is not installable from a package index
+until it is tagged and published.
 
 ## Install And Run The Wizard
 
@@ -25,6 +27,13 @@ The wizard previews the bounded operational setup, shows its limits and exact
 fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
 import chats, create personal memory, install hooks or schedules, or edit a
 client configuration. `balanced` is the recommended first-run intensity.
+
+The upcoming 2.1.2 correction then offers to remember the selected vault as
+this machine's local default. That is explicit opt-in and stores only the
+absolute path in per-user configuration outside the vault; it does not store,
+inspect, or move memory. `--root` and `AI_DEMEMORY_ROOT` remain available for
+another vault. Managing an existing default belongs in the
+[operations runbook](operations.md), not in first-run setup.
 
 The wizard is the only required first-run command after installation.
 
@@ -66,17 +75,35 @@ optional `onboard` review/apply flow. For automation, the machine-readable
 `setup plan --json` preview remains available, but it is not needed before an
 interactive first run.
 
-| Intensity | Recall per eligible turn | Scheduled cadence after explicit setup | Provider candidates/run | File/scan ceilings |
+| Intensity | Recall per eligible turn | Potential cadence if you later install it | Provider candidates/run | File/scan ceilings |
 | --- | ---: | --- | ---: | --- |
 | `minimal` | manual only | weekly | 5 | 32 KiB / 500 entries |
 | `balanced` | up to 1,200 tokens | daily + weekly | 20 | 64 KiB / 2,500 entries |
 | `active` | up to 2,400 tokens | daily + weekly | 50 | 128 KiB / 10,000 entries |
 
-`active` is a maximum bounded envelope, not an unlimited mode. Host-model
-policy is separate: `off` permits deterministic local tools only, `advisory`
-lets an already active host agent recommend, and `proposals` lets it create
-review-first inbox proposals. ai-dememory makes zero model and embedding calls
-in every option.
+`active` is a maximum bounded envelope, not an unlimited mode. The table is a
+policy preview: the wizard leaves scheduling disabled, so no cadence begins
+until you separately review and install one. Host-AI policy is also separate:
+`off` permits deterministic local tools only, `advisory` lets an already active
+host agent recommend, and `proposals` lets it draft review-first inbox
+proposals. ai-dememory makes zero model and embedding calls in every option;
+any model consumption belongs to an agent you separately run, not to the
+wizard.
+
+## Optional Personal Baseline (`onboard`)
+
+The operational wizard deliberately does not collect personal values,
+preferences, recommendations, or project profiles. If you choose to create a
+reviewed durable baseline later, use the separate interactive preview:
+
+```bash
+ai-dememory --root ~/code/my-memory onboard
+```
+
+It explains every field, gives examples, and retries blank required answers.
+It creates no operational policy change; after preview you still review its
+fingerprint before a separate apply. Do not enter secrets, tokens, or private
+keys in either flow.
 
 To create a reusable private GitHub vault template instead of a single vault,
 use `ai-dememory vault-template export ~/code/ai-dememory-vault-template` and
