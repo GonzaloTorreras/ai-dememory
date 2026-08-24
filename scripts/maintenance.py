@@ -62,6 +62,11 @@ from sleep_consolidation import write_sleep_report
 
 DEFAULT_MAINTENANCE_REPORT_DIR = Path("reports/maintenance")
 TIMEOUT_EXIT_CODE = 124
+MAINTENANCE_RUN_ROOT_HELP = (
+    "Vault root for `run`. Resolution order: --root, AI_DEMEMORY_ROOT, then a "
+    "saved local default selected with `ai-dememory vault use "
+    "<absolute-vault-path>`; the command never uses the working directory to discover a vault."
+)
 
 GENERATED_ARTIFACTS: dict[str, Path] = {
     "index": Path("indexes/memory.sqlite"),
@@ -1000,7 +1005,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         default=None,
-        help="Memory vault root. Required for run unless AI_DEMEMORY_ROOT is set.",
+        help=MAINTENANCE_RUN_ROOT_HELP,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="Run a maintenance profile.")

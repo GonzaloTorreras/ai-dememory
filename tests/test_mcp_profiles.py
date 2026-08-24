@@ -18,6 +18,7 @@ for candidate in (ROOT, ROOT / "scripts", ROOT / "mcp" / "server"):
 
 from ai_dememory_tool import __version__  # noqa: E402
 from ai_dememory_tool.cli import build_mcp_config, find_memory_root, main as cli_main  # noqa: E402
+from ai_dememory_tool.vault_binding import save_default_vault  # noqa: E402
 from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     CORE_MCP_TOOLS,
     MCP_PROFILE_NAMES,
@@ -31,6 +32,18 @@ from index_memory import rebuild_index  # noqa: E402
 
 
 class McpProfileTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Root-binding tests must not read a selector from the developer host.
+        self._default_selector_home = tempfile.TemporaryDirectory()
+        self._default_selector_patch = patch.dict(
+            os.environ,
+            {"AI_DEMEMORY_CONFIG_HOME": self._default_selector_home.name},
+            clear=False,
+        )
+        self._default_selector_patch.start()
+        self.addCleanup(self._default_selector_home.cleanup)
+        self.addCleanup(self._default_selector_patch.stop)
+
     def test_profiles_are_additive_and_core_is_bounded(self) -> None:
         self.assertEqual(MCP_PROFILE_NAMES, ("public", "core", "working", "review", "admin"))
         self.assertEqual(len(PUBLIC_MCP_TOOLS), 3)
@@ -129,6 +142,43 @@ class McpProfileTests(unittest.TestCase):
             profile="core",
             idle_timeout_seconds=600,
         )
+
+    def test_mcp_runtime_accepts_an_explicitly_saved_local_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            vault = Path(temporary) / "vault"
+            vault.mkdir()
+            (vault / ".ai-dememory.toml").write_text("[policy]\n", encoding="utf-8")
+            save_default_vault(vault)
+
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}, clear=False),
+                patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
+            ):
+                self.assertEqual(mcp_main(["--stdio", "--require-bound-root"]), 0)
+
+        run_stdio.assert_called_once_with(
+            vault.resolve(),
+            profile="core",
+            idle_timeout_seconds=600,
+        )
+
+    def test_mcp_help_explains_the_explicit_saved_default_selector(self) -> None:
+        output = io.StringIO()
+        with patch("sys.stdout", output), self.assertRaises(SystemExit) as raised:
+            mcp_main(["--help"])
+
+        self.assertEqual(raised.exception.code, 0)
+        help_text = " ".join(output.getvalue().split()).replace("ai- dememory", "ai-dememory")
+        self.assertIn("saved local default", help_text)
+        self.assertIn("ai-dememory vault use <absolute-vault-path>", help_text)
+        self.assertIn("explicitly saved local default", help_text)
+
+    def test_mcp_readme_keeps_the_runtime_selector_contract(self) -> None:
+        readme = (ROOT / "mcp" / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("ai-dememory vault use <absolute-vault-path>", readme)
+        self.assertIn("`--require-bound-root` requires one usable binding", readme)
+        self.assertIn("never discover a vault from the current directory", readme)
 
     def test_public_cli_route_accepts_a_legacy_mcp_version_argument(self) -> None:
         output = io.StringIO()

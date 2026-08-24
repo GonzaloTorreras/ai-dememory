@@ -314,6 +314,19 @@ from durable_provenance import audit_durable_provenance, render_markdown as rend
 
 
 class MemoryToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Never let a developer's selected default vault influence a test that
+        # intentionally exercises rootless/error paths.
+        self._default_selector_home = tempfile.TemporaryDirectory()
+        self._default_selector_patch = patch.dict(
+            os.environ,
+            {"AI_DEMEMORY_CONFIG_HOME": self._default_selector_home.name},
+            clear=False,
+        )
+        self._default_selector_patch.start()
+        self.addCleanup(self._default_selector_home.cleanup)
+        self.addCleanup(self._default_selector_patch.stop)
+
     def test_repo_vault_template_matches_packaged_template(self) -> None:
         packaged = ROOT / "ai_dememory_tool" / "templates" / "vault"
         repo_template = ROOT / "vault-template"
@@ -1286,7 +1299,18 @@ class MemoryToolTests(unittest.TestCase):
 
                 self.assertEqual(raised.exception.code, 0)
                 self.assertIn("usage:", output.getvalue())
-                self.assertIn("Requires --root <vault-path> or AI_DEMEMORY_ROOT.", output.getvalue())
+                self.assertIn(
+                    "Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local default",
+                    " ".join(output.getvalue().split()),
+                )
+                self.assertIn(
+                    "ai-dememory vault use <absolute-vault-path>",
+                    " ".join(output.getvalue().split()),
+                )
+                self.assertIn(
+                    "uses the working directory to discover a vault",
+                    " ".join(output.getvalue().split()),
+                )
                 self.assertEqual(error.getvalue(), "")
                 legacy_root.assert_not_called()
                 detect.assert_not_called()
@@ -1310,7 +1334,18 @@ class MemoryToolTests(unittest.TestCase):
 
                 self.assertEqual(raised.exception.code, 0)
                 self.assertIn("usage:", output.getvalue())
-                self.assertIn("Requires --root <vault-path> or AI_DEMEMORY_ROOT.", output.getvalue())
+                self.assertIn(
+                    "Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local default",
+                    " ".join(output.getvalue().split()),
+                )
+                self.assertIn(
+                    "ai-dememory vault use <absolute-vault-path>",
+                    " ".join(output.getvalue().split()),
+                )
+                self.assertIn(
+                    "uses the working directory to discover a vault",
+                    " ".join(output.getvalue().split()),
+                )
                 self.assertEqual(error.getvalue(), "")
                 root_resolver.assert_not_called()
 
@@ -1646,7 +1681,7 @@ class MemoryToolTests(unittest.TestCase):
                         "--json",
                     ],
                     explicit_root,
-                    explicit_root,
+                    ambient_root,
                 ),
                 (
                     "post-command explicit root",
@@ -13362,14 +13397,20 @@ for line in sys.stdin:
         verify_enabled_tools(stdout, ["memory.search", "memory.context"])
 
     def test_plugin_mcp_config_smoke_verifies_enabled_tool_allowlist(self) -> None:
-        config_path = ROOT / "plugins" / "ai-dememory" / ".mcp.json"
-        config = override_launch(
-            json.loads(config_path.read_text(encoding="utf-8")),
-            command=sys.executable,
-            command_args=["scripts/ai_dememory.py"],
-        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            copy_template_tree(root)
+            config_path = ROOT / "plugins" / "ai-dememory" / ".mcp.json"
+            config = override_launch(
+                json.loads(config_path.read_text(encoding="utf-8")),
+                command=sys.executable,
+                command_args=["scripts/ai_dememory.py"],
+            )
+            config["mcpServers"]["ai-dememory"]["env"] = {
+                "AI_DEMEMORY_ROOT": str(root.resolve()),
+            }
 
-        result = run_client_config_smoke(config, ROOT)
+            result = run_client_config_smoke(config, ROOT)
 
         self.assertTrue(result.enabled_tools_verified)
         self.assertEqual(result.enabled_tool_count, len(EXPECTED_PLUGIN_MCP_TOOLS))

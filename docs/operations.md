@@ -6,12 +6,19 @@ repository. Start with [Installation](install.md) to install the CLI and create
 the vault; use [Local MCP](local-mcp.md) or [Local REST API](local-api.md) only
 when you choose one of those integrations.
 
-Normal vault commands use the installed `ai-dememory` CLI with an explicit
-root, for example `ai-dememory --root ~/code/my-memory <command>`. Later
-references to a shorter `ai-dememory <command>` assume that same private-vault
-binding. Source-checkout commands are confined to the maintainer section below.
+Normal vault commands use the installed `ai-dememory` CLI. Keep `--root`
+explicit in automation or whenever more than one vault is in play, for example
+`ai-dememory --root ~/code/my-memory <command>`. In the upcoming 2.1.2
+correction, a deliberately saved local default lets shorter `ai-dememory
+<command>` forms use that same private vault. Resolution is `--root`, then
+`AI_DEMEMORY_ROOT`, then the saved default. The selector stores only an
+absolute local path outside the vault; it is not memory and does not change an
+environment variable. Source-checkout commands are confined to the maintainer
+section below.
 
 **Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
+Source candidate: 2.1.2, unreleased; it is not installable from a package index
+until it is tagged and published.
 
 ## After Installing Or Upgrading
 
@@ -33,6 +40,24 @@ checkout.
 `ai-dememory --version` is sufficient for an ordinary PATH or package
 diagnostic; normal install, wizard, and client configuration paths do not need
 it.
+
+### Manage The Local Default Vault (2.1.2, Pending Release)
+
+The interactive setup wizard asks before recording a local default. For an
+existing vault, inspect, replace, or remove that convenience selector with:
+
+```bash
+ai-dememory vault current
+ai-dememory vault use ~/code/my-memory
+ai-dememory vault clear
+```
+
+These commands store or remove only the selected absolute vault path outside
+the vault. They do not read, index, move, or delete memory. The saved default
+is deliberately local; use explicit `--root` or `AI_DEMEMORY_ROOT` for a
+network location. If its path later becomes stale or unsafe, the CLI fails
+closed—run `ai-dememory vault clear` and select a vault again. Prefer an
+explicit `--root` in scripts and when switching between vaults.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for

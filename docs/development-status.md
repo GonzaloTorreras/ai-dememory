@@ -1,6 +1,6 @@
 # Development Status
 
-Updated: 2026-08-23
+Updated: 2026-08-24
 
 This is a concise public-repository handoff, not release evidence by itself.
 The lead integrator updates it when a verified checkout, frontier, blocker, or
@@ -172,6 +172,33 @@ local-API onboarding hint and documentation follow-up.
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
 
+## Active 2.1.2 Source Candidate (Unpublished)
+
+This compatible `BRG-003` / `B04b` correction is prepared on
+`codex/default-vault-wizard-ux`. It does not advance the V3 DAG.
+
+- A user may explicitly select one initialized local vault with
+  `ai-dememory vault use <absolute-vault-path>`. Runtime resolution is now
+  `--root`, then `AI_DEMEMORY_ROOT`, then that saved selector. The selector is
+  local-only, validates the selected vault configuration, and fails closed for
+  stale, malformed, linked, or unsafe state. It does not restore CWD or source
+  checkout discovery for strict API, MCP, hook, setup, provider, import, or
+  capture paths. `vault current` and `vault clear` are the inspection and
+  recovery operations.
+- The operational setup wizard now explains its limited scope, intensity
+  ceilings, host-AI policy, schedule boundary, and review-first Stop proposals.
+  It keeps durable personal onboarding separate and offers the local selector
+  only after a successful apply with an explicit `[y/N]` decision.
+- Source metadata and public documentation call this `2.1.2` an unreleased
+  candidate. Stable `2.1.1` remains the only published PyPI/GitHub install
+  route until a new tag, package publication, and external readback complete.
+- Local evidence before commit: `python -B -m unittest discover -s tests -t .`
+  completed with 929 passing tests and 59 expected skips; the documentation
+  guard, static Pages validation tests, targeted MCP checks, visual QA, and a
+  fresh security review passed. After the candidate commit,
+  `pages_artifact_guard.py` passed against its tracked, blob-matched `site/`
+  tree. The candidate still requires CI on its PR.
+
 ## Verified Stable And Release-Candidate Evidence
 
 - PR [#44](https://github.com/GonzaloTorreras/ai-dememory/pull/44) was merged
@@ -244,12 +271,16 @@ remain intact.
 
 ## Next Legal Action
 
-1. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
+1. Finish the exact-head review and CI for the unreleased `2.1.2` selector and
+   wizard candidate. If accepted, merge only with the approval required by
+   `AGENTS.md`; tag, TestPyPI/PyPI publication, and Pages deployment remain
+   separate explicit approval boundaries.
+2. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
    silently replace a package route with mutable source behavior or restore an
    active prerelease installation route.
-2. Do not merge, tag, publish, deploy, or alter external configuration without
+3. Do not merge, tag, publish, deploy, or alter external configuration without
    the approval required by `AGENTS.md`.
-3. Continue `BRG-003` with the remaining strict-resolver inventory and
+4. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader and
    review-state boundary is covered for current entry points; provider/import/
    capture stateful actions are also covered. Preserve the intentional rootless

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import wraps
 import importlib
 from importlib import resources
 import json
@@ -24,11 +25,25 @@ from ai_dememory_tool.mcp_profiles import (
     enabled_tools_for_profile,
     normalize_mcp_idle_timeout_seconds,
 )
-from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
+from ai_dememory_tool.vault_binding import (
+    VaultBindingError,
+    clear_default_vault,
+    load_default_vault,
+    resolve_runtime_vault,
+    save_default_vault,
+)
+
+
+RUNTIME_VAULT_ROOT_HELP = (
+    "Vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local "
+    "default selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
+    "uses the working directory to discover a vault."
+)
 
 
 LOCAL_COMMANDS = {
     "init": "Create a new private memory vault.",
+    "vault": "Select, inspect, or clear the default private memory vault.",
     "mcp-config": "Print MCP client configuration for a memory vault.",
     "vault-template": "Export the private vault GitHub template tree.",
     "version-check": "Fail unless the installed package matches an exact release.",
@@ -403,8 +418,26 @@ def run_packaged_command(
         # Never discover a hook vault from an untrusted project working tree.
         print("{}")
         return 0
+    used_default_binding = False
     try:
-        root = Path(explicit_root).expanduser().resolve() if explicit_root else find_memory_root()
+        if explicit_root:
+            root = Path(explicit_root).expanduser().resolve()
+        elif configured_root:
+            root = Path(configured_root).expanduser().resolve()
+        else:
+            # An explicitly saved default is more intentional than an
+            # arbitrary working directory. Existing CWD discovery remains
+            # available only before a user chooses a default or after clear.
+            default_binding = load_default_vault()
+            if default_binding is not None:
+                root = default_binding.root
+                used_default_binding = True
+            else:
+                root = find_memory_root()
+    except VaultBindingError as exc:
+        # A malformed/stale selector is an explicit local configuration error;
+        # do not quietly fall through to a checkout or a different CWD vault.
+        cli_argument_error(str(exc))
     except RuntimeError:
         if command == "hook-event" and "dispatch" in argv:
             # Lifecycle hooks must remain protocol-valid even before a vault
@@ -415,23 +448,36 @@ def run_packaged_command(
         raise
     if (
         command_requires_explicit_vault_binding(command, argv)
-        and not (explicit_root or configured_root)
+        and not (explicit_root or configured_root or used_default_binding)
         and ambient_root_requires_explicit_binding(root)
     ):
         cli_argument_error(
             f"{command} refuses an unconfigured or nested ambient root; "
-            "pass --root <vault-path> or set AI_DEMEMORY_ROOT"
+            "pass --root <vault-path>, set AI_DEMEMORY_ROOT, or save a local "
+            "default with `ai-dememory vault use <absolute-vault-path>`; the "
+            "working directory is not a runtime binding"
         )
+    # Some legacy command modules still inspect AI_DEMEMORY_ROOT. Keep their
+    # invocation compatible without making a saved default sticky in a
+    # long-running host process: selector changes must affect the next command.
+    had_previous_root = "AI_DEMEMORY_ROOT" in os.environ
+    previous_root = os.environ.get("AI_DEMEMORY_ROOT")
     os.environ["AI_DEMEMORY_ROOT"] = str(root)
-    configure_imports()
-    if not has_root_arg(argv):
-        argv = ["--root", str(root), *argv]
-    _, module_name = COMMANDS[command]
-    prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
-    module = importlib.import_module(f"{prefix}.{module_name}")
-    if command == "onboard":
-        return int(module.main(argv, mode=onboarding_mode or "onboard"))
-    return int(module.main(argv))
+    try:
+        configure_imports()
+        if not has_root_arg(argv):
+            argv = ["--root", str(root), *argv]
+        _, module_name = COMMANDS[command]
+        prefix = "ai_dememory_tool.mcp_server" if command == "mcp" else "ai_dememory_tool.admin"
+        module = importlib.import_module(f"{prefix}.{module_name}")
+        if command == "onboard":
+            return int(module.main(argv, mode=onboarding_mode or "onboard"))
+        return int(module.main(argv))
+    finally:
+        if had_previous_root:
+            os.environ["AI_DEMEMORY_ROOT"] = previous_root or ""
+        else:
+            os.environ.pop("AI_DEMEMORY_ROOT", None)
 
 
 def copy_template_tree(target: Path, force: bool = False) -> list[Path]:
@@ -518,6 +564,78 @@ def init_vault(argv: list[str]) -> int:
     return 0
 
 
+def vault_command(argv: list[str]) -> int:
+    """Manage the one explicit host-local default vault selector."""
+    parser = argparse.ArgumentParser(
+        prog="ai-dememory vault",
+        description=LOCAL_COMMANDS["vault"],
+        allow_abbrev=False,
+    )
+    subparsers = parser.add_subparsers(dest="action", required=True)
+    use = subparsers.add_parser(
+        "use",
+        help="Validate an absolute vault path and select it for future commands.",
+        allow_abbrev=False,
+    )
+    use.add_argument("path", help="Absolute path of an initialized private vault.")
+    use.add_argument("--json", action="store_true", help="Emit JSON output.")
+    current = subparsers.add_parser(
+        "current",
+        help="Show the selected default vault without changing it.",
+        allow_abbrev=False,
+    )
+    current.add_argument("--json", action="store_true", help="Emit JSON output.")
+    clear = subparsers.add_parser(
+        "clear",
+        help="Clear the local default-vault selection.",
+        allow_abbrev=False,
+    )
+    clear.add_argument("--json", action="store_true", help="Emit JSON output.")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.action == "use":
+            binding = save_default_vault(args.path)
+            payload = {
+                "configured": True,
+                "root": str(binding.root),
+                "source": binding.source,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            else:
+                print(f"Default vault selected: {binding.root}")
+            return 0
+
+        if args.action == "current":
+            binding = load_default_vault()
+            payload = {
+                "configured": binding is not None,
+                "root": str(binding.root) if binding is not None else None,
+                "source": binding.source if binding is not None else None,
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2, ensure_ascii=False))
+            elif binding is None:
+                print("No default vault is selected.")
+            else:
+                print(f"Default vault: {binding.root}")
+            return 0
+
+        cleared = clear_default_vault()
+        payload = {"cleared": cleared}
+        if args.json:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        elif cleared:
+            print("Default vault selection cleared.")
+        else:
+            print("No default vault is selected.")
+        return 0
+    except VaultBindingError as exc:
+        parser.error(str(exc))
+    return 2  # Unreachable, but retains a total return contract for type checkers.
+
+
 def export_vault_template(target: Path, force: bool = False) -> list[Path]:
     return copy_template_tree(target, force=force)
 
@@ -570,7 +688,7 @@ def mcp_config(argv: list[str]) -> int:
     parser.add_argument(
         "--root",
         default=None,
-        help="Vault root. Required unless AI_DEMEMORY_ROOT is set.",
+        help=RUNTIME_VAULT_ROOT_HELP,
     )
     parser.add_argument("--command", default="ai-dememory", help="Command clients should launch.")
     parser.add_argument("--command-arg", action="append", default=[], help="Extra argument before `mcp --stdio`; repeatable.")
@@ -743,11 +861,16 @@ def usage() -> str:
             "",
             "Examples:",
             "  ai-dememory init ~/code/my-memory --wizard",
+            "  ai-dememory vault use ~/code/my-memory",
+            "  ai-dememory vault current",
             "  ai-dememory --root ~/code/my-memory mcp-config --client codex",
             "  ai-dememory --root ~/code/my-memory index",
             "  ai-dememory --root ~/code/my-memory search ai-dememory --limit 3",
             "  ai-dememory --root ~/code/my-memory doctor",
             "  ai-dememory vault-template export ~/code/ai-dememory-vault-template",
+            "",
+            "Runtime vault selection: --root, AI_DEMEMORY_ROOT, then the saved local default ",
+            "(`ai-dememory vault use <absolute-vault-path>`); it does not discover a vault from the working directory.",
             "",
             "Use `ai-dememory <command> --help` for a focused command reference.",
             "Use `ai-dememory dev --help` for CI, release, and maintainer tools.",
@@ -773,6 +896,24 @@ def dev_usage() -> str:
     return "\n".join(lines)
 
 
+def _restore_root_environment(callback):
+    """Keep CLI calls safe to reuse inside a long-running Python host."""
+    @wraps(callback)
+    def wrapped(*args, **kwargs):
+        had_previous_root = "AI_DEMEMORY_ROOT" in os.environ
+        previous_root = os.environ.get("AI_DEMEMORY_ROOT")
+        try:
+            return callback(*args, **kwargs)
+        finally:
+            if had_previous_root:
+                os.environ["AI_DEMEMORY_ROOT"] = previous_root or ""
+            else:
+                os.environ.pop("AI_DEMEMORY_ROOT", None)
+
+    return wrapped
+
+
+@_restore_root_environment
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     if duplicate_options(argv, ("--root",)):
@@ -815,6 +956,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     if command == "init":
         return init_vault(argv)
+    if command == "vault":
+        return vault_command(argv)
     if command == "version-check":
         parser = argparse.ArgumentParser(prog="ai-dememory version-check")
         parser.add_argument("expected_version")

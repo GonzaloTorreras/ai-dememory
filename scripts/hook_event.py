@@ -61,6 +61,11 @@ CLIENT_TITLES = {
     "codex": "Codex",
     "claude": "Claude Code",
 }
+RUNTIME_VAULT_ROOT_HELP = (
+    "Vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local "
+    "default selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
+    "uses the working directory to discover a vault."
+)
 
 
 @dataclass(frozen=True)
@@ -1285,7 +1290,7 @@ def require_runtime_hook_vault(parser: argparse.ArgumentParser, root_argument: s
 
 def run_capture(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--provider", default="codex", choices=tuple(HOOK_EVENTS), help="Hook provider.")
     parser.add_argument("--event", required=True, help="Provider hook event name.")
     parser.add_argument("--capture-raw", action="store_true", help="Include raw hook payload after secret scan.")
@@ -1313,7 +1318,7 @@ def run_capture(argv: list[str] | None = None) -> int:
 def run_dispatch(argv: list[str] | None = None) -> int:
     """Dispatch a generic stdin JSON hook without ever emitting free-form stdout."""
     parser = argparse.ArgumentParser(description="Inject relevant memory into a harness hook.")
-    parser.add_argument("--root", default=None, help="Memory vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--client", "--provider", dest="client", choices=(*HOOK_EVENTS.keys(), "generic"), default="generic")
     parser.add_argument("--event", required=True, help="Harness event name.")
     parser.add_argument("--budget-tokens", type=int, default=None)
@@ -1396,7 +1401,7 @@ def run_events(argv: list[str]) -> int:
 
 def run_list(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="List hook instruction install status.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -1413,7 +1418,7 @@ def run_list(argv: list[str]) -> int:
 
 def run_captures(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Summarize hook capture review candidates.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--limit", type=int, default=20, help="Maximum latest, due, and malformed entries to include.")
     parser.add_argument("--provider", choices=tuple(HOOK_EVENTS), default=None, help="Filter captures by provider.")
     parser.add_argument(
@@ -1488,7 +1493,7 @@ def run_captures(argv: list[str]) -> int:
 
 def run_review(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Record a reviewed outcome on a hook capture candidate.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--path", required=True, help="Hook capture path under inbox/session-events.")
     parser.add_argument("--status", required=True, choices=tuple(sorted(HOOK_CAPTURE_REVIEW_STATUSES)))
     parser.add_argument("--reviewed-by", required=True, help="Reviewer name.")
@@ -1511,7 +1516,7 @@ def run_review(argv: list[str]) -> int:
 
 def run_archive(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Archive reviewed hook capture candidates.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--apply", action="store_true", help="Move eligible captures. Defaults to preview only.")
     parser.add_argument("--archive-root", default=str(DEFAULT_CAPTURE_ARCHIVE), help="Archive directory under archive/session-events.")
     parser.add_argument("--provider", choices=tuple(HOOK_EVENTS), default=None, help="Filter captures by provider.")
@@ -1560,7 +1565,7 @@ def run_config(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Print provider hook configuration.")
     parser.add_argument("--client", "--provider", dest="provider", choices=tuple(HOOK_EVENTS), default="codex")
     parser.add_argument("--command", default="ai-dememory", help="Installed CLI command clients should call.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     root = require_runtime_hook_vault(parser, args.root)
@@ -1570,7 +1575,7 @@ def run_config(argv: list[str]) -> int:
 
 def run_install(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Install managed hook instruction blocks.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files.")
     parser.add_argument("--json", action="store_true")
@@ -1588,7 +1593,7 @@ def run_install(argv: list[str]) -> int:
 
 def run_uninstall(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Remove managed hook instruction blocks.")
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     parser.add_argument("--client", choices=(*HOOK_EVENTS.keys(), "all"), default="all")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without writing files.")
     parser.add_argument("--json", action="store_true")

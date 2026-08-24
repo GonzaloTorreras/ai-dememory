@@ -4445,7 +4445,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         default=None,
-        help="Vault root. Required for --stdio and --call unless AI_DEMEMORY_ROOT is set.",
+        help=(
+            "Vault root. --stdio and --call resolve --root, then "
+            "AI_DEMEMORY_ROOT, then a saved local default from "
+            "ai-dememory vault use <absolute-vault-path>."
+        ),
     )
     parser.add_argument("--stdio", action="store_true", help="Run JSON-RPC stdio server.")
     parser.add_argument(
@@ -4473,7 +4477,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-bound-root",
         action="store_true",
-        help="Fail unless --root or AI_DEMEMORY_ROOT explicitly binds the vault.",
+        help=(
+            "Fail unless a usable runtime vault is selected by --root, "
+            "AI_DEMEMORY_ROOT, or an explicitly saved local default."
+        ),
     )
     parser.add_argument("--list-tools", action="store_true", help="Print tool definitions.")
     parser.add_argument("--call", help="Call one tool directly by name.")

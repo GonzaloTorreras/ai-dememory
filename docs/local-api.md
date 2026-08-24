@@ -9,12 +9,22 @@ and create a private vault outside this public source repository. The command
 name is `ai-dememory`; contributor source commands are not a user-install
 alternative.
 
-The current stable PyPI package provides this optional local API.
+The current stable PyPI package provides this optional local API. The saved
+default described below is part of the unreleased 2.1.2 source candidate; use
+an explicit binding with the published 2.1.1 package until that correction is
+released.
 
-The API requires an explicit absolute `--root <vault>` (or `~` path after home
-expansion) or `AI_DEMEMORY_ROOT` runtime binding. It never searches the current
-directory or source checkout for a vault; an explicit non-empty `--root` takes
-precedence over the environment.
+For a stateful API command, 2.1.2 resolves the vault in this deliberate order:
+
+1. an explicit absolute `--root <vault>` (with `~` expanded);
+2. `AI_DEMEMORY_ROOT`; then
+3. a local default that the user saved with
+   `ai-dememory vault use <absolute-vault-path>`.
+
+It never searches the current directory or source checkout for a vault. The
+saved default contains only one absolute local path in per-user configuration
+outside the vault; it is not CWD discovery. Keep `--root` explicit in scripts,
+when switching vaults, and for the published 2.1.1 package.
 
 ## Choose The Right Local Interface
 
@@ -46,6 +56,10 @@ makes both search and graph responses faster:
 ai-dememory --root ~/code/my-memory index
 ai-dememory --root ~/code/my-memory api
 ```
+
+After deliberately saving that vault in the 2.1.2 candidate,
+`ai-dememory api` uses the same local default. The explicit form remains the
+portable choice for scripts and multiple-vault work.
 
 The default bind is `http://127.0.0.1:8765`. The process stays in the foreground
 and stops with `Ctrl-C`; it does not install a background service or scheduler.

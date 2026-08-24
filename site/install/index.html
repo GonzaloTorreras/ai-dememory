@@ -33,6 +33,7 @@
           <div class="page-meta">
             <span>Python 3.11+</span>
             <span>Stable release: 2.1.1</span>
+            <span>Source candidate: 2.1.2, unreleased</span>
             <span>Published on PyPI</span>
             <span>Guided wizard setup</span>
           </div>
@@ -52,15 +53,16 @@
         <div>
           <div class="callout">
             <p>ai-dememory 2.1.1 is the current stable PyPI release. Install the package, then use the wizard to create a separate private vault.</p>
+            <p>Source candidate: 2.1.2, unreleased. It is not installable from a package index until it is tagged and published.</p>
           </div>
           <section class="content-section" id="install-tool">
             <h2>1. Install ai-dememory</h2>
             <p><strong>pipx is the recommended path</strong> because it isolates Python applications while exposing their commands on your path.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+            <div class="code-block" data-copy-block data-release="published-2.1.1">
               <pre tabindex="0"><code>pipx install ai-dememory</code></pre>
             </div>
             <p>Equivalent with uv:</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+            <div class="code-block" data-copy-block data-release="published-2.1.1">
               <pre tabindex="0"><code>uv tool install ai-dememory</code></pre>
             </div>
             <div class="callout callout-safe">
@@ -71,10 +73,11 @@
           <section class="content-section" id="create-vault">
             <h2>2. Use the wizard</h2>
             <p>The vault is your data boundary. Put it somewhere separate from the public tool repository and keep that location private. The wizard creates the template, previews the operational policy, shows the limits and fingerprint, and asks once before writing <code>.ai-dememory.toml</code>.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+            <div class="code-block" data-copy-block data-release="published-2.1.1">
               <pre tabindex="0"><code>ai-dememory init ~/code/my-memory --wizard</code></pre>
             </div>
             <p>On Windows, a path such as <code>D:\Memory\my-vault</code> works too. The wizard is configuration-only: it does not import chats, create durable personal memories, install hooks or schedules, start a model, or edit a client configuration.</p>
+            <p>It asks only about operating policy: an intensity ceiling, what an already-running host AI may do, and—only if you choose proposals—whether to enable review-first Stop proposals. Values, working preferences, and agent recommendations belong to the separate optional <code>onboard</code> flow after setup.</p>
             <ul class="checklist">
               <li>Markdown remains canonical and human-editable.</li>
               <li>The SQLite full-text index is generated and rebuildable.</li>
@@ -120,7 +123,7 @@
                 </tr>
               </tbody>
             </table>
-            <p><strong>Balanced is recommended for a first installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits.</p>
+            <p><strong>Balanced is recommended for a first installation.</strong> Every configurable resource still sits inside absolute minimum and maximum limits. These are ceilings, not background jobs: the wizard leaves scheduling disabled until you later review and install it.</p>
 
             <h3>Model policy is separate</h3>
             <ul>
@@ -131,12 +134,15 @@
             <div class="callout">
               <p>ai DeMemory itself makes zero model and embedding calls in every profile. A host agent can still consume its normal model tokens when advisory or proposal work is enabled.</p>
             </div>
+            <div class="callout callout-safe">
+              <p>In the 2.1.2 source candidate, a completed wizard can ask once—defaulting to No—whether to remember this vault as the local default. It stores only an absolute local path outside the vault, never memory. An explicit <code>--root</code> or <code>AI_DEMEMORY_ROOT</code> still wins when you deliberately switch vaults.</p>
+            </div>
           </section>
 
           <section class="content-section" id="connect-client">
             <h2>4. Connect an AI client (optional)</h2>
             <p>Generate vault-bound configuration only when you are ready to connect Codex, Claude, or another client. Inspect it before copying it into the host configuration. The wizard stops here because it cannot safely choose or edit a host application's settings on your behalf.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+            <div class="code-block" data-copy-block data-release="published-2.1.1">
               <pre tabindex="0"><code>ai-dememory --root ~/code/my-memory mcp-config --client codex</code></pre>
             </div>
             <p>The generated runtime configuration binds the vault, makes <code>core</code> the reduced four-tool server-enforced default, and uses a 600-second idle lease so an abandoned MCP process exits. Explicit <code>admin</code> preserves the complete historical MCP surface for compatibility and broad maintenance; it is not the recommended default.</p>
@@ -147,7 +153,7 @@
           <section class="content-section" id="upgrade">
             <h2>5. Update or diagnose the installation</h2>
             <p>Repair an existing pipx installation with the current stable package. Use the normal version output when diagnosing a PATH or package issue.</p>
-            <div class="code-block" data-copy-block data-release="stable-2.1.1">
+            <div class="code-block" data-copy-block data-release="published-2.1.1">
               <pre tabindex="0"><code>pipx install --force ai-dememory
 ai-dememory --version</code></pre>
             </div>

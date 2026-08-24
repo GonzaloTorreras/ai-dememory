@@ -49,6 +49,11 @@ MODES = ("installed", "docker", "both")
 
 
 PACKAGE_VERSION = current_package_version()
+RUNTIME_VAULT_ROOT_HELP = (
+    "Vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local "
+    "default selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
+    "uses the working directory to discover a vault."
+)
 
 
 def selected_clients(client: str) -> list[str]:
@@ -659,7 +664,7 @@ def setup_health_recall_review(root: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("--root", default=None, help="Vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
     subparsers = parser.add_subparsers(dest="command_name", required=True)
 
     plan = subparsers.add_parser("plan", help="Print a read-only local setup plan.", allow_abbrev=False)

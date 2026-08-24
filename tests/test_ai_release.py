@@ -89,14 +89,13 @@ class AiReleaseGuardTests(unittest.TestCase):
         self.assertEqual(stats["status"], "insufficient_evidence")
         self.assertIsNone(stats["recall"])
 
-    def test_current_release_prep_has_exact_dated_identity(self) -> None:
+    def test_unreleased_source_candidate_refuses_tag_identity(self) -> None:
         version = project_version(ROOT)
-        identity = validate_identity(ROOT, f"v{version}", version_only=True)
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
-        self.assertEqual(identity.version, version)
-        self.assertEqual(identity.tag, f"v{version}")
-        self.assertEqual(identity.prerelease, bool(re.search(r"(?:a|b|rc)[0-9]+$", version)))
-        self.assertIn(f"## [{version}] - ", identity.changelog_heading)
+        self.assertIn(f"## [{version}] - Unreleased", changelog)
+        with self.assertRaisesRegex(ValueError, rf"no dated \[{re.escape(version)}\] release heading"):
+            validate_identity(ROOT, f"v{version}", version_only=True)
 
     def test_packaged_readme_is_release_state_neutral(self) -> None:
         metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))

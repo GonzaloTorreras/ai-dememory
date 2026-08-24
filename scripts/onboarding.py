@@ -1039,29 +1039,126 @@ def load_operational_answers(args: argparse.Namespace) -> dict[str, Any]:
     return data
 
 
-def interactive_setup_answers(args: argparse.Namespace) -> dict[str, Any]:
-    """Capture one guided operational plan without personal memory."""
+def scheduled_cadence_description(profile: dict[str, object]) -> str:
+    """Describe the policy's possible cadence without implying installation."""
+    cadence: list[str] = []
+    if bool(profile["daily_enabled"]):
+        cadence.append("daily")
+    if bool(profile["weekly_enabled"]):
+        cadence.append("weekly")
+    return " + ".join(cadence) if cadence else "manual only"
+
+
+def binding_source_description(binding_source: str) -> str:
+    return {
+        "argument": "the --root argument",
+        "environment": "AI_DEMEMORY_ROOT",
+        "default": "your local default vault",
+    }.get(binding_source, "a configured vault binding")
+
+
+def print_operational_wizard_intro(root: Path, binding_source: str) -> None:
+    """Explain the config-only wizard using the shipped policy catalog."""
+    print("ai-dememory setup wizard — operational setup only")
+    print(f"Vault: {root}")
+    print(f"Vault selection: {binding_source_description(binding_source)}")
+    print(
+        "This wizard records bounded local policy in .ai-dememory.toml. It does not create "
+        "personal values, preferences, recommendations, or project memories."
+    )
+    print(
+        "It also does not import chats, install MCP/hooks/schedules, start the local API, or "
+        "make ai-dememory model or embedding calls."
+    )
+    print("")
+    print("1. Choose an intensity. These are ceilings, not jobs that this wizard installs:")
+    for profile in profile_catalog():
+        name = str(profile["name"])
+        automatic_recall = int(profile["automatic_recall_max_tokens_per_eligible_turn"])
+        recall = "manual only" if automatic_recall == 0 else f"up to {automatic_recall:,} tokens/eligible turn"
+        context = int(profile["context_budget_tokens"])
+        cadence = scheduled_cadence_description(profile)
+        runs = int(profile["estimated_local_runs_per_week"])
+        print(f"   - {name}: {profile['summary']}")
+        print(
+            f"     Recall: {recall}; context ceiling: {context:,} tokens. "
+            f"If you later install a schedule explicitly: {cadence} ({runs} run(s)/week)."
+        )
+        print(f"     Best for: {profile['recommended_for']}")
+    print(
+        "   The schedule remains disabled after this wizard. Any later scheduling is a separate, "
+        "reviewed action."
+    )
+    print("")
+    print("2. Choose a host-AI policy. It controls what an already active compatible host may do:")
+    for policy in model_policy_catalog():
+        print(f"   - {policy['name']}: {policy['summary']}")
+    print(
+        "   ai-dememory itself makes 0 model calls and 0 embedding calls for every choice. "
+        "Any model use or cost belongs to the host agent you separately run; this wizard does not "
+        "start one or create an API charge."
+    )
+    print(
+        "   With `proposals`, an opted-in compatible Stop event may draft review-first inbox "
+        "proposals only. It never promotes durable memory automatically."
+    )
+    print("")
+
+
+def prompt_catalog_choice(
+    prompt: str,
+    *,
+    choices: tuple[str, ...],
+    default: str,
+    label: str,
+) -> str:
+    """Read a simple validated choice, preserving an explicit safe default."""
+    allowed = ", ".join(choices)
+    while True:
+        response = input(prompt).strip().lower() or default
+        if response in choices:
+            return response
+        print(f"Unknown {label} `{response}`. Choose one of: {allowed}.")
+
+
+def interactive_setup_answers(
+    args: argparse.Namespace,
+    root: Path,
+    *,
+    binding_source: str,
+) -> dict[str, Any]:
+    """Capture one guided operational plan without personal-memory prompts."""
     if not sys.stdin.isatty():
         raise ValueError("non-interactive setup requires --json or --dry-run")
     data = operational_answers_from_args(args)
     automation = dict(data["automation"])
-    print(
-        "Intensity: minimal (weekly/manual), balanced (recommended), "
-        "active (maximum bounded budgets)."
-    )
+    print_operational_wizard_intro(root, binding_source)
     if args.intensity:
         print(f"Intensity selected by command line: {args.intensity}")
     else:
-        automation["intensity"] = input("Intensity [balanced]: ").strip().lower() or DEFAULT_INTENSITY
-    print("Host model policy: off (zero advisory work), advisory, proposals (review-first only).")
+        automation["intensity"] = prompt_catalog_choice(
+            f"Intensity [{DEFAULT_INTENSITY}]: ",
+            choices=profile_names(),
+            default=DEFAULT_INTENSITY,
+            label="intensity",
+        )
     if args.model_policy:
-        print(f"Host model policy selected by command line: {args.model_policy}")
+        print(f"Host-AI policy selected by command line: {args.model_policy}")
     else:
-        automation["model_policy"] = input("Host model policy [off]: ").strip().lower() or DEFAULT_MODEL_POLICY
+        automation["model_policy"] = prompt_catalog_choice(
+            f"Host-AI policy [{DEFAULT_MODEL_POLICY}]: ",
+            choices=model_policy_names(),
+            default=DEFAULT_MODEL_POLICY,
+            label="host-AI policy",
+        )
     data["automation"] = automation
 
     if automation["model_policy"] == "proposals" and not args.enable_auto_learning:
-        response = input("Create review-first Stop learning proposals? [Y/n]: ").strip().lower()
+        print(
+            "Stop proposals stay review-first in the inbox; they do not write durable memory, "
+            "install a hook, or make a model call by themselves."
+        )
+        response = input("Enable review-first Stop learning proposals? [Y/n]: ").strip().lower()
         data["learning"] = {"session_proposals": response not in {"n", "no"}}
     elif automation["model_policy"] != "proposals":
         data["learning"] = {"session_proposals": False}
@@ -1069,12 +1166,63 @@ def interactive_setup_answers(args: argparse.Namespace) -> dict[str, Any]:
     return data
 
 
+def print_baseline_onboarding_intro() -> None:
+    """Introduce the optional durable-baseline flow without policy jargon."""
+    print("ai-dememory onboard — optional reviewed personal baseline")
+    print(
+        "This is separate from setup wizard. It previews durable Markdown for your values, working "
+        "preferences, and agent recommendations; it does not change operational policy, install "
+        "anything, or apply a change yet."
+    )
+    print(
+        "You will review the preview and its fingerprint before any later apply. Enter only "
+        "non-secret guidance; use semicolons to separate items. Blank required answers are retried."
+    )
+    print("")
+
+
+def prompt_required_scalar(prompt: str, *, label: str) -> str:
+    while True:
+        value = input(prompt).strip()
+        if value:
+            return value
+        print(f"{label} is required. Please enter a short value and try again.")
+
+
+def prompt_required_list(label: str, explanation: str, example: str) -> list[str]:
+    print(f"{label}: {explanation}")
+    print(f"  Example: {example}")
+    while True:
+        values = prompt_list(f"{label} (required; semicolon-separated): ")
+        if values:
+            return values
+        print(f"{label} is required. Enter at least one item separated by semicolons.")
+
+
 def interactive_baseline_answers() -> dict[str, Any]:
-    reviewed_by = input("Reviewer name: ").strip()
-    values = prompt_list("Values (semicolon-separated): ")
-    preferences = prompt_list("Working preferences (semicolon-separated): ")
-    recommendations = prompt_list("Recommendations for agents (semicolon-separated): ")
-    project_name = input("Primary project name (optional): ").strip()
+    print_baseline_onboarding_intro()
+    reviewed_by = prompt_required_scalar(
+        "Reviewer name (required; person who approves this baseline): ",
+        label="Reviewer name",
+    )
+    values = prompt_required_list(
+        "Values",
+        "principles that should remain true across work.",
+        "privacy first; traceable changes",
+    )
+    preferences = prompt_required_list(
+        "Working preferences",
+        "how you want an agent to collaborate with you.",
+        "be concise; run narrow tests first",
+    )
+    recommendations = prompt_required_list(
+        "Recommendations for agents",
+        "concrete rules an agent should follow when helping you.",
+        "ask before external writes; use reviewed memory first",
+    )
+    project_name = input(
+        "Primary project name (optional; a label such as `portfolio-tracker`; leave blank to skip): "
+    ).strip()
     return {
         "reviewed_by": reviewed_by,
         "values": values,
@@ -1088,6 +1236,42 @@ def interactive_answers() -> dict[str, Any]:
     if not sys.stdin.isatty():
         raise ValueError("non-interactive onboarding requires JSON/stdin or explicit flags")
     return interactive_baseline_answers()
+
+
+def offer_default_vault(root: Path) -> None:
+    """Optionally persist only the selected path after operational setup succeeds."""
+    print(
+        "Operational setup is already applied. You can optionally remember this vault for future "
+        "ai-dememory commands. This stores only its absolute path in per-user configuration outside "
+        "the vault; it does not store, move, or inspect memory."
+    )
+    try:
+        response = input("Remember this vault as the local default? [y/N]: ").strip().lower()
+    except EOFError:
+        print("No local default was recorded because interactive input ended. Setup remains complete.")
+        return
+    if response not in {"y", "yes"}:
+        print("No local default was recorded. Setup remains complete.")
+        return
+
+    try:
+        # Keep the wizard usable during a partial upgrade: the operational
+        # config has already committed, and default-vault convenience must
+        # never roll it back or turn a successful setup into a failure.
+        from ai_dememory_tool.vault_binding import save_default_vault
+
+        saved = save_default_vault(root)
+    except (ImportError, AttributeError):
+        print("This build cannot record a local default yet. Setup remains complete.")
+        return
+    except (OSError, ValueError) as exc:
+        print(f"Could not record the local default ({exc}). Setup remains complete.")
+        return
+    print(
+        "Local default vault recorded: "
+        f"{saved.root}. Use `ai-dememory vault current`, `ai-dememory vault use <path>`, or "
+        "`ai-dememory vault clear` to inspect or change it."
+    )
 
 
 def prompt_list(prompt: str) -> list[str]:
@@ -1204,7 +1388,15 @@ def build_parser(*, mode: str = "onboard") -> argparse.ArgumentParser:
         ),
         allow_abbrev=False,
     )
-    parser.add_argument("--root", default=None, help="Memory vault root. Required unless AI_DEMEMORY_ROOT is set.")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help=(
+            "Memory vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then "
+            "a saved local default selected with `ai-dememory vault use "
+            "<absolute-vault-path>`; the command never uses the working directory to discover a vault."
+        ),
+    )
     payload_name = "setup" if operational else "onboarding"
     parser.add_argument("--input-json", default=None, help=f"Inline {payload_name} JSON object.")
     parser.add_argument("--input-file", default=None, help=f"Path to {payload_name} JSON.")
@@ -1372,7 +1564,9 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
     )
     args = parser.parse_args(argv)
     try:
-        root = resolve_runtime_vault(args.root).root
+        binding = resolve_runtime_vault(args.root)
+        root = binding.root
+        binding_source = str(binding.source)
     except VaultBindingError as exc:
         parser.error(str(exc))
     if args.apply and args.dry_run:
@@ -1405,7 +1599,7 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
         else:
             reject_operational_onboarding_flags(args)
         if guided_interactive:
-            answers = interactive_setup_answers(args)
+            answers = interactive_setup_answers(args, root, binding_source=binding_source)
             plan_builder = operational_setup_plan
             plan_applier = apply_operational_setup
         elif operational_guided:
@@ -1437,6 +1631,7 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
                 print("Setup was not applied. The existing vault is unchanged; setup is incomplete.")
                 return GUIDED_DECLINED_EXIT_CODE
             result = plan_applier(root, answers, str(result["plan_sha256"]))
+            offer_default_vault(root)
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
         if args.json:
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False))

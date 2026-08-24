@@ -28,11 +28,13 @@ Do not use auto context, working-memory tools, graph/resources/prompts, or a
 surface without a public-only ceiling for that work.
 
 The CLI supports Codex plugin hooks and Claude Code command hooks. Only
-`hooks events` is rootless static metadata. Every stateful `hooks` subcommand,
-manual `hook-event` capture, and dispatch needs an absolute `--root <vault>`
-(or `~` path after home expansion) or `AI_DEMEMORY_ROOT`; none discovers a
-vault from the current directory or source checkout. An explicit non-empty
-`--root` takes precedence over the environment.
+`hooks events` is rootless static metadata. In the unreleased 2.1.2 source
+candidate, every stateful `hooks` subcommand, manual `hook-event` capture, and
+dispatch resolves an absolute vault in this order: `--root <vault>` (with `~`
+expanded), `AI_DEMEMORY_ROOT`, then a local default deliberately saved with
+`ai-dememory vault use <absolute-vault-path>`. It never discovers a vault from
+the current directory or source checkout. The published 2.1.1 package supports
+the first two bindings only until 2.1.2 is released.
 
 ```bash
 ai-dememory hooks events
@@ -43,7 +45,9 @@ ai-dememory hooks config --client codex --root ~/code/my-memory
 ai-dememory hooks config --client claude --root ~/code/my-memory
 ```
 
-Use `--root <vault>` whenever the environment does not already name the vault:
+Use `--root <vault>` for generated hook configuration, automation, or more than
+one vault. A saved default is a local interactive convenience, not a portable
+replacement for a generated vault-specific fragment:
 
 ```bash
 ai-dememory hooks config --client codex --root ~/code/my-memory
@@ -136,8 +140,11 @@ recall skill; this fallback is advisory and therefore weaker than a native
 hook. Recalled memory is reference data, not trusted instructions.
 
 For recall across repositories, generate the hook with `--root <vault>` or set
-`AI_DEMEMORY_ROOT` in the hook environment. A plugin hook that cannot locate a
-vault returns `{}` and continues without injection.
+`AI_DEMEMORY_ROOT` in the hook environment. The 2.1.2 local default can cover a
+generic hook on the same user machine after it was deliberately selected, but a
+generated or shared configuration should retain an explicit binding. A plugin
+hook with no usable binding returns `{}` and continues without injection; it
+never tries the client project or current directory.
 
 ## Safety Boundary
 

@@ -19,9 +19,14 @@ ai-dememory providers detect
 ai-dememory --root <vault-path> providers plan --json
 ```
 
-`providers detect` is a rootless, read-only local diagnostic. Provider plans,
-configuration, imports, and captures operate on a selected vault and require
-an absolute `--root <vault-path>` binding (or `AI_DEMEMORY_ROOT`).
+`providers detect` is a rootless, read-only local diagnostic. In the unreleased
+2.1.2 source candidate, provider plans, configuration, imports, and captures
+resolve their selected vault in this order: absolute `--root <vault-path>`,
+`AI_DEMEMORY_ROOT`, then a local default deliberately saved with
+`ai-dememory vault use <absolute-vault-path>`. They never infer a vault from the
+current directory or source checkout. The published 2.1.1 package supports the
+first two bindings only until 2.1.2 is released. Keep `--root` explicit for
+automation and when more than one vault is in use.
 
 MCP clients can inspect configured import readiness with
 `memory.providers_status` and review provider setup commands with
