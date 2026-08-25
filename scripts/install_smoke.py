@@ -1549,10 +1549,9 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             cwd=foreign_vault,
             env=selector_env,
         )
-        (foreign_vault / ".ai-dememory.toml").write_text(
-            "[invalid\n",
-            encoding="utf-8",
-        )
+        # Invalid UTF-8 is a guaranteed read failure for the legacy CWD path;
+        # permissive config parsing must not make this negative control pass.
+        (foreign_vault / ".ai-dememory.toml").write_bytes(b"\xff")
         selected_status = run_step(
             steps,
             "installed maintenance status uses saved vault from foreign CWD",
