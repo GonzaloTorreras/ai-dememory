@@ -14,6 +14,14 @@ from memorylib import repo_root
 
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
+GENERATED_ARTIFACTS_VAULT_PRECONDITION = (
+    "For source-tree release validation, select and verify the intended "
+    "initialized vault before running this section: pass "
+    "`--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run "
+    "`python3 scripts/ai_dememory.py vault use <absolute-vault-path>` and confirm "
+    "it with `python3 scripts/ai_dememory.py vault current`; never rely on CWD or "
+    "repository discovery."
+)
 
 REQUIRED_HEADINGS = {
     "repository": "## Repository State",
@@ -511,12 +519,94 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def level_two_sections(text: str) -> dict[str, list[str]]:
+    """Return exact top-level H2 sections, excluding fenced/indented code."""
+
+    lines = text.splitlines()
+    headings: list[tuple[str, int]] = []
+    fence: tuple[str, int] | None = None
+    in_html_comment = False
+    for index, line in enumerate(lines):
+        if fence is not None:
+            stripped = line.lstrip(" ")
+            indent = len(line) - len(stripped)
+            closing_fence = (
+                re.fullmatch(
+                    rf"{re.escape(fence[0])}{{{fence[1]},}}[ \t]*",
+                    stripped,
+                )
+                if indent <= 3
+                else None
+            )
+            if closing_fence:
+                fence = None
+            continue
+
+        visible_parts: list[str] = []
+        remaining = line
+        while remaining:
+            if in_html_comment:
+                comment_end = remaining.find("-->")
+                if comment_end < 0:
+                    remaining = ""
+                    break
+                remaining = remaining[comment_end + 3 :]
+                in_html_comment = False
+                continue
+            comment_start = remaining.find("<!--")
+            if comment_start < 0:
+                visible_parts.append(remaining)
+                break
+            visible_parts.append(remaining[:comment_start])
+            remaining = remaining[comment_start + 4 :]
+            in_html_comment = True
+
+        visible_line = "".join(visible_parts)
+        stripped = visible_line.lstrip(" ")
+        indent = len(visible_line) - len(stripped)
+        opening_fence = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
+        if opening_fence:
+            marker = opening_fence.group(1)
+            fence = (marker[0], len(marker))
+            continue
+        if visible_line.startswith("## "):
+            headings.append((visible_line.rstrip(), index))
+
+    sections: dict[str, list[str]] = {}
+    for position, (heading, line_index) in enumerate(headings):
+        next_index = headings[position + 1][1] if position + 1 < len(headings) else len(lines)
+        sections.setdefault(heading, []).append("\n".join(lines[line_index + 1 : next_index]))
+    return sections
+
+
 def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     issues: list[ChecklistGuardIssue] = []
     normalized = normalize(text)
+    sections = level_two_sections(text)
     for name, heading in REQUIRED_HEADINGS.items():
-        if heading not in text:
+        matches = sections.get(heading, [])
+        if not matches:
             issues.append(ChecklistGuardIssue(f"release_checklist:{name}", f"missing heading: {heading}"))
+        elif len(matches) > 1:
+            issues.append(ChecklistGuardIssue(f"release_checklist:{name}", f"duplicate heading: {heading}"))
+    artifact_heading = REQUIRED_HEADINGS["artifacts"]
+    artifact_sections = sections.get(artifact_heading, [])
+    if len(artifact_sections) == 1:
+        artifact_section = artifact_sections[0]
+        expected_start = normalize(f"- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}")
+        first_nonblank_line = next(
+            (line for line in artifact_section.splitlines() if line.strip()),
+            "",
+        )
+        if not first_nonblank_line.startswith("- [ ] ") or not normalize(
+            artifact_section
+        ).startswith(expected_start):
+            issues.append(
+                ChecklistGuardIssue(
+                    "release_checklist:generated_artifacts_vault_binding",
+                    "Generated Artifacts must begin with the explicit vault-binding precondition",
+                )
+            )
     for name, snippet in REQUIRED_SNIPPETS.items():
         if normalize(snippet) not in normalized:
             issues.append(

@@ -208,7 +208,11 @@ from recall_fixtures import (  # noqa: E402
     write_recall_review_packet,
     write_recall_review_report,
 )
-from release_checklist_guard import validate_release_checklist, validate_release_checklist_text  # noqa: E402
+from release_checklist_guard import (  # noqa: E402
+    GENERATED_ARTIFACTS_VAULT_PRECONDITION,
+    validate_release_checklist,
+    validate_release_checklist_text,
+)
 from roadmap_status import render_markdown as render_roadmap_status_markdown, roadmap_status  # noqa: E402
 from release_evidence import (  # noqa: E402
     blocked_acceptance_items,
@@ -15446,6 +15450,113 @@ This records future risks.
         self.assertTrue(
             any(
                 issue.target == "release_checklist:impossible_native_actions_creation_bypass"
+                for issue in issues
+            )
+        )
+
+    def test_release_checklist_guard_requires_vault_binding_before_artifacts(self) -> None:
+        stale = f"""
+## Generated Artifacts
+
+- [ ] `python3 scripts/ai_dememory.py index`
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:generated_artifacts_vault_binding"
+                for issue in issues
+            )
+        )
+
+    def test_release_checklist_guard_ignores_fenced_heading_decoy(self) -> None:
+        stale = f"""
+```markdown
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+```
+
+## Generated Artifacts
+
+- [ ] `python3 scripts/ai_dememory.py index`
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:generated_artifacts_vault_binding"
+                for issue in issues
+            )
+        )
+
+    def test_release_checklist_guard_rejects_duplicate_artifact_heading(self) -> None:
+        stale = f"""
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+
+## Generated Artifacts
+
+- [ ] `python3 scripts/ai_dememory.py index`
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:artifacts"
+                and "duplicate heading" in issue.message
+                for issue in issues
+            )
+        )
+
+    def test_release_checklist_guard_ignores_false_fence_closer(self) -> None:
+        stale = f"""
+```markdown
+```not-a-commonmark-close
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+```
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(issue.target == "release_checklist:artifacts" for issue in issues)
+        )
+
+    def test_release_checklist_guard_ignores_html_comment_heading(self) -> None:
+        stale = f"""
+<!--
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+-->
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(issue.target == "release_checklist:artifacts" for issue in issues)
+        )
+
+    def test_release_checklist_guard_rejects_indented_precondition_decoy(self) -> None:
+        stale = f"""
+## Generated Artifacts
+
+    - [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:generated_artifacts_vault_binding"
                 for issue in issues
             )
         )

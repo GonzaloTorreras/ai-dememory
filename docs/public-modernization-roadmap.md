@@ -1,4 +1,4 @@
-# Public Modernization and Continuous Improvement Roadmap
+# Public Modernization and Continuous Improvement Research Appendix
 
 Status: directional research; executable order lives in the V3 planning contract
 Owner: Codex operational owner; repository owner gates production and release
@@ -330,9 +330,11 @@ Legacy paths are decommissioned only after measured use falls below an accepted
 threshold, last-version migration remains green, rollback drills pass, and the
 repository owner explicitly approves removal.
 
-## Public Planning Slices
+## Historical Planning Slices
 
-Each slice is independently reviewable and may not claim later-gate attainment:
+These slices preserve the review structure used to form the public baseline;
+they are design lessons, not an active queue. Each slice is independently
+reviewable and may not claim later-gate attainment:
 
 1. Governance and portability: ADRs, docs, line endings, recursive discovery.
 2. Public baseline: inventories, compatibility contract, Python SLO plan,
@@ -406,20 +408,19 @@ Before a release:
 - present version, artifact hashes, CI, and known risks; obtain explicit owner
   authorization for the exact tag tuple and the separate publication tuple.
 
-## Immediate Next Steps
+## Execution Pointer
 
-This directional list is subordinate to the normative frontier:
+Do not select the next task from this research appendix. Read the
+[V3 roadmap](v3-hybrid-visual-multiplatform-roadmap.md) and
+[machine-readable execution sequence](../contracts/planning/v3-execution-sequence.json)
+for the only executable order, then confirm the latest verified checkout,
+release, evidence, and blockers in [development status](development-status.md).
+The [governed learning design handoff](governed-learning-loop-handoff.md)
+supplies design constraints only when one of its owning task ids reaches that
+frontier.
 
-1. Finish `BRG-003` and `BRG-017`.
-2. Generate bridge/exact-artifact inventory in `BRG-019`, without adding a new
-   runtime writer.
-3. Freeze the writer inventory in `MIG-001` and pass `GATE-B` with external
-   readback.
-4. Only then execute the future governed-learning sequence in
-   [its technical handoff](governed-learning-loop-handoff.md): `OBS-001`,
-   `OUT-001`, `CON-001`, and `MEM-001`.
-5. Continue to earn retrieval, visual-plane, or model-assisted expansion with
-   measured product evidence rather than roadmap prose.
+Continue to earn retrieval, visual-plane, or model-assisted expansion with
+measured product evidence rather than roadmap prose.
 
 The default decision remains: improve the verified Python product, preserve
 Markdown and review authority, and earn every expansion with product evidence.

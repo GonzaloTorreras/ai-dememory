@@ -13,11 +13,10 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `46e5e575645333c7f4f4ab0a1696d3922a2e35b6`, the merge result of
-  [PR #47](https://github.com/GonzaloTorreras/ai-dememory/pull/47). Its parent
-  contains the unpublished `2.1.2` source correction merged by
-  [PR #46](https://github.com/GonzaloTorreras/ai-dememory/pull/46) at
-  `df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`.
+  `bf611ac2e2ebf819adb74f79e6d6ef093c0503d0`, the squash merge result of
+  [PR #48](https://github.com/GonzaloTorreras/ai-dememory/pull/48). Its history
+  contains the planning-only governed-learning handoff from PR #47 and the
+  unpublished `2.1.2` default-vault/wizard correction from PR #46.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -177,7 +176,14 @@ local-API onboarding hint and documentation follow-up.
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
-- The current eighth `BRG-003` increment makes the complete `schedule` command
+- PR [#48](https://github.com/GonzaloTorreras/ai-dememory/pull/48) was squash
+  merged at `bf611ac2e2ebf819adb74f79e6d6ef093c0503d0` after all ten CI jobs and
+  Pages validation passed. Its exact committed diff was sealed as canonical
+  security scan `46e5e575_dcca4a96_20260825T205252Z`; the post-seal validator
+  returned `status: valid` with complete coverage, zero deferred work, zero
+  candidates, and zero findings. A fresh GitHub-context review returned no
+  blockers and explicitly recommended the exact-head squash merge.
+- This eighth `BRG-003` increment makes the complete `schedule` command
   family parse its own grammar before any vault lookup. `schedule doctor`
   remains a genuinely rootless environment check; `plan`, `cron`, `setup`,
   `install`, `status`, and `remove`, including their dry-run forms, resolve only
@@ -311,9 +317,10 @@ remain intact.
 
 ## Next Legal Action
 
-1. Keep source `2.1.2` explicitly unpublished. A tag, TestPyPI/PyPI
-   publication, GitHub Release, or deployment requires its own evidence and
-   approval; this planning handoff authorizes none of them.
+1. Keep source `2.1.2` explicitly unpublished until the remaining
+   release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
+   from TestPyPI, and read back. Each tag and publication must remain bound to
+   its exact commit/tag tuple, artifact, workflow, and package-index evidence.
 2. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader,
    review-state, provider/import/capture, and scheduler boundaries are covered
@@ -329,6 +336,6 @@ remain intact.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
    [governed learning handoff](governed-learning-loop-handoff.md) adds no
    current runtime, config, wizard, ranking, or canonical-write capability.
-5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence, and do not
-   merge, tag, publish, deploy, or alter external configuration without the
-   approval required by `AGENTS.md`.
+5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence. The next
+   release identity remains `2.1.2rc1` and then `2.1.2`; do not skip directly
+   to `2.1.3`, reuse a tag, or treat source metadata as publication evidence.

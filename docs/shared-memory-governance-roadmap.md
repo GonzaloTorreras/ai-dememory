@@ -1,4 +1,4 @@
-# Shared Memory Governance Roadmap
+# Shared Memory Governance Research Appendix
 
 This roadmap is a non-normative governance research appendix derived from the
 historical R0-R7 work in `../PLAN.md`. Executable task order and state live only
@@ -14,7 +14,7 @@ The goal is to move from a reviewed personal vault to governed shared memory
 that can be used safely by multiple LLM tools, agents, projects, and review
 workflows.
 
-This is a planning document. It does not enable remote HTTP, automatic durable
+This is a research document. It does not enable remote HTTP, automatic durable
 writes, embeddings, provider imports, or scheduler side effects.
 
 ## Research Basis
@@ -419,24 +419,18 @@ Exit criteria:
 - Manual acceptance tells reviewers how to prove policy and trace behavior in a
   real client.
 
-## Implementation Order
+## Research Dependency Notes (Non-Executable)
 
-This is a research ordering, not a second execution DAG. Local observation and
-outcome work uses `OBS-001` and `OUT-001` only after `GATE-B`, as defined in the
-governed learning handoff and the normative planning contract.
+`P0` through `P6` are stable research labels, not a second execution DAG. Use
+the [V3 roadmap](v3-hybrid-visual-multiplatform-roadmap.md) and the
+[machine-readable execution sequence](../contracts/planning/v3-execution-sequence.json)
+to select work; use [development status](development-status.md) for the latest
+verified implementation and release state.
 
-1. Land P0 schema, docs, validation defaults, and direct-read policy tests.
-2. Land P1 fixture format and advisory shared-memory evaluator.
-3. Land P2 supersession/time semantics, current retrieval filters, and conflict
-   review extensions.
-4. Land P3 trace records and outcome attribution.
-5. Land P5 quarantine workflow before enabling broad provider imports.
-6. Land P4 graph/hybrid experiments only after P1-P3 produce enough evidence.
-7. Land P6 MCP/plugin surfaces after CLI behavior is stable.
-
-P4 is intentionally after the governance and evaluation work. The repository
-should not optimize retrieval before it can prove that retrieval is allowed,
-current, attributable, and resistant to poisoning.
+The durable research constraints are that policy and evaluation precede
+retrieval optimization, quarantine precedes broader untrusted imports, and CLI
+contracts stabilize before new MCP or plugin projections. These constraints do
+not place any `P*` label on the live frontier by themselves.
 
 The historical super-search and retrieval-review direction is described in
 `../PLAN.md` R7. Any implementation must first appear on the normative planning

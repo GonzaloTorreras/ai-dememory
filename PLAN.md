@@ -1,6 +1,6 @@
-# ai DeMemory Future Roadmap
+# ai DeMemory Future Research Appendix
 
-This is a non-normative future research roadmap for `ai-dememory`. It is separate from
+This is a non-normative future research appendix for `ai-dememory`. It is separate from
 `ai-dememory roadmap status`, which reports current v2 implementation evidence.
 The [governed learning loop handoff](docs/governed-learning-loop-handoff.md)
 refines the local observation, attribution, and consolidation direction. Both
@@ -35,9 +35,11 @@ Non-goals until explicitly approved:
 - Provider/model calls inside retrieval without a privacy, latency, and cost
   gate.
 
-## Current Baseline
+## Authoring Baseline
 
-The v2 local readiness baseline is mostly implemented:
+When this research appendix was drafted, the v2 local readiness baseline had
+the following capabilities. This is not a current release-readiness claim; use
+[development status](docs/development-status.md) for live evidence:
 
 - Release and CI guards are in place.
 - Search and context assembly are explainable and token-budgeted.
@@ -50,8 +52,9 @@ automation. It should start with governance and evaluation.
 
 ## R0 - Productization And Plan Integrity
 
-Outcome: the existing v2 product is releasable, installable, and documented
-without broken roadmap links or ambiguous release signals.
+Research outcome sought: keep the v2 product releasable, installable, and
+documented without broken roadmap links or ambiguous release signals. `R0`
+does not certify a release or select executable work.
 
 Focus:
 
@@ -272,21 +275,20 @@ Exit criteria:
 - Latency and cost are bounded in reports.
 - Super search cannot bypass policy, traceability, or quarantine.
 
-## Implementation Order
+## Research Index (Non-Executable)
 
-This is research priority, not an executable queue. The normative DAG keeps
-governed observation behind `BRG-003`, `BRG-017`, `BRG-019`, `MIG-001`, and
-`GATE-B`.
+`R0` through `R7` are stable research labels, not tasks, dependencies, or an
+execution queue. Their section order preserves the original line of inquiry;
+it does not select implementation work.
 
-1. R0: make the plan and release docs internally consistent.
-2. R1: implement the shared policy kernel and direct-read bypass tests.
-3. R2: add shared-memory and adversarial evaluation.
-4. R3: add traceability and attribution.
-5. R4: add supersession and time semantics.
-6. R5: add quarantine and poisoning defenses.
-7. R6: expose safe read-only governance status through MCP/plugin surfaces.
-8. R7: add super-search experiments only after policy, evaluation, and traces
-   can prove the retrieval is allowed, useful, current, and attributable.
+Use the
+[V3 roadmap](docs/v3-hybrid-visual-multiplatform-roadmap.md) for the public
+planning narrative, the
+[machine-readable execution sequence](contracts/planning/v3-execution-sequence.json)
+for legal order and state, and
+[development status](docs/development-status.md) for the latest verified
+checkout and release facts. A research label becomes actionable only when an
+owning task is present on that live normative frontier.
 
 ## Supporting Docs
 
