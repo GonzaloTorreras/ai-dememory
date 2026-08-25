@@ -349,10 +349,10 @@ def provider_command_requires_explicit_vault_binding(command: str, argv: list[st
 
 
 def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
-    """Identify read-only previews and stateful runs that need a bound vault."""
+    """Identify read-only command surfaces and stateful runs that need a bound vault."""
     subcommand = command_subcommand(argv)
     if command == "maintenance":
-        return subcommand == "run"
+        return subcommand in {"run", "status"}
     if command == "providers":
         return subcommand == "plan" or (
             subcommand == "configure" and "--dry-run" in argv
@@ -387,11 +387,10 @@ def run_packaged_command(
         "providers",
         "import-chats",
         "capture",
+        "maintenance",
         "schedule",
-    } or (
-        command == "maintenance" and command_subcommand(argv) == "run"
-    ):
-        # Runtime, provider, maintenance-run, onboarding, and scheduler surfaces
+    }:
+        # Runtime, provider, maintenance, onboarding, and scheduler surfaces
         # own parsing and vault resolution (or an explicitly rootless path).
         # In particular, never discover a
         # CWD/package root, resolve a user path, or rewrite provider arguments

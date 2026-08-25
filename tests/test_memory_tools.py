@@ -687,8 +687,9 @@ class MemoryToolTests(unittest.TestCase):
                             error.getvalue(),
                         )
 
-    def test_maintenance_run_requires_bound_roots_without_discovery(self) -> None:
+    def test_maintenance_commands_require_bound_roots_without_discovery(self) -> None:
         invocations = (
+            ("status", ["maintenance", "status", "--json"]),
             ("real run", ["maintenance", "run"]),
             ("dry run", ["maintenance", "run", "--dry-run", "--json"]),
             (
@@ -746,15 +747,13 @@ class MemoryToolTests(unittest.TestCase):
                     )
 
     def test_root_guard_classifies_mutating_and_root_bound_commands(self) -> None:
-        for command, argv in (
-            ("providers", ["detect"]),
-            ("maintenance", ["status"]),
-        ):
+        for command, argv in (("providers", ["detect"]),):
             with self.subTest(command=command, argv=argv):
                 self.assertFalse(command_mutates_vault(command, argv))
                 self.assertFalse(command_requires_explicit_vault_binding(command, argv))
 
         for command, argv in (
+            ("maintenance", ["status"]),
             ("maintenance", ["run", "--dry-run"]),
             ("providers", ["plan", "--json"]),
             ("providers", ["configure", "codex", "--dry-run"]),
@@ -975,31 +974,35 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, 2)
                 self.assertIn("requires an absolute vault path", error.getvalue())
 
-    def test_maintenance_run_rejects_relative_bindings_before_discovery(self) -> None:
-        run_forms = (
+    def test_maintenance_commands_reject_relative_bindings_before_work(self) -> None:
+        command_forms = (
+            ("status", ["status", "--json"]),
             ("real run", ["run"]),
             ("dry run", ["run", "--dry-run", "--json"]),
         )
-        for run_label, run_argv in run_forms:
+        for command_label, command_argv in command_forms:
             invocations = (
                 (
                     "global root",
-                    ["--root", ".", "maintenance", *run_argv],
+                    ["--root", ".", "maintenance", *command_argv],
                     "",
                 ),
                 (
                     "post-command root",
-                    ["maintenance", "--root", ".", *run_argv],
+                    ["maintenance", "--root", ".", *command_argv],
                     "",
                 ),
-                ("environment root", ["maintenance", *run_argv], "."),
+                ("environment root", ["maintenance", *command_argv], "."),
             )
             for binding_label, argv, environment_root in invocations:
-                with self.subTest(run=run_label, binding=binding_label):
+                with self.subTest(command=command_label, binding=binding_label, entrypoint="unified"):
                     error = io.StringIO()
                     with (
                         patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
                         patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
+                        patch("ai_dememory_tool.admin.maintenance.maintenance_status") as status,
+                        patch("ai_dememory_tool.admin.maintenance.dry_run_maintenance") as dry_run,
+                        patch("ai_dememory_tool.admin.maintenance.run_maintenance") as run,
                         redirect_stderr(error),
                         self.assertRaises(SystemExit) as raised,
                     ):
@@ -1008,6 +1011,32 @@ class MemoryToolTests(unittest.TestCase):
                     self.assertEqual(raised.exception.code, 2)
                     root_resolver.assert_not_called()
                     self.assertIn("requires an absolute vault path", error.getvalue())
+                    status.assert_not_called()
+                    dry_run.assert_not_called()
+                    run.assert_not_called()
+
+            direct_invocations = (
+                ("explicit root", ["--root", ".", *command_argv], ""),
+                ("environment root", command_argv, "."),
+            )
+            for binding_label, argv, environment_root in direct_invocations:
+                with self.subTest(command=command_label, binding=binding_label, entrypoint="direct"):
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        patch("maintenance.maintenance_status") as status,
+                        patch("maintenance.dry_run_maintenance") as dry_run,
+                        patch("maintenance.run_maintenance") as run,
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        maintenance_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertIn("requires an absolute vault path", error.getvalue())
+                    status.assert_not_called()
+                    dry_run.assert_not_called()
+                    run.assert_not_called()
 
     def test_maintenance_run_explicit_bindings_override_malformed_environment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1058,6 +1087,47 @@ class MemoryToolTests(unittest.TestCase):
 
             self.assertEqual(dry_run.call_args.args[0], root.resolve())
             self.assertEqual(json.loads(direct_output.getvalue()), direct_preview)
+
+    def test_unified_maintenance_parses_invalid_grammar_before_root_resolution(self) -> None:
+        invalid_commands = (
+            ["--root", r"\\attacker\share", "maintenance", "status", "--bogus"],
+            ["maintenance", "status", "--root", r"\\attacker\share"],
+            ["maintenance", "--ro", r"\\attacker\share", "status"],
+            ["--root=", "maintenance", "status"],
+            ["maintenance", "--root=", "status"],
+            [
+                "--root",
+                "C:/vault-a",
+                "maintenance",
+                "--root",
+                "C:/vault-b",
+                "status",
+            ],
+        )
+        for argv in invalid_commands:
+            with self.subTest(argv=argv):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    patch("ai_dememory_tool.cli.resolve_runtime_vault") as wrapper_resolver,
+                    patch(
+                        "ai_dememory_tool.admin.maintenance.resolve_runtime_vault"
+                    ) as maintenance_resolver,
+                    patch("ai_dememory_tool.admin.maintenance.maintenance_status") as status,
+                    redirect_stderr(error),
+                ):
+                    try:
+                        exit_code = cli_main(argv)
+                    except SystemExit as exc:
+                        exit_code = int(exc.code)
+
+                self.assertEqual(exit_code, 2)
+                self.assertTrue(error.getvalue())
+                root_discovery.assert_not_called()
+                wrapper_resolver.assert_not_called()
+                maintenance_resolver.assert_not_called()
+                status.assert_not_called()
 
     def test_direct_provider_commands_fail_without_a_vault_binding(self) -> None:
         invocations = (
@@ -1557,8 +1627,9 @@ class MemoryToolTests(unittest.TestCase):
         root_resolver.assert_not_called()
         self.assertEqual(CapturedDetectModule.dispatched, [["detect", "--json"]])
 
-    def test_direct_maintenance_run_requires_runtime_binding_before_work(self) -> None:
+    def test_direct_maintenance_requires_runtime_binding_before_work(self) -> None:
         invocations = (
+            ("status", ["status", "--json"]),
             ("real run", ["run"]),
             ("dry run", ["run", "--dry-run", "--json"]),
             ("supervised run", ["run", "--timeout-seconds", "300", "--json"]),
@@ -1573,10 +1644,10 @@ class MemoryToolTests(unittest.TestCase):
                     error = io.StringIO()
                     with (
                         patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
-                        patch("maintenance.repo_root") as legacy_root,
                         patch("maintenance.maintenance_lock") as lock,
                         patch("maintenance.enabled_providers") as providers,
                         patch("maintenance.import_chats") as provider_import,
+                        patch("maintenance.maintenance_status") as status,
                         patch("maintenance.dry_run_maintenance") as dry_run,
                         patch("maintenance.run_maintenance") as run,
                         patch("maintenance.run_supervised_maintenance") as supervised_run,
@@ -1591,10 +1662,10 @@ class MemoryToolTests(unittest.TestCase):
                     self.assertEqual(output.getvalue(), "")
                     self.assertIn(expected_message, error.getvalue())
                     for work_boundary in (
-                        legacy_root,
                         lock,
                         providers,
                         provider_import,
+                        status,
                         dry_run,
                         run,
                         supervised_run,
@@ -1602,36 +1673,183 @@ class MemoryToolTests(unittest.TestCase):
                     ):
                         work_boundary.assert_not_called()
 
-    def test_maintenance_status_retains_legacy_root_resolution(self) -> None:
+    def test_maintenance_status_uses_strict_precedence_and_ignores_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "legacy-vault"
+            base = Path(tmp)
+            default_root = base / "default-vault"
+            environment_root = base / "environment-vault"
+            explicit_root = base / "explicit-vault"
+            poisoned_cwd = base / "poisoned-cwd-vault"
+            for root in (default_root, environment_root, explicit_root, poisoned_cwd):
+                copy_template_tree(root)
+            save_default_vault(default_root)
+
+            invocations = (
+                (
+                    "direct default",
+                    maintenance_main,
+                    ["status", "--json"],
+                    "maintenance.maintenance_status",
+                    "",
+                    default_root,
+                ),
+                (
+                    "direct environment",
+                    maintenance_main,
+                    ["status", "--json"],
+                    "maintenance.maintenance_status",
+                    str(environment_root),
+                    environment_root,
+                ),
+                (
+                    "direct explicit",
+                    maintenance_main,
+                    ["--root", str(explicit_root), "status", "--json"],
+                    "maintenance.maintenance_status",
+                    str(environment_root),
+                    explicit_root,
+                ),
+                (
+                    "unified default",
+                    cli_main,
+                    ["maintenance", "status", "--json"],
+                    "ai_dememory_tool.admin.maintenance.maintenance_status",
+                    "",
+                    default_root,
+                ),
+                (
+                    "unified environment",
+                    cli_main,
+                    ["maintenance", "status", "--json"],
+                    "ai_dememory_tool.admin.maintenance.maintenance_status",
+                    str(environment_root),
+                    environment_root,
+                ),
+                (
+                    "unified global explicit",
+                    cli_main,
+                    ["--root", str(explicit_root), "maintenance", "status", "--json"],
+                    "ai_dememory_tool.admin.maintenance.maintenance_status",
+                    str(environment_root),
+                    explicit_root,
+                ),
+                (
+                    "unified post-command explicit",
+                    cli_main,
+                    ["maintenance", "--root", str(explicit_root), "status", "--json"],
+                    "ai_dememory_tool.admin.maintenance.maintenance_status",
+                    str(environment_root),
+                    explicit_root,
+                ),
+            )
+
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(poisoned_cwd)
+                for label, target, argv, status_target, configured_root, expected_root in invocations:
+                    with self.subTest(entrypoint=label):
+                        output = io.StringIO()
+
+                        def status_payload(root: Path) -> dict[str, str]:
+                            return {"root": str(root)}
+
+                        with (
+                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": configured_root}),
+                            patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                            patch(status_target, side_effect=status_payload) as status,
+                            redirect_stdout(output),
+                        ):
+                            self.assertEqual(target(argv), 0)
+
+                        root_discovery.assert_not_called()
+                        status.assert_called_once_with(expected_root.resolve())
+                        self.assertEqual(
+                            Path(json.loads(output.getvalue())["root"]),
+                            expected_root.resolve(),
+                        )
+            finally:
+                os.chdir(original_cwd)
+
+    def test_maintenance_status_help_is_rootless_direct_and_unified(self) -> None:
+        invocations = (
+            (
+                "direct",
+                maintenance_main,
+                ["status", "--help"],
+                "maintenance.resolve_runtime_vault",
+            ),
+            (
+                "unified",
+                cli_main,
+                ["maintenance", "status", "--help"],
+                "ai_dememory_tool.admin.maintenance.resolve_runtime_vault",
+            ),
+        )
+        for label, target, argv, resolver_target in invocations:
+            with self.subTest(entrypoint=label):
+                output = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    patch(resolver_target) as binding_resolver,
+                    redirect_stdout(output),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    target(argv)
+
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn("usage:", output.getvalue())
+                binding_resolver.assert_not_called()
+                root_discovery.assert_not_called()
+
+    def test_maintenance_status_preserves_payload_and_vault_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
             copy_template_tree(root)
 
-            direct_output = io.StringIO()
+            def snapshot() -> dict[str, tuple[bytes, int]]:
+                return {
+                    path.relative_to(root).as_posix(): (
+                        path.read_bytes(),
+                        path.stat().st_mtime_ns,
+                    )
+                    for path in root.rglob("*")
+                    if path.is_file()
+                }
+
+            before = snapshot()
+            expected = maintenance_status(root.resolve())
+            self.assertEqual(snapshot(), before)
+
+            output = io.StringIO()
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("maintenance.repo_root", return_value=root) as legacy_root,
-                patch("maintenance.maintenance_status", return_value={"legacy": True}),
-                redirect_stdout(direct_output),
+                redirect_stdout(output),
             ):
-                self.assertEqual(maintenance_main(["status", "--json"]), 0)
+                self.assertEqual(
+                    maintenance_main(
+                        ["--root", str(root), "status", "--json"]
+                    ),
+                    0,
+                )
 
-            self.assertEqual(json.loads(direct_output.getvalue()), {"legacy": True})
-            legacy_root.assert_called_once_with(None)
+            self.assertEqual(json.loads(output.getvalue()), expected)
+            self.assertEqual(snapshot(), before)
 
-            unified_output = io.StringIO()
-            with (
-                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("ai_dememory_tool.cli.find_memory_root", return_value=root) as root_resolver,
-                redirect_stdout(unified_output),
-            ):
-                self.assertEqual(cli_main(["maintenance", "status", "--json"]), 0)
-
-            root_resolver.assert_called_once_with()
-            self.assertIn("recent_reports", json.loads(unified_output.getvalue()))
-
-    def test_direct_provider_and_scheduler_reject_ambiguous_root_options_before_resolution(self) -> None:
+    def test_direct_strict_commands_reject_ambiguous_root_options_before_resolution(self) -> None:
         invocations = (
+            (
+                "maintenance status",
+                maintenance_main,
+                ["status", "--json"],
+                "maintenance.resolve_runtime_vault",
+            ),
+            (
+                "maintenance run",
+                maintenance_main,
+                ["run", "--dry-run", "--json"],
+                "maintenance.resolve_runtime_vault",
+            ),
             ("provider detect", provider_main, ["detect", "--json"], "provider_import.repo_root"),
             ("provider plan", provider_main, ["plan", "--json"], "provider_import.repo_root"),
             (
