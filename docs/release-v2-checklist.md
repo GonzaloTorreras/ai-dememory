@@ -1018,7 +1018,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 
 ## Generated Artifacts
 
-- [ ] For source `2.1.2` release validation, select and verify the intended
+- [ ] For source-tree release validation, select and verify the intended
   initialized vault before running this section: pass
   `--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run
   `python3 scripts/ai_dememory.py vault use <absolute-vault-path>` and confirm

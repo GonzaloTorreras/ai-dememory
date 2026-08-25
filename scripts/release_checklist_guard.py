@@ -15,7 +15,7 @@ from memorylib import repo_root
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
 GENERATED_ARTIFACTS_VAULT_PRECONDITION = (
-    "For source `2.1.2` release validation, select and verify the intended "
+    "For source-tree release validation, select and verify the intended "
     "initialized vault before running this section: pass "
     "`--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run "
     "`python3 scripts/ai_dememory.py vault use <absolute-vault-path>` and confirm "
@@ -525,20 +525,52 @@ def level_two_sections(text: str) -> dict[str, list[str]]:
     lines = text.splitlines()
     headings: list[tuple[str, int]] = []
     fence: tuple[str, int] | None = None
+    in_html_comment = False
     for index, line in enumerate(lines):
-        stripped = line.lstrip(" ")
-        indent = len(line) - len(stripped)
-        fence_match = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
-        if fence_match:
-            marker = fence_match.group(1)
-            marker_kind = marker[0]
-            if fence is None:
-                fence = (marker_kind, len(marker))
-            elif marker_kind == fence[0] and len(marker) >= fence[1]:
+        if fence is not None:
+            stripped = line.lstrip(" ")
+            indent = len(line) - len(stripped)
+            closing_fence = (
+                re.fullmatch(
+                    rf"{re.escape(fence[0])}{{{fence[1]},}}[ \t]*",
+                    stripped,
+                )
+                if indent <= 3
+                else None
+            )
+            if closing_fence:
                 fence = None
             continue
-        if fence is None and line.startswith("## "):
-            headings.append((line.rstrip(), index))
+
+        visible_parts: list[str] = []
+        remaining = line
+        while remaining:
+            if in_html_comment:
+                comment_end = remaining.find("-->")
+                if comment_end < 0:
+                    remaining = ""
+                    break
+                remaining = remaining[comment_end + 3 :]
+                in_html_comment = False
+                continue
+            comment_start = remaining.find("<!--")
+            if comment_start < 0:
+                visible_parts.append(remaining)
+                break
+            visible_parts.append(remaining[:comment_start])
+            remaining = remaining[comment_start + 4 :]
+            in_html_comment = True
+
+        visible_line = "".join(visible_parts)
+        stripped = visible_line.lstrip(" ")
+        indent = len(visible_line) - len(stripped)
+        opening_fence = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
+        if opening_fence:
+            marker = opening_fence.group(1)
+            fence = (marker[0], len(marker))
+            continue
+        if visible_line.startswith("## "):
+            headings.append((visible_line.rstrip(), index))
 
     sections: dict[str, list[str]] = {}
     for position, (heading, line_index) in enumerate(headings):

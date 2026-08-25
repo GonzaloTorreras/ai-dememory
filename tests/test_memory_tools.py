@@ -15514,6 +15514,37 @@ This records future risks.
             )
         )
 
+    def test_release_checklist_guard_ignores_false_fence_closer(self) -> None:
+        stale = f"""
+```markdown
+```not-a-commonmark-close
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+```
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(issue.target == "release_checklist:artifacts" for issue in issues)
+        )
+
+    def test_release_checklist_guard_ignores_html_comment_heading(self) -> None:
+        stale = f"""
+<!--
+## Generated Artifacts
+
+- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+-->
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(issue.target == "release_checklist:artifacts" for issue in issues)
+        )
+
     def test_roadmap_status_reports_current_v2_phases(self) -> None:
         payload = roadmap_status(ROOT)
         phases = payload["phases"]
