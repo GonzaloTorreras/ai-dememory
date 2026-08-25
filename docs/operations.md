@@ -74,6 +74,11 @@ ai-dememory --root ~/code/my-memory search "topic or project" --limit 5
 ai-dememory --root ~/code/my-memory maintenance status
 ```
 
+If Doctor reports a configuration error after an upgrade or manual edit, use
+the [vault configuration contract and migration guide](configuration.md).
+Unknown fields and quoted booleans/numbers are rejected rather than silently
+ignored; a failed validation does not rewrite the file.
+
 `setup plan --json` and `setup health --json` are optional diagnostic views;
 they are read-only and do not need to run before a first use:
 

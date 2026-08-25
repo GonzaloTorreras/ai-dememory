@@ -1836,6 +1836,109 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue()), expected)
             self.assertEqual(snapshot(), before)
 
+    def test_maintenance_status_rejects_invalid_config_without_traceback_or_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            config = root / ".ai-dememory.toml"
+            original = b"\xff"
+            config.write_bytes(original)
+            output = io.StringIO()
+            error = io.StringIO()
+
+            with (
+                patch("maintenance.artifact_status") as artifacts,
+                patch("maintenance.providers_status") as providers,
+                patch("maintenance.run_supervised_process") as child_process,
+                redirect_stdout(output),
+                redirect_stderr(error),
+            ):
+                exit_code = maintenance_main(["--root", str(root), "status", "--json"])
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("valid UTF-8", error.getvalue())
+            self.assertNotIn("traceback", error.getvalue().lower())
+            self.assertEqual(config.read_bytes(), original)
+            artifacts.assert_not_called()
+            providers.assert_not_called()
+            child_process.assert_not_called()
+
+    def test_provider_config_commands_reject_invalid_config_before_writes(self) -> None:
+        invocations = (
+            ("detect", ["detect", "--json"]),
+            ("plan", ["plan", "--json"]),
+            (
+                "configure preview",
+                ["configure", "codex", "--path", "C:/provider", "--dry-run", "--json"],
+            ),
+            ("configure", ["configure", "codex", "--path", "C:/provider"]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            config = root / ".ai-dememory.toml"
+            canary = "provider-config-value-canary"
+            original = f'[providers.codex]\nenabled = "{canary}"\n'.encode("utf-8")
+
+            for label, command in invocations:
+                with self.subTest(command=label):
+                    config.write_bytes(original)
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch("config_file.safe_write_text") as config_writer,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                    ):
+                        exit_code = provider_main(["--root", str(root), *command])
+
+                    self.assertEqual(exit_code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("config error [invalid_type]", error.getvalue())
+                    self.assertNotIn(canary, error.getvalue())
+                    self.assertNotIn("traceback", error.getvalue().lower())
+                    self.assertEqual(config.read_bytes(), original)
+                    config_writer.assert_not_called()
+
+    def test_schedule_config_commands_reject_invalid_config_before_host_work(self) -> None:
+        invocations = (
+            ("plan", ["plan", "--json"]),
+            ("cron", ["cron", "--json"]),
+            ("status", ["status", "--platform", "linux", "--json"]),
+            ("remove", ["remove", "--platform", "linux", "--json"]),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "vault"
+            root.mkdir()
+            config = root / ".ai-dememory.toml"
+            canary = "schedule-config-value-canary"
+            original = f'[schedule]\nenabled = "{canary}"\n'.encode("utf-8")
+
+            for label, command in invocations:
+                with self.subTest(command=label):
+                    config.write_bytes(original)
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch("schedule_memory.run_owned_process") as host_process,
+                        patch("schedule_memory.write_platform_schedule_files") as definition_writer,
+                        patch("schedule_memory.set_section") as receipt_writer,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                    ):
+                        exit_code = schedule_main(["--root", str(root), *command])
+
+                    self.assertEqual(exit_code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("config error [invalid_type]", error.getvalue())
+                    self.assertNotIn(canary, error.getvalue())
+                    self.assertNotIn("traceback", error.getvalue().lower())
+                    self.assertEqual(config.read_bytes(), original)
+                    host_process.assert_not_called()
+                    definition_writer.assert_not_called()
+                    receipt_writer.assert_not_called()
+
     def test_direct_strict_commands_reject_ambiguous_root_options_before_resolution(self) -> None:
         invocations = (
             (
@@ -2978,11 +3081,7 @@ class MemoryToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             copy_template_tree(root)
-            config = root / ".ai-dememory.toml"
-            config.write_text(
-                config.read_text(encoding="utf-8") + "\n[false_positives]\nreview_after_days = 7\n",
-                encoding="utf-8",
-            )
+            set_section(root, "false_positives", {"review_after_days": 7})
             secret = "sk-" + "proj-" + ("f" * 40)
             path = root / "docs" / "example.md"
             path.parent.mkdir(parents=True)
@@ -3673,7 +3772,7 @@ class MemoryToolTests(unittest.TestCase):
             root.mkdir()
             outside = Path(tmp) / "conflict-proposals"
             (root / ".ai-dememory.toml").write_text(
-                "\n".join(["[conflicts]", f"proposal_path = \"{outside}\"", ""]),
+                "\n".join(["[conflicts]", f"proposal_path = {json.dumps(str(outside))}", ""]),
                 encoding="utf-8",
             )
             write_memory(root, "memories/tools/one.md", memory_id="mem_conflict_one")
@@ -11523,7 +11622,7 @@ class MemoryToolTests(unittest.TestCase):
                     for command in plan["commands"]
                 },
             )
-            set_section(root, "resources", {"intensity": "minimal"})
+            set_section(root, "automation", {"intensity": "minimal"})
 
             status = schedule_status(root, target_platform="windows")
             output = io.StringIO()
@@ -12190,7 +12289,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(health["vector_readiness"]["recall"]["failed_cases"], 0)
         self.assertFalse(health["vector_readiness"]["creates_embeddings"])
 
-    def test_setup_health_reports_invalid_context_config_defaults(self) -> None:
+    def test_setup_health_reports_semantically_invalid_context_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
             root.mkdir()
@@ -12198,9 +12297,9 @@ class MemoryToolTests(unittest.TestCase):
                 "\n".join(
                     [
                         "[context]",
-                        'default_budget_tokens = "tiny"',
-                        "include_working_memory = maybe",
-                        "explain_results = sometimes",
+                        "default_budget_tokens = 999999",
+                        "include_working_memory = false",
+                        "explain_results = true",
                         "",
                     ]
                 ),
@@ -12213,17 +12312,19 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(health["context_config"]["valid"])
         self.assertEqual(
             health["context_config"]["settings"]["default_budget_tokens"]["source"],
-            "defaulted_invalid",
+            "clamped_max",
         )
-        self.assertEqual(health["context_config"]["settings"]["default_budget_tokens"]["value"], 2000)
+        self.assertEqual(health["context_config"]["settings"]["default_budget_tokens"]["value"], 20000)
         self.assertEqual(
             health["context_config"]["settings"]["include_working_memory"]["source"],
-            "defaulted_invalid",
+            "configured",
         )
+        self.assertFalse(health["context_config"]["settings"]["include_working_memory"]["value"])
         self.assertEqual(
             health["context_config"]["settings"]["explain_results"]["source"],
-            "defaulted_invalid",
+            "configured",
         )
+        self.assertTrue(health["context_config"]["settings"]["explain_results"]["value"])
         self.assertTrue(health["context_config"]["errors"])
         self.assertTrue(any("[context]" in action for action in health["next_actions"]))
         self.assertFalse(mcp_health["context_config"]["valid"])
@@ -12233,7 +12334,7 @@ class MemoryToolTests(unittest.TestCase):
             root = Path(tmp)
             (root / ".ai-dememory.toml").write_text(
                 "[resources]\nprovider_file_limit = 100000\n"
-                "[recall]\nmin_relevance_score = nan\n",
+                "[recall]\nmin_relevance_score = 2.0\n",
                 encoding="utf-8",
             )
 

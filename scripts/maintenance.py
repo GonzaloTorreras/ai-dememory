@@ -38,7 +38,12 @@ from memorylib import (
     repo_relative_path,
     safe_write_text,
 )
-from provider_import import import_chats, provider_config, providers_status
+from provider_import import (
+    import_chats,
+    provider_config,
+    provider_failure_result,
+    providers_status,
+)
 from process_control import (
     process_is_running,
     process_matches_identity,
@@ -67,6 +72,7 @@ MAINTENANCE_ROOT_HELP = (
     "saved local default selected with `ai-dememory vault use "
     "<absolute-vault-path>`; the command never uses the working directory to discover a vault."
 )
+REVIEW_STATE_ERROR_MESSAGE = "maintenance review state unavailable [review_state_error]"
 
 GENERATED_ARTIFACTS: dict[str, Path] = {
     "index": Path("indexes/memory.sqlite"),
@@ -288,7 +294,7 @@ def run_maintenance(
                     )
                 )
             except Exception as exc:
-                imports.append({"provider": provider, "error": str(exc)})
+                imports.append(provider_failure_result(provider, exc))
 
         findings = scan_paths(root)
         if findings:
@@ -417,7 +423,7 @@ def dry_run_maintenance(
                 )
             )
         except Exception as exc:
-            imports.append({"provider": provider, "error": str(exc), "dry_run": True})
+            imports.append(provider_failure_result(provider, exc, dry_run=True))
     return {
         "profile": profile,
         "dry_run": True,
@@ -928,7 +934,7 @@ def write_maintenance_report(
     return path
 
 
-def maintenance_status(root: Path) -> dict[str, object]:
+def _maintenance_status(root: Path) -> dict[str, object]:
     config = load_config(root)
     report_dir = root / "reports" / "maintenance"
     reports = [
@@ -951,6 +957,19 @@ def maintenance_status(root: Path) -> dict[str, object]:
         "lock_exists": (root / "indexes" / ".maintenance.lock").exists(),
         "resource_policy": resolved_resource_policy(root),
     }
+
+
+def maintenance_status(root: Path) -> dict[str, object]:
+    """Return status without propagating review paths through error chains."""
+
+    review_error = False
+    try:
+        return _maintenance_status(root)
+    except ReviewError:
+        review_error = True
+    if review_error:
+        raise ReviewError(REVIEW_STATE_ERROR_MESSAGE)
+    raise AssertionError("unreachable maintenance review state")
 
 
 def run_supervised_process(command: list[str], timeout_seconds: float) -> tuple[int, bool, int]:
@@ -999,7 +1018,7 @@ def run_supervised_maintenance(
     return exit_code
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
@@ -1076,6 +1095,9 @@ def main(argv: list[str] | None = None) -> int:
                 json_output=args.json,
             )
         result = run_maintenance(root, args.profile, Path(args.report_dir))
+    except ReviewError:
+        print(REVIEW_STATE_ERROR_MESSAGE, file=sys.stderr)
+        return 1
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -1084,6 +1106,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"Completed {result.profile} maintenance. Report: {result.report}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the CLI with a controlled boundary for strict config failures."""
+
+    try:
+        return _main(argv)
+    except ReviewError:
+        print(REVIEW_STATE_ERROR_MESSAGE, file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        # Config readers redact values from their diagnostics.  Keep malformed
+        # or unsafe config on the normal CLI error path instead of leaking a
+        # traceback from the read-only status surface.
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

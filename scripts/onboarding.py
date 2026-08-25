@@ -157,7 +157,11 @@ def _setup_plan(
         current_config_bytes = read_config_bytes(config_path, root=root)
         current_config = current_config_bytes.decode("utf-8") if current_config_bytes is not None else ""
         existing_schedule = (
-            parse_config_text(current_config).get("schedule", {})
+            parse_config_text(
+                current_config,
+                source=".ai-dememory.toml",
+                config_kind="main",
+            ).get("schedule", {})
             if current_config_bytes is not None
             else {}
         )
@@ -169,6 +173,15 @@ def _setup_plan(
             current_config,
             normalized,
             preserve_schedule=schedule_preserved,
+        )
+        # Treat the merged text as an untrusted candidate too.  The existing
+        # snapshot above and this complete candidate must both satisfy the
+        # structural contract before a plan, fingerprint, or write payload can
+        # be produced.
+        parse_config_text(
+            updated_config,
+            source=".ai-dememory.toml",
+            config_kind="main",
         )
         writes.append(
             planned_write(

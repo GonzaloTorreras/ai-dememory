@@ -40,6 +40,7 @@ from secret_scan import Finding, redact_line, scan_paths, scan_text
 
 
 IGNORE_NAME = ".ai-dememory-ignore.toml"
+REVIEW_STATE_DIAGNOSTIC_SOURCE = "review-state-config"
 FALSE_POSITIVE_REPORT = Path("reports/false-positives.md")
 CONFLICT_REPORT = Path("reports/conflicts.md")
 REVIEW_RECOMMENDATION_OUTCOME_REPORT = Path("reports/review-recommendation-outcomes.md")
@@ -379,7 +380,7 @@ def _load_review_root_config(root: Path) -> dict[str, dict[str, Any]]:
     try:
         return load_config(root)
     except ValueError as exc:
-        raise ReviewError(str(exc)) from exc
+        raise ReviewError(str(exc)) from None
 
 
 def review_state_path(root: Path) -> Path:
@@ -397,8 +398,8 @@ def review_state_path(root: Path) -> Path:
         target = root_bound_config_path(unresolved_repo_path(root, selected), root)
     except ValueError as exc:
         if str(exc) == "config path must stay inside the memory root":
-            raise ReviewError("review state path must stay inside the memory root") from exc
-        raise ReviewError(str(exc)) from exc
+            raise ReviewError("review state path must stay inside the memory root") from None
+        raise ReviewError(str(exc)) from None
     memories_root = Path(root).resolve(strict=False) / "memories"
     try:
         target.relative_to(memories_root)
@@ -428,9 +429,14 @@ def conflict_id(category: str, memory_ids: Iterable[str]) -> str:
 
 def load_review_config(root: Path) -> dict[str, dict[str, Any]]:
     try:
-        return load_config_path(ignore_path(root), root=root)
+        return load_config_path(
+            ignore_path(root),
+            root=root,
+            config_kind="review_state",
+            diagnostic_source=REVIEW_STATE_DIAGNOSTIC_SOURCE,
+        )
     except ValueError as exc:
-        raise ReviewError(str(exc)) from exc
+        raise ReviewError(str(exc)) from None
 
 
 def active_review_mode(root: Path) -> ReviewMode:
@@ -439,11 +445,22 @@ def active_review_mode(root: Path) -> ReviewMode:
     mode = REVIEW_MODES.get(canonical_review_mode(configured))
     if mode:
         return mode
-    raise ReviewError(f"unknown review mode in .ai-dememory.toml: {configured}")
+    raise ReviewError(_unknown_review_mode_message(" in .ai-dememory.toml"))
 
 
 def canonical_review_mode(mode_name: str) -> str:
     return REVIEW_MODE_ALIASES.get(mode_name, mode_name)
+
+
+def _unknown_review_mode_message(context: str = "") -> str:
+    allowed_values = ", ".join(sorted(set(REVIEW_MODES) | set(REVIEW_MODE_ALIASES)))
+    return f"unknown review mode{context}; expected one of {allowed_values}"
+
+
+def _parse_review_mode_argument(value: str) -> str:
+    if REVIEW_MODES.get(canonical_review_mode(value)) is None:
+        raise argparse.ArgumentTypeError(_unknown_review_mode_message())
+    return value
 
 
 def review_modes(root: Path) -> dict[str, Any]:
@@ -464,15 +481,26 @@ def review_mode_dict(mode: ReviewMode, active: bool = False) -> dict[str, Any]:
 
 def _set_review_state_section(root: Path, section: str, values: dict[str, Any]) -> Path:
     try:
-        return set_section_path(ignore_path(root), section, values, root=root)
-    except (OSError, ValueError) as exc:
-        raise ReviewError(str(exc)) from exc
+        return set_section_path(
+            ignore_path(root),
+            section,
+            values,
+            root=root,
+            config_kind="review_state",
+            diagnostic_source=REVIEW_STATE_DIAGNOSTIC_SOURCE,
+        )
+    except OSError:
+        raise ReviewError(
+            f"{REVIEW_STATE_DIAGNOSTIC_SOURCE}: config error [config_write_error]"
+        ) from None
+    except ValueError as exc:
+        raise ReviewError(str(exc)) from None
 
 
 def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = None) -> Path:
     mode = REVIEW_MODES.get(canonical_review_mode(mode_name))
     if not mode:
-        raise ReviewError(f"unknown review mode: {mode_name}")
+        raise ReviewError(_unknown_review_mode_message())
     # Keep the direct API's established ValueError contract for unsafe config.
     # The CLI boundary below still normalizes it into a controlled exit.
     config = load_config(root)
@@ -485,7 +513,7 @@ def review_mode_config_values(mode_name: str, reviewer: str | None = None) -> di
     """Return the canonical persisted policy fields for one review mode."""
     mode = REVIEW_MODES.get(canonical_review_mode(mode_name))
     if not mode:
-        raise ReviewError(f"unknown review mode: {mode_name}")
+        raise ReviewError(_unknown_review_mode_message())
     values: dict[str, Any] = {}
     if reviewer is not None:
         values["reviewer"] = safe_review_text(reviewer, "reviewer")
@@ -1751,7 +1779,7 @@ def config_enum(value: Any, allowed: set[str], default: str, label: str) -> str:
     selected = str(value)
     if selected not in allowed:
         allowed_values = ", ".join(sorted(allowed))
-        raise ReviewError(f"unknown {label}: {selected}; expected one of {allowed_values}")
+        raise ReviewError(f"unknown {label}; expected one of {allowed_values}")
     return selected
 
 
@@ -2655,7 +2683,12 @@ def main(argv: list[str] | None = None) -> int:
     modes_cmd = review_sub.add_parser("modes", help="List built-in review modes and the active mode.")
     modes_cmd.add_argument("--json", action="store_true")
     configure_mode = review_sub.add_parser("configure-mode", help="Persist the active review mode.")
-    configure_mode.add_argument("--mode", choices=sorted(set(REVIEW_MODES) | set(REVIEW_MODE_ALIASES)), required=True)
+    configure_mode.add_argument(
+        "--mode",
+        type=_parse_review_mode_argument,
+        required=True,
+        metavar="MODE",
+    )
     configure_mode.add_argument("--reviewer", default=None)
     plan_cmd = review_sub.add_parser("plan", help="Print the mode-specific review plan.")
     plan_cmd.add_argument("--kind", choices=sorted(REVIEW_PLAN_KINDS), default="inbox")

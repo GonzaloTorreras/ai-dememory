@@ -37,7 +37,8 @@ run the wizard before choosing an optional integration.
 ## Work With Memory Safely
 
 - [Safety and security policy](../SECURITY.md): secret handling and reporting.
-- [Schema](schema.md), [memory quality](memory-quality.md), and
+- [Vault configuration](configuration.md), [schema](schema.md),
+  [memory quality](memory-quality.md), and
   [review workflows](review-workflows.md): canonical Markdown, review, and
   retrieval-quality rules.
 - [Import and capture](import-capture.md),

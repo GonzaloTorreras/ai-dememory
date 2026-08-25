@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import sqlite3
 
+from config_file import CONFIG_NAME, ConfigError, load_config
 from index_memory import default_db_path
 from memorylib import repo_relative_path, repo_root, validate_memories
 from secret_scan import scan_paths
@@ -20,6 +21,17 @@ class Check:
     name: str
     status: str
     detail: str
+
+
+@dataclass(frozen=True)
+class ConfigCheck(Check):
+    """One failed configuration check with a stable redacted diagnostic."""
+
+    code: str
+    source: str
+    field: str | None
+    line: int | None
+    column: int | None
 
 
 def ok(name: str, detail: str) -> Check:
@@ -83,6 +95,44 @@ def check_index(root: Path) -> Check:
     return ok("index", f"{count} indexed memory row(s)")
 
 
+def check_config(root: Path) -> Check:
+    """Validate the root-bound configuration without reporting its values."""
+
+    path = root / CONFIG_NAME
+    try:
+        config = load_config(root)
+    except ConfigError as exc:
+        return ConfigCheck(
+            "config",
+            "fail",
+            str(exc),
+            exc.code,
+            exc.source,
+            exc.field,
+            exc.line,
+            exc.column,
+        )
+    except ValueError:
+        # Safe-reader failures (invalid UTF-8, links, unstable identity, or an
+        # oversized file) deliberately omit the original value and path detail.
+        return ConfigCheck(
+            "config",
+            "fail",
+            f"{CONFIG_NAME}: config error [config_read_error]",
+            "config_read_error",
+            CONFIG_NAME,
+            None,
+            None,
+            None,
+        )
+
+    if not path.exists():
+        return ok("config", f"{CONFIG_NAME} not present; defaults apply")
+    if not config:
+        return ok("config", f"{CONFIG_NAME} valid; defaults apply")
+    return ok("config", f"{CONFIG_NAME} valid ({len(config)} section(s))")
+
+
 def check_mcp_definitions(root: Path) -> Check:
     try:
         issues = validate_contract(root)
@@ -123,6 +173,7 @@ def summarize_checks(checks: list[Check]) -> dict[str, int]:
 def run_checks(root: Path) -> list[Check]:
     checks = [
         check_repo(root),
+        check_config(root),
         check_sqlite_fts(),
         check_schema(root),
         check_secrets(root),

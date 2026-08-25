@@ -29,7 +29,7 @@ class TurnContextTests(unittest.TestCase):
             settings, errors = recall_settings(root)
 
         self.assertEqual(settings.min_relevance_score, 0.18)
-        self.assertIn("invalid_recall_setting:min_relevance_score", errors)
+        self.assertIn("invalid_recall_config", errors)
 
     def test_project_hint_is_explainable_and_can_retrieve_project_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,7 +106,7 @@ default_budget_tokens = 620
 baseline_budget_tokens = 140
 max_keywords = 4
 project_from_cwd = false
-min_relevance_score = "0.99"
+min_relevance_score = 0.99
 """,
                 encoding="utf-8",
             )

@@ -130,6 +130,25 @@ class HarnessHookTests(unittest.TestCase):
             self.assertEqual(dispatch_hook_event(root, "PreCompact", "{}", client="codex"), {})
             self.assertEqual(dispatch_hook_event(root, "PostCompact", "{}", client="codex"), {})
 
+    def test_invalid_config_fails_open_without_hook_output_or_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                '[unknown]\nsensitive_value = "must-not-appear"\n',
+                encoding="utf-8",
+            )
+
+            result = dispatch_hook_event(
+                root,
+                "UserPromptSubmit",
+                json.dumps({"prompt": "Continue reviewed project work"}),
+                client="codex",
+            )
+            capture_exists = (root / "inbox" / "session-events").exists()
+
+        self.assertEqual(result, {})
+        self.assertFalse(capture_exists)
+
     def test_stop_writes_deduplicated_review_proposal_only_from_explicit_signal(self) -> None:
         payload = json.dumps(
             {

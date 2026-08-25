@@ -36,11 +36,15 @@ from maintenance import review_due_summary
 from memorylib import path_is_link_like, safe_write_text
 from process_control import run_owned_capture, run_owned_process
 from resource_policy import get_resource_profile, profile_names, resolved_resource_policy
+from review_memory import ReviewError
 
 
 WEEKDAYS = {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}
 SCHEDULER_COMMAND_TIMEOUT_SECONDS = 60
 SCHEDULE_VERIFICATION_TTL_SECONDS = 300
+SCHEDULE_REVIEW_STATE_ERROR_MESSAGE = (
+    "schedule review state unavailable [review_state_error]"
+)
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SCHEDULE_ROOT_HELP = (
     "Vault root. Resolution order: --root, "
@@ -933,6 +937,13 @@ def schedule_status(
         validation_errors.append("enabled schedule is missing an exact install receipt")
     verified_at = str(config.get("verified_at") or "")
     is_verification_fresh = verification_fresh(verified_at)
+    try:
+        review_due = review_due_summary(root)
+    except ReviewError:
+        # ReviewError may retain a chained filesystem/config exception. This
+        # status object is consumed by CLI, setup health, release evidence, and
+        # MCP, so terminate the chain at this integration boundary.
+        raise ValueError(SCHEDULE_REVIEW_STATE_ERROR_MESSAGE) from None
     return {
         "configured": bool(config.get("enabled", False)),
         "install_receipt_valid": receipt_valid,
@@ -966,7 +977,7 @@ def schedule_status(
             "installed_at": str(config.get("installed_at") or ""),
             "verified_at": verified_at,
         },
-        "review_due": review_due_summary(root),
+        "review_due": review_due,
         "status_commands": [asdict(item) for item in commands],
         "mutates_system": False,
     }
@@ -1566,7 +1577,7 @@ def add_schedule_options(
         )
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help=SCHEDULE_ROOT_HELP)
@@ -2102,6 +2113,19 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run scheduler commands with a controlled strict-config error boundary."""
+
+    try:
+        return _main(argv)
+    except ValueError as exc:
+        # Every config-bound scheduler action reads and validates the selected
+        # vault before host commands or receipt writes.  Surface malformed or
+        # unsafe config as a normal CLI failure, never a traceback.
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

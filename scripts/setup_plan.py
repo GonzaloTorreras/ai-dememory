@@ -24,6 +24,7 @@ from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_va
 
 from context_memory import context_defaults_status
 from command_render import render_copy_command
+from config_file import ConfigError, load_config
 from maintenance import generated_packet_archive_summary, maintenance_artifact_targets, maintenance_status
 from hook_event import hook_status_summary
 from manual_acceptance import acceptance_plan
@@ -54,6 +55,21 @@ RUNTIME_VAULT_ROOT_HELP = (
     "default selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
     "uses the working directory to discover a vault."
 )
+
+
+class SetupConfigReadError(ValueError):
+    """A value-redacted failure from the bounded config reader."""
+
+
+def _validate_setup_config(root: Path) -> None:
+    try:
+        load_config(root)
+    except ConfigError:
+        raise
+    except ValueError as exc:
+        # The safe reader's messages describe the violated boundary without
+        # including bytes or values from the file.  Preserve only that message.
+        raise SetupConfigReadError(str(exc)) from None
 
 
 def selected_clients(client: str) -> list[str]:
@@ -147,6 +163,10 @@ def setup_plan(
     model_policy: str = DEFAULT_MODEL_POLICY,
 ) -> dict[str, Any]:
     root = root.expanduser().resolve()
+    # A plan must not start from structurally invalid config.  Validate one
+    # bounded snapshot before provider discovery or any other environment
+    # probe; downstream helpers revalidate for direct callers and file races.
+    _validate_setup_config(root)
     if mode in {"docker", "both"}:
         image = validate_docker_image_argument(image)
     clients = selected_clients(client)
@@ -331,6 +351,12 @@ def setup_health(
     target_platform: str | None = None,
     mode: str = "installed",
 ) -> dict[str, Any]:
+    root = root.expanduser().resolve()
+    # Structural config failures invalidate every derived readiness dimension.
+    # They cannot be represented honestly as one advisory health check, unlike
+    # known-key semantic policy errors, so fail closed before status collectors
+    # inspect the vault, provider paths, or host integration state.
+    _validate_setup_config(root)
     schedule = schedule_status(root, target_platform=target_platform)
     effective_schedule_mode = (
         str(schedule.get("mode") or mode)
@@ -661,7 +687,31 @@ def setup_health_recall_review(root: Path) -> dict[str, Any]:
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def _setup_error_result(exc: ValueError) -> dict[str, Any]:
+    error: dict[str, Any] = {
+        "type": "setup_error",
+        "message": str(exc),
+    }
+    if isinstance(exc, ConfigError):
+        error["type"] = "configuration_error"
+        error.update(
+            {
+                "code": exc.code,
+                "source": exc.source,
+                "field": exc.field,
+                "line": exc.line,
+                "column": exc.column,
+            }
+        )
+    elif isinstance(exc, SetupConfigReadError):
+        error["type"] = "configuration_error"
+        error["code"] = "config_read_error"
+    else:
+        error["code"] = "invalid_setup"
+    return {"ok": False, "error": error}
+
+
+def _main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help=RUNTIME_VAULT_ROOT_HELP)
@@ -757,6 +807,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run setup commands with a controlled strict-config error boundary."""
+
+    argv = list(argv if argv is not None else sys.argv[1:])
+    try:
+        return _main(argv)
+    except ValueError as exc:
+        # ConfigError and the lower-level safe-reader ValueError diagnostics do
+        # not include config values.  Preserve that redaction contract and keep
+        # both human and JSON callers off the traceback path.
+        if "--json" in argv:
+            print(json.dumps(_setup_error_result(exc), indent=2, ensure_ascii=False))
+        else:
+            print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ if str(SCRIPTS) not in sys.path:
 
 import onboarding  # noqa: E402
 from command_render import render_copy_command  # noqa: E402
+from config_file import ConfigError  # noqa: E402
 from onboarding import (  # noqa: E402
     apply_onboarding,
     apply_operational_setup,
@@ -187,6 +188,74 @@ class OnboardingTests(unittest.TestCase):
         self.assertFalse(plan["can_apply"])
         self.assertIn(".ai-dememory.toml:[enabled-schedule]", plan["conflicts"])
         self.assertEqual(current, original)
+
+    def test_operational_setup_rejects_invalid_config_snapshot_without_writing_or_disclosure(self) -> None:
+        redaction_canary = "do-not-echo-this-sensitive-value"
+        cases = (
+            (
+                f'[unknown]\nunexpected = "{redaction_canary}"\n',
+                "unknown_section",
+                "unknown",
+            ),
+            (
+                f"[review]\nreviewer = {redaction_canary}\n",
+                "toml_syntax",
+                None,
+            ),
+            (
+                f'[recall]\nenabled = "{redaction_canary}"\n',
+                "invalid_type",
+                "recall.enabled",
+            ),
+        )
+        for original, code, field in cases:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config_path = root / ".ai-dememory.toml"
+                original_bytes = original.encode("utf-8")
+                config_path.write_bytes(original_bytes)
+                output = io.StringIO()
+
+                with patch(
+                    "onboarding.merge_onboarding_config",
+                    side_effect=AssertionError("invalid snapshot reached candidate merge"),
+                ) as merge, redirect_stdout(output):
+                    exit_code = operational_main(["--root", tmp, "--json"])
+
+                payload = json.loads(output.getvalue())
+                merge.assert_not_called()
+                self.assertEqual(exit_code, 1)
+                self.assertFalse(payload["ok"])
+                self.assertIn(f"config error [{code}]", payload["error"])
+                if field is not None:
+                    self.assertIn(field, payload["error"])
+                self.assertNotIn(redaction_canary, payload["error"])
+                self.assertEqual(config_path.read_bytes(), original_bytes)
+                self.assertEqual(list(root.iterdir()), [config_path])
+
+    def test_operational_setup_rejects_invalid_merged_candidate_before_plan_or_write(self) -> None:
+        redaction_canary = "do-not-echo-this-candidate-value"
+        original = b'[mcp]\r\ntransport = "stdio"\r\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            config_path.write_bytes(original)
+
+            with patch(
+                "onboarding.merge_onboarding_config",
+                return_value=f'[recall]\nenabled = "{redaction_canary}"\n',
+            ), patch(
+                "onboarding.integration_plan",
+                side_effect=AssertionError("invalid candidate reached plan construction"),
+            ) as integrations, self.assertRaises(ConfigError) as raised:
+                operational_setup_plan(root, operational_answers())
+
+            integrations.assert_not_called()
+            self.assertEqual(raised.exception.code, "invalid_type")
+            self.assertEqual(raised.exception.field, "recall.enabled")
+            self.assertNotIn(redaction_canary, str(raised.exception))
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertEqual(list(root.iterdir()), [config_path])
 
     def test_onboarding_never_rewrites_existing_operational_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1138,7 +1207,7 @@ class OnboardingTests(unittest.TestCase):
 
             def drift_then_write(batch: object) -> None:
                 (root / ".ai-dememory.toml").write_text(
-                    "[external]\nchanged = true\n",
+                    "[context]\ndefault_budget_tokens = 777\n",
                     encoding="utf-8",
                 )
                 real_batch_write(batch)  # type: ignore[arg-type]
@@ -1151,7 +1220,7 @@ class OnboardingTests(unittest.TestCase):
 
             self.assertEqual(
                 (root / ".ai-dememory.toml").read_text(encoding="utf-8"),
-                "[external]\nchanged = true\n",
+                "[context]\ndefault_budget_tokens = 777\n",
             )
             self.assertFalse((root / "memories").exists())
 
@@ -1159,7 +1228,7 @@ class OnboardingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config_path = root / ".ai-dememory.toml"
-            original = b"[legacy]\r\nenabled = true\r\n"
+            original = b'[mcp]\r\ntransport = "stdio"\r\n'
             config_path.write_bytes(original)
             plan = operational_setup_plan(root, operational_answers())
             config_write = next(
@@ -1170,7 +1239,7 @@ class OnboardingTests(unittest.TestCase):
             updated = config_path.read_text(encoding="utf-8")
 
         self.assertEqual(config_write["current_sha256"], hashlib.sha256(original).hexdigest())
-        self.assertIn("[legacy]", updated)
+        self.assertIn("[mcp]", updated)
         self.assertIn("[recall]", updated)
         self.assertIn(".ai-dememory.toml", result["changed"])
 
