@@ -74,7 +74,7 @@ The machine-readable order is
 | --- | --- | --- | --- |
 | `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | complete; stable verified |
 | `BRG-003` | Deterministic explicit vault/root binding | `B04b` | current frontier |
-| `BRG-017` | Strict config parsing and diagnostics | `B04b` | current frontier |
+| `BRG-017` | Strict config parsing and diagnostics | `B04b` | complete |
 | `BRG-019` | Bridge inventories and exact-artifact tooling | `B04c` | pending |
 | `MIG-001` | Freeze and generate the canonical writer inventory | `B05a` | pending |
 | `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | blocked on evidence |
@@ -100,8 +100,9 @@ blocked until authenticated providers return exact readback.
 
 ### Phase 1: Compatibility and writer control
 
-- Implement the current `BRG-003` and `BRG-017` frontier first, then
-  `BRG-019` and `MIG-001`, as small PRs.
+- Complete the remaining `BRG-003` frontier first, then `BRG-019` and
+  `MIG-001`, as small PRs. Preserve the completed `BRG-017` strict-config
+  boundary while those integrations are inventoried.
 - Generate CLI, MCP, and canonical-writer inventories.
 - Add exact-artifact, concurrent binding, crash recovery, and config strictness
   coverage without importing archive runtime wholesale.

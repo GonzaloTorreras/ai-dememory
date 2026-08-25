@@ -2,8 +2,8 @@
   "$schema": "./v3-execution-sequence.schema.json",
   "contract_version": 1,
   "planning_status": "c0_public_baseline",
-  "updated_at": "2026-08-25",
-  "current_frontier": ["BRG-003", "BRG-017"],
+  "updated_at": "2026-08-26",
+  "current_frontier": ["BRG-003"],
   "batches": [
     {
       "id": "B04a",
@@ -123,9 +123,29 @@
       "id": "BRG-017",
       "batch": "B04b",
       "title": "Enforce strict configuration parsing and diagnostics",
-      "status": "in_progress",
+      "status": "complete",
       "depends_on": ["BRG-014"],
-      "evidence": [],
+      "evidence": [
+        "scripts/config_file.py",
+        "scripts/doctor.py",
+        "scripts/maintenance.py",
+        "scripts/onboarding.py",
+        "scripts/provider_import.py",
+        "scripts/resource_policy.py",
+        "scripts/review_memory.py",
+        "scripts/schedule_memory.py",
+        "scripts/setup_plan.py",
+        "scripts/sleep_consolidation.py",
+        "tests/test_config_strictness.py",
+        "tests/test_doctor_config_strict.py",
+        "tests/test_provider_diagnostic_redaction.py",
+        "tests/test_resource_policy_redaction.py",
+        "tests/test_review_boundary_redaction.py",
+        "tests/test_review_config_redaction.py",
+        "tests/test_setup_health_strict.py",
+        "docs/configuration.md",
+        "docs/adr/0262-strict-vault-configuration.md"
+      ],
       "external_readback_required": false
     },
     {

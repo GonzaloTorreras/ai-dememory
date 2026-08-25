@@ -13,9 +13,10 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `2c3e80735b4412d94c8a67983a5d410b417fb5e9`, the squash merge result of
-  [PR #49](https://github.com/GonzaloTorreras/ai-dememory/pull/49). Its history
-  contains the strict scheduler correction from PR #48, the planning-only
+  `02aa9945f82fc895eeb4420a932610a130a497b2`, the squash merge result of
+  [PR #50](https://github.com/GonzaloTorreras/ai-dememory/pull/50). Its history
+  contains the strict maintenance and scheduler corrections from PRs #50 and
+  #48, the planning-authority consolidation from PR #49, the planning-only
   governed-learning handoff from PR #47, and the unpublished `2.1.2`
   default-vault/wizard correction from PR #46.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
@@ -219,7 +220,16 @@ local-API onboarding hint and documentation follow-up.
   plus fresh independent normative and security reviews. It consolidated the
   planning authority and hardened the advisory release-checklist parser; it did
   not change the V3 frontier or publish a package.
-- The current ninth `BRG-003` increment routes the complete `maintenance`
+- PR [#50](https://github.com/GonzaloTorreras/ai-dememory/pull/50) was squash
+  merged at `02aa9945f82fc895eeb4420a932610a130a497b2`. Its exact head passed CI
+  run [32905559559](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559559)
+  and Pages run
+  [32905559592](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559592),
+  plus fresh functional and sealed security reviews with zero findings. The
+  resulting public-main push CI run
+  [32907288634](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32907288634)
+  also passed verification and all nine OS/Python compatibility jobs.
+- The merged ninth `BRG-003` increment routes the complete `maintenance`
   family through its own parser. Both `run` and read-only `status` now resolve
   only `--root`, `AI_DEMEMORY_ROOT`, or the saved local default, in that order,
   and never discover a vault from CWD or the source checkout. Invalid grammar,
@@ -237,6 +247,42 @@ local-API onboarding hint and documentation follow-up.
   smoke remained green. This remains compatible source hardening: `BRG-003`
   stays `in_progress`, and no version, task state, package, tag, vault,
   scheduler definition, or release changes.
+
+## Completed BRG-017 Strict Configuration Boundary
+
+This checkout completes `BRG-017` within batch `B04b`; its independent review,
+PR, merge, and public-main CI remain delivery evidence rather than a reason to
+broaden the implementation.
+
+- Main vault configuration and the separate generated review-state file now
+  use Python 3.11 `tomllib` with closed, versioned structural allowlists. Empty
+  and partial configuration remains valid, while malformed TOML, duplicate
+  definitions, unknown sections/providers/keys, nested surprises, wrong types,
+  boolean-as-integer values, non-string arrays, non-finite numbers, unsafe
+  review identifiers, invalid UTF-8, and oversized files fail closed.
+- Configuration writers validate the existing snapshot, requested update, and
+  complete rendered candidate before their atomic write. Invalid input cannot
+  create parent directories or partially rewrite a file, and equivalent
+  noncanonical table spellings are rejected rather than duplicated.
+- Onboarding, setup health, doctor, providers, maintenance, scheduling, sleep,
+  review operations, and resource policy share controlled error boundaries.
+  Diagnostics retain stable codes and allowlisted field names but never echo
+  unknown keys, values, custom review-state/provider paths, OS error text, or
+  chained causes. Successful local administrative status and plan projections
+  retain their existing paths and payloads.
+- The operator guide is `docs/configuration.md`; ADR 0262 records why strict
+  parsing is implemented in the existing Python runtime without a second
+  parser, daemon, database, model call, or Node dependency.
+- Rebased local evidence on public `main` passed 203 combined strict-config,
+  review, provider, wizard, MCP-profile, hook, and binding tests with six
+  expected platform skips; the integrated memory-tools module passed 592 tests
+  with 45 expected skips; Python compilation, diff validation, and a repository
+  secret scan with zero findings also passed. Full-suite and exact-head PR/CI
+  evidence are still required before merge.
+- The normative DAG now marks `BRG-017` complete with explicit evidence paths.
+  `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
+  task, and no package, tag, release, installed vault, host integration, or
+  future learning capability changes in this increment.
 
 ## Merged 2.1.2 Source Candidate (Unpublished)
 
@@ -349,17 +395,17 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Continue `BRG-003` with the remaining strict-resolver inventory and
-   structural vault-validation policy. The root-bound configuration-reader,
-   review-state, provider/import/capture, scheduler, and maintenance boundaries
-   are covered for their current entry points. Reconcile the documented
-   rootless intent of `providers detect` with its remaining legacy resolver
-   call. Do not claim structural vault validation merely from an absolute path:
-   explicit and environment bindings still require shared real-directory,
-   configuration, link-chain, and stable-identity checks planned inside
-   `BRG-003`.
-3. Complete `BRG-017` within `B04b`, then `BRG-019`, `MIG-001`, and the
-   externally read-back `GATE-B` in their normative order.
+2. Continue the sole `BRG-003` frontier by making rootless `providers detect`
+   independent of vault selectors and configuration reads, then resume the
+   remaining strict-resolver inventory and structural vault-validation policy.
+   The root-bound configuration-reader, review-state,
+   provider/import/capture, scheduler, and maintenance boundaries are covered
+   for their current entry points. Do not claim structural vault validation
+   merely from an absolute path: explicit and environment bindings still
+   require shared real-directory, configuration, link-chain, and
+   stable-identity checks planned inside `BRG-003`.
+3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, and the
+   externally read-back `GATE-B` in their normative order after `BRG-003`.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
    [governed learning handoff](governed-learning-loop-handoff.md) adds no
    current runtime, config, wizard, ranking, or canonical-write capability.
