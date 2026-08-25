@@ -594,7 +594,13 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     if len(artifact_sections) == 1:
         artifact_section = artifact_sections[0]
         expected_start = normalize(f"- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}")
-        if not normalize(artifact_section).startswith(expected_start):
+        first_nonblank_line = next(
+            (line for line in artifact_section.splitlines() if line.strip()),
+            "",
+        )
+        if not first_nonblank_line.startswith("- [ ] ") or not normalize(
+            artifact_section
+        ).startswith(expected_start):
             issues.append(
                 ChecklistGuardIssue(
                     "release_checklist:generated_artifacts_vault_binding",

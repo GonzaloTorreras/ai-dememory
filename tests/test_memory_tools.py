@@ -15545,6 +15545,22 @@ This records future risks.
             any(issue.target == "release_checklist:artifacts" for issue in issues)
         )
 
+    def test_release_checklist_guard_rejects_indented_precondition_decoy(self) -> None:
+        stale = f"""
+## Generated Artifacts
+
+    - [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:generated_artifacts_vault_binding"
+                for issue in issues
+            )
+        )
+
     def test_roadmap_status_reports_current_v2_phases(self) -> None:
         payload = roadmap_status(ROOT)
         phases = payload["phases"]
