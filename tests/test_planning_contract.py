@@ -48,6 +48,37 @@ class PlanningContractTests(unittest.TestCase):
         self.assertEqual(tasks["BRG-019"]["batch"], "B04c")
         self.assertEqual(tasks["BRG-019"]["depends_on"], ["BRG-003", "BRG-017"])
         self.assertTrue(tasks["GATE-B"]["external_readback_required"])
+        self.assertEqual(batches["B07a"]["depends_on"], ["B06"])
+        self.assertEqual(batches["B07a"]["tasks"], ["OBS-001"])
+        self.assertEqual(batches["B07b"]["depends_on"], ["B07a"])
+        self.assertEqual(batches["B07b"]["tasks"], ["OUT-001"])
+        self.assertEqual(batches["B08a"]["depends_on"], ["B07b"])
+        self.assertEqual(batches["B08a"]["tasks"], ["CON-001"])
+        self.assertEqual(batches["B08b"]["depends_on"], ["B08a"])
+        self.assertEqual(batches["B08b"]["tasks"], ["MEM-001"])
+        self.assertEqual(tasks["OBS-001"]["batch"], "B07a")
+        self.assertEqual(tasks["OBS-001"]["depends_on"], ["GATE-B"])
+        self.assertEqual(tasks["OUT-001"]["batch"], "B07b")
+        self.assertEqual(tasks["OUT-001"]["depends_on"], ["OBS-001"])
+        self.assertEqual(tasks["CON-001"]["batch"], "B08a")
+        self.assertEqual(tasks["CON-001"]["depends_on"], ["OUT-001"])
+        self.assertEqual(tasks["MEM-001"]["batch"], "B08b")
+        self.assertEqual(tasks["MEM-001"]["depends_on"], ["CON-001"])
+        self.assertTrue(
+            all(
+                tasks[item]["status"] == "future" and tasks[item]["evidence"] == []
+                for item in ("OBS-001", "OUT-001", "CON-001", "MEM-001")
+            )
+        )
+        self.assertEqual(
+            {
+                item: tasks[item]["external_readback_required"]
+                for item in ("OBS-001", "OUT-001", "CON-001", "MEM-001")
+            },
+            {"OBS-001": True, "OUT-001": True, "CON-001": False, "MEM-001": True},
+        )
+        self.assertEqual(batches["B20"]["depends_on"], ["B06"])
+        self.assertEqual(tasks["ONB-001"]["depends_on"], ["GATE-B"])
         self.assertTrue(tasks["ONB-001"]["external_readback_required"])
 
     def test_public_execution_ledger_starts_empty(self) -> None:

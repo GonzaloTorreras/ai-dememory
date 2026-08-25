@@ -1,6 +1,6 @@
 # Development Status
 
-Updated: 2026-08-24
+Updated: 2026-08-25
 
 This is a concise public-repository handoff, not release evidence by itself.
 The lead integrator updates it when a verified checkout, frontier, blocker, or
@@ -12,6 +12,9 @@ reproducible evidence changes.
 - Public `main` is a moving source branch. Resolve its current SHA before a
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
+- For this handoff, public `main` was read back at
+  `df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`, the merge result of
+  [PR #46](https://github.com/GonzaloTorreras/ai-dememory/pull/46).
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -172,10 +175,11 @@ local-API onboarding hint and documentation follow-up.
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
 
-## Active 2.1.2 Source Candidate (Unpublished)
+## Merged 2.1.2 Source Candidate (Unpublished)
 
-This compatible `BRG-003` / `B04b` correction is prepared on
-`codex/default-vault-wizard-ux`. It does not advance the V3 DAG.
+This compatible `BRG-003` / `B04b` correction was merged from
+`codex/default-vault-wizard-ux` by PR #46. It is present on public `main` at
+`df8fca0e00e5b060e21fbde6bb1cb338c05c75fc` and does not advance the V3 DAG.
 
 - A user may explicitly select one initialized local vault with
   `ai-dememory vault use <absolute-vault-path>`. Runtime resolution is now
@@ -195,13 +199,16 @@ This compatible `BRG-003` / `B04b` correction is prepared on
 - Source metadata and public documentation call this `2.1.2` an unreleased
   candidate. Stable `2.1.1` remains the only published PyPI/GitHub install
   route until a new tag, package publication, and external readback complete.
-- Local evidence before this handoff-only status update:
+- Local evidence recorded by PR #46:
   `python -B -m unittest discover -s tests -t .` completed with 929 passing
   tests and 59 expected skips; the documentation guard, static Pages validation
   tests, targeted MCP checks, visual QA, and a fresh security review passed.
-  After the candidate commit,
-  `pages_artifact_guard.py` passed against its tracked, blob-matched `site/`
-  tree. The candidate still requires CI on its PR.
+  Exact-head CI run
+  [32709293400](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32709293400)
+  and Pages validation
+  [32709293326](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32709293326)
+  both passed for `60979bbcb4f8ffa9b62c054f7babff2c210a7c20` before the squash merge.
+  No tag, TestPyPI/PyPI publication, or `2.1.2` GitHub Release followed.
 
 ## Verified Stable And Release-Candidate Evidence
 
@@ -275,21 +282,22 @@ remain intact.
 
 ## Next Legal Action
 
-1. Finish the exact-head review and CI for the unreleased `2.1.2` selector and
-   wizard candidate. If accepted, merge only with the approval required by
-   `AGENTS.md`; tag, TestPyPI/PyPI publication, and Pages deployment remain
-   separate explicit approval boundaries.
-2. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence; do not
-   silently replace a package route with mutable source behavior or restore an
-   active prerelease installation route.
-3. Do not merge, tag, publish, deploy, or alter external configuration without
-   the approval required by `AGENTS.md`.
-4. Continue `BRG-003` with the remaining strict-resolver inventory and
+1. Keep source `2.1.2` explicitly unpublished. A tag, TestPyPI/PyPI
+   publication, GitHub Release, or deployment requires its own evidence and
+   approval; this planning handoff authorizes none of them.
+2. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader and
    review-state boundary is covered for current entry points; provider/import/
    capture stateful actions are also covered. Preserve the intentional rootless
    read-only boundaries for
    `providers detect` and `maintenance status`. Keep scheduler and dual-path
    commands as separate compatibility slices. Do not claim structural vault
-   validation merely from an absolute path. `BRG-017` follows within `B04b`;
-   later tasks remain dependency-gated.
+   validation merely from an absolute path.
+3. Complete `BRG-017` within `B04b`, then `BRG-019`, `MIG-001`, and the
+   externally read-back `GATE-B` in their normative order.
+4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
+   [governed learning handoff](governed-learning-loop-handoff.md) adds no
+   current runtime, config, wizard, ranking, or canonical-write capability.
+5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence, and do not
+   merge, tag, publish, deploy, or alter external configuration without the
+   approval required by `AGENTS.md`.

@@ -67,14 +67,24 @@ index was read back. First-run setup is `pipx install ai-dememory` followed by
 legacy-compatible diagnostic, not a normal setup gate. This work does not
 advance the V3 plan or complete V3 `ONB-001`.
 
+Public `main` now includes the merged `2.1.2` source correction from PR #46 at
+`df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`. It remains an unpublished source
+candidate: no `2.1.2` tag, package, or release evidence exists yet, and stable
+`2.1.1` remains the package installation route.
+
 The next legal product implementation frontier is batch `B04b`:
 
 1. `BRG-003`: explicit, deterministic vault/root resolution.
 2. `BRG-017`: strict configuration parsing and unknown-key diagnostics.
 3. After both complete, `BRG-019`: bridge inventories and exact-artifact tooling.
 4. Then `MIG-001`: generated canonical-writer inventory and freeze.
-5. Finally `GATE-B`: compatibility evidence; no declaration without external
+5. Then `GATE-B`: compatibility evidence; no declaration without external
    readback.
+
+Only after `GATE-B` may the future governed-learning sequence begin:
+`OBS-001`, `OUT-001`, `CON-001`, then `MEM-001`. Its technical handoff is
+`docs/governed-learning-loop-handoff.md`; adding that plan does not change the
+current frontier or authorize runtime work.
 
 Do not add a new task when an existing ID covers the work. Update
 `contracts/planning/v3-execution-sequence.json` when dependencies, status, or

@@ -1,8 +1,16 @@
 # Public Modernization and Continuous Improvement Roadmap
 
-Status: active working plan
+Status: directional research; executable order lives in the V3 planning contract
 Owner: Codex operational owner; repository owner gates production and release
-Updated: 2026-08-05
+Updated: 2026-08-25
+
+Current release and frontier truth lives in
+[`development-status.md`](development-status.md). Normative task order and state
+live in
+[`v3-hybrid-visual-multiplatform-roadmap.md`](v3-hybrid-visual-multiplatform-roadmap.md)
+and [`../contracts/planning/`](../contracts/planning/). Historical version and
+delivery snapshots below explain prior decisions; they are not active release
+or deployment instructions.
 
 ## Executive Decision
 
@@ -33,6 +41,10 @@ still served 2.0.0; the candidate has since completed exact TestPyPI and
 post-install verification and the stable branch now converges source, package
 and user documentation on 2.1.0. Earlier release documentation also treated
 automated technical approval as authorization to merge and publish.
+
+That paragraph records the initial modernization milestone. The current public
+baseline is stable `2.1.1` with a merged but unpublished `2.1.2` source
+candidate; it must not be used as current installation guidance.
 
 ADRs 0252, 0253, and 0255 now separate readiness from authorization, make the
 public remote canonical, make the source/package/vault boundary explicit, and
@@ -396,23 +408,18 @@ Before a release:
 
 ## Immediate Next Steps
 
-1. Enable GitHub Pages for merged commit `d5effee5`, dispatch the manual workflow
-   against the then-current exact `main`, and complete desktop, mobile, 404,
-   accessibility, and public-origin QA as explicit production operations.
-2. Build generated CLI/writer inventories; keep the already generated MCP
-   profile inventory current.
-3. Add incremental maintenance checkpoints, no-op runs, stale-lock leases, and
-   crash-recovery tests before increasing scheduler autonomy.
-4. Define and measure real hook, startup, recall, import, write, recovery, peak
-   RSS, and host-agent-token SLOs for each resource intensity.
-5. Add just-in-time `review` profile escalation so normal turns remain on
-   `core`/`working`, with an explicit return to the smaller surface.
-6. Audit rollback of pre-existing scheduler state on Windows, Linux, and macOS.
-7. Design the semantic planning schema and keep all external evidence ledgers
-   empty until authenticated providers are configured.
-8. Port only the external-resource fail-closed preflight.
-9. Re-audit the current MemPalace head before implementing the first adapter or
-   retrieval experiment.
+This directional list is subordinate to the normative frontier:
+
+1. Finish `BRG-003` and `BRG-017`.
+2. Generate bridge/exact-artifact inventory in `BRG-019`, without adding a new
+   runtime writer.
+3. Freeze the writer inventory in `MIG-001` and pass `GATE-B` with external
+   readback.
+4. Only then execute the future governed-learning sequence in
+   [its technical handoff](governed-learning-loop-handoff.md): `OBS-001`,
+   `OUT-001`, `CON-001`, and `MEM-001`.
+5. Continue to earn retrieval, visual-plane, or model-assisted expansion with
+   measured product evidence rather than roadmap prose.
 
 The default decision remains: improve the verified Python product, preserve
 Markdown and review authority, and earn every expansion with product evidence.
@@ -421,13 +428,12 @@ The separate
 [documentation experience and static site plan](documentation-site-plan.md)
 turns this architecture into a progressive public explanation. It keeps the
 site static and Node-free, treats every factual claim as source-mapped content,
-and isolates any future GitHub Pages workflow in its own security-reviewed
-change. The content artifact now lives under [`site/`](../site/README.md): its
+and keeps the existing manual GitHub Pages workflow isolated behind its
+security-reviewed boundary. The content artifact now lives under
+[`site/`](../site/README.md): its
 home, installation, architecture, and security-model routes are dependency-free.
-The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting now
-provide the reviewed reporting path. Pages validation and manual delivery are
-isolated by ADR 0259; Pages enablement and dispatch remain separate
-approval-gated production operations. During candidate preparation the
-documentation kept published 2.0.0 and source-only 2.1 behavior separate; after
-the verified RC, the stable 2.1.0 documentation can now describe the wizard,
-profiles and idle leases without sending package users to mutable source installs.
+The repository-level `SECURITY.md` and GitHub Private Vulnerability Reporting
+provide the reviewed reporting path, while ADR 0259 keeps validation separate
+from approval-gated delivery. Current version truth is stable `2.1.1` and
+source-only `2.1.2`; see `development-status.md` rather than treating this
+historical delivery narrative as an installation or deployment instruction.
