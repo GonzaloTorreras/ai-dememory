@@ -67,10 +67,13 @@ index was read back. First-run setup is `pipx install ai-dememory` followed by
 legacy-compatible diagnostic, not a normal setup gate. This work does not
 advance the V3 plan or complete V3 `ONB-001`.
 
-Public `main` now includes the merged `2.1.2` source correction from PR #46 at
-`df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`. It remains an unpublished source
-candidate: no `2.1.2` tag, package, or release evidence exists yet, and stable
-`2.1.1` remains the package installation route.
+Public `main` was last read back at
+`46e5e575645333c7f4f4ab0a1696d3922a2e35b6`, the merge result of PR #47. Its
+parent includes the merged `2.1.2` source correction from PR #46 at
+`df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`. The governed-learning handoff in
+PR #47 is planning only, and source `2.1.2` remains unpublished: no `2.1.2`
+tag, package, or release evidence exists yet. Stable `2.1.1` remains the
+package installation route.
 
 The next legal product implementation frontier is batch `B04b`:
 

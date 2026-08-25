@@ -74,6 +74,15 @@ instead of claiming complete coverage.
 
 ## Install A Schedule
 
+Every `schedule` action except `doctor` must resolve one vault through the
+normal runtime order: an explicit `--root`, `AI_DEMEMORY_ROOT`, then the local
+default selected with `ai-dememory vault use <absolute-vault-path>`. It never
+discovers a vault from the current working directory. The short commands below
+assume the setup wizard or `vault use` already saved that default; use
+`ai-dememory --root <vault-path> schedule ...` when you want an explicit
+one-command override. `schedule doctor` only inspects command availability and
+therefore remains rootless.
+
 Preview the commands first:
 
 ```bash

@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -382,37 +384,259 @@ def assert_maintenance_status_artifacts(stdout: str) -> None:
         raise InstallSmokeError("maintenance status must report zero runtime embedding calls")
 
 
-def command_has_profile(command: Any, profile: str) -> bool:
-    if not isinstance(command, list):
-        return False
-    tokens = [str(part) for part in command]
-    if "maintenance" not in tokens or "run" not in tokens:
-        return False
+def string_argv(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(argument, str) for argument in value)
+
+
+def expected_maintenance_run_command(
+    *,
+    profile: str,
+    expected_root: str,
+    mode: str,
+    executable: str,
+    image: str,
+) -> list[str]:
+    suffix = [
+        "--root",
+        "/memory" if mode == "docker" else expected_root,
+        "maintenance",
+        "run",
+        "--profile",
+        profile,
+        "--timeout-seconds",
+        "300",
+    ]
+    if mode == "installed":
+        return [executable, *suffix]
+    return [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--cpus",
+        "1.0",
+        "--memory",
+        "512m",
+        "--pids-limit",
+        "128",
+        "-e",
+        "AI_DEMEMORY_ROOT=/memory",
+        "-v",
+        f"{expected_root}:/memory",
+        image,
+        *suffix,
+    ]
+
+
+def expected_schedule_apply_command(
+    *,
+    expected_root: str,
+    platform: str,
+    mode: str,
+    executable: str,
+    image: str,
+    daily_time: str,
+    weekly_day: str,
+    weekly_time: str,
+    intensity: str,
+    fingerprint: str,
+) -> list[str]:
+    command = [
+        "ai-dememory",
+        "schedule",
+        "--root",
+        expected_root,
+        "--command",
+        executable,
+        "setup",
+        "--platform",
+        platform,
+        "--mode",
+        mode,
+        "--daily-time",
+        daily_time,
+        "--weekly-day",
+        weekly_day,
+        "--weekly-time",
+        weekly_time,
+        "--daily",
+        "--weekly",
+        "--intensity",
+        intensity,
+        "--expect-plan-sha256",
+        fingerprint,
+    ]
+    if mode == "docker":
+        command.extend(["--image", image])
+    return command
+
+
+def apply_command_is_exact(
+    command: Any,
+    expected: list[str],
+) -> bool:
+    return string_argv(command) and command == expected
+
+
+def expected_schedule_namespace(root: str) -> str:
+    root_path = Path(root)
+    resolved = str(root_path.expanduser().resolve()).replace("\\", "/").casefold()
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:10]
+    slug = re.sub(r"[^a-z0-9]+", "-", root_path.name.casefold()).strip("-")[:24] or "vault"
+    return f"ai-dememory-{slug}-{digest}"
+
+
+def expected_host_schedule_commands(
+    *,
+    platform: str,
+    namespace: str,
+    daily_time: str,
+    weekly_day: str,
+    weekly_time: str,
+    run_commands: dict[str, list[str]],
+) -> dict[str, tuple[list[str], list[str] | None]]:
+    expected: dict[str, tuple[list[str], list[str] | None]] = {}
+    if platform == "linux":
+        expected[f"{namespace}-daemon-reload"] = (
+            ["systemctl", "--user", "daemon-reload"],
+            None,
+        )
+    elif platform not in {"windows", "macos"}:
+        raise InstallSmokeError(f"schedule plan platform {platform!r} is unsupported")
+
+    for profile in ("daily", "weekly"):
+        name = f"{namespace}-{profile}"
+        run_command = run_commands[profile]
+        if platform == "windows":
+            cadence = ["DAILY"] if profile == "daily" else ["WEEKLY", "/D", weekly_day]
+            start_time = daily_time if profile == "daily" else weekly_time
+            host_command = [
+                "schtasks",
+                "/Create",
+                "/TN",
+                name,
+                "/SC",
+                *cadence,
+                "/ST",
+                start_time,
+                "/TR",
+                subprocess.list2cmdline(run_command),
+            ]
+        elif platform == "macos":
+            plist = str(Path.home() / "Library" / "LaunchAgents" / f"{name}.plist")
+            host_command = ["launchctl", "load", "-w", plist]
+        else:
+            host_command = ["systemctl", "--user", "enable", "--now", f"{name}.timer"]
+        expected[name] = (host_command, run_command)
+    return expected
+
+
+def expected_cron_schedules(daily_time: str, weekly_day: str, weekly_time: str) -> dict[str, str]:
+    time_pattern = re.compile(r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
+    if not time_pattern.fullmatch(daily_time) or not time_pattern.fullmatch(weekly_time):
+        raise InstallSmokeError("schedule plan times must use HH:MM 24-hour format")
+    weekdays = {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}
+    if weekly_day not in weekdays:
+        raise InstallSmokeError("schedule plan weekly day is invalid")
+    daily_hour, daily_minute = daily_time.split(":", 1)
+    weekly_hour, weekly_minute = weekly_time.split(":", 1)
+    return {
+        "daily": f"{int(daily_minute)} {int(daily_hour)} * * *",
+        "weekly": f"{int(weekly_minute)} {int(weekly_hour)} * * {weekdays[weekly_day]}",
+    }
+
+
+def expected_cron_line(schedule: str, command: list[str]) -> str:
+    rendered_command = shlex.join(command).replace("%", r"\%")
+    return f"{schedule} {rendered_command}"
+
+
+def recompute_schedule_plan_fingerprint(data: dict[str, Any]) -> str:
+    projection_fields = (
+        "root",
+        "action",
+        "platform",
+        "mode",
+        "command",
+        "image",
+        "docker_image_immutable",
+        "installable",
+        "task_namespace",
+        "intensity",
+        "schedule",
+        "commands",
+        "cron_entries",
+    )
     try:
-        return tokens[tokens.index("--profile") + 1] == profile
-    except (ValueError, IndexError):
-        return False
+        projection = {field: data[field] for field in projection_fields}
+    except KeyError as exc:
+        raise InstallSmokeError(f"schedule plan fingerprint projection missing field {exc.args[0]}") from exc
+    encoded = json.dumps(
+        projection,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def assert_schedule_plan(
     stdout: str,
     expected_mode: str = "installed",
     expected_root: str | None = None,
+    expected_image: str | None = None,
 ) -> None:
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
         raise InstallSmokeError(f"schedule plan did not return JSON: {exc}") from exc
 
+    if not isinstance(data, dict):
+        raise InstallSmokeError("schedule plan JSON must be an object")
+
     if data.get("action") != "install":
         raise InstallSmokeError("schedule plan did not default to install action")
     if data.get("mode") != expected_mode:
         raise InstallSmokeError(f"schedule plan mode was {data.get('mode')!r}, expected {expected_mode!r}")
-    if expected_root is not None and data.get("root") != expected_root:
+    reported_root = data.get("root")
+    if not isinstance(reported_root, str) or not reported_root:
+        raise InstallSmokeError("schedule plan missing vault root")
+    if expected_root is not None and reported_root != expected_root:
         raise InstallSmokeError("schedule plan root does not match expected vault root")
+    bound_root = expected_root or reported_root
+    platform = data.get("platform")
+    if platform not in {"windows", "linux", "macos"}:
+        raise InstallSmokeError("schedule plan target platform must be windows, linux, or macos")
+    executable = data.get("command")
+    if executable != "ai-dememory":
+        raise InstallSmokeError("schedule plan did not use the installed ai-dememory executable")
+    image = data.get("image")
+    if expected_mode == "installed":
+        if image != "":
+            raise InstallSmokeError("installed schedule plan must not include a Docker image")
+    else:
+        if not isinstance(image, str) or not image:
+            raise InstallSmokeError("Docker schedule plan missing image")
+        immutable_image = bool(
+            re.fullmatch(r"sha256:[0-9a-fA-F]{64}", image)
+            or re.fullmatch(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-fA-F]{64}", image)
+        )
+        if not immutable_image:
+            raise InstallSmokeError("Docker schedule plan image must be immutable")
+        if expected_image is not None and image != expected_image:
+            raise InstallSmokeError("Docker schedule plan image does not match expected image")
     for flag in ("mutates_system", "runs_commands", "writes_files", "installs_schedules"):
         if data.get(flag) is not False:
             raise InstallSmokeError(f"schedule plan {flag} must be false")
+    if data.get("installable") is not True:
+        raise InstallSmokeError("schedule plan must be installable")
+    if data.get("resource_policy_valid") is not True:
+        raise InstallSmokeError("schedule plan resource policy must be valid")
+    if data.get("validation_errors") != []:
+        raise InstallSmokeError("schedule plan validation errors must be empty")
+    if data.get("docker_image_immutable") is not True:
+        raise InstallSmokeError("schedule plan Docker image immutability flag must be true")
 
     schedule = data.get("schedule")
     if not isinstance(schedule, dict):
@@ -420,6 +644,12 @@ def assert_schedule_plan(
     for field in ("daily_time", "weekly_day", "weekly_time"):
         if not isinstance(schedule.get(field), str) or not schedule[field]:
             raise InstallSmokeError(f"schedule plan missing schedule field {field}")
+    if schedule.get("daily_enabled") is not True or schedule.get("weekly_enabled") is not True:
+        raise InstallSmokeError("schedule plan smoke requires daily and weekly schedules")
+    daily_time = schedule["daily_time"]
+    weekly_day = schedule["weekly_day"]
+    weekly_time = schedule["weekly_time"]
+    cron_schedules = expected_cron_schedules(daily_time, weekly_day, weekly_time)
 
     commands = data.get("commands")
     if not isinstance(commands, list) or len(commands) < 2:
@@ -427,42 +657,108 @@ def assert_schedule_plan(
     if not all(isinstance(command, dict) for command in commands):
         raise InstallSmokeError("schedule plan commands must be objects")
     namespace = data.get("task_namespace")
-    if not isinstance(namespace, str) or not namespace.startswith("ai-dememory-"):
-        raise InstallSmokeError("schedule plan missing per-vault task namespace")
-    if data.get("intensity") != "balanced":
+    if namespace != expected_schedule_namespace(bound_root):
+        raise InstallSmokeError("schedule plan task namespace does not match the bound vault root")
+    intensity = data.get("intensity")
+    if intensity != "balanced":
         raise InstallSmokeError("schedule plan did not report the balanced default intensity")
     fingerprint = data.get("plan_sha256")
-    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
         raise InstallSmokeError("schedule plan missing review fingerprint")
     apply_command = data.get("apply_command")
-    if not isinstance(apply_command, list) or fingerprint not in apply_command:
-        raise InstallSmokeError("schedule plan missing fingerprint-bound apply command")
+    expected_apply = expected_schedule_apply_command(
+        expected_root=bound_root,
+        platform=platform,
+        mode=expected_mode,
+        executable=executable,
+        image=image,
+        daily_time=daily_time,
+        weekly_day=weekly_day,
+        weekly_time=weekly_time,
+        intensity=intensity,
+        fingerprint=fingerprint,
+    )
+    if not apply_command_is_exact(apply_command, expected_apply):
+        raise InstallSmokeError(
+            "schedule plan fingerprint-bound apply command did not match the exact schedule setup grammar"
+        )
+
+    run_commands = {
+        profile: expected_maintenance_run_command(
+            profile=profile,
+            expected_root=bound_root,
+            mode=expected_mode,
+            executable=executable,
+            image=image,
+        )
+        for profile in ("daily", "weekly")
+    }
     for profile in ("daily", "weekly"):
         expected_name = f"{namespace}-{profile}"
         matching_commands = [command for command in commands if command.get("name") == expected_name]
-        if not matching_commands:
-            raise InstallSmokeError(f"schedule plan missing {profile} scheduler command")
-        if not any(command_has_profile(command.get("run_command"), profile) for command in matching_commands):
-            raise InstallSmokeError(f"schedule plan missing {profile} maintenance run command")
+        if len(matching_commands) != 1:
+            raise InstallSmokeError(f"schedule plan must include exactly one named {profile} scheduler command")
+
+    expected_host_commands = expected_host_schedule_commands(
+        platform=platform,
+        namespace=namespace,
+        daily_time=daily_time,
+        weekly_day=weekly_day,
+        weekly_time=weekly_time,
+        run_commands=run_commands,
+    )
+    observed_names = [command.get("name") for command in commands]
+    if (
+        not all(isinstance(name, str) for name in observed_names)
+        or observed_names != list(expected_host_commands)
+    ):
+        raise InstallSmokeError(
+            "schedule plan host commands must use the exact ordered daily, weekly, and Linux daemon-reload set"
+        )
+    for command in commands:
+        name = command["name"]
+        expected_host_command, expected_run_command = expected_host_commands[name]
+        if command.get("platform") != platform or command.get("action") != "install":
+            raise InstallSmokeError(f"schedule plan host command {name} has the wrong platform or action")
+        if not string_argv(command.get("command")) or command.get("command") != expected_host_command:
+            raise InstallSmokeError(f"schedule plan host command {name} did not match the exact {platform} grammar")
+        if expected_run_command is None:
+            if command.get("run_command") is not None:
+                raise InstallSmokeError("schedule plan Linux daemon-reload must not include a maintenance command")
+        elif not string_argv(command.get("run_command")) or command.get("run_command") != expected_run_command:
+            profile = "daily" if name.endswith("-daily") else "weekly"
+            raise InstallSmokeError(
+                f"schedule plan {profile} maintenance run command did not match the exact {expected_mode} grammar"
+            )
 
     cron_entries = data.get("cron_entries")
     if not isinstance(cron_entries, list) or len(cron_entries) != 2:
-        raise InstallSmokeError("schedule plan should include daily and weekly cron entries")
+        raise InstallSmokeError("schedule plan should include exactly one daily and one weekly cron entry")
     if not all(isinstance(entry, dict) for entry in cron_entries):
         raise InstallSmokeError("schedule plan cron entries must be objects")
-    cron_profiles = sorted(str(entry.get("profile", "")) for entry in cron_entries)
-    if cron_profiles != ["daily", "weekly"]:
-        raise InstallSmokeError("schedule plan should include one daily and one weekly cron entry")
     for profile in ("daily", "weekly"):
-        matching_entries = [entry for entry in cron_entries if entry.get("profile") == profile]
-        if not matching_entries:
-            raise InstallSmokeError(f"schedule plan missing {profile} cron entry")
+        expected_name = f"{namespace}-{profile}"
+        matching_entries = [entry for entry in cron_entries if entry.get("name") == expected_name]
+        if len(matching_entries) != 1:
+            raise InstallSmokeError(f"schedule plan must include exactly one named {profile} cron entry")
         entry = matching_entries[0]
-        if (
-            f"maintenance run --profile {profile}" not in str(entry.get("line", ""))
-            or not command_has_profile(entry.get("command"), profile)
-        ):
-            raise InstallSmokeError(f"schedule plan missing {profile} maintenance cron line")
+        if entry.get("profile") != profile:
+            raise InstallSmokeError(f"schedule plan {profile} cron entry has the wrong profile")
+        expected_command = run_commands[profile]
+        if not string_argv(entry.get("command")) or entry.get("command") != expected_command:
+            raise InstallSmokeError(
+                f"schedule plan {profile} maintenance cron command did not match the exact {expected_mode} grammar"
+            )
+        expected_schedule = cron_schedules[profile]
+        if entry.get("schedule") != expected_schedule:
+            raise InstallSmokeError(f"schedule plan {profile} cron schedule was not canonical")
+        line = entry.get("line")
+        if not isinstance(line, str) or line != expected_cron_line(expected_schedule, expected_command):
+            raise InstallSmokeError(f"schedule plan {profile} maintenance cron line was not canonical")
+
+    recomputed_fingerprint = recompute_schedule_plan_fingerprint(data)
+    if fingerprint != recomputed_fingerprint:
+        raise InstallSmokeError("schedule plan fingerprint did not match the canonical plan projection")
 
 
 def assert_roadmap_status(stdout: str) -> None:
@@ -957,6 +1253,10 @@ def package_smoke_commands() -> list[tuple[str, list[str]]]:
         ("maintenance dry run", ["maintenance", "run", "--profile", "daily", "--dry-run", "--json"]),
         ("schedule doctor", ["schedule", "doctor", "--json"]),
         ("schedule plan", ["schedule", "plan", "--json"]),
+        (
+            "docker schedule plan",
+            ["schedule", "plan", "--mode", "docker", "--image", PINNED_SMOKE_IMAGE, "--json"],
+        ),
         ("schedule dry run", ["schedule", "setup", "--dry-run"]),
         ("docker schedule dry run", ["schedule", "setup", "--dry-run", "--mode", "docker", "--image", PINNED_SMOKE_IMAGE]),
         ("cron schedule export", ["schedule", "cron", "--json"]),
@@ -1309,6 +1609,13 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
                 assert_maintenance_status_artifacts(completed.stdout)
             if name == "schedule plan":
                 assert_schedule_plan(completed.stdout, expected_root=str(vault.resolve()))
+            if name == "docker schedule plan":
+                assert_schedule_plan(
+                    completed.stdout,
+                    expected_mode="docker",
+                    expected_root=str(vault.resolve()),
+                    expected_image=PINNED_SMOKE_IMAGE,
+                )
             if name == "roadmap status":
                 assert_roadmap_status(completed.stdout)
             if name == "publish plan":

@@ -13,8 +13,11 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`, the merge result of
-  [PR #46](https://github.com/GonzaloTorreras/ai-dememory/pull/46).
+  `46e5e575645333c7f4f4ab0a1696d3922a2e35b6`, the merge result of
+  [PR #47](https://github.com/GonzaloTorreras/ai-dememory/pull/47). Its parent
+  contains the unpublished `2.1.2` source correction merged by
+  [PR #46](https://github.com/GonzaloTorreras/ai-dememory/pull/46) at
+  `df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -174,6 +177,32 @@ local-API onboarding hint and documentation follow-up.
   vault, host configuration, or the V3 task state from `in_progress` to
   complete. The remaining strict-resolver inventory and any structural
   vault-validation policy stay within `BRG-003`.
+- The current eighth `BRG-003` increment makes the complete `schedule` command
+  family parse its own grammar before any vault lookup. `schedule doctor`
+  remains a genuinely rootless environment check; `plan`, `cron`, `setup`,
+  `install`, `status`, and `remove`, including their dry-run forms, resolve only
+  through `--root`, `AI_DEMEMORY_ROOT`, or the saved local default. None can
+  fall through to CWD/package discovery. This also reflects that a real
+  `schedule status` may refresh or clear verification evidence and therefore
+  is not merely a static command. The scheduler-plan smoke now rejects missing,
+  duplicated, misplaced, or incorrect root bindings and distinguishes the host
+  vault from the Docker runtime root. Its installed and Docker previews must
+  match the exact platform-specific host command set, complete maintenance
+  argv, root-derived task namespace, safety flags, fingerprint-bound apply
+  argv, independently recomputed plan fingerprint, and canonical cron entries;
+  a malformed duplicate or internally consistent forged plan cannot hide
+  behind valid-looking metadata.
+- The scheduler increment remains source hardening with `BRG-003` still
+  `in_progress`. It does not change scheduler definitions, an installed vault,
+  package metadata, a tag, a release, or the current V3 frontier.
+- Local evidence for this checkout: the complete unit suite passed 935 tests
+  with 59 expected platform skips; the integrated memory-tools module passed
+  580 tests with 45 expected skips; the documentation/planning guards passed;
+  and a fresh venv install smoke installed the local package and exercised its
+  console script, exact installed and Docker scheduler-plan validation, MCP,
+  API, hooks, providers, and maintenance successfully. The Docker step was a
+  plan-only preview: the smoke removed its temporary environment and neither
+  ran Docker nor installed host scheduler definitions.
 
 ## Merged 2.1.2 Source Candidate (Unpublished)
 
@@ -286,13 +315,15 @@ remain intact.
    publication, GitHub Release, or deployment requires its own evidence and
    approval; this planning handoff authorizes none of them.
 2. Continue `BRG-003` with the remaining strict-resolver inventory and
-   structural vault-validation policy. The root-bound configuration-reader and
-   review-state boundary is covered for current entry points; provider/import/
-   capture stateful actions are also covered. Preserve the intentional rootless
-   read-only boundaries for
-   `providers detect` and `maintenance status`. Keep scheduler and dual-path
-   commands as separate compatibility slices. Do not claim structural vault
-   validation merely from an absolute path.
+   structural vault-validation policy. The root-bound configuration-reader,
+   review-state, provider/import/capture, and scheduler boundaries are covered
+   for their current entry points. Reconcile the documented rootless intent of
+   `providers detect` with its remaining legacy resolver call, and reassess the
+   CWD discovery retained by `maintenance status`, as separate compatibility
+   slices. Do not claim structural vault validation merely from an absolute
+   path: explicit and environment bindings still require shared real-directory,
+   configuration, link-chain, and stable-identity checks planned inside
+   `BRG-003`.
 3. Complete `BRG-017` within `B04b`, then `BRG-019`, `MIG-001`, and the
    externally read-back `GATE-B` in their normative order.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their

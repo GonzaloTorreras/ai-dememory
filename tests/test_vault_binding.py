@@ -290,14 +290,14 @@ class RuntimeVaultBindingTests(unittest.TestCase):
                     patch("ai_dememory_tool.cli.importlib.import_module", return_value=fake_module),
                 ):
                     os.chdir(unrelated)
-                    self.assertEqual(run_packaged_command("schedule", ["plan"]), 0)
+                    self.assertEqual(run_packaged_command("search", ["fixture"]), 0)
                     clear_default_vault(environ=environment)
                     os.chdir(cwd_vault)
-                    self.assertEqual(run_packaged_command("schedule", ["plan"]), 0)
+                    self.assertEqual(run_packaged_command("search", ["fixture"]), 0)
                     os.chdir(unrelated)
                     with redirect_stdout(io.StringIO()):
                         self.assertEqual(cli_main(["vault", "use", str(replacement)]), 0)
-                    self.assertEqual(run_packaged_command("schedule", ["plan"]), 0)
+                    self.assertEqual(run_packaged_command("search", ["fixture"]), 0)
             finally:
                 os.chdir(previous)
 

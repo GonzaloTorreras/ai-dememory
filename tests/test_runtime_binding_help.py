@@ -55,6 +55,6 @@ class RuntimeBindingHelpTests(unittest.TestCase):
                     help_text,
                 )
                 self.assertIn(
-                    "uses the working directory to discover a vault",
+                    "never uses the working directory to discover a vault",
                     help_text,
                 )

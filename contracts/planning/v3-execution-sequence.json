@@ -107,12 +107,15 @@
         "scripts/setup_plan.py",
         "scripts/maintenance.py",
         "scripts/review_memory.py",
+        "scripts/schedule_memory.py",
+        "scripts/install_smoke.py",
         "tests/test_config_file.py",
         "tests/test_memory_tools.py",
         "tests/test_onboarding.py",
         "tests/test_mcp_profiles.py",
         "tests/test_harness_hooks.py",
-        "tests/test_vault_binding.py"
+        "tests/test_vault_binding.py",
+        "tests/test_runtime_binding_help.py"
       ],
       "external_readback_required": false
     },
