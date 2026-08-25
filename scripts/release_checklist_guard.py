@@ -519,15 +519,48 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def level_two_sections(text: str) -> dict[str, list[str]]:
+    """Return exact top-level H2 sections, excluding fenced/indented code."""
+
+    lines = text.splitlines()
+    headings: list[tuple[str, int]] = []
+    fence: tuple[str, int] | None = None
+    for index, line in enumerate(lines):
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        fence_match = re.match(r"^(`{3,}|~{3,})", stripped) if indent <= 3 else None
+        if fence_match:
+            marker = fence_match.group(1)
+            marker_kind = marker[0]
+            if fence is None:
+                fence = (marker_kind, len(marker))
+            elif marker_kind == fence[0] and len(marker) >= fence[1]:
+                fence = None
+            continue
+        if fence is None and line.startswith("## "):
+            headings.append((line.rstrip(), index))
+
+    sections: dict[str, list[str]] = {}
+    for position, (heading, line_index) in enumerate(headings):
+        next_index = headings[position + 1][1] if position + 1 < len(headings) else len(lines)
+        sections.setdefault(heading, []).append("\n".join(lines[line_index + 1 : next_index]))
+    return sections
+
+
 def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     issues: list[ChecklistGuardIssue] = []
     normalized = normalize(text)
+    sections = level_two_sections(text)
     for name, heading in REQUIRED_HEADINGS.items():
-        if heading not in text:
+        matches = sections.get(heading, [])
+        if not matches:
             issues.append(ChecklistGuardIssue(f"release_checklist:{name}", f"missing heading: {heading}"))
+        elif len(matches) > 1:
+            issues.append(ChecklistGuardIssue(f"release_checklist:{name}", f"duplicate heading: {heading}"))
     artifact_heading = REQUIRED_HEADINGS["artifacts"]
-    if artifact_heading in text:
-        artifact_section = text.split(artifact_heading, 1)[1].split("\n## ", 1)[0]
+    artifact_sections = sections.get(artifact_heading, [])
+    if len(artifact_sections) == 1:
+        artifact_section = artifact_sections[0]
         expected_start = normalize(f"- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}")
         if not normalize(artifact_section).startswith(expected_start):
             issues.append(
