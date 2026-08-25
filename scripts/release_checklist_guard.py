@@ -15,10 +15,12 @@ from memorylib import repo_root
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
 GENERATED_ARTIFACTS_VAULT_PRECONDITION = (
-    "Select and verify the intended initialized vault before running this section: "
-    "pass `--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run "
-    "`ai-dememory vault use <absolute-vault-path>` and confirm it with "
-    "`ai-dememory vault current`; never rely on CWD or repository discovery."
+    "For source `2.1.2` release validation, select and verify the intended "
+    "initialized vault before running this section: pass "
+    "`--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run "
+    "`python3 scripts/ai_dememory.py vault use <absolute-vault-path>` and confirm "
+    "it with `python3 scripts/ai_dememory.py vault current`; never rely on CWD or "
+    "repository discovery."
 )
 
 REQUIRED_HEADINGS = {

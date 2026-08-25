@@ -35,9 +35,11 @@ Non-goals until explicitly approved:
 - Provider/model calls inside retrieval without a privacy, latency, and cost
   gate.
 
-## Current Baseline
+## Authoring Baseline
 
-The v2 local readiness baseline is mostly implemented:
+When this research appendix was drafted, the v2 local readiness baseline had
+the following capabilities. This is not a current release-readiness claim; use
+[development status](docs/development-status.md) for live evidence:
 
 - Release and CI guards are in place.
 - Search and context assembly are explainable and token-budgeted.
@@ -50,8 +52,9 @@ automation. It should start with governance and evaluation.
 
 ## R0 - Productization And Plan Integrity
 
-Outcome: the existing v2 product is releasable, installable, and documented
-without broken roadmap links or ambiguous release signals.
+Research outcome sought: keep the v2 product releasable, installable, and
+documented without broken roadmap links or ambiguous release signals. `R0`
+does not certify a release or select executable work.
 
 Focus:
 

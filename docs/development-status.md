@@ -319,9 +319,8 @@ remain intact.
 
 1. Keep source `2.1.2` explicitly unpublished until the remaining
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
-   from TestPyPI, and read back. The merge and publication authorization for
-   the current development window does not replace exact tag, artifact,
-   workflow, and package-index evidence.
+   from TestPyPI, and read back. Each tag and publication must remain bound to
+   its exact commit/tag tuple, artifact, workflow, and package-index evidence.
 2. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader,
    review-state, provider/import/capture, and scheduler boundaries are covered
