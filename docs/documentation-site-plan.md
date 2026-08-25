@@ -1,12 +1,12 @@
 # Documentation Experience And Static Site Plan
 
-Status: D0-D2 complete; the isolated D3 workflow boundary merged in PR #14 at
-`d5effee51cb115a055310c2858ac8ea2f7c06251`, while Pages enablement, dispatch,
-and public-origin QA remain separately gated
+Status: D0-D2 complete; the isolated D3 workflow boundary and first manual
+Pages deployment are complete, while current-origin QA and rollback evidence
+remain separately reproducible gates
 
 Owner: Codex operational owner
 
-Updated: 2026-08-05
+Updated: 2026-08-25
 
 Product foundation: PR #10 merged into canonical `main` at
 `2e900acc021411193c5298addfece4c82fda69b4`. Documentation-plan baseline: PR
@@ -30,28 +30,28 @@ merged and a separate deployment change passes security-boundary review and
 the solo-maintainer receipt flow. The Pages workflow changes a repository
 security boundary and must not be smuggled into a content-only PR.
 
-## Current Gaps
+## Baseline Gaps And Remaining Work
 
-The repository documentation is technically strong but difficult to enter:
+At D0 the repository documentation was technically strong but difficult to
+enter: `README.md` mixed several audiences, the expert library had no task-based
+route, and the proposal/review/canonical/index cycle had no visual explanation.
+D1-D3 addressed those entry gaps with the dedicated `site/` source, progressive
+audience routes, accessible code-native diagrams, responsive and asset-budget
+contracts, local browser evidence, validation workflow, and the first manual
+GitHub Pages deployment.
 
-- `README.md` mixes first-run guidance, operator detail, MCP inventory, release
-  evidence, and contributor workflows in one very long page.
-- The first useful mental model is prose. There is no visual explanation of the
-  proposal/review/canonical/index cycle.
-- The `docs/` directory is a flat expert library with no audience or task-based
-  route.
-- Architecture and safety invariants exist, but readers must reconcile several
-  documents to understand the complete data flow and the separation between
-  public source, installed tool, and private vault.
-- Resource intensities are documented as a table, but their practical tradeoffs
-  are not explained visually.
-- There is no dedicated web source, responsive design contract, accessibility
-  gate, asset budget, or GitHub Pages deployment path.
-- Product/version facts are repeated manually. A rich site could make that drift
-  worse unless every claim has one named source.
+The remaining work is narrower:
 
-The remedy is progressive disclosure and better information architecture, not
-more prose on the existing README.
+- keep clean desktop, mobile, accessibility, link, and 404 evidence reproducible
+  against the currently deployed origin after factual changes;
+- rehearse both documented rollback modes against an explicitly approved Pages
+  source tuple;
+- add a canonical sitemap and public social-preview metadata only through a
+  separately reviewed deployment-aware change;
+- control product/version drift where facts still appear in both Markdown and
+  static-site content by retaining one named source for each material claim;
+- continue routing new readers through progressive disclosure rather than
+  expanding the already broad `README.md`.
 
 ## Outcomes And Non-Goals
 
@@ -380,7 +380,7 @@ and all commands/source links verified.
   for undisclosed vulnerability reports.
 - Source mapping, page metadata, structural guards, asset budgets, and a 404
   page now exist. A canonical sitemap and public social-preview URL remain
-  deferred until the Pages origin is live and verified.
+  outstanding follow-ups; the first public Pages origin is now live.
 - Browser, accessibility, responsive, link, secret, asset-budget, and full-suite
   evidence was collected from the content-identical working tree. It must be
   refreshed after any rebase or factual change.
@@ -388,14 +388,19 @@ and all commands/source links verified.
 Exit: a fresh reviewer can trace every material claim to source and reproduce
 the rendered checks.
 
-### D3 - GitHub Pages deployment boundary (workflow merged)
+### D3 - GitHub Pages deployment boundary (first deployment complete)
 
 - The isolated validation and manual deployment workflows landed in PR #14 with
   exact pins, tuple authorization, artifact guards, and green post-merge CI.
-- Configure repository Pages only after that PR is independently reviewed and
-  merged; do not use the workflow itself to enable Pages implicitly.
-- Verify the deployed artifact from a clean browser and mobile viewport.
-- Add the public documentation URL to package metadata only after it is live.
+- Manual workflow
+  [32417247849](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32417247849)
+  produced deployment `6010692667` for the exact approved source tuple and made
+  `https://gonzalotorreras.github.io/ai-dememory/` live.
+- Keep clean desktop/mobile/404 readback and a rollback rehearsal reproducible
+  against the currently deployed SHA; a historical successful deployment is not
+  evidence for a later artifact.
+- Add sitemap, social-preview, or package-metadata links only through a separate
+  reviewed change that verifies the current public origin.
 
 Exit: exact `main` commit deployed, URL read back, rollback tested, no package or
 vault coupling.
@@ -439,14 +444,11 @@ Before each release:
 
 ## Immediate Next Steps
 
-1. Independently review and land the separated, pinned Pages validation and
-   manual deployment workflows without dispatching them.
-2. Enable Pages only after that workflow change passes its exact-head gates;
-   inspect the generated `github-pages` environment, then dispatch the explicit
-   current-main tuple.
-3. Verify the deployed commit, 404 behavior, and rollback path from clean desktop
-   and mobile sessions.
-4. Add a sitemap, social-preview URL, or package metadata link only after the real
-   public origin is live and verified.
-5. Use install friction and support questions to prioritize D4 improvements;
+1. Read back the currently deployed commit, 404 behavior, and desktop/mobile
+   rendering rather than reusing the first deployment's evidence.
+2. Rehearse the documented rollback path without coupling it to package or vault
+   state.
+3. Add a sitemap, social-preview URL, or package metadata link only after the
+   current public origin is verified.
+4. Use install friction and support questions to prioritize D4 improvements;
    introduce Spanish pages only with an explicit source-parity check.

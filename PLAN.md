@@ -1,7 +1,11 @@
 # ai DeMemory Future Roadmap
 
-This is the master future plan for `ai-dememory`. It is separate from
+This is a non-normative future research roadmap for `ai-dememory`. It is separate from
 `ai-dememory roadmap status`, which reports current v2 implementation evidence.
+The [governed learning loop handoff](docs/governed-learning-loop-handoff.md)
+refines the local observation, attribution, and consolidation direction. Both
+documents are explanatory; executable order and state live only in the V3
+roadmap and `contracts/planning/**`.
 
 The guiding target:
 
@@ -270,6 +274,10 @@ Exit criteria:
 
 ## Implementation Order
 
+This is research priority, not an executable queue. The normative DAG keeps
+governed observation behind `BRG-003`, `BRG-017`, `BRG-019`, `MIG-001`, and
+`GATE-B`.
+
 1. R0: make the plan and release docs internally consistent.
 2. R1: implement the shared policy kernel and direct-read bypass tests.
 3. R2: add shared-memory and adversarial evaluation.
@@ -283,6 +291,8 @@ Exit criteria:
 ## Supporting Docs
 
 - Current implementation status: `docs/roadmap-status.md`
+- Governed observation, attribution, and consolidation handoff:
+  `docs/governed-learning-loop-handoff.md`
 - Detailed governance appendix: `docs/shared-memory-governance-roadmap.md`
 - MCP v2 product plan: `docs/mcp-v2.md`
 - Memory quality and recall fixtures: `docs/memory-quality.md`

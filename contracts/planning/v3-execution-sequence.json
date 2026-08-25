@@ -2,7 +2,7 @@
   "$schema": "./v3-execution-sequence.schema.json",
   "contract_version": 1,
   "planning_status": "c0_public_baseline",
-  "updated_at": "2026-08-23",
+  "updated_at": "2026-08-25",
   "current_frontier": ["BRG-003", "BRG-017"],
   "batches": [
     {
@@ -34,6 +34,30 @@
       "title": "Compatibility gate",
       "depends_on": ["B05a"],
       "tasks": ["GATE-B"]
+    },
+    {
+      "id": "B07a",
+      "title": "Bounded observation shadow",
+      "depends_on": ["B06"],
+      "tasks": ["OBS-001"]
+    },
+    {
+      "id": "B07b",
+      "title": "Outcome attribution",
+      "depends_on": ["B07a"],
+      "tasks": ["OUT-001"]
+    },
+    {
+      "id": "B08a",
+      "title": "Governed deterministic consolidation",
+      "depends_on": ["B07b"],
+      "tasks": ["CON-001"]
+    },
+    {
+      "id": "B08b",
+      "title": "Reviewed memory forms",
+      "depends_on": ["B08a"],
+      "tasks": ["MEM-001"]
     },
     {
       "id": "B20",
@@ -116,6 +140,42 @@
       "title": "Demonstrate V2 compatibility before migration",
       "status": "blocked",
       "depends_on": ["MIG-001"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "OBS-001",
+      "batch": "B07a",
+      "title": "Add a bounded provider-neutral observation shadow",
+      "status": "future",
+      "depends_on": ["GATE-B"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "OUT-001",
+      "batch": "B07b",
+      "title": "Link outcomes to exact traces without exposure rewards",
+      "status": "future",
+      "depends_on": ["OBS-001"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "CON-001",
+      "batch": "B08a",
+      "title": "Materialize governed learning candidates deterministically",
+      "status": "future",
+      "depends_on": ["OUT-001"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "MEM-001",
+      "batch": "B08b",
+      "title": "Add reviewed semantic and advisory procedural memory forms",
+      "status": "future",
+      "depends_on": ["CON-001"],
       "evidence": [],
       "external_readback_required": true
     },

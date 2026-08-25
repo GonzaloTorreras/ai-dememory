@@ -85,7 +85,15 @@ ai-dememory hooks install --client all --root ~/code/my-memory --dry-run --json
 ai-dememory hooks uninstall --client all --root ~/code/my-memory --dry-run --json
 ```
 
-## Supported Events
+## ai DeMemory Configured Event Subset
+
+The following events are the subset currently configured and accepted by ai
+DeMemory, not each provider's complete supported event catalog. Only prompt
+submission and Stop have substantive dispatch behavior; the other configured
+events are no-ops unless optional legacy metadata capture is enabled. Provider
+capabilities may differ by version and handler mode; consult the official
+[Codex hooks](https://developers.openai.com/codex/hooks) and
+[Claude Code hooks](https://code.claude.com/docs/en/hooks) references.
 
 Codex:
 

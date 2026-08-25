@@ -5,6 +5,11 @@ historical R0-R7 work in `../PLAN.md`. Executable task order and state live only
 in `v3-hybrid-visual-multiplatform-roadmap.md` and `../contracts/planning/**`;
 this document keeps the detailed P0-P6 shared-memory research breakdown.
 
+The [governed learning loop handoff](governed-learning-loop-handoff.md)
+specializes the local observation, outcome-attribution, and review-first
+consolidation slice. It remains subordinate to the same normative planning
+contract and does not activate P3 or any runtime writer.
+
 The goal is to move from a reviewed personal vault to governed shared memory
 that can be used safely by multiple LLM tools, agents, projects, and review
 workflows.
@@ -238,6 +243,11 @@ Exit criteria:
 Outcome: the system can explain which memory influenced a response or decision,
 through which path, and with what result.
 
+This broad research section discusses query and snippet traces. It does not
+authorize them for governed learning: `OBS-001` follows the stricter no-content
+allowlist in `governed-learning-loop-handoff.md` and stores neither queries nor
+snippets.
+
 Tasks:
 
 1. Define trace records.
@@ -410,6 +420,10 @@ Exit criteria:
   real client.
 
 ## Implementation Order
+
+This is a research ordering, not a second execution DAG. Local observation and
+outcome work uses `OBS-001` and `OUT-001` only after `GATE-B`, as defined in the
+governed learning handoff and the normative planning contract.
 
 1. Land P0 schema, docs, validation defaults, and direct-read policy tests.
 2. Land P1 fixture format and advisory shared-memory evaluator.
