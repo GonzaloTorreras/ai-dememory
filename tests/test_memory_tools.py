@@ -245,6 +245,7 @@ from schedule_memory import (  # noqa: E402
     run_remove_commands,
     run_schedule_command,
     schedule_environment,
+    schedule_plan_fingerprint,
     schedule_namespace,
     schedule_plan,
     schedule_status,
@@ -301,6 +302,10 @@ from ai_dememory_tool.cli import (  # noqa: E402
     is_within_tool_checkout,
     main as cli_main,
     mcp_config,
+)
+from ai_dememory_tool.vault_binding import (  # noqa: E402
+    resolve_runtime_vault,
+    save_default_vault,
 )
 from ci_guard import (  # noqa: E402
     validate_ci_workflow,
@@ -643,13 +648,13 @@ class MemoryToolTests(unittest.TestCase):
             ),
             ("import chats", ["import-chats", "codex", "--path", str(ROOT)], True),
             ("capture", ["capture", "text", "--text", "Review candidate."], True),
-            ("schedule", ["schedule", "setup"], False),
+            ("schedule", ["schedule", "setup"], True),
             (
                 "schedule with a global command option",
                 ["schedule", "--command", "ai-dememory", "setup"],
-                False,
+                True,
             ),
-            ("schedule status", ["schedule", "status"], False),
+            ("schedule status", ["schedule", "status"], True),
         )
         roots = (
             ROOT,
@@ -710,10 +715,10 @@ class MemoryToolTests(unittest.TestCase):
                 ["providers", "configure", "codex", "--path", str(ROOT), "--dry-run"],
                 True,
             ),
-            ("schedule plan", ["schedule", "plan", "--json"], False),
-            ("schedule cron", ["schedule", "cron", "--json"], False),
-            ("schedule setup preview", ["schedule", "setup", "--dry-run"], False),
-            ("schedule install preview", ["schedule", "install", "--dry-run"], False),
+            ("schedule plan", ["schedule", "plan", "--json"], True),
+            ("schedule cron", ["schedule", "cron", "--json"], True),
+            ("schedule setup preview", ["schedule", "setup", "--dry-run"], True),
+            ("schedule install preview", ["schedule", "install", "--dry-run"], True),
         )
         for label, argv, requires_strict_binding in invocations:
             with self.subTest(command=label):
@@ -740,8 +745,6 @@ class MemoryToolTests(unittest.TestCase):
         for command, argv in (
             ("providers", ["detect"]),
             ("maintenance", ["status"]),
-            ("schedule", ["doctor"]),
-            ("schedule", ["remove", "--dry-run"]),
         ):
             with self.subTest(command=command, argv=argv):
                 self.assertFalse(command_mutates_vault(command, argv))
@@ -752,10 +755,6 @@ class MemoryToolTests(unittest.TestCase):
             ("providers", ["plan", "--json"]),
             ("providers", ["configure", "codex", "--dry-run"]),
             ("import-chats", ["codex", "--dry-run"]),
-            ("schedule", ["plan"]),
-            ("schedule", ["cron"]),
-            ("schedule", ["setup", "--dry-run"]),
-            ("schedule", ["install", "--dry-run"]),
         ):
             with self.subTest(command=command, argv=argv):
                 self.assertFalse(command_mutates_vault(command, argv))
@@ -768,9 +767,6 @@ class MemoryToolTests(unittest.TestCase):
             ("import-chats", ["codex"]),
             ("capture", ["text", "--text", "Review candidate."]),
             ("maintenance", ["run"]),
-            ("schedule", ["install"]),
-            ("schedule", ["remove"]),
-            ("schedule", ["status"]),
         ):
             with self.subTest(command=command, argv=argv):
                 self.assertTrue(command_mutates_vault(command, argv))
@@ -1059,7 +1055,7 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(dry_run.call_args.args[0], root.resolve())
             self.assertEqual(json.loads(direct_output.getvalue()), direct_preview)
 
-    def test_direct_mutating_commands_fail_without_a_vault_binding(self) -> None:
+    def test_direct_provider_commands_fail_without_a_vault_binding(self) -> None:
         invocations = (
             (
                 "provider configure",
@@ -1091,54 +1087,6 @@ class MemoryToolTests(unittest.TestCase):
                 ["capture", "text", "--text", "Review candidate."],
                 "provider_import.repo_root",
             ),
-            (
-                "schedule setup",
-                schedule_main,
-                ["setup"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule install",
-                schedule_main,
-                ["install"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule remove",
-                schedule_main,
-                ["remove"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule status",
-                schedule_main,
-                ["status"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule plan",
-                schedule_main,
-                ["plan", "--json"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule cron",
-                schedule_main,
-                ["cron", "--json"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule setup preview",
-                schedule_main,
-                ["setup", "--dry-run", "--json"],
-                "schedule_memory.repo_root",
-            ),
-            (
-                "schedule install preview",
-                schedule_main,
-                ["install", "--dry-run", "--json"],
-                "schedule_memory.repo_root",
-            ),
         )
         for label, target, argv, resolver in invocations:
             with self.subTest(entrypoint=label):
@@ -1158,15 +1106,230 @@ class MemoryToolTests(unittest.TestCase):
                         self.assertEqual(raised.exception.code, 2)
                         self.assertEqual(output.getvalue(), "")
                         root_resolver.assert_not_called()
-                        if label.startswith("provider"):
-                            expected_message = (
-                                "runtime vault binding requires"
-                                if environment_root == ""
-                                else "AI_DEMEMORY_ROOT requires a non-empty vault path"
-                            )
-                        else:
-                            expected_message = "requires an explicit vault binding"
+                        expected_message = (
+                            "runtime vault binding requires"
+                            if environment_root == ""
+                            else "AI_DEMEMORY_ROOT requires a non-empty vault path"
+                        )
                         self.assertIn(expected_message, error.getvalue())
+
+    def test_direct_schedule_commands_require_binding_without_discovery(self) -> None:
+        commands = (
+            ("plan", ["plan", "--json"]),
+            ("cron", ["cron", "--json"]),
+            ("setup", ["setup", "--json"]),
+            ("setup dry run", ["setup", "--dry-run", "--json"]),
+            ("install", ["install", "--json"]),
+            ("install dry run", ["install", "--dry-run", "--json"]),
+            ("status", ["status", "--json"]),
+            ("status dry run", ["status", "--dry-run", "--json"]),
+            ("remove", ["remove", "--json"]),
+            ("remove dry run", ["remove", "--dry-run", "--json"]),
+        )
+        for label, argv in commands:
+            for environment_root, expected_message in (
+                ("", "runtime vault binding requires"),
+                (" ", "AI_DEMEMORY_ROOT requires a non-empty vault path"),
+            ):
+                with self.subTest(command=label, environment_root=repr(environment_root)):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        patch("memorylib.repo_root") as legacy_root,
+                        patch(
+                            "schedule_memory.resolve_runtime_vault",
+                            wraps=resolve_runtime_vault,
+                        ) as binding_resolver,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        schedule_main(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn(expected_message, error.getvalue())
+                    binding_resolver.assert_called_once_with(None)
+                    legacy_root.assert_not_called()
+
+    def test_unified_schedule_commands_require_binding_without_wrapper_discovery(self) -> None:
+        commands = (
+            ["schedule", "plan", "--json"],
+            ["schedule", "cron", "--json"],
+            ["schedule", "setup", "--dry-run", "--json"],
+            ["schedule", "install", "--dry-run", "--json"],
+            ["schedule", "status", "--dry-run", "--json"],
+            ["schedule", "remove", "--dry-run", "--json"],
+        )
+        for argv in commands:
+            with self.subTest(command=argv[1]):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    patch(
+                        "ai_dememory_tool.admin.schedule_memory.resolve_runtime_vault",
+                        wraps=resolve_runtime_vault,
+                    ) as binding_resolver,
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main(argv)
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("runtime vault binding requires", error.getvalue())
+                binding_resolver.assert_called_once_with(None)
+                root_discovery.assert_not_called()
+
+    def test_schedule_saved_default_and_binding_precedence_are_identical_direct_and_unified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_home = base / "config-home"
+            default_root = base / "default-vault"
+            environment_root = base / "environment-vault"
+            explicit_root = base / "explicit-vault"
+            for root in (default_root, environment_root, explicit_root):
+                copy_template_tree(root)
+            saved_config_home = os.environ.get("AI_DEMEMORY_CONFIG_HOME")
+            save_default_vault(
+                default_root,
+                environ={
+                    "AI_DEMEMORY_CONFIG_HOME": str(config_home),
+                    "AI_DEMEMORY_ROOT": "",
+                },
+            )
+
+            cases = (
+                ("default", "", [], default_root.resolve()),
+                ("environment", str(environment_root), [], environment_root.resolve()),
+                (
+                    "argument",
+                    str(environment_root),
+                    ["--root", str(explicit_root)],
+                    explicit_root.resolve(),
+                ),
+            )
+            for binding, environment_value, root_args, expected_root in cases:
+                entrypoints = [
+                    (
+                        "direct",
+                        schedule_main,
+                        [*root_args, "plan", "--platform", "windows", "--json"],
+                    ),
+                    (
+                        "unified",
+                        cli_main,
+                        ["schedule", *root_args, "plan", "--platform", "windows", "--json"],
+                    ),
+                ]
+                if root_args:
+                    entrypoints.append(
+                        (
+                            "unified global root",
+                            cli_main,
+                            [*root_args, "schedule", "plan", "--platform", "windows", "--json"],
+                        )
+                    )
+                for entrypoint, target, argv in entrypoints:
+                    with self.subTest(binding=binding, entrypoint=entrypoint):
+                        output = io.StringIO()
+                        with (
+                            patch.dict(
+                                os.environ,
+                                {
+                                    "AI_DEMEMORY_CONFIG_HOME": str(config_home),
+                                    "AI_DEMEMORY_ROOT": environment_value,
+                                },
+                            ),
+                            patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                            redirect_stdout(output),
+                        ):
+                            self.assertEqual(target(argv), 0)
+
+                        payload = json.loads(output.getvalue())
+                        self.assertEqual(Path(payload["root"]), expected_root)
+                        self.assertEqual(
+                            payload["commands"],
+                            schedule_plan(
+                                expected_root,
+                                target_platform="windows",
+                            )["commands"],
+                        )
+                        root_discovery.assert_not_called()
+
+            self.assertEqual(
+                os.environ.get("AI_DEMEMORY_CONFIG_HOME"),
+                saved_config_home,
+            )
+
+    def test_schedule_doctor_is_rootless_direct_and_unified(self) -> None:
+        for entrypoint, target, argv, resolver in (
+            (
+                "direct",
+                schedule_main,
+                ["doctor", "--platform", "windows", "--json"],
+                "schedule_memory.resolve_runtime_vault",
+            ),
+            (
+                "unified",
+                cli_main,
+                ["schedule", "doctor", "--platform", "windows", "--json"],
+                "ai_dememory_tool.admin.schedule_memory.resolve_runtime_vault",
+            ),
+        ):
+            with self.subTest(entrypoint=entrypoint):
+                output = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    patch(resolver) as binding_resolver,
+                    patch("shutil.which", return_value=None),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(target(argv), 0)
+
+                result = json.loads(output.getvalue())
+                self.assertEqual(result["platform"], "windows")
+                self.assertFalse(result["mutates_system"])
+                binding_resolver.assert_not_called()
+                root_discovery.assert_not_called()
+
+    def test_unified_schedule_parses_invalid_grammar_before_any_root_resolution(self) -> None:
+        invalid_commands = (
+            ["--root", r"\\attacker\share", "schedule", "plan", "--bogus"],
+            ["schedule", "plan", "--root", r"\\attacker\share"],
+            [
+                "--root",
+                "C:/vault-a",
+                "schedule",
+                "--root",
+                "C:/vault-b",
+                "plan",
+            ],
+        )
+        for argv in invalid_commands:
+            with self.subTest(argv=argv):
+                error = io.StringIO()
+                with (
+                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    patch("ai_dememory_tool.cli.resolve_runtime_vault") as wrapper_resolver,
+                    patch(
+                        "ai_dememory_tool.admin.schedule_memory.resolve_runtime_vault"
+                    ) as schedule_resolver,
+                    redirect_stderr(error),
+                ):
+                    try:
+                        exit_code = cli_main(argv)
+                    except SystemExit as exc:
+                        exit_code = int(exc.code)
+
+                self.assertEqual(exit_code, 2)
+                self.assertTrue(error.getvalue())
+                root_discovery.assert_not_called()
+                wrapper_resolver.assert_not_called()
+                schedule_resolver.assert_not_called()
 
     def test_unified_provider_commands_require_binding_without_discovery(self) -> None:
         commands = (
@@ -1480,13 +1643,13 @@ class MemoryToolTests(unittest.TestCase):
                 ["capture", "text", "--text", "Reviewed candidate."],
                 "provider_import.repo_root",
             ),
-            ("schedule plan", schedule_main, ["plan", "--json"], "schedule_memory.repo_root"),
-            ("schedule setup", schedule_main, ["setup"], "schedule_memory.repo_root"),
-            ("schedule install", schedule_main, ["install"], "schedule_memory.repo_root"),
-            ("schedule status", schedule_main, ["status"], "schedule_memory.repo_root"),
-            ("schedule remove", schedule_main, ["remove"], "schedule_memory.repo_root"),
-            ("schedule doctor", schedule_main, ["doctor", "--json"], "schedule_memory.repo_root"),
-            ("schedule cron", schedule_main, ["cron", "--json"], "schedule_memory.repo_root"),
+            ("schedule plan", schedule_main, ["plan", "--json"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule setup", schedule_main, ["setup"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule install", schedule_main, ["install"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule status", schedule_main, ["status"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule remove", schedule_main, ["remove"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule doctor", schedule_main, ["doctor", "--json"], "schedule_memory.resolve_runtime_vault"),
+            ("schedule cron", schedule_main, ["cron", "--json"], "schedule_memory.resolve_runtime_vault"),
         )
         invalid_prefixes = (
             # With allow_abbrev=False, the value following --ro cannot become
@@ -12634,7 +12797,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_install_smoke_validates_schedule_plan_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            namespace = "ai-dememory-vault-0123456789"
+            namespace = schedule_namespace(root)
             fingerprint = "a" * 64
             good = json.dumps(
                 {
@@ -12642,7 +12805,12 @@ class MemoryToolTests(unittest.TestCase):
                     "action": "install",
                     "platform": "linux",
                     "mode": "installed",
+                    "command": "ai-dememory",
                     "image": "",
+                    "docker_image_immutable": True,
+                    "installable": True,
+                    "resource_policy_valid": True,
+                    "validation_errors": [],
                     "task_namespace": namespace,
                     "intensity": "balanced",
                     "schedule": {
@@ -12654,18 +12822,27 @@ class MemoryToolTests(unittest.TestCase):
                     },
                     "commands": [
                         {
+                            "name": f"{namespace}-daemon-reload",
+                            "platform": "linux",
+                            "action": "install",
+                            "command": ["systemctl", "--user", "daemon-reload"],
+                            "run_command": None,
+                        },
+                        {
                             "name": f"{namespace}-daily",
                             "platform": "linux",
                             "action": "install",
                             "command": ["systemctl", "--user", "enable", "--now", f"{namespace}-daily.timer"],
                             "run_command": [
                                 "ai-dememory",
+                                "--root",
+                                str(root.resolve()),
                                 "maintenance",
                                 "run",
                                 "--profile",
                                 "daily",
-                                "--root",
-                                str(root.resolve()),
+                                "--timeout-seconds",
+                                "300",
                             ],
                         },
                         {
@@ -12675,12 +12852,14 @@ class MemoryToolTests(unittest.TestCase):
                             "command": ["systemctl", "--user", "enable", "--now", f"{namespace}-weekly.timer"],
                             "run_command": [
                                 "ai-dememory",
+                                "--root",
+                                str(root.resolve()),
                                 "maintenance",
                                 "run",
                                 "--profile",
                                 "weekly",
-                                "--root",
-                                str(root.resolve()),
+                                "--timeout-seconds",
+                                "300",
                             ],
                         },
                     ],
@@ -12689,15 +12868,41 @@ class MemoryToolTests(unittest.TestCase):
                             "name": f"{namespace}-daily",
                             "profile": "daily",
                             "schedule": "0 3 * * *",
-                            "command": ["ai-dememory", "maintenance", "run", "--profile", "daily"],
-                            "line": "0 3 * * * ai-dememory maintenance run --profile daily",
+                            "command": [
+                                "ai-dememory",
+                                "--root",
+                                str(root.resolve()),
+                                "maintenance",
+                                "run",
+                                "--profile",
+                                "daily",
+                                "--timeout-seconds",
+                                "300",
+                            ],
+                            "line": (
+                                f"0 3 * * * ai-dememory --root {root.resolve()} maintenance run "
+                                "--profile daily --timeout-seconds 300"
+                            ),
                         },
                         {
                             "name": f"{namespace}-weekly",
                             "profile": "weekly",
                             "schedule": "0 4 * * 0",
-                            "command": ["ai-dememory", "maintenance", "run", "--profile", "weekly"],
-                            "line": "0 4 * * 0 ai-dememory maintenance run --profile weekly",
+                            "command": [
+                                "ai-dememory",
+                                "--root",
+                                str(root.resolve()),
+                                "maintenance",
+                                "run",
+                                "--profile",
+                                "weekly",
+                                "--timeout-seconds",
+                                "300",
+                            ],
+                            "line": (
+                                f"0 4 * * 0 ai-dememory --root {root.resolve()} maintenance run "
+                                "--profile weekly --timeout-seconds 300"
+                            ),
                         },
                     ],
                     "mutates_system": False,
@@ -12708,24 +12913,51 @@ class MemoryToolTests(unittest.TestCase):
                     "apply_command": [
                         "ai-dememory",
                         "schedule",
+                        "--root",
+                        str(root.resolve()),
+                        "--command",
+                        "ai-dememory",
                         "setup",
+                        "--platform",
+                        "linux",
+                        "--mode",
+                        "installed",
+                        "--daily-time",
+                        "03:00",
+                        "--weekly-day",
+                        "SUN",
+                        "--weekly-time",
+                        "04:00",
+                        "--daily",
+                        "--weekly",
+                        "--intensity",
+                        "balanced",
                         "--expect-plan-sha256",
                         fingerprint,
                     ],
                 }
             )
+            canonical_good = json.loads(good)
+            for entry in canonical_good["cron_entries"]:
+                rendered_command = shlex.join(entry["command"]).replace("%", r"\%")
+                entry["line"] = f"{entry['schedule']} {rendered_command}"
+            fingerprint = schedule_plan_fingerprint(canonical_good)
+            canonical_good["plan_sha256"] = fingerprint
+            fingerprint_index = canonical_good["apply_command"].index("--expect-plan-sha256")
+            canonical_good["apply_command"][fingerprint_index + 1] = fingerprint
+            good = json.dumps(canonical_good)
             missing_flags = json.dumps({**json.loads(good), "writes_files": True})
             missing_cron = json.dumps({**json.loads(good), "cron_entries": []})
             wrong_root = json.dumps({**json.loads(good), "root": "/memory"})
             missing_weekly_run_payload = json.loads(good)
-            missing_weekly_run_payload["commands"][1]["run_command"] = [
+            missing_weekly_run_payload["commands"][2]["run_command"] = [
                 "ai-dememory",
+                "--root",
+                str(root.resolve()),
                 "maintenance",
                 "run",
                 "--profile",
                 "daily",
-                "--root",
-                str(root.resolve()),
             ]
             duplicate_daily_cron_payload = json.loads(good)
             duplicate_daily_cron_payload["cron_entries"][1] = {
@@ -12733,45 +12965,62 @@ class MemoryToolTests(unittest.TestCase):
                 "name": "ai-dememory-daily-copy",
             }
             mismatched_weekly_command_payload = json.loads(good)
-            mismatched_weekly_command_payload["commands"].append(
-                {
-                    "name": "ai-dememory-extra-weekly",
-                    "platform": "linux",
-                    "action": "install",
-                    "command": ["systemctl", "--user", "status", "ai-dememory-weekly.timer"],
-                    "run_command": [
-                        "ai-dememory",
-                        "maintenance",
-                        "run",
-                        "--profile",
-                        "weekly",
-                        "--root",
-                        str(root.resolve()),
-                    ],
-                }
-            )
-            mismatched_weekly_command_payload["commands"][1]["run_command"] = [
+            mismatched_weekly_command_payload["commands"][2]["run_command"] = [
                 "ai-dememory",
+                "--root",
+                str(root.resolve()),
                 "maintenance",
                 "run",
                 "--profile",
                 "daily",
-                "--root",
-                str(root.resolve()),
             ]
             mismatched_weekly_cron_payload = json.loads(good)
             mismatched_weekly_cron_payload["cron_entries"][1]["line"] = (
-                "0 4 * * 0 ai-dememory maintenance run --profile daily"
+                f"0 4 * * 0 ai-dememory --root {root.resolve()} maintenance run --profile daily"
             )
-            mismatched_weekly_cron_payload["cron_entries"][1]["command"] = [
-                "ai-dememory",
-                "maintenance",
-                "run",
-                "--profile",
-                "daily",
-            ]
 
+            def mutate_root(command: list[str], defect: str, *, apply: bool = False) -> list[str]:
+                tokens = list(command)
+                root_index = tokens.index("--root")
+                root_pair = tokens[root_index : root_index + 2]
+                if defect == "missing":
+                    del tokens[root_index : root_index + 2]
+                elif defect == "misplaced":
+                    del tokens[root_index : root_index + 2]
+                    marker_index = tokens.index("setup" if apply else "maintenance")
+                    insertion_index = marker_index + (1 if apply else 2)
+                    tokens[insertion_index:insertion_index] = root_pair
+                elif defect == "duplicate":
+                    tokens[root_index:root_index] = root_pair
+                elif defect == "incorrect":
+                    tokens[root_index + 1] = "/unexpected-vault"
+                else:
+                    self.fail(f"unsupported root defect: {defect}")
+                return tokens
+
+            installed_plan = schedule_plan(
+                root,
+                target_platform="linux",
+                intensity="balanced",
+            )
+            assert_schedule_plan(
+                json.dumps(installed_plan),
+                expected_root=str(root.resolve()),
+            )
             assert_schedule_plan(good, expected_root=str(root.resolve()))
+            docker_plan = schedule_plan(
+                root,
+                mode="docker",
+                image=PINNED_TEST_IMAGE,
+                target_platform="linux",
+                intensity="balanced",
+            )
+            assert_schedule_plan(
+                json.dumps(docker_plan),
+                expected_mode="docker",
+                expected_root=str(root.resolve()),
+                expected_image=PINNED_TEST_IMAGE,
+            )
             with self.assertRaises(InstallSmokeError):
                 assert_schedule_plan(missing_flags, expected_root=str(root.resolve()))
             with self.assertRaises(InstallSmokeError):
@@ -12780,12 +13029,340 @@ class MemoryToolTests(unittest.TestCase):
                 assert_schedule_plan(wrong_root, expected_root=str(root.resolve()))
             with self.assertRaisesRegex(InstallSmokeError, "weekly maintenance run command"):
                 assert_schedule_plan(json.dumps(missing_weekly_run_payload), expected_root=str(root.resolve()))
-            with self.assertRaisesRegex(InstallSmokeError, "one daily and one weekly cron entry"):
+            with self.assertRaisesRegex(InstallSmokeError, "weekly cron entry"):
                 assert_schedule_plan(json.dumps(duplicate_daily_cron_payload), expected_root=str(root.resolve()))
             with self.assertRaisesRegex(InstallSmokeError, "weekly maintenance run command"):
                 assert_schedule_plan(json.dumps(mismatched_weekly_command_payload), expected_root=str(root.resolve()))
             with self.assertRaisesRegex(InstallSmokeError, "weekly maintenance cron line"):
                 assert_schedule_plan(json.dumps(mismatched_weekly_cron_payload), expected_root=str(root.resolve()))
+            for command_kind, error_pattern in (
+                ("run", "daily maintenance run command"),
+                ("cron", "daily maintenance cron command"),
+                ("apply", "fingerprint-bound apply command"),
+            ):
+                for defect in ("missing", "misplaced", "duplicate", "incorrect"):
+                    with self.subTest(command_kind=command_kind, root_defect=defect):
+                        payload = json.loads(good)
+                        if command_kind == "run":
+                            source = payload["commands"][1]["run_command"]
+                            payload["commands"][1]["run_command"] = mutate_root(source, defect)
+                        elif command_kind == "cron":
+                            source = payload["cron_entries"][0]["command"]
+                            payload["cron_entries"][0]["command"] = mutate_root(source, defect)
+                        else:
+                            source = payload["apply_command"]
+                            payload["apply_command"] = mutate_root(source, defect, apply=True)
+                        with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                            assert_schedule_plan(
+                                json.dumps(payload),
+                                expected_root=str(root.resolve()),
+                            )
+
+            def clone(payload: dict[str, object]) -> dict[str, object]:
+                return json.loads(json.dumps(payload))
+
+            def named_command(payload: dict[str, object], profile: str) -> dict[str, object]:
+                expected_name = f"{payload['task_namespace']}-{profile}"
+                return next(command for command in payload["commands"] if command["name"] == expected_name)
+
+            def named_cron(payload: dict[str, object], profile: str) -> dict[str, object]:
+                expected_name = f"{payload['task_namespace']}-{profile}"
+                return next(entry for entry in payload["cron_entries"] if entry["name"] == expected_name)
+
+            for non_object in ("[]", "null", json.dumps("schedule plan")):
+                with self.subTest(non_object=non_object):
+                    with self.assertRaisesRegex(InstallSmokeError, "JSON must be an object"):
+                        assert_schedule_plan(non_object, expected_root=str(root.resolve()))
+
+            malformed_argv_cases: list[tuple[str, dict[str, object]]] = []
+            malformed_scheduler_argv = clone(installed_plan)
+            named_command(malformed_scheduler_argv, "daily")["command"][0] = 7
+            malformed_argv_cases.append(("scheduler", malformed_scheduler_argv))
+            malformed_run_argv = clone(installed_plan)
+            named_command(malformed_run_argv, "daily")["run_command"][0] = 7
+            malformed_argv_cases.append(("run", malformed_run_argv))
+            malformed_cron_argv = clone(installed_plan)
+            named_cron(malformed_cron_argv, "daily")["command"][0] = 7
+            malformed_argv_cases.append(("cron", malformed_cron_argv))
+            malformed_apply_argv = clone(installed_plan)
+            malformed_apply_argv["apply_command"][0] = 7
+            malformed_argv_cases.append(("apply", malformed_apply_argv))
+            for argv_kind, payload in malformed_argv_cases:
+                with self.subTest(non_string_argv=argv_kind):
+                    with self.assertRaises(InstallSmokeError):
+                        assert_schedule_plan(json.dumps(payload), expected_root=str(root.resolve()))
+
+            for mode, source in (("installed", installed_plan), ("docker", docker_plan)):
+                missing_executable = clone(source)
+                del named_command(missing_executable, "daily")["run_command"][0]
+                extra_argument = clone(source)
+                named_command(extra_argument, "daily")["run_command"].append("--extra")
+                for defect, payload in (
+                    ("missing executable", missing_executable),
+                    ("extra argument", extra_argument),
+                ):
+                    with self.subTest(mode=mode, run_defect=defect):
+                        with self.assertRaisesRegex(InstallSmokeError, "daily maintenance run command"):
+                            assert_schedule_plan(
+                                json.dumps(payload),
+                                expected_mode=mode,
+                                expected_root=str(root.resolve()),
+                                expected_image=PINNED_TEST_IMAGE if mode == "docker" else None,
+                            )
+
+            for defect in ("missing", "misplaced", "duplicate", "incorrect"):
+                for command_kind in ("run", "cron"):
+                    payload = clone(docker_plan)
+                    owner = (
+                        named_command(payload, "daily")
+                        if command_kind == "run"
+                        else named_cron(payload, "daily")
+                    )
+                    owner["run_command" if command_kind == "run" else "command"] = mutate_root(
+                        owner["run_command" if command_kind == "run" else "command"],
+                        defect,
+                    )
+                    with self.subTest(mode="docker", command_kind=command_kind, root_defect=defect):
+                        with self.assertRaises(InstallSmokeError):
+                            assert_schedule_plan(
+                                json.dumps(payload),
+                                expected_mode="docker",
+                                expected_root=str(root.resolve()),
+                                expected_image=PINNED_TEST_IMAGE,
+                            )
+
+            missing_image_field = clone(docker_plan)
+            del missing_image_field["image"]
+            missing_run_image = clone(docker_plan)
+            named_command(missing_run_image, "daily")["run_command"].remove(PINNED_TEST_IMAGE)
+            missing_apply_image = clone(docker_plan)
+            del missing_apply_image["apply_command"][-2:]
+            for defect, payload, error_pattern in (
+                ("plan image", missing_image_field, "missing image"),
+                ("run image", missing_run_image, "daily maintenance run command"),
+                ("apply image", missing_apply_image, "fingerprint-bound apply command"),
+            ):
+                with self.subTest(docker_image_defect=defect):
+                    with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                        assert_schedule_plan(
+                            json.dumps(payload),
+                            expected_mode="docker",
+                            expected_root=str(root.resolve()),
+                            expected_image=PINNED_TEST_IMAGE,
+                        )
+
+            for marker in ("--network", "--cpus", "--memory", "--pids-limit", "-e", "-v"):
+                payload = clone(docker_plan)
+                run_command = named_command(payload, "daily")["run_command"]
+                run_command.insert(run_command.index(marker) + 1, "unexpected")
+                with self.subTest(non_adjacent_docker_option=marker):
+                    with self.assertRaisesRegex(InstallSmokeError, "daily maintenance run command"):
+                        assert_schedule_plan(
+                            json.dumps(payload),
+                            expected_mode="docker",
+                            expected_root=str(root.resolve()),
+                            expected_image=PINNED_TEST_IMAGE,
+                        )
+
+            bogus_apply_prefix = clone(installed_plan)
+            bogus_apply_prefix["apply_command"][0] = "python"
+            missing_schedule_prefix = clone(installed_plan)
+            del missing_schedule_prefix["apply_command"][1]
+            extra_apply_argument = clone(installed_plan)
+            extra_apply_argument["apply_command"].append("--extra")
+            for defect, payload in (
+                ("bogus prefix", bogus_apply_prefix),
+                ("missing schedule", missing_schedule_prefix),
+                ("extra argument", extra_apply_argument),
+            ):
+                with self.subTest(apply_defect=defect):
+                    with self.assertRaisesRegex(InstallSmokeError, "fingerprint-bound apply command"):
+                        assert_schedule_plan(json.dumps(payload), expected_root=str(root.resolve()))
+
+            duplicate_command = clone(installed_plan)
+            valid_daily_command = clone(named_command(duplicate_command, "daily"))
+            del named_command(duplicate_command, "daily")["run_command"][0]
+            duplicate_command["commands"].append(valid_daily_command)
+            with self.assertRaisesRegex(InstallSmokeError, "exactly one named daily scheduler command"):
+                assert_schedule_plan(json.dumps(duplicate_command), expected_root=str(root.resolve()))
+
+            duplicate_cron = clone(installed_plan)
+            valid_daily_cron = clone(named_cron(duplicate_cron, "daily"))
+            del named_cron(duplicate_cron, "daily")["command"][0]
+            duplicate_cron["cron_entries"].append(valid_daily_cron)
+            with self.assertRaisesRegex(InstallSmokeError, "exactly one daily and one weekly cron entry"):
+                assert_schedule_plan(json.dumps(duplicate_cron), expected_root=str(root.resolve()))
+
+            extra_cron_argument = clone(installed_plan)
+            named_cron(extra_cron_argument, "daily")["command"].append("--extra")
+            with self.assertRaisesRegex(InstallSmokeError, "daily maintenance cron command"):
+                assert_schedule_plan(json.dumps(extra_cron_argument), expected_root=str(root.resolve()))
+
+            noncanonical_cron_line = clone(installed_plan)
+            named_cron(noncanonical_cron_line, "daily")["line"] += " --extra"
+            with self.assertRaisesRegex(InstallSmokeError, "daily maintenance cron line"):
+                assert_schedule_plan(json.dumps(noncanonical_cron_line), expected_root=str(root.resolve()))
+
+    def test_install_smoke_validates_exact_host_schedule_commands_and_plan_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            expected_root = str(root.resolve())
+
+            def clone(payload: dict[str, object]) -> dict[str, object]:
+                return json.loads(json.dumps(payload))
+
+            def profile_command(payload: dict[str, object], profile: str) -> dict[str, object]:
+                expected_name = f"{payload['task_namespace']}-{profile}"
+                return next(command for command in payload["commands"] if command["name"] == expected_name)
+
+            def validate(payload: dict[str, object], mode: str) -> None:
+                assert_schedule_plan(
+                    json.dumps(payload),
+                    expected_mode=mode,
+                    expected_root=expected_root,
+                    expected_image=PINNED_TEST_IMAGE if mode == "docker" else None,
+                )
+
+            plans: dict[tuple[str, str], dict[str, object]] = {}
+            for platform in ("windows", "macos", "linux"):
+                for mode in ("installed", "docker"):
+                    plan = schedule_plan(
+                        root,
+                        target_platform=platform,
+                        mode=mode,
+                        image=PINNED_TEST_IMAGE,
+                        intensity="balanced",
+                    )
+                    plans[(platform, mode)] = plan
+                    with self.subTest(positive_platform=platform, positive_mode=mode):
+                        validate(plan, mode)
+
+            for platform in ("windows", "macos", "linux"):
+                for profile in ("daily", "weekly"):
+                    payload = clone(plans[(platform, "installed")])
+                    profile_command(payload, profile)["command"].append("--extra")
+                    with self.subTest(mutated_host_argv=platform, profile=profile):
+                        with self.assertRaisesRegex(InstallSmokeError, "host command"):
+                            validate(payload, "installed")
+
+            reordered = clone(plans[("windows", "installed")])
+            reordered["commands"][0], reordered["commands"][1] = (
+                reordered["commands"][1],
+                reordered["commands"][0],
+            )
+            extra = clone(plans[("macos", "installed")])
+            extra["commands"].append(
+                {
+                    "name": "unexpected-host-command",
+                    "platform": "macos",
+                    "action": "install",
+                    "command": ["launchctl", "list"],
+                    "run_command": None,
+                }
+            )
+            duplicate = clone(plans[("windows", "installed")])
+            duplicate["commands"].append(clone(profile_command(duplicate, "daily")))
+            for defect, payload, error_pattern in (
+                ("reordered", reordered, "exact ordered"),
+                ("extra", extra, "exact ordered"),
+                ("duplicate", duplicate, "exactly one named daily"),
+            ):
+                with self.subTest(host_set_defect=defect):
+                    with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                        validate(payload, "installed")
+
+            illegal_windows_daemon = clone(plans[("windows", "installed")])
+            illegal_windows_daemon["commands"].insert(
+                0,
+                {
+                    "name": f"{illegal_windows_daemon['task_namespace']}-daemon-reload",
+                    "platform": "windows",
+                    "action": "install",
+                    "command": ["systemctl", "--user", "daemon-reload"],
+                    "run_command": None,
+                },
+            )
+            missing_linux_daemon = clone(plans[("linux", "installed")])
+            del missing_linux_daemon["commands"][0]
+            duplicate_linux_daemon = clone(plans[("linux", "installed")])
+            duplicate_linux_daemon["commands"].insert(1, clone(duplicate_linux_daemon["commands"][0]))
+            malformed_linux_daemon = clone(plans[("linux", "installed")])
+            malformed_linux_daemon["commands"][0]["command"].append("--extra")
+            daemon_with_maintenance = clone(plans[("linux", "installed")])
+            daemon_with_maintenance["commands"][0]["run_command"] = clone(
+                profile_command(daemon_with_maintenance, "daily")
+            )["run_command"]
+            for defect, payload, error_pattern in (
+                ("illegal on Windows", illegal_windows_daemon, "exact ordered"),
+                ("missing on Linux", missing_linux_daemon, "exact ordered"),
+                ("duplicate on Linux", duplicate_linux_daemon, "exact ordered"),
+                ("malformed on Linux", malformed_linux_daemon, "host command"),
+                ("maintenance on daemon", daemon_with_maintenance, "must not include a maintenance command"),
+            ):
+                with self.subTest(daemon_reload_defect=defect):
+                    with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                        validate(payload, "installed")
+
+            wrong_platform_field = clone(plans[("windows", "installed")])
+            profile_command(wrong_platform_field, "daily")["platform"] = "linux"
+            wrong_action_field = clone(plans[("windows", "installed")])
+            profile_command(wrong_action_field, "daily")["action"] = "status"
+            wrong_name_field = clone(plans[("windows", "installed")])
+            profile_command(wrong_name_field, "daily")["name"] = "wrong-name"
+            for defect, payload, error_pattern in (
+                ("platform", wrong_platform_field, "wrong platform or action"),
+                ("action", wrong_action_field, "wrong platform or action"),
+                ("name", wrong_name_field, "exactly one named daily"),
+            ):
+                with self.subTest(host_metadata_defect=defect):
+                    with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                        validate(payload, "installed")
+
+            unsupported_platform = clone(plans[("windows", "installed")])
+            unsupported_platform["platform"] = "evil"
+            platform_index = unsupported_platform["apply_command"].index("--platform")
+            unsupported_platform["apply_command"][platform_index + 1] = "evil"
+            with self.assertRaisesRegex(InstallSmokeError, "target platform"):
+                validate(unsupported_platform, "installed")
+
+            alien_namespace = clone(plans[("windows", "installed")])
+            original_namespace = alien_namespace["task_namespace"]
+            replacement_namespace = schedule_namespace(root / "other-vault")
+            alien_namespace["task_namespace"] = replacement_namespace
+            for command in alien_namespace["commands"]:
+                command["name"] = command["name"].replace(original_namespace, replacement_namespace)
+                command["command"] = [
+                    argument.replace(original_namespace, replacement_namespace)
+                    for argument in command["command"]
+                ]
+            for entry in alien_namespace["cron_entries"]:
+                entry["name"] = entry["name"].replace(original_namespace, replacement_namespace)
+            alien_namespace["plan_sha256"] = schedule_plan_fingerprint(alien_namespace)
+            fingerprint_index = alien_namespace["apply_command"].index("--expect-plan-sha256")
+            alien_namespace["apply_command"][fingerprint_index + 1] = alien_namespace["plan_sha256"]
+            with self.assertRaisesRegex(InstallSmokeError, "namespace does not match"):
+                validate(alien_namespace, "installed")
+
+            safety_cases = (
+                ("installable", False, "installable"),
+                ("resource_policy_valid", False, "resource policy"),
+                ("validation_errors", ["broken"], "validation errors"),
+                ("docker_image_immutable", False, "immutability"),
+            )
+            for mode in ("installed", "docker"):
+                for field, value, error_pattern in safety_cases:
+                    payload = clone(plans[("windows", mode)])
+                    payload[field] = value
+                    with self.subTest(mode=mode, safety_field=field):
+                        with self.assertRaisesRegex(InstallSmokeError, error_pattern):
+                            validate(payload, mode)
+
+            forged_fingerprint = clone(plans[("windows", "installed")])
+            forged_fingerprint["plan_sha256"] = "0" * 64
+            fingerprint_index = forged_fingerprint["apply_command"].index("--expect-plan-sha256")
+            forged_fingerprint["apply_command"][fingerprint_index + 1] = "0" * 64
+            with self.assertRaisesRegex(InstallSmokeError, "canonical plan projection"):
+                validate(forged_fingerprint, "installed")
 
     def test_install_smoke_validates_roadmap_status_payload(self) -> None:
         good = json.dumps(
@@ -13108,6 +13685,18 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(commands["maintenance dry run"], ["maintenance", "run", "--profile", "daily", "--dry-run", "--json"])
         self.assertEqual(commands["schedule doctor"], ["schedule", "doctor", "--json"])
         self.assertEqual(commands["schedule plan"], ["schedule", "plan", "--json"])
+        self.assertEqual(
+            commands["docker schedule plan"],
+            [
+                "schedule",
+                "plan",
+                "--mode",
+                "docker",
+                "--image",
+                "sha256:" + ("a" * 64),
+                "--json",
+            ],
+        )
         self.assertEqual(
             commands["docker schedule dry run"],
             ["schedule", "setup", "--dry-run", "--mode", "docker", "--image", "sha256:" + ("a" * 64)],

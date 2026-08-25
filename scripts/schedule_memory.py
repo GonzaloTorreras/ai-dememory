@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
-import os
 from pathlib import Path
 import platform
 import re
@@ -26,11 +25,15 @@ if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.pa
     sys.path.insert(0, str(SOURCE_ROOT))
 
 from ai_dememory_tool.argument_safety import reject_duplicate_options  # noqa: E402
+from ai_dememory_tool.vault_binding import (  # noqa: E402
+    VaultBindingError,
+    resolve_runtime_vault,
+)
 from config_file import load_config
 from config_file import set_section
 from command_render import render_copy_command
 from maintenance import review_due_summary
-from memorylib import path_is_link_like, repo_root, safe_write_text
+from memorylib import path_is_link_like, safe_write_text
 from process_control import run_owned_capture, run_owned_process
 from resource_policy import get_resource_profile, profile_names, resolved_resource_policy
 
@@ -1597,28 +1600,21 @@ def main(argv: list[str] | None = None) -> int:
     root_was_supplied = any(argument == "--root" or argument.startswith("--root=") for argument in argv)
     if root_was_supplied and (not args.root or not args.root.strip()):
         parser.error("--root requires a non-empty vault path")
-    explicit_root = args.root if args.root and args.root.strip() else None
-    configured_root = os.environ.get("AI_DEMEMORY_ROOT")
-    configured_root = configured_root if configured_root and configured_root.strip() else None
-    mutates_vault = (
-        args.command_name in {"setup", "install", "remove", "status"}
-        and not args.dry_run
-    )
-    emits_bound_command = args.command_name in {"plan", "cron"} or (
-        args.command_name in {"setup", "install"} and args.dry_run
-    )
-    if (
-        (mutates_vault or emits_bound_command)
-        and not explicit_root
-        and not configured_root
-    ):
-        parser.error(
-            f"schedule {args.command_name} requires an explicit vault binding; "
-            "pass --root <vault-path>, set AI_DEMEMORY_ROOT, or invoke "
-            "`ai-dememory schedule` after saving a local default with "
-            "`ai-dememory vault use <absolute-vault-path>`"
-        )
-    root = repo_root(explicit_root)
+    if args.command_name == "doctor":
+        result = schedule_environment(target_platform=args.platform, mode=args.mode)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"ai-dememory schedule doctor ({result['platform']}, {result['mode']})")
+            print(f"ready: {str(result['ready']).lower()}")
+            for check in result["checks"]:
+                status = "ok" if check["available"] else ("missing" if check["required"] else "optional-missing")
+                print(f"- {status}: {check['name']} command `{check['command']}`")
+        return 0
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
     if args.command_name == "plan":
         values = schedule_cli_values(root, args)
         try:
@@ -1658,17 +1654,6 @@ def main(argv: list[str] | None = None) -> int:
                 print("cron_entries:")
                 for entry in result["cron_entries"]:
                     print(f"- {entry['name']}: {entry['line']}")
-        return 0
-    if args.command_name == "doctor":
-        result = schedule_environment(target_platform=args.platform, mode=args.mode)
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            print(f"ai-dememory schedule doctor ({result['platform']}, {result['mode']})")
-            print(f"ready: {str(result['ready']).lower()}")
-            for check in result["checks"]:
-                status = "ok" if check["available"] else ("missing" if check["required"] else "optional-missing")
-                print(f"- {status}: {check['name']} command `{check['command']}`")
         return 0
     if args.command_name == "cron":
         values = schedule_cli_values(root, args)

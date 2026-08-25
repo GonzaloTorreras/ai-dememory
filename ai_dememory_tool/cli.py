@@ -333,8 +333,6 @@ def command_mutates_vault(command: str, argv: list[str]) -> bool:
         )
     if command == "maintenance":
         return subcommand == "run" and "--dry-run" not in argv
-    if command == "schedule":
-        return subcommand in {"setup", "install", "remove", "status"} and "--dry-run" not in argv
     return False
 
 
@@ -358,10 +356,6 @@ def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
     if command == "providers":
         return subcommand == "plan" or (
             subcommand == "configure" and "--dry-run" in argv
-        )
-    if command == "schedule":
-        return subcommand in {"plan", "cron"} or (
-            subcommand in {"setup", "install"} and "--dry-run" in argv
         )
     return False
 
@@ -393,11 +387,13 @@ def run_packaged_command(
         "providers",
         "import-chats",
         "capture",
+        "schedule",
     } or (
         command == "maintenance" and command_subcommand(argv) == "run"
     ):
-        # Stateful runtime, provider, maintenance-run, and onboarding surfaces
-        # own parsing and vault resolution.  In particular, never discover a
+        # Runtime, provider, maintenance-run, onboarding, and scheduler surfaces
+        # own parsing and vault resolution (or an explicitly rootless path).
+        # In particular, never discover a
         # CWD/package root, resolve a user path, or rewrite provider arguments
         # before the provider parser has accepted its exact grammar.  Resolving
         # a UNC path can perform I/O, and rewriting a trailing ``--root`` would
