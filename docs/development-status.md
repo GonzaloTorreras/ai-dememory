@@ -229,9 +229,14 @@ local-API onboarding hint and documentation follow-up.
   makes no vault writes.
 - Local evidence for this increment: all 25 maintenance-focused tests passed;
   the runtime-binding help test passed; and the integrated memory-tools module
-  passed 583 tests with 45 expected platform skips. This remains compatible
-  source hardening: `BRG-003` stays `in_progress`, and no version, task state,
-  package, tag, vault, scheduler definition, or release changes.
+  passed 589 tests with 45 expected platform skips. Thirteen install-smoke
+  regressions also passed, and a fresh venv installed the local package and
+  proved that installed `maintenance status` rejects an unbound foreign CWD,
+  then uses the saved vault from that same deliberately poisoned directory;
+  the rest of the installed CLI, API, MCP, hook, provider, scheduler, and recall
+  smoke remained green. This remains compatible source hardening: `BRG-003`
+  stays `in_progress`, and no version, task state, package, tag, vault,
+  scheduler definition, or release changes.
 
 ## Merged 2.1.2 Source Candidate (Unpublished)
 

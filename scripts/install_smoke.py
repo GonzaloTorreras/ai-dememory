@@ -1493,6 +1493,8 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
     try:
         venv = temp_path / "venv"
         vault = temp_path / "vault"
+        foreign_vault = temp_path / "foreign-vault"
+        config_home = temp_path / "config-home"
         template_export = temp_path / "vault-template-export"
         sample = vault / "sample.md"
         run_step(steps, "create venv", [sys.executable, "-m", "venv", str(venv)])
@@ -1522,9 +1524,46 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         if expected_mismatch not in mismatch.stderr:
             raise InstallSmokeError("installed version-check mismatch did not report exact versions")
         run_step(steps, "init vault", [str(ai_dememory), "init", str(vault)])
+        run_step(steps, "init foreign vault", [str(ai_dememory), "init", str(foreign_vault)])
+        selector_env = {
+            **os.environ,
+            "AI_DEMEMORY_CONFIG_HOME": str(config_home),
+            "AI_DEMEMORY_ROOT": "",
+        }
+        unbound_status = run_step(
+            steps,
+            "installed maintenance status rejects foreign CWD discovery",
+            [str(ai_dememory), "maintenance", "status", "--json"],
+            cwd=foreign_vault,
+            env=selector_env,
+            allowed_returncodes={2},
+        )
+        if "runtime vault binding requires" not in unbound_status.stderr:
+            raise InstallSmokeError(
+                "installed maintenance status did not reject foreign CWD discovery"
+            )
+        run_step(
+            steps,
+            "select installed default vault",
+            [str(ai_dememory), "vault", "use", str(vault), "--json"],
+            cwd=foreign_vault,
+            env=selector_env,
+        )
+        (foreign_vault / ".ai-dememory.toml").write_text(
+            "[invalid\n",
+            encoding="utf-8",
+        )
+        selected_status = run_step(
+            steps,
+            "installed maintenance status uses saved vault from foreign CWD",
+            [str(ai_dememory), "maintenance", "status", "--json"],
+            cwd=foreign_vault,
+            env=selector_env,
+        )
+        assert_maintenance_status_artifacts(selected_status.stdout)
         write_install_smoke_memory(vault)
         sample.write_text("# Install Smoke\n\nCapture this non-secret note.\n", encoding="utf-8")
-        env = {**os.environ, "AI_DEMEMORY_ROOT": str(vault)}
+        env = {**selector_env, "AI_DEMEMORY_ROOT": str(vault)}
         setup_plan_sha256: str | None = None
         setup_config_text: str | None = None
         onboarding_plan_sha256: str | None = None
