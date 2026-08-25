@@ -1,6 +1,6 @@
 # Development Status
 
-Updated: 2026-08-25
+Updated: 2026-08-26
 
 This is a concise public-repository handoff, not release evidence by itself.
 The lead integrator updates it when a verified checkout, frontier, blocker, or
@@ -13,10 +13,11 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `bf611ac2e2ebf819adb74f79e6d6ef093c0503d0`, the squash merge result of
-  [PR #48](https://github.com/GonzaloTorreras/ai-dememory/pull/48). Its history
-  contains the planning-only governed-learning handoff from PR #47 and the
-  unpublished `2.1.2` default-vault/wizard correction from PR #46.
+  `2c3e80735b4412d94c8a67983a5d410b417fb5e9`, the squash merge result of
+  [PR #49](https://github.com/GonzaloTorreras/ai-dememory/pull/49). Its history
+  contains the strict scheduler correction from PR #48, the planning-only
+  governed-learning handoff from PR #47, and the unpublished `2.1.2`
+  default-vault/wizard correction from PR #46.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -139,11 +140,12 @@ local-API onboarding hint and documentation follow-up.
   through the strict runtime resolver before generic discovery, provider reads,
   lock acquisition, or supervised-child creation. It applies equally to real,
   dry-run, and supervised maintenance; absolute explicit `--root` takes
-  precedence over the environment. `maintenance status` deliberately remains a
-  compatible read-only legacy path. Source-checkout children use the trusted
-  wrapper while installed packages retain the module entry point, both with an
-  explicit root. PR #35 records full regression evidence of 856 passed and 53
-  skipped, plus an exact working-tree security scan with zero findings.
+  precedence over the environment. At that point `maintenance status` remained
+  a compatible read-only legacy path; the ninth increment below closes that
+  temporary exception. Source-checkout children use the trusted wrapper while
+  installed packages retain the module entry point, both with an explicit root.
+  PR #35 records full regression evidence of 856 passed and 53 skipped, plus an
+  exact working-tree security scan with zero findings.
 - PR [#37](https://github.com/GonzaloTorreras/ai-dememory/pull/37) was merged
   at `4ff90b288c3d5ae9f522d5891fa5120f476ed781` after a fresh independent
   exact-head review found no actionable security issue. CI run
@@ -209,6 +211,32 @@ local-API onboarding hint and documentation follow-up.
   API, hooks, providers, and maintenance successfully. The Docker step was a
   plan-only preview: the smoke removed its temporary environment and neither
   ran Docker nor installed host scheduler definitions.
+- PR [#49](https://github.com/GonzaloTorreras/ai-dememory/pull/49) was squash
+  merged at `2c3e80735b4412d94c8a67983a5d410b417fb5e9`. Its exact head passed CI
+  run [32902951391](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32902951391)
+  and Pages run
+  [32902951388](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32902951388),
+  plus fresh independent normative and security reviews. It consolidated the
+  planning authority and hardened the advisory release-checklist parser; it did
+  not change the V3 frontier or publish a package.
+- The current ninth `BRG-003` increment routes the complete `maintenance`
+  family through its own parser. Both `run` and read-only `status` now resolve
+  only `--root`, `AI_DEMEMORY_ROOT`, or the saved local default, in that order,
+  and never discover a vault from CWD or the source checkout. Invalid grammar,
+  abbreviations, duplicate, blank, relative, or misplaced roots fail before
+  configuration reads, status work, locks, providers, or child processes.
+  Rootless help remains available and `status` preserves its JSON contract and
+  makes no vault writes.
+- Local evidence for this increment: all 25 maintenance-focused tests passed;
+  the runtime-binding help test passed; and the integrated memory-tools module
+  passed 589 tests with 45 expected platform skips. Thirteen install-smoke
+  regressions also passed, and a fresh venv installed the local package and
+  proved that installed `maintenance status` rejects an unbound foreign CWD,
+  then uses the saved vault from that same deliberately poisoned directory;
+  the rest of the installed CLI, API, MCP, hook, provider, scheduler, and recall
+  smoke remained green. This remains compatible source hardening: `BRG-003`
+  stays `in_progress`, and no version, task state, package, tag, vault,
+  scheduler definition, or release changes.
 
 ## Merged 2.1.2 Source Candidate (Unpublished)
 
@@ -323,12 +351,11 @@ remain intact.
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
 2. Continue `BRG-003` with the remaining strict-resolver inventory and
    structural vault-validation policy. The root-bound configuration-reader,
-   review-state, provider/import/capture, and scheduler boundaries are covered
-   for their current entry points. Reconcile the documented rootless intent of
-   `providers detect` with its remaining legacy resolver call, and reassess the
-   CWD discovery retained by `maintenance status`, as separate compatibility
-   slices. Do not claim structural vault validation merely from an absolute
-   path: explicit and environment bindings still require shared real-directory,
+   review-state, provider/import/capture, scheduler, and maintenance boundaries
+   are covered for their current entry points. Reconcile the documented
+   rootless intent of `providers detect` with its remaining legacy resolver
+   call. Do not claim structural vault validation merely from an absolute path:
+   explicit and environment bindings still require shared real-directory,
    configuration, link-chain, and stable-identity checks planned inside
    `BRG-003`.
 3. Complete `BRG-017` within `B04b`, then `BRG-019`, `MIG-001`, and the

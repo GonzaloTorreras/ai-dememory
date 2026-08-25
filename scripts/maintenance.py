@@ -21,6 +21,7 @@ if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.pa
     # checkout instead of an unrelated installed package.
     sys.path.insert(0, str(SOURCE_ROOT))
 
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from config_file import load_config
 from consolidate_memory import write_report as write_consolidation_report
@@ -35,7 +36,6 @@ from memorylib import (
     load_memories,
     recency_score,
     repo_relative_path,
-    repo_root,
     safe_write_text,
 )
 from provider_import import import_chats, provider_config, providers_status
@@ -62,8 +62,8 @@ from sleep_consolidation import write_sleep_report
 
 DEFAULT_MAINTENANCE_REPORT_DIR = Path("reports/maintenance")
 TIMEOUT_EXIT_CODE = 124
-MAINTENANCE_RUN_ROOT_HELP = (
-    "Vault root for `run`. Resolution order: --root, AI_DEMEMORY_ROOT, then a "
+MAINTENANCE_ROOT_HELP = (
+    "Vault root. Resolution order: --root, AI_DEMEMORY_ROOT, then a "
     "saved local default selected with `ai-dememory vault use "
     "<absolute-vault-path>`; the command never uses the working directory to discover a vault."
 )
@@ -1001,14 +1001,16 @@ def run_supervised_maintenance(
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
         "--root",
         default=None,
-        help=MAINTENANCE_RUN_ROOT_HELP,
+        help=MAINTENANCE_ROOT_HELP,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    run = subparsers.add_parser("run", help="Run a maintenance profile.")
+    run = subparsers.add_parser(
+        "run", help="Run a maintenance profile.", allow_abbrev=False
+    )
     run.add_argument("--profile", choices=("daily", "weekly"), default="daily")
     run.add_argument("--report-dir", default=str(DEFAULT_MAINTENANCE_REPORT_DIR), help="Report directory inside the memory root.")
     run.add_argument("--dry-run", action="store_true", help="Preview maintenance work without writing files.")
@@ -1019,9 +1021,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Supervise the maintenance process and terminate its process tree at this wall-clock ceiling.",
     )
     run.add_argument("--json", action="store_true")
-    status = subparsers.add_parser("status", help="Show maintenance configuration and reports.")
+    status = subparsers.add_parser(
+        "status",
+        help="Show maintenance configuration and reports.",
+        allow_abbrev=False,
+    )
     status.add_argument("--json", action="store_true")
 
+    reject_duplicate_options(parser, argv, ("--root",))
     args = parser.parse_args(argv)
     root_was_supplied = any(
         argument == "--root" or argument.startswith("--root=")
@@ -1029,16 +1036,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     if root_was_supplied and (not args.root or not args.root.strip()):
         parser.error("--root requires a non-empty vault path")
-    explicit_root = args.root if args.root and args.root.strip() else None
-    if args.command == "run":
-        try:
-            root = resolve_runtime_vault(args.root).root
-        except VaultBindingError as exc:
-            parser.error(str(exc))
-    else:
-        # Status remains a compatibility/read-only surface. It deliberately
-        # retains the legacy source/vault selection until its separate slice.
-        root = repo_root(explicit_root)
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
     if args.command == "status":
         data = maintenance_status(root)
         if args.json:

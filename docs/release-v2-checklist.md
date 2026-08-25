@@ -1050,7 +1050,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers plan --json`
 - [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers configure codex --path
   "$HOME/.codex" --dry-run --json`
-- [ ] `python3 scripts/ai_dememory.py maintenance status`
+- [ ] `python3 scripts/ai_dememory.py --root <vault-path> maintenance status`
 - [ ] `python3 scripts/ai_dememory.py --root <vault-path> maintenance run --profile daily --dry-run --json`
 - [ ] Maintenance status reports generated artifact state for index, graph,
   weights, lifecycle scores, and lifecycle report.
