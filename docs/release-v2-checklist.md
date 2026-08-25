@@ -1018,6 +1018,10 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 
 ## Generated Artifacts
 
+- [ ] Select and verify the intended initialized vault before running this
+  section: pass `--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run
+  `ai-dememory vault use <absolute-vault-path>` and confirm it with
+  `ai-dememory vault current`; never rely on CWD or repository discovery.
 - [ ] `python3 scripts/ai_dememory.py index`
 - [ ] `python3 scripts/ai_dememory.py search ai-dememory --limit 3`
 - [ ] `python3 scripts/ai_dememory.py search ai-dememory --why`

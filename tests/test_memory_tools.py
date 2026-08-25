@@ -15450,6 +15450,26 @@ This records future risks.
             )
         )
 
+    def test_release_checklist_guard_requires_vault_binding_before_artifacts(self) -> None:
+        stale = """
+## Generated Artifacts
+
+- [ ] `python3 scripts/ai_dememory.py index`
+- [ ] Select and verify the intended initialized vault before running this section:
+  pass `--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run
+  `ai-dememory vault use <absolute-vault-path>` and confirm it with
+  `ai-dememory vault current`; never rely on CWD or repository discovery.
+"""
+
+        issues = validate_release_checklist_text(stale)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:generated_artifacts_vault_binding"
+                for issue in issues
+            )
+        )
+
     def test_roadmap_status_reports_current_v2_phases(self) -> None:
         payload = roadmap_status(ROOT)
         phases = payload["phases"]

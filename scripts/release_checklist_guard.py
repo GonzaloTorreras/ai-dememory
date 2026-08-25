@@ -14,6 +14,12 @@ from memorylib import repo_root
 
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
+GENERATED_ARTIFACTS_VAULT_PRECONDITION = (
+    "Select and verify the intended initialized vault before running this section: "
+    "pass `--root <absolute-vault-path>`, set `AI_DEMEMORY_ROOT`, or run "
+    "`ai-dememory vault use <absolute-vault-path>` and confirm it with "
+    "`ai-dememory vault current`; never rely on CWD or repository discovery."
+)
 
 REQUIRED_HEADINGS = {
     "repository": "## Repository State",
@@ -517,6 +523,17 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     for name, heading in REQUIRED_HEADINGS.items():
         if heading not in text:
             issues.append(ChecklistGuardIssue(f"release_checklist:{name}", f"missing heading: {heading}"))
+    artifact_heading = REQUIRED_HEADINGS["artifacts"]
+    if artifact_heading in text:
+        artifact_section = text.split(artifact_heading, 1)[1].split("\n## ", 1)[0]
+        expected_start = normalize(f"- [ ] {GENERATED_ARTIFACTS_VAULT_PRECONDITION}")
+        if not normalize(artifact_section).startswith(expected_start):
+            issues.append(
+                ChecklistGuardIssue(
+                    "release_checklist:generated_artifacts_vault_binding",
+                    "Generated Artifacts must begin with the explicit vault-binding precondition",
+                )
+            )
     for name, snippet in REQUIRED_SNIPPETS.items():
         if normalize(snippet) not in normalized:
             issues.append(

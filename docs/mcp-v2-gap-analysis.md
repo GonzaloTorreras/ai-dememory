@@ -72,7 +72,10 @@ local stdio server.
 | MCP Registry publish | Defer | The v2 distribution path is PyPI/TestPyPI plus local Docker and plugin templates; registry publishing needs separate package metadata and moderation review. |
 | MCP Tasks extension | Defer | Current local operations finish synchronously or write review packets; task state would add new persistence and cancellation semantics. |
 
-## Remaining v2.0 Work
+## Deferred Work And Continuous Assurance
+
+These are post-baseline compatibility checks and recurring quality practices,
+not unfinished requirements for the already released v2.0 baseline.
 
 1. Run one GUI MCP client manually with the generated config and record proof
    with `ai-dememory acceptance record`; automated `mcp-client-smoke` now

@@ -1,10 +1,11 @@
-# Governed Learning Loop Handoff
+# Governed Learning Loop Design Handoff
 
-Status: approved future design; no runtime capability delivered by this document
+Status: approved future design; authoring baseline only, with no runtime capability delivered by this document
 
 Updated: 2026-08-25
-Normative owner: `docs/v3-hybrid-visual-multiplatform-roadmap.md` and
-`../contracts/planning/**`
+Normative owner: [V3 roadmap](v3-hybrid-visual-multiplatform-roadmap.md) and
+[machine-readable planning contracts](../contracts/planning/)
+Live implementation and release state: [development status](development-status.md)
 
 ## Purpose And Authority
 
@@ -19,17 +20,20 @@ agent activity into durable truth. Markdown remains canonical, generated SQLite
 state remains disposable, and automation may propose but cannot promote durable
 memory.
 
-This document does not change the current frontier. `BRG-003` and `BRG-017`
-must finish before `BRG-019`; `MIG-001` and `GATE-B` still follow. The governed
-learning tasks begin only after `GATE-B` passes its required external readback.
+This document does not change or restate the current frontier. Task selection,
+dependencies, and state come only from the normative sources linked above.
 
-## Verified Baseline
+## Authoring Baseline
 
-- Public `main` was read back at
+The following facts were verified when this design was authored; they are not
+a live status snapshot. Use [development status](development-status.md) for the
+current public commit, released version, evidence, and next legal action.
+
+- The authoring snapshot used public `main` at
   `df8fca0e00e5b060e21fbde6bb1cb338c05c75fc`, the merge result of
   [PR #46](https://github.com/GonzaloTorreras/ai-dememory/pull/46).
-- Stable `2.1.1` remains the published package. Source `2.1.2` is merged but
-  remains untagged and unpublished.
+- At authoring time, stable `2.1.1` was the published package and source
+  `2.1.2` was merged but untagged and unpublished.
 - Python 3.11+ owns the headless domain, maintenance, MCP, and write policy.
   Node is reserved for a future optional visual plane and is not part of this
   subsystem.
@@ -315,30 +319,25 @@ That additive status waits for the strict root/default-vault boundary owned by
 together so the new field cannot reopen CWD discovery or create conflicting
 status contracts.
 
-## Normative Development Sequence
+## Task Ownership References
 
-The machine-readable contract owns state and dependencies:
+The [machine-readable execution sequence](../contracts/planning/v3-execution-sequence.json)
+owns task state, dependencies, batch membership, evidence, and the current
+frontier. This handoff only records the design responsibility attached to
+existing task ids:
 
-1. Complete current `B04b`: `BRG-003` and `BRG-017`.
-2. Complete `B04c / BRG-019`: exact bridge inventory only.
-3. Complete `B05a / MIG-001`: freeze and classify current writers, including
-   hook capture, Stop proposal, review receipt, and archive movement.
-4. Pass `B06 / GATE-B` with external compatibility readback.
-5. `B07a / OBS-001`: versioned contracts and bounded, opt-in shadow
-   observation with no ranking effect.
-6. `B07b / OUT-001`: run/turn/event trace association and explicit outcome
-   credit; remove exposure-based strength changes in both the CLI lifecycle and
-   MCP implementations. Legacy `mark_seen` means `retrieved`; its `used_by`
-   caller metadata is not evidence for the `used` stage.
-7. `B08a / CON-001`: deterministic daily/weekly candidate materialization,
-   idempotent and proposal-only.
-8. `B08b / MEM-001`: reviewed semantic/procedural forms and advisory
-   procedural candidates.
+| Task | Design responsibility captured here |
+| --- | --- |
+| `BRG-019` | Exact, provider-specific bridge capability inventory; no learning ledger or writer. |
+| `MIG-001` | Classification and freeze of existing writers before learning work. |
+| `GATE-B` | External compatibility evidence before the governed-learning tasks can activate. |
+| `OBS-001` | Versioned, bounded, opt-in shadow observation with no ranking effect. |
+| `OUT-001` | Exact run/turn/event attribution and explicit credit; exposure remains neutral. |
+| `CON-001` | Deterministic, idempotent, proposal-only candidate materialization. |
+| `MEM-001` | Reviewed semantic and advisory procedural forms. |
+| `ONB-001` | Wizard controls only when their owning capability exists; no premature claims. |
 
-All four learning tasks enter as `future` with empty evidence. They do not
-change `current_frontier`. `ONB-001` continues to depend on `GATE-B`; learning
-wizard controls ship only with their owning task and do not become evidence for
-onboarding prematurely.
+This document supplies no task evidence and never changes frontier membership.
 
 Model-assisted synthesis receives no executable task id yet. It may be proposed
 only after held-out deterministic replay demonstrates a gap and privacy,
@@ -389,11 +388,14 @@ Rollback or stop the feature when any condition holds:
   correction rate. If it improves by fewer than five percentage points, do not
   change ranking or add model synthesis.
 
-## Handoff And Next Legal Action
+## Implementation Handoff Boundary
 
 The lead integrator owns planning state and `docs/development-status.md`. The
-next legal runtime action remains the first unfinished item in `BRG-003` or
-`BRG-017`, not `OBS-001`.
+next legal runtime action is whatever the
+[execution sequence](../contracts/planning/v3-execution-sequence.json) places
+on the live frontier, interpreted with the
+[V3 roadmap](v3-hybrid-visual-multiplatform-roadmap.md) and current
+[development status](development-status.md).
 
 Every implementation task requires a small branch from current public `main`,
 focused tests, exact base/head evidence, rollback, and a fresh independent
