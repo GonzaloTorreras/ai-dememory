@@ -25,6 +25,7 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from ai_dememory_tool.argument_safety import duplicate_options
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
+from config_file import ConfigError
 from memorylib import (
     FrontmatterError,
     SOURCE_KINDS,
@@ -1482,8 +1483,13 @@ def run_captures(argv: list[str]) -> int:
             review_after_from=args.review_after_from,
             review_after_to=args.review_after_to,
         )
-    except HookEventError as exc:
+    except (HookEventError, ConfigError) as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except Exception:
+        # Administrative hook commands fail visibly but must not expose local
+        # paths, configured values, OS details, or a traceback.
+        print("hook capture operation failed", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(summary, indent=2))

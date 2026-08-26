@@ -264,6 +264,14 @@ broaden the implementation.
   complete rendered candidate before their atomic write. Invalid input cannot
   create parent directories or partially rewrite a file, and equivalent
   noncanonical table spellings are rejected rather than duplicated.
+- Product writers serialize the complete read/validate/modify/replace cycle
+  with a bounded per-vault kernel lock plus an in-process reentrant lock. Stale
+  merge snapshots fail closed instead of erasing a concurrent section update;
+  cancellation is deferred from coordination acquisition through cleanup, and
+  an exact candidate already published by `os.replace` is reported as a
+  committed success. The guarantee is atomic runtime visibility, not
+  power-loss durability or protection from an external editor that ignores the
+  advisory lock.
 - Onboarding, setup health, doctor, providers, maintenance, scheduling, sleep,
   review operations, and resource policy share controlled error boundaries.
   Diagnostics retain stable codes and allowlisted field names but never echo
@@ -281,19 +289,37 @@ broaden the implementation.
   enforces mutation intent and JSON type. Stress coverage observed no aborted
   connections or residual server threads; the origin, intent, content-type,
   64 KiB body, and 15-second timeout controls remain unchanged.
+- Every onboarding apply, including personal-only Markdown, now holds the same
+  bounded coordination lock. Apply is transactional across reviewed files and
+  configuration; interruption either rolls back the pre-commit batch or lets a
+  fully committed batch win. Incomplete recovery returns a stable redacted
+  boundary with explicit manual-recovery state rather than a traceback, path,
+  operating-system error, or candidate content.
+- Scheduler install/remove compensates every host command it attempted,
+  including the command that returned nonzero, timed out, raised an operating
+  system error, or was interrupted. Operation/config lock ordering is fixed,
+  identity loss stops unsafe automatic rollback, and Linux file restoration is
+  followed by a bounded daemon reload before rollback can be called complete.
+- Owned subprocesses run in a scoped POSIX session or, on Windows, a suspended
+  child assigned to a kill-on-close Job Object before execution resumes.
+  Console cancellation unwinds the interrupted subprocess frame before the
+  bounded tree cleanup, and MCP smokes never synchronously close a pipe while
+  its bounded stderr drain is still alive. Abrupt parent death, power loss, or
+  a descendant that deliberately escapes the owned tree remain supervisor
+  boundaries rather than guarantees of this Python process.
 - The operator guide is `docs/configuration.md`; ADR 0262 records why strict
   parsing is implemented in the existing Python runtime without a second
   parser, daemon, database, model call, or Node dependency.
-- Rebased exact-head evidence on public `main` ran 999 tests in the complete
-  suite with 59 expected platform skips. A focused API, onboarding, hook, and
-  turn-context regression set ran 99 tests. Python compilation, diff
-  validation, the planning contract, and a repository secret scan with zero
-  findings also passed.
-  A fresh virtual environment installed the local package and exercised the
-  installed CLI, strict config consumers, API, MCP, hooks, providers,
-  maintenance, and scheduler successfully; the isolated package-build smoke
-  built both distributions and passed `twine check` on this exact head.
-  Exact-head independent review and PR CI are still required before merge.
+- Final pre-commit Windows evidence ran 1,067 tests in the complete suite with
+  60 expected platform skips. The consolidated strict-config, onboarding,
+  process-lifecycle, review-redaction, and planning set ran 136 tests with one
+  expected skip; the integrated memory-tools run passed, and the scheduler set
+  passed 67 tests with two expected skips on both Windows and WSL. The WSL
+  config/onboarding/lifecycle/planning boundary set passed 129 tests with three
+  expected platform skips. Python compilation, diff validation, workflow and
+  documentation guards, the planning contract, and a repository secret scan
+  also pass on the frozen tree. Fresh exact-commit independent review, package
+  smokes, PR CI, and Pages validation remain required before merge.
 - The normative DAG now marks `BRG-017` complete with explicit evidence paths.
   `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
   task, and no package, tag, release, installed vault, host integration, or

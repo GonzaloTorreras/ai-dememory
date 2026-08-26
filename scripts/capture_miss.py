@@ -130,6 +130,13 @@ def capture_miss(
     max_pending: int | None = None,
 ) -> Path:
     query, reason = validate_miss_fields(query, reason, expected_id, expected_path, source_ref)
+    # Validate the selected vault policy before creating the feedback
+    # directory or returning a deduplicated candidate. Invalid strict config
+    # must not turn an apparent no-op into a successful capture operation.
+    policy = resolved_resource_policy(root)
+    if max_pending is None:
+        resources = policy.get("resources", {})
+        max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     slug = slugify(query, "recall-miss")
@@ -151,10 +158,6 @@ def capture_miss(
     matches = sorted(capture_dir.glob(f"*_{slug}_{digest}.md"))
     if matches:
         return matches[0]
-    if max_pending is None:
-        policy = resolved_resource_policy(root)
-        resources = policy.get("resources", {})
-        max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
     if feedback_queue_at_capacity(capture_dir, max_pending):
         raise ValueError("recall feedback queue is at its configured pending-item capacity")
     path = capture_dir / f"{now.strftime('%Y%m%dT%H%M%SZ')}_{slug}_{digest}.md"
@@ -194,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     root = repo_root(args.root)
     try:
         if args.dry_run:
+            resolved_resource_policy(root)
             text = render_miss_text(
                 args.query,
                 args.reason,

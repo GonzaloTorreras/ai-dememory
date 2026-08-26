@@ -232,8 +232,11 @@ Resource intensities:
 Maintenance subprocesses run in owned process groups/trees. Deadlines terminate
 and reap descendants, including grandchildren; Git receives closed stdin and a
 non-interactive environment. Windows uses a kill-on-close Job Object and POSIX
-uses a new session/process group. Installed mode guarantees tree cleanup and
-wall-clock deadlines, not native host CPU/memory quotas. The maintainer-only
+uses a new session/process group. This guarantee begins after ownership setup
+and covers runtime-visible timeout/cancellation; an uncatchable parent death or
+host power loss requires an external supervisor. Installed mode provides
+bounded cleanup and wall-clock deadlines, not native host CPU/memory quotas.
+The maintainer-only
 Docker validation path additionally enforces the table's CPU, memory, and PID
 caps and uses `--network none`; no intensity enables runtime model calls,
 embeddings, or durable auto-promotion.

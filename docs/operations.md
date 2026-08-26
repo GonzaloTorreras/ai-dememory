@@ -136,7 +136,12 @@ an independently reaped process group/tree. On Windows, each child starts
 suspended, is assigned to a retained kill-on-close Job Object, and only then
 resumes; cleanup therefore does not depend on a racy PID snapshot or
 `taskkill`, and early descendants cannot escape assignment. POSIX uses a
-separate session/process group.
+separate session/process group; timeout, normal unwind, and runtime-visible
+cancellation terminate and reap it before the error is re-raised. Any POSIX
+termination path that bypasses Python unwind, including default `SIGTERM`,
+`SIGKILL`, `os._exit`, or host power loss, cannot execute cleanup. A deployment
+that needs that stronger guarantee must run under an external service
+supervisor.
 MCP smoke reads also have a per-response deadline, so a blocked Git or protocol
 child cannot hold the validation process indefinitely.
 
@@ -245,6 +250,11 @@ uses the receipt's original namespace after a vault move, refuses drift, and
 compensates partial failure (including exact Windows task XML restoration).
 The receipted cadence and intensity remain authoritative for status and full
 removal even if resource-policy defaults change later.
+Install, status, and remove host transactions are serialized per vault under a
+persistent one-byte sentinel. If its identity changes during an operation,
+ai-dememory stops automatic host/file rollback and reports
+`manual_recovery_required`; inspect the exact receipt and host definitions
+before retrying rather than issuing scheduler commands concurrently.
 `minimal`
 installs only weekly maintenance; `balanced` and `active` install daily and
 weekly jobs by default. The maintainer-only Docker validation path requires an

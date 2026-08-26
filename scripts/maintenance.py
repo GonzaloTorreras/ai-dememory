@@ -57,6 +57,7 @@ from review_memory import (
     ReviewError,
     conflict_reviews,
     false_positive_reviews,
+    load_review_config,
     review_recommendations,
     stale_false_positive_suppressions,
 )
@@ -258,6 +259,25 @@ def resource_policy_error_details(policy: dict[str, object]) -> str:
     return details or "resource policy validation failed without diagnostics"
 
 
+def maintenance_review_preflight(
+    root: Path,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+    """Read every review projection needed by a maintenance report.
+
+    This must run before the lock, provider imports, or generated-artifact
+    writers. A strict review-state failure therefore has the same read-only
+    behavior in preview and apply, rather than failing after partial refreshes.
+    """
+
+    load_review_config(root)
+    return (
+        review_due_summary(root),
+        conflict_review_summary(root),
+        review_recommendation_summary(root),
+        generated_packet_archive_summary(root),
+    )
+
+
 def run_maintenance(
     root: Path,
     profile: str,
@@ -275,6 +295,12 @@ def run_maintenance(
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):
         raise ValueError("resolved resource policy is invalid")
+    (
+        review_due,
+        conflict_review,
+        recommendation_summary,
+        packet_archive_summary,
+    ) = maintenance_review_preflight(root)
 
     with maintenance_lock(
         root,
@@ -316,10 +342,6 @@ def run_maintenance(
         weights_path = write_weights(root)
         lifecycle_scores_path, lifecycle_rows = write_lifecycle_scores(root)
         lifecycle_report_path, _ = write_lifecycle_report(root)
-        review_due = review_due_summary(root)
-        conflict_review = conflict_review_summary(root)
-        recommendation_summary = review_recommendation_summary(root)
-        packet_archive_summary = generated_packet_archive_summary(root)
 
         recall_summary: dict[str, object] | None = None
         hook_capture_report_path: Path | None = None
@@ -409,6 +431,7 @@ def dry_run_maintenance(
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):
         raise ValueError("resolved resource policy is invalid")
+    maintenance_review_preflight(root)
     imports: list[dict[str, object]] = []
     for provider in enabled_providers(root):
         try:
@@ -936,6 +959,12 @@ def write_maintenance_report(
 
 def _maintenance_status(root: Path) -> dict[str, object]:
     config = load_config(root)
+    (
+        review_due,
+        conflict_review,
+        recommendation_summary,
+        packet_archive_summary,
+    ) = maintenance_review_preflight(root)
     report_dir = root / "reports" / "maintenance"
     reports = [
         repo_relative_path(path, root)
@@ -946,10 +975,10 @@ def _maintenance_status(root: Path) -> dict[str, object]:
         "schedule": config.get("schedule", {}),
         "providers": provider_config(root),
         "provider_readiness": providers_status(root),
-        "review_due": review_due_summary(root),
-        "conflict_review": conflict_review_summary(root),
-        "review_recommendations": review_recommendation_summary(root),
-        "generated_packet_archives": generated_packet_archive_summary(root),
+        "review_due": review_due,
+        "conflict_review": conflict_review,
+        "review_recommendations": recommendation_summary,
+        "generated_packet_archives": packet_archive_summary,
         "hook_captures": hook_capture_summary(root),
         "recent_reports": reports,
         "artifacts": artifacts,

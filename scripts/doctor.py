@@ -47,7 +47,9 @@ def fail(name: str, detail: str) -> Check:
 
 
 def check_repo(root: Path) -> Check:
-    if is_vault_root(root):
+    if is_distribution_root(root):
+        required = ["README.md", "docs/schema.md", "scripts/ai_dememory.py", "mcp/server/memory_mcp.py"]
+    elif is_vault_root(root):
         required = ["README.md", "memories", "inbox", "templates"]
     else:
         required = ["README.md", "docs/schema.md", "scripts/ai_dememory.py", "mcp/server/memory_mcp.py"]
@@ -144,7 +146,9 @@ def check_mcp_definitions(root: Path) -> Check:
 
 
 def is_vault_root(root: Path) -> bool:
-    return (root / ".ai-dememory.toml").exists()
+    # Missing configuration is a valid defaults-only state. The canonical
+    # memories directory therefore also identifies an initialized vault.
+    return (root / CONFIG_NAME).exists() or (root / "memories").is_dir()
 
 
 def is_distribution_root(root: Path) -> bool:

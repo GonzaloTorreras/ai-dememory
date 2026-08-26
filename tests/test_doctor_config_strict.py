@@ -55,6 +55,28 @@ class StrictDoctorConfigTests(unittest.TestCase):
                 self.assertEqual(result.status, "ok")
                 self.assertNotIn(REDACTION_CANARY, result.detail)
 
+    def test_full_doctor_recognizes_a_defaults_only_vault_without_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self._vault(temporary, None)
+            output = io.StringIO()
+            error = io.StringIO()
+
+            with redirect_stdout(output), redirect_stderr(error):
+                exit_code = main(["--root", str(root), "--json", "--summary"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(error.getvalue(), "")
+        self.assertEqual(payload["profile"], "vault")
+        self.assertEqual(
+            next(check for check in payload["checks"] if check["name"] == "repo")["status"],
+            "ok",
+        )
+        self.assertEqual(
+            next(check for check in payload["checks"] if check["name"] == "config")["status"],
+            "ok",
+        )
+
     def test_invalid_configs_are_structured_redacted_and_read_only(self) -> None:
         cases = (
             (

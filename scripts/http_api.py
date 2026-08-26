@@ -239,9 +239,9 @@ def parse_json_body(handler: BaseHTTPRequestHandler, raw: bytes) -> dict[str, An
 
 
 def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
-    # Preserve the direct helper's historical validation order. The HTTP
-    # handler uses the split read/parse flow above so rejected live POST bodies
-    # are consumed before the response closes.
+    # Direct callers retain the no-consumption rejection for a wrong media
+    # type. The live HTTP handler uses the split read/parse flow above so a
+    # bounded rejected POST body is consumed before the response closes.
     content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
     if content_type != "application/json":
         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")

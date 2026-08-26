@@ -3,20 +3,32 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import errno
 import json
 import math
 import os
 from pathlib import Path
 import re
+import secrets
+import signal
 import stat
+import threading
+import time
 import tomllib
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from memorylib import path_is_link_like, safe_write_text
 
 
 CONFIG_NAME = ".ai-dememory.toml"
 MAX_CONFIG_BYTES = 64 * 1024
+CONFIG_WRITE_LOCK_NAME = ".ai-dememory-config.lock"
+CONFIG_WRITE_LOCK_TIMEOUT_SECONDS = 5.0
+
+_CONFIG_WRITE_THREAD_GUARD = threading.Lock()
+_CONFIG_WRITE_THREAD_LOCKS: dict[str, tuple[Any, int]] = {}
+_EXPECTED_SECTION_UNSET = object()
 
 TYPE_BOOL = "bool"
 TYPE_INT = "int"
@@ -360,6 +372,382 @@ def read_config_path(path: Path, *, root: Path) -> str | None:
         return content.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("config file must be valid UTF-8") from exc
+
+
+def _try_lock_config_fd(fd: int) -> bool:
+    """Try one non-blocking, process-scoped byte lock."""
+
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.name == "nt":
+        import msvcrt
+
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK} or getattr(
+                exc, "winerror", None
+            ) == 33:
+                return False
+            raise
+        return True
+
+    import fcntl
+
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in {errno.EACCES, errno.EAGAIN}:
+            return False
+        raise
+    return True
+
+
+def _unlock_config_fd(fd: int) -> None:
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        return
+
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def _borrow_config_thread_lock(key: str) -> Any:
+    with _CONFIG_WRITE_THREAD_GUARD:
+        existing = _CONFIG_WRITE_THREAD_LOCKS.get(key)
+        if existing is None:
+            # RLock ownership lets cleanup safely attempt release even when a
+            # KeyboardInterrupt lands at the boundary of acquire(): releasing
+            # a lock owned by another thread raises instead of unlocking it.
+            lock = threading.RLock()
+            _CONFIG_WRITE_THREAD_LOCKS[key] = (lock, 1)
+            return lock
+        lock, users = existing
+        _CONFIG_WRITE_THREAD_LOCKS[key] = (lock, users + 1)
+        return lock
+
+
+def _return_config_thread_lock(key: str, lock: Any) -> None:
+    with _CONFIG_WRITE_THREAD_GUARD:
+        current = _CONFIG_WRITE_THREAD_LOCKS.get(key)
+        if current is None or current[0] is not lock:
+            return
+        _, users = current
+        if users <= 1:
+            _CONFIG_WRITE_THREAD_LOCKS.pop(key, None)
+        else:
+            _CONFIG_WRITE_THREAD_LOCKS[key] = (lock, users - 1)
+
+
+def _release_config_thread_lock(lock: Any) -> None:
+    """Small seam that keeps release cancellation tests deterministic."""
+
+    lock.release()
+
+
+def _config_cancel_signals() -> tuple[int, ...]:
+    signals = [signal.SIGINT]
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        signals.append(sigbreak)
+    return tuple(signals)
+
+
+def _replay_config_signal(
+    signum: int,
+    frame: object,
+    previous: Any,
+) -> None:
+    if previous == signal.SIG_IGN:
+        return
+    if previous == signal.SIG_DFL:
+        if signum in _config_cancel_signals():
+            signal.default_int_handler(signum, frame)
+            return
+        signal.raise_signal(signum)
+        return
+    if callable(previous):
+        previous(signum, frame)
+
+
+@contextmanager
+def _defer_config_cancel_signals() -> Iterator[None]:
+    """Defer cancellation until one config critical section is safe.
+
+    Nested callers remain composable: after every handler is restored, a
+    deferred signal is replayed to the handler that was active on entry. This
+    lets an outer transaction keep deferring it while a standalone lock owner
+    still observes the normal KeyboardInterrupt/default behavior.
+    """
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    pending: list[tuple[int, object]] = []
+    previous_handlers: dict[int, Any] = {}
+    installed: list[int] = []
+
+    def defer(signum: int, frame: object) -> None:
+        pending.append((signum, frame))
+
+    try:
+        for signum in _config_cancel_signals():
+            previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, defer)
+            installed.append(signum)
+    except BaseException:
+        for signum in reversed(installed):
+            signal.signal(signum, previous_handlers[signum])
+        raise
+
+    try:
+        yield
+    finally:
+        restore_error: BaseException | None = None
+        for signum in reversed(installed):
+            try:
+                signal.signal(signum, previous_handlers[signum])
+            except BaseException as exc:  # pragma: no cover - host signal API failure
+                if restore_error is None:
+                    restore_error = exc
+        if restore_error is not None:
+            raise restore_error
+        for signum, frame in pending:
+            _replay_config_signal(signum, frame, previous_handlers[signum])
+
+
+def _cleanup_config_lock(
+    *,
+    fd: int,
+    locked: bool,
+    lock_key: str,
+    thread_lock: Any | None,
+) -> None:
+    """Release every lock resource even when one cleanup step is cancelled."""
+
+    cleanup_error: BaseException | None = None
+
+    def attempt(action: Callable[[], None], ignored: tuple[type[BaseException], ...]) -> None:
+        nonlocal cleanup_error
+        try:
+            action()
+        except ignored:
+            return
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+
+    with _defer_config_cancel_signals():
+        if fd >= 0 and locked:
+            attempt(lambda: _unlock_config_fd(fd), (OSError,))
+        if fd >= 0:
+            attempt(lambda: os.close(fd), (OSError,))
+        if thread_lock is not None:
+            attempt(lambda: _release_config_thread_lock(thread_lock), (RuntimeError,))
+            attempt(lambda: _return_config_thread_lock(lock_key, thread_lock), ())
+
+    if cleanup_error is not None:
+        raise cleanup_error
+
+
+@contextmanager
+def _config_write_interrupt_boundary(
+    commit_confirmed: Callable[[], bool],
+) -> Iterator[None]:
+    """Complete a config transaction before reporting process cancellation."""
+
+    try:
+        with _defer_config_cancel_signals():
+            yield
+    except KeyboardInterrupt:
+        if commit_confirmed():
+            return
+        raise
+
+
+def _config_lock_exit_checkpoint() -> None:
+    """Internal seam for the yield-to-cleanup cancellation boundary."""
+
+
+@contextmanager
+def vault_operation_lock(
+    root: Path,
+    *,
+    lock_name: str,
+    source: str = CONFIG_NAME,
+    timeout_seconds: float | None = None,
+) -> Iterator[Callable[[], None]]:
+    """Serialize one bounded per-vault operation with a kernel file lock.
+
+    The persistent one-byte sentinel is intentional: unlinking a locked file
+    can split the lock namespace. Kernel locks are released with the descriptor
+    or process, so a crashed writer cannot leave a blocking orphan.
+    """
+
+    if re.fullmatch(r"\.ai-dememory-[a-z0-9-]+\.lock", lock_name) is None:
+        raise ValueError("vault operation lock name is invalid")
+    timeout = CONFIG_WRITE_LOCK_TIMEOUT_SECONDS if timeout_seconds is None else float(timeout_seconds)
+    if not math.isfinite(timeout) or timeout < 0 or timeout > threading.TIMEOUT_MAX:
+        raise ValueError("vault operation lock timeout is invalid")
+    lock_path = root_bound_config_path(Path(root) / lock_name, root)
+    lock_key = os.path.normcase(str(lock_path.resolve(strict=False)))
+    thread_lock: Any | None = None
+    deadline = time.monotonic() + timeout
+    fd = -1
+    locked = False
+
+    def validate_lock_identity() -> None:
+        try:
+            _validated_config_stat(lock_path, root, expected=os.fstat(fd))
+        except (OSError, ValueError):
+            raise ConfigError("config_lock_error", source=source) from None
+
+    # One composable fence spans acquisition, the guarded operation, and every
+    # cleanup step. Without this outer lifetime fence there is a bytecode-sized
+    # cancellation gap between resuming after yield and entering cleanup.
+    with _defer_config_cancel_signals():
+        try:
+            try:
+                thread_lock = _borrow_config_thread_lock(lock_key)
+                remaining = max(0.0, deadline - time.monotonic())
+                if not thread_lock.acquire(timeout=remaining):
+                    raise ConfigError("config_busy", source=source)
+                flags = os.O_RDWR | os.O_CREAT
+                flags |= int(getattr(os, "O_CLOEXEC", 0))
+                flags |= int(getattr(os, "O_NOFOLLOW", 0))
+                flags |= int(getattr(os, "O_BINARY", 0))
+                fd = os.open(lock_path, flags, 0o600)
+                os.set_inheritable(fd, False)
+                opened = os.fstat(fd)
+                if not stat.S_ISREG(opened.st_mode):
+                    raise OSError("config lock path must be a regular file")
+                if not _has_stable_file_identity(opened) or not _has_single_hard_link(opened):
+                    raise OSError("config lock path has no stable single-file identity")
+                _validated_config_stat(lock_path, root, expected=opened)
+                if opened.st_size == 0:
+                    os.write(fd, b"\0")
+                    os.fsync(fd)
+                elif opened.st_size != 1:
+                    raise OSError("config lock sentinel has an invalid size")
+
+                while not _try_lock_config_fd(fd):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ConfigError("config_busy", source=source)
+                    time.sleep(min(0.025, remaining))
+                locked = True
+                validate_lock_identity()
+            except ConfigError:
+                raise
+            except (OSError, ValueError):
+                raise ConfigError("config_lock_error", source=source) from None
+
+            # Do not normalize exceptions raised by the guarded transaction:
+            # its caller owns those diagnostics. Only failures of this lock
+            # protocol become config_lock_error.
+            yield validate_lock_identity
+        finally:
+            _config_lock_exit_checkpoint()
+            _cleanup_config_lock(
+                fd=fd,
+                locked=locked,
+                lock_key=lock_key,
+                thread_lock=thread_lock,
+            )
+
+
+def config_write_lock(
+    root: Path,
+    *,
+    source: str = CONFIG_NAME,
+    timeout_seconds: float | None = None,
+) -> Any:
+    """Return the shared config read/modify/write coordination context."""
+
+    return vault_operation_lock(
+        root,
+        lock_name=CONFIG_WRITE_LOCK_NAME,
+        source=source,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _atomic_replace_config_text(
+    path: Path,
+    text: str,
+    *,
+    root: Path,
+    source: str,
+    expected_bytes: bytes | None,
+    validate_lock_identity: Callable[[], None],
+) -> Path:
+    """Publish a complete config inode, including on first creation."""
+
+    target = root_bound_config_path(path, root)
+    candidate_bytes = text.encode("utf-8")
+    temp_path = target.with_name(
+        f".{target.name}.ai-dememory-config-{secrets.token_hex(8)}.tmp"
+    )
+    try:
+        # The temporary inode may be incomplete while it is written, but the
+        # authoritative path remains absent or points to the previous complete
+        # inode until the final atomic replacement.
+        safe_write_text(
+            temp_path,
+            text,
+            root=root,
+            overwrite=False,
+        )
+        validate_lock_identity()
+        if read_config_bytes(target, root=root) != expected_bytes:
+            raise ConfigError("config_changed", source=source)
+        target = root_bound_config_path(target, root)
+        try:
+            os.replace(temp_path, target)
+        except (OSError, KeyboardInterrupt):
+            if _config_candidate_is_current(
+                target,
+                root=root,
+                source=source,
+                candidate_bytes=candidate_bytes,
+                expected_bytes=expected_bytes,
+                validate_lock_identity=validate_lock_identity,
+            ):
+                return target
+            raise
+        return target
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _config_candidate_is_current(
+    path: Path,
+    *,
+    root: Path,
+    source: str,
+    candidate_bytes: bytes,
+    expected_bytes: bytes | None,
+    validate_lock_identity: Callable[[], None],
+) -> bool:
+    """Classify an interrupted replacement without exposing config values."""
+
+    validate_lock_identity()
+    try:
+        observed_bytes = read_config_bytes(path, root=root)
+    except (OSError, ValueError):
+        raise ConfigError("config_write_error", source=source) from None
+    if observed_bytes == candidate_bytes:
+        return True
+    if observed_bytes == expected_bytes:
+        return False
+    raise ConfigError("config_changed", source=source)
 
 
 def parse_config_text(
@@ -706,6 +1094,7 @@ def set_section(
     values: dict[str, Any],
     *,
     config_kind: str = "main",
+    expected_section: dict[str, Any] | object = _EXPECTED_SECTION_UNSET,
 ) -> Path:
     return set_section_path(
         config_path(root),
@@ -713,6 +1102,7 @@ def set_section(
         values,
         root=root,
         config_kind=config_kind,
+        expected_section=expected_section,
     )
 
 
@@ -724,17 +1114,15 @@ def set_section_path(
     root: Path,
     config_kind: str = "main",
     diagnostic_source: str | None = None,
+    expected_section: dict[str, Any] | object = _EXPECTED_SECTION_UNSET,
+    expected_main_section: tuple[str, dict[str, Any]] | None = None,
 ) -> Path:
     path = root_bound_config_path(path, root)
-    existing_text = read_config_path(path, root=root)
     source = diagnostic_source if diagnostic_source is not None else _config_source(path, root)
-    if existing_text is not None:
-        parse_config_text(existing_text, source=source, config_kind=config_kind)
-        _reject_uneditable_equivalent_header(existing_text, section, source=source)
 
-    # Validate the requested section and values before creating a directory or
-    # assembling an update. Rendering is intentionally followed by a complete
-    # candidate reparse, so quoting cannot manufacture TOML structure.
+    # Validate caller-controlled values before acquiring the coordination lock
+    # or creating any target directory. The complete candidate remains an
+    # in-lock validation because it depends on the authoritative snapshot.
     _validate_section_update(
         section,
         values,
@@ -743,49 +1131,98 @@ def set_section_path(
     )
     rendered = render_section(section, values)
     parse_config_text("\n".join(rendered) + "\n", source=source, config_kind=config_kind)
-    existing = existing_text.splitlines() if existing_text is not None else []
-
-    output: list[str] = []
-    index = 0
-    replaced = False
-    while index < len(existing):
-        line = existing[index]
-        if line.strip() == f"[{section}]":
-            replaced = True
-            output.extend(rendered)
-            index += 1
-            while index < len(existing):
-                if _table_header_parts(existing[index]) is not None:
-                    break
-                index += 1
-            if index < len(existing) and output and output[-1] != "":
-                output.append("")
-            continue
-        output.append(line)
-        index += 1
-
-    if not replaced:
-        if output and output[-1] != "":
-            output.append("")
-        output.extend(rendered)
-
-    candidate = "\n".join(output).rstrip() + "\n"
-    parse_config_text(candidate, source=source, config_kind=config_kind)
-    if len(candidate.encode("utf-8")) > MAX_CONFIG_BYTES:
-        raise ConfigError("config_too_large", source=source)
-
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path = root_bound_config_path(path, root)
-        safe_write_text(
-            path,
-            candidate,
-            root=root,
-            overwrite=True,
-        )
-    except OSError:
-        raise ConfigError("config_write_error", source=source) from None
-    return path
+        "\n".join(rendered).encode("utf-8")
+    except UnicodeEncodeError:
+        raise ConfigError("config_encoding_error", source=source) from None
+
+    commit_confirmed = False
+    with _config_write_interrupt_boundary(
+        lambda: commit_confirmed
+    ), config_write_lock(root, source=source) as validate_lock_identity:
+        if expected_main_section is not None:
+            main_section, expected_main_values = expected_main_section
+            current_main_values = load_config(root).get(main_section, {})
+            if current_main_values != expected_main_values:
+                raise ConfigError(
+                    "config_changed",
+                    source=source,
+                    field=_section_diagnostic_field(main_section, "main"),
+                )
+        existing_bytes = read_config_bytes(path, root=root)
+        existing_text = None
+        if existing_bytes is not None:
+            try:
+                existing_text = existing_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                raise ConfigError("config_encoding_error", source=source) from None
+        existing_config: dict[str, dict[str, Any]] = {}
+        if existing_text is not None:
+            existing_config = parse_config_text(
+                existing_text,
+                source=source,
+                config_kind=config_kind,
+            )
+            _reject_uneditable_equivalent_header(existing_text, section, source=source)
+        if expected_section is not _EXPECTED_SECTION_UNSET:
+            expected = dict(expected_section) if isinstance(expected_section, dict) else expected_section
+            if existing_config.get(section, {}) != expected:
+                raise ConfigError(
+                    "config_changed",
+                    source=source,
+                    field=_section_diagnostic_field(section, config_kind),
+                )
+
+        existing = existing_text.splitlines() if existing_text is not None else []
+        output: list[str] = []
+        index = 0
+        replaced = False
+        while index < len(existing):
+            line = existing[index]
+            if line.strip() == f"[{section}]":
+                replaced = True
+                output.extend(rendered)
+                index += 1
+                while index < len(existing):
+                    if _table_header_parts(existing[index]) is not None:
+                        break
+                    index += 1
+                if index < len(existing) and output and output[-1] != "":
+                    output.append("")
+                continue
+            output.append(line)
+            index += 1
+
+        if not replaced:
+            if output and output[-1] != "":
+                output.append("")
+            output.extend(rendered)
+
+        candidate = "\n".join(output).rstrip() + "\n"
+        parse_config_text(candidate, source=source, config_kind=config_kind)
+        try:
+            candidate_bytes = candidate.encode("utf-8")
+        except UnicodeEncodeError:
+            raise ConfigError("config_encoding_error", source=source) from None
+        if len(candidate_bytes) > MAX_CONFIG_BYTES:
+            raise ConfigError("config_too_large", source=source)
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path = root_bound_config_path(path, root)
+            validate_lock_identity()
+            path = _atomic_replace_config_text(
+                path,
+                candidate,
+                root=root,
+                source=source,
+                expected_bytes=existing_bytes,
+                validate_lock_identity=validate_lock_identity,
+            )
+            commit_confirmed = True
+        except OSError:
+            raise ConfigError("config_write_error", source=source) from None
+        return path
 
 
 def ensure_safe_write_path(path: Path, root: Path | None = None) -> None:

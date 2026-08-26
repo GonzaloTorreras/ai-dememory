@@ -85,10 +85,44 @@ Before a product writer changes configuration it validates:
 2. the requested section and values; and
 3. the complete rendered candidate.
 
-Only then does it perform the existing root-confined atomic write. A syntax,
-schema, type, containment, size, race, or safe-file failure leaves the previous
-bytes unchanged. Onboarding also validates its exact snapshot and final
-candidate before it creates an apply plan or fingerprint.
+Only then does it perform a root-confined atomic replacement while holding a
+bounded per-vault operating-system file lock. Product writers therefore
+serialize their complete authoritative read/modify/write transaction. Writers
+that merge an earlier section snapshot also compare that snapshot under the
+lock and fail closed with `config_changed` rather than erasing a newer update.
+A detected syntax, schema, type, containment, size, coordination timeout,
+within-write filesystem race, or safe-file failure before replacement leaves
+the previous bytes unchanged, and readers never see a partially written file.
+If cancellation becomes visible only after replacement committed, the writer
+recognizes the exact candidate as successful instead of reporting an ambiguous
+failure. This is an atomic runtime-visibility guarantee, not power-loss
+durability; the parent directory is not fsynced. The persistent
+one-byte `.ai-dememory-config.lock` sentinel contains no configuration or
+memory content. Scheduler host mutations use a second one-byte
+`.ai-dememory-schedule.lock` sentinel and always acquire it before the config
+lock. A crashed process releases either kernel lock automatically; a detected
+schedule-lock identity change stops automatic rollback and requires explicit
+operator reconciliation. Shipped vault templates ignore both sentinels and
+bounded interrupted-write recovery artifacts. Direct edits by external
+programs do not participate in these advisory locks, so do not edit the file
+while a wizard or administrative writer is running. Onboarding separately
+validates its exact snapshot and final candidate before it creates an apply
+plan or fingerprint.
+
+Once a supported writer begins vault coordination, including its bounded lock
+acquisition, console cancellation is commit-wins and bounded: Ctrl+C (and
+Ctrl+Break on Windows) is deferred until the transaction and lock cleanup reach
+a consistent boundary. A reviewed batch that committed is reported as
+successful; a batch that did not commit retains its normal
+rollback/interruption result. This can delay cancellation for the short
+coordinated section, but never treats retrieval or validation as proof that a
+write was useful.
+
+The strict reader accepts valid TOML multiline strings, but the compatibility
+section writer cannot safely distinguish a header-like line such as
+`[recall]` inside one. It refuses the update without changing the file. Use the
+wizard-generated escaped string form, or normalize that manual multiline value
+before running a configuration writer.
 
 Hooks and turn-context recall remain fail-open and inert: invalid configuration
 cannot block the host or enable capture. Administrative commands fail with a
@@ -110,8 +144,24 @@ customizations may need attention:
 3. Move unrelated custom tables to a separate file.
 4. Convert quoted booleans/numbers to TOML booleans/numbers.
 5. Compare provider names and field spelling with the packaged template.
-6. Run `ai-dememory --root <vault-path> doctor --json`.
-7. Run the wizard only after Doctor reports the configuration check as valid.
+6. Add these exact local-runtime rules to the existing vault's `.gitignore`:
+
+   ```gitignore
+   /.ai-dememory-config.lock
+   /.ai-dememory-schedule.lock
+   /.ai-dememory.toml.*.bak
+   **/.*.ai-dememory-config-*.tmp
+   **/.*.ai-dememory-onboarding-*.tmp
+   ```
+
+7. Run `ai-dememory --root <vault-path> doctor --json`.
+8. Run the wizard only after Doctor reports the configuration check as valid.
+
+An interrupted wizard can deliberately preserve an ignored
+`.ai-dememory.toml.<pid>.bak` when it cannot prove that automatic rollback is
+safe. Do not restore it automatically. Compare its bytes with the current
+config, keep the newer valid policy, and remove or archive the backup outside
+the vault only after that review.
 
 There is deliberately no automatic "accept unknown config" mode: guessing how
 to rewrite an unsupported policy could silently change safety or resource

@@ -75,7 +75,9 @@ class ReviewBoundaryRedactionTests(unittest.TestCase):
             with patch(
                 "review_memory.load_config_path",
                 side_effect=self._review_read_failure(),
-            ):
+            ), patch("schedule_memory.build_schedule_commands") as commands, patch(
+                "schedule_memory.vault_operation_lock"
+            ) as operation_lock:
                 with self.assertRaises(ValueError) as direct_error:
                     schedule_status(root, target_platform="linux")
 
@@ -91,7 +93,7 @@ class ReviewBoundaryRedactionTests(unittest.TestCase):
                         exit_code = schedule_main(argv)
                     self.assertEqual(exit_code, 2)
                     if json_mode:
-                        self.assertIsInstance(json.loads(stdout.getvalue()), list)
+                        self.assertEqual(json.loads(stdout.getvalue()), [])
                         diagnostics.append(stdout.getvalue())
                     else:
                         self.assertEqual(stdout.getvalue(), "")
@@ -106,6 +108,8 @@ class ReviewBoundaryRedactionTests(unittest.TestCase):
             for diagnostic in error_diagnostics:
                 self.assertIn(SCHEDULE_REVIEW_STATE_ERROR_MESSAGE, diagnostic)
             self.assertEqual(self._tree_snapshot(root), before)
+            commands.assert_not_called()
+            operation_lock.assert_not_called()
 
     def test_sleep_plan_terminates_review_error_chain_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

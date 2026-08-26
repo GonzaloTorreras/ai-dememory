@@ -326,6 +326,44 @@ class HarnessHookTests(unittest.TestCase):
             self.assertEqual([path.name for path in root.iterdir()], [config.name])
             capture.assert_not_called()
 
+    def test_capture_admin_commands_report_invalid_configuration_without_traceback(self) -> None:
+        commands = (
+            ["captures", "--json"],
+            ["captures", "--write-report", "--json"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / ".ai-dememory.toml"
+            canary = "hook-config-value-must-not-escape"
+            original = f'[recall]\nenabled = "{canary}"\n'.encode("utf-8")
+
+            for command in commands:
+                with self.subTest(command=command):
+                    config.write_bytes(original)
+                    before = {
+                        path.relative_to(root).as_posix(): path.read_bytes()
+                        for path in root.rglob("*")
+                        if path.is_file()
+                    }
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with redirect_stdout(output), redirect_stderr(error):
+                        exit_code = hook_event_main(
+                            ["--root", str(root), *command]
+                        )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("config error [invalid_type]", error.getvalue())
+                    self.assertNotIn(canary, error.getvalue())
+                    self.assertNotIn("traceback", error.getvalue().lower())
+                    after = {
+                        path.relative_to(root).as_posix(): path.read_bytes()
+                        for path in root.rglob("*")
+                        if path.is_file()
+                    }
+                    self.assertEqual(after, before)
+
     def test_unbound_dispatch_is_inert_without_reading_stdin_or_recalling(self) -> None:
         output = io.StringIO()
         with (

@@ -5,13 +5,14 @@ import io
 import os
 from pathlib import Path
 import queue
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import tomllib
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,8 @@ for candidate in (ROOT, ROOT / "scripts", ROOT / "mcp" / "server"):
         sys.path.insert(0, str(candidate))
 
 from ai_dememory_tool.cli import build_mcp_config  # noqa: E402
+import mcp_client_smoke  # noqa: E402
+import mcp_runtime_smoke  # noqa: E402
 import process_control  # noqa: E402
 from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     DEFAULT_MCP_IDLE_TIMEOUT_SECONDS,
@@ -117,6 +120,420 @@ class McpLifecycleTests(unittest.TestCase):
         self.assertEqual(caught.exception.returncode, 7)
         self.assertEqual(caught.exception.output, "stdout marker\n")
         self.assertEqual(caught.exception.stderr, "stderr marker\n")
+
+    def test_owned_process_reaps_tree_when_wait_is_interrupted(self) -> None:
+        with patch("process_control.start_owned_process") as starter, patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate:
+            process = starter.return_value.__enter__.return_value
+            process.wait.side_effect = KeyboardInterrupt
+            starter.return_value.__exit__.side_effect = (
+                lambda *_args: terminate(
+                    process,
+                    grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+                )
+                and False
+            )
+            with self.assertRaises(KeyboardInterrupt):
+                run_owned_process(["owned-child"], 10)
+
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_start_owned_process_reaps_child_if_post_spawn_is_interrupted(self) -> None:
+        with patch("process_control.subprocess.Popen") as popen, patch(
+            "process_control._post_spawn_checkpoint",
+            side_effect=KeyboardInterrupt,
+        ), patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate:
+            process = popen.return_value
+            process.poll.return_value = None
+            with self.assertRaises(KeyboardInterrupt):
+                with process_control.start_owned_process(["owned-child"]):
+                    pass
+
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_start_owned_process_defers_sigint_until_child_is_owned(self) -> None:
+        previous_handler = signal.getsignal(signal.SIGINT)
+        entered = False
+
+        with patch("process_control.subprocess.Popen") as popen, patch(
+            "process_control._create_windows_kill_job",
+            return_value=123,
+        ), patch("process_control._assign_windows_job"), patch(
+            "process_control._resume_windows_process"
+        ), patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate:
+            process = popen.return_value
+
+            def request_sigint(*_args: object, **_kwargs: object) -> object:
+                installed_handler = signal.getsignal(signal.SIGINT)
+                self.assertTrue(callable(installed_handler))
+                self.assertIsNot(installed_handler, previous_handler)
+                installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+                return process
+
+            popen.side_effect = request_sigint
+            with self.assertRaises(KeyboardInterrupt):
+                with process_control.start_owned_process(["owned-child"]):
+                    entered = True
+
+        self.assertFalse(entered)
+        self.assertIs(signal.getsignal(signal.SIGINT), previous_handler)
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_start_owned_process_replays_sigint_to_outer_fence(self) -> None:
+        delivered: list[int] = []
+        entered = False
+
+        def outer_handler(signum: int, _frame: object) -> None:
+            delivered.append(signum)
+
+        previous_handler = signal.signal(signal.SIGINT, outer_handler)
+        try:
+            with patch("process_control.subprocess.Popen") as popen, patch(
+                "process_control._create_windows_kill_job",
+                return_value=123,
+            ), patch("process_control._assign_windows_job"), patch(
+                "process_control._resume_windows_process"
+            ), patch(
+                "process_control.terminate_process_tree",
+                return_value=True,
+            ):
+                process = popen.return_value
+
+                def request_sigint(*_args: object, **_kwargs: object) -> object:
+                    installed_handler = signal.getsignal(signal.SIGINT)
+                    self.assertTrue(callable(installed_handler))
+                    installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+                    return process
+
+                popen.side_effect = request_sigint
+                with process_control.start_owned_process(["owned-child"]):
+                    entered = True
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        self.assertTrue(entered)
+        self.assertEqual(delivered, [signal.SIGINT])
+
+    def test_owned_cleanup_defers_then_replays_sigint_without_losing_cleanup(self) -> None:
+        delivered: list[int] = []
+        cleanup_finished = False
+
+        def outer_handler(signum: int, _frame: object) -> None:
+            delivered.append(signum)
+
+        def terminate_with_sigint(
+            _process: subprocess.Popen[object],
+            *,
+            grace_seconds: float,
+        ) -> bool:
+            nonlocal cleanup_finished
+            self.assertEqual(
+                grace_seconds,
+                process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+            )
+            installed_handler = signal.getsignal(signal.SIGINT)
+            self.assertTrue(callable(installed_handler))
+            installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+            cleanup_finished = True
+            return True
+
+        previous_handler = signal.signal(signal.SIGINT, outer_handler)
+        try:
+            with patch("process_control.subprocess.Popen") as popen, patch(
+                "process_control._create_windows_kill_job",
+                return_value=123,
+            ), patch("process_control._assign_windows_job"), patch(
+                "process_control._resume_windows_process"
+            ), patch(
+                "process_control.terminate_process_tree",
+                side_effect=terminate_with_sigint,
+            ):
+                process = popen.return_value
+                with process_control.start_owned_process(["owned-child"]):
+                    pass
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        self.assertTrue(cleanup_finished)
+        self.assertEqual(delivered, [signal.SIGINT])
+        self.assertIs(process._ai_dememory_cleanup_complete, True)
+
+    def test_owned_cleanup_does_not_swallow_default_sigint(self) -> None:
+        cleanup_finished = False
+
+        def terminate_with_sigint(
+            _process: subprocess.Popen[object],
+            *,
+            grace_seconds: float,
+        ) -> bool:
+            nonlocal cleanup_finished
+            self.assertEqual(
+                grace_seconds,
+                process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+            )
+            installed_handler = signal.getsignal(signal.SIGINT)
+            self.assertTrue(callable(installed_handler))
+            installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+            cleanup_finished = True
+            return True
+
+        with patch("process_control.subprocess.Popen") as popen, patch(
+            "process_control._create_windows_kill_job",
+            return_value=123,
+        ), patch("process_control._assign_windows_job"), patch(
+            "process_control._resume_windows_process"
+        ), patch(
+            "process_control.terminate_process_tree",
+            side_effect=terminate_with_sigint,
+        ):
+            process = popen.return_value
+            with self.assertRaises(KeyboardInterrupt):
+                with process_control.start_owned_process(["owned-child"]):
+                    pass
+
+        self.assertTrue(cleanup_finished)
+        self.assertIs(process._ai_dememory_cleanup_attempted, True)
+        self.assertIs(process._ai_dememory_cleanup_complete, True)
+
+    def test_signal_unwinds_interrupted_wait_before_process_cleanup(self) -> None:
+        inside_wait = False
+
+        def wait_with_sigint(*_args: object, **_kwargs: object) -> int:
+            nonlocal inside_wait
+            inside_wait = True
+            try:
+                installed_handler = signal.getsignal(signal.SIGINT)
+                self.assertTrue(callable(installed_handler))
+                installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+            finally:
+                inside_wait = False
+            return 0
+
+        def terminate_after_unwind(
+            _process: subprocess.Popen[object],
+            *,
+            grace_seconds: float,
+        ) -> bool:
+            self.assertFalse(inside_wait)
+            self.assertEqual(
+                grace_seconds,
+                process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+            )
+            return True
+
+        with patch("process_control.subprocess.Popen") as popen, patch(
+            "process_control._create_windows_kill_job",
+            return_value=123,
+        ), patch("process_control._assign_windows_job"), patch(
+            "process_control._resume_windows_process"
+        ), patch(
+            "process_control.terminate_process_tree",
+            side_effect=terminate_after_unwind,
+        ) as terminate:
+            process = popen.return_value
+            process.wait.side_effect = wait_with_sigint
+            with self.assertRaises(KeyboardInterrupt):
+                with process_control.start_owned_process(["owned-child"]) as owned:
+                    owned.wait()
+
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_normal_scope_exit_defers_sigint_before_cleanup_entry(self) -> None:
+        previous_handler = signal.getsignal(signal.SIGINT)
+        checkpoint_called = False
+
+        def request_before_cleanup(_process: subprocess.Popen[object]) -> None:
+            nonlocal checkpoint_called
+            checkpoint_called = True
+            installed_handler = signal.getsignal(signal.SIGINT)
+            self.assertTrue(callable(installed_handler))
+            self.assertIsNot(installed_handler, previous_handler)
+            installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+
+        with patch("process_control.subprocess.Popen") as popen, patch(
+            "process_control._create_windows_kill_job",
+            return_value=123,
+        ), patch("process_control._assign_windows_job"), patch(
+            "process_control._resume_windows_process"
+        ), patch(
+            "process_control._pre_owned_cleanup_checkpoint",
+            side_effect=request_before_cleanup,
+        ), patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate:
+            process = popen.return_value
+            with self.assertRaises(KeyboardInterrupt):
+                with process_control.start_owned_process(["owned-child"]):
+                    pass
+
+        self.assertTrue(checkpoint_called)
+        self.assertIs(signal.getsignal(signal.SIGINT), previous_handler)
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    @unittest.skipUnless(hasattr(signal, "SIGBREAK"), "Ctrl+Break is Windows-specific")
+    def test_start_owned_process_defers_and_replays_sigbreak(self) -> None:
+        sigbreak = signal.SIGBREAK  # type: ignore[attr-defined]
+        delivered: list[int] = []
+
+        def outer_handler(signum: int, _frame: object) -> None:
+            delivered.append(signum)
+
+        previous_handler = signal.signal(sigbreak, outer_handler)
+        try:
+            with patch("process_control.subprocess.Popen") as popen, patch(
+                "process_control._create_windows_kill_job",
+                return_value=123,
+            ), patch("process_control._assign_windows_job"), patch(
+                "process_control._resume_windows_process"
+            ), patch(
+                "process_control.terminate_process_tree",
+                return_value=True,
+            ):
+                process = popen.return_value
+
+                def request_sigbreak(*_args: object, **_kwargs: object) -> object:
+                    installed_handler = signal.getsignal(sigbreak)
+                    self.assertTrue(callable(installed_handler))
+                    installed_handler(sigbreak, None)  # type: ignore[operator]
+                    return process
+
+                popen.side_effect = request_sigbreak
+                with process_control.start_owned_process(["owned-child"]):
+                    pass
+        finally:
+            signal.signal(sigbreak, previous_handler)
+
+        self.assertEqual(delivered, [sigbreak])
+
+    def test_owned_capture_reaps_tree_when_poll_is_interrupted(self) -> None:
+        with patch("process_control.start_owned_process") as starter, patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate:
+            process = starter.return_value.__enter__.return_value
+            process.stdin = None
+            process.poll.side_effect = KeyboardInterrupt
+            starter.return_value.__exit__.side_effect = (
+                lambda *_args: terminate(
+                    process,
+                    grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+                )
+                and False
+            )
+            with self.assertRaises(KeyboardInterrupt):
+                run_owned_capture(["owned-child"], timeout_seconds=10)
+
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_owned_capture_timeout_attempts_tree_cleanup_once(self) -> None:
+        with patch("process_control.start_owned_process") as starter, patch(
+            "process_control.terminate_process_tree",
+            return_value=True,
+        ) as terminate, patch(
+            "process_control.time.monotonic",
+            side_effect=[0.0, 11.0],
+        ):
+            process = starter.return_value.__enter__.return_value
+            process.stdin = None
+            process.poll.return_value = None
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_owned_capture(["owned-child"], timeout_seconds=10)
+
+        terminate.assert_called_once_with(
+            process,
+            grace_seconds=process_control.DEFAULT_TERMINATION_GRACE_SECONDS,
+        )
+
+    def test_runtime_smoke_stop_fails_if_tree_or_drain_remains(self) -> None:
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stderr = MagicMock()
+        with patch(
+            "mcp_runtime_smoke.close_stdin_and_reap",
+            return_value=False,
+        ), patch(
+            "mcp_runtime_smoke.join_bounded_stderr_drain",
+            return_value=False,
+        ) as join, self.assertRaisesRegex(
+            SmokeError,
+            "process tree did not terminate",
+        ):
+            mcp_runtime_smoke.stop_server(process)
+
+        join.assert_called_once_with(
+            process,
+            timeout=mcp_runtime_smoke.MCP_SHUTDOWN_GRACE_SECONDS,
+        )
+        process.stdout.close.assert_not_called()
+        process.stderr.close.assert_not_called()
+
+    def test_client_smoke_stop_does_not_close_a_pipe_with_a_live_drain(self) -> None:
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stderr = MagicMock()
+        with patch(
+            "mcp_client_smoke.close_stdin_and_reap",
+            return_value=True,
+        ), patch(
+            "mcp_client_smoke.join_bounded_stderr_drain",
+            return_value=False,
+        ) as join, self.assertRaisesRegex(
+            mcp_client_smoke.ClientSmokeError,
+            "stderr drain did not terminate",
+        ):
+            mcp_client_smoke.stop_mcp_process(process)
+
+        join.assert_called_once_with(process, timeout=2)
+        process.stdout.close.assert_not_called()
+        process.stderr.close.assert_not_called()
+
+    def test_runtime_smoke_stop_returns_on_deadline_with_blocked_stderr(self) -> None:
+        stream = ControlledBlockingEof()
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stderr = stream
+        process_control.attach_bounded_stderr_drain(process)
+
+        with (
+            patch("mcp_runtime_smoke.close_stdin_and_reap", return_value=True),
+            patch("mcp_runtime_smoke.MCP_SHUTDOWN_GRACE_SECONDS", 0.02),
+        ):
+            outcome_kind, outcome_value = self.bounded_blocking_call(
+                stream,
+                lambda: mcp_runtime_smoke.stop_server(process),
+            )
+
+        self.assertEqual(outcome_kind, "error")
+        self.assertIsInstance(outcome_value, SmokeError)
+        self.assertRegex(str(outcome_value), "stderr drain did not terminate")
+        process.stdout.close.assert_not_called()
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Object ordering is Windows-specific")
     def test_windows_child_is_suspended_until_job_assignment(self) -> None:

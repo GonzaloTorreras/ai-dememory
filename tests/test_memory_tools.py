@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import io
 import os
+import signal
 import shlex
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from datetime import date, datetime, timezone
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 import unittest
 from urllib.error import HTTPError
@@ -237,8 +239,9 @@ from release_check import (  # noqa: E402
     plugin_skill_safety_issues,
 )
 from doctor import main as doctor_main, run_checks as run_doctor_checks  # noqa: E402
-from config_file import set_section  # noqa: E402
+from config_file import CONFIG_WRITE_LOCK_NAME, ConfigError, load_config, set_section  # noqa: E402
 from schedule_memory import (  # noqa: E402
+    SCHEDULE_OPERATION_LOCK_NAME,
     SCHEDULE_VERIFICATION_TTL_SECONDS,
     active_schedule_receipt_source,
     build_cron_entries,
@@ -248,6 +251,7 @@ from schedule_memory import (  # noqa: E402
     mark_schedule_verified,
     remove_platform_schedule_files,
     render_cron_entries,
+    run_install_commands,
     run_remove_commands,
     run_schedule_command,
     schedule_environment,
@@ -1228,6 +1232,30 @@ class MemoryToolTests(unittest.TestCase):
                     self.assertIn(expected_message, error.getvalue())
                     binding_resolver.assert_called_once_with(None)
                     legacy_root.assert_not_called()
+
+    def test_schedule_lock_reentry_keeps_the_single_resolved_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            first_root = base / "first"
+            changed_default = base / "changed-default"
+            copy_template_tree(first_root)
+            copy_template_tree(changed_default)
+            first_binding = resolve_runtime_vault(str(first_root))
+            changed_binding = resolve_runtime_vault(str(changed_default))
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.resolve_runtime_vault",
+                side_effect=[first_binding, changed_binding],
+            ) as resolver, redirect_stderr(error):
+                exit_code = schedule_main(
+                    ["--root", str(first_root), "status", "--platform", "windows"]
+                )
+
+            self.assertEqual(exit_code, 2)
+            resolver.assert_called_once_with(str(first_root))
+            self.assertTrue((first_root / SCHEDULE_OPERATION_LOCK_NAME).is_file())
+            self.assertFalse((changed_default / SCHEDULE_OPERATION_LOCK_NAME).exists())
 
     def test_unified_schedule_commands_require_binding_without_wrapper_discovery(self) -> None:
         commands = (
@@ -6310,6 +6338,89 @@ class MemoryToolTests(unittest.TestCase):
         self.assertIn("inbox/recall-feedback", path.as_posix())
         self.assertIn("missing codex policy", text)
 
+    def test_capture_miss_validates_config_before_directory_or_deduplication(self) -> None:
+        canary = "capture-miss-config-must-not-escape"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / ".ai-dememory.toml"
+            original = f'[recall]\nenabled = "{canary}"\n'.encode("utf-8")
+            config.write_bytes(original)
+            before = {config.name: config.read_bytes()}
+
+            with self.assertRaises(ValueError) as direct_error:
+                capture_miss(
+                    root,
+                    "missing strict policy",
+                    "Expected policy memory was absent.",
+                    expected_id="mem_policy",
+                )
+            self.assertNotIn(canary, str(direct_error.exception))
+            self.assertFalse((root / "inbox").exists())
+
+            for dry_run in (False, True):
+                output = io.StringIO()
+                error = io.StringIO()
+                command = [
+                    "--root",
+                    str(root),
+                    "--query",
+                    "missing strict policy",
+                    "--reason",
+                    "Expected policy memory was absent.",
+                    "--expected-id",
+                    "mem_policy",
+                    "--json",
+                ]
+                if dry_run:
+                    command.append("--dry-run")
+                with redirect_stdout(output), redirect_stderr(error):
+                    exit_code = capture_miss_main(command)
+                self.assertEqual(exit_code, 1)
+                self.assertEqual(output.getvalue(), "")
+                self.assertNotIn(canary, error.getvalue())
+                self.assertNotIn("traceback", error.getvalue().lower())
+                self.assertFalse((root / "inbox").exists())
+                self.assertEqual({config.name: config.read_bytes()}, before)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = capture_miss(
+                root,
+                "deduplicated strict policy",
+                "Expected policy memory was absent.",
+                expected_id="mem_policy",
+                max_pending=2,
+            )
+            config = root / ".ai-dememory.toml"
+            config.write_text(
+                f'[recall]\nenabled = "{canary}"\n',
+                encoding="utf-8",
+            )
+            before = {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*")
+                if path.is_file()
+            }
+
+            with self.assertRaises(ValueError):
+                capture_miss(
+                    root,
+                    "deduplicated strict policy",
+                    "Expected policy memory was absent.",
+                    expected_id="mem_policy",
+                    max_pending=2,
+                )
+
+            self.assertTrue(existing.exists())
+            self.assertEqual(
+                {
+                    path.relative_to(root).as_posix(): path.read_bytes()
+                    for path in root.rglob("*")
+                    if path.is_file()
+                },
+                before,
+            )
+
     def test_capture_miss_deduplicates_and_enforces_pending_capacity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -8701,6 +8812,7 @@ class MemoryToolTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
 
         self.assertEqual(health["status"], "ok")
         self.assertEqual(search_result["results"][0]["id"], "mem_codex_test")
@@ -8864,6 +8976,7 @@ class MemoryToolTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=5)
+                self.assertFalse(thread.is_alive())
 
     def test_api_allows_a_matching_loopback_proxy_context(self) -> None:
         require_safe_request_context(
@@ -10517,6 +10630,96 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse((root / "indexes").exists())
         self.assertFalse((root / "reports").exists())
 
+    def test_maintenance_preflights_review_state_before_preview_or_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[false_positives]\n"
+                "enabled = false\n"
+                "[conflicts]\n"
+                "enabled = true\n",
+                encoding="utf-8",
+            )
+            review_state = root / ".ai-dememory-ignore.toml"
+            canary = b"review-state-bytes-must-not-escape"
+            review_state.write_bytes(b"\xff" + canary)
+
+            def snapshot() -> list[tuple[str, bool, bytes | None]]:
+                return [
+                    (
+                        path.relative_to(root).as_posix(),
+                        path.is_dir(),
+                        path.read_bytes() if path.is_file() else None,
+                    )
+                    for path in sorted(root.rglob("*"))
+                ]
+
+            before = snapshot()
+            with (
+                patch("maintenance.enabled_providers") as providers,
+                patch("maintenance.import_chats") as importer,
+                patch("maintenance.maintenance_lock") as lock,
+                patch("maintenance.rebuild_index") as index_writer,
+                patch("maintenance.safe_write_text") as file_writer,
+            ):
+                for profile in ("daily", "weekly"):
+                    for label, operation in (
+                        ("apply", run_maintenance),
+                        ("preview", dry_run_maintenance),
+                    ):
+                        with self.subTest(profile=profile, operation=label):
+                            with self.assertRaises(ReviewError) as raised:
+                                operation(root, profile)
+                            diagnostic = str(raised.exception)
+                            self.assertNotIn(canary.decode("ascii"), diagnostic)
+                            self.assertNotIn("Traceback", diagnostic)
+                            self.assertEqual(snapshot(), before)
+
+                for profile in ("daily", "weekly"):
+                    for dry_run in (False, True):
+                        with self.subTest(profile=profile, cli_dry_run=dry_run):
+                            output = io.StringIO()
+                            error = io.StringIO()
+                            command = [
+                                "--root",
+                                str(root),
+                                "run",
+                                "--profile",
+                                profile,
+                            ]
+                            if dry_run:
+                                command.extend(["--dry-run", "--json"])
+                            with redirect_stdout(output), redirect_stderr(error):
+                                exit_code = maintenance_main(command)
+                            self.assertEqual(exit_code, 1)
+                            self.assertEqual(output.getvalue(), "")
+                            self.assertIn("review state", error.getvalue())
+                            self.assertNotIn(canary.decode("ascii"), error.getvalue())
+                            self.assertNotIn("traceback", error.getvalue().lower())
+                            self.assertEqual(snapshot(), before)
+
+                with self.assertRaises(ReviewError) as status_error:
+                    maintenance_status(root)
+                self.assertNotIn(canary.decode("ascii"), str(status_error.exception))
+                status_output = io.StringIO()
+                status_stderr = io.StringIO()
+                with redirect_stdout(status_output), redirect_stderr(status_stderr):
+                    status_exit = maintenance_main(
+                        ["--root", str(root), "status", "--json"]
+                    )
+                self.assertEqual(status_exit, 2)
+                self.assertEqual(status_output.getvalue(), "")
+                self.assertIn("review state", status_stderr.getvalue())
+                self.assertNotIn(canary.decode("ascii"), status_stderr.getvalue())
+                self.assertNotIn("traceback", status_stderr.getvalue().lower())
+                self.assertEqual(snapshot(), before)
+
+            providers.assert_not_called()
+            importer.assert_not_called()
+            lock.assert_not_called()
+            index_writer.assert_not_called()
+            file_writer.assert_not_called()
+
     def test_maintenance_reports_invalid_resource_policy_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -11395,7 +11598,7 @@ class MemoryToolTests(unittest.TestCase):
             with patch("schedule_memory.run_install_commands", return_value=(0, True)), patch(
                 "schedule_memory.observe_schedule_definitions",
                 return_value=(digests, []),
-            ), patch("schedule_memory.configure_schedule", side_effect=OSError("disk full")), patch(
+            ), patch("schedule_memory._configure_schedule", side_effect=OSError("disk full")), patch(
                 "schedule_memory.run_commands",
                 return_value=0,
             ) as rollback, redirect_stderr(io.StringIO()):
@@ -11415,12 +11618,751 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(rollback.called)
         self.assertFalse((root / ".ai-dememory.toml").exists())
 
-    def test_schedule_partial_remove_restores_only_jobs_already_removed(self) -> None:
+    def test_linux_install_verification_failure_reloads_restored_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            definition = root / "owned.service"
+            plan = schedule_plan(root, target_platform="linux")
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.platform_schedule_paths",
+                return_value=[definition],
+            ), patch(
+                "schedule_memory.write_platform_schedule_files",
+                return_value=[definition],
+            ), patch(
+                "schedule_memory.run_install_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.observe_schedule_definitions",
+                return_value=({}, ["host readback failed"]),
+            ), patch(
+                "schedule_memory.run_commands",
+                return_value=0,
+            ) as host_rollback, patch(
+                "schedule_memory.restore_schedule_files",
+                return_value=True,
+            ) as file_rollback, patch(
+                "schedule_memory.run_schedule_command",
+                return_value=(0, False, 101),
+            ) as reload_command, redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "linux",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(payload["rollback_complete"])
+        self.assertEqual(payload["verification_errors"], ["host readback failed"])
+        host_rollback.assert_called_once()
+        file_rollback.assert_called_once()
+        reload_command.assert_called_once()
+        compensation = reload_command.call_args.args[0]
+        self.assertEqual(compensation.platform, "linux")
+        self.assertEqual(compensation.action, "restore")
+        self.assertEqual(
+            compensation.command,
+            ["systemctl", "--user", "daemon-reload"],
+        )
+
+    def test_linux_receipt_failure_reports_incomplete_if_compensating_reload_times_out(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            definition = root / "owned.service"
+            plan = schedule_plan(root, target_platform="linux")
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.platform_schedule_paths",
+                return_value=[definition],
+            ), patch(
+                "schedule_memory.write_platform_schedule_files",
+                return_value=[definition],
+            ), patch(
+                "schedule_memory.run_install_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.observe_schedule_definitions",
+                return_value=({}, []),
+            ), patch(
+                "schedule_memory._configure_schedule",
+                side_effect=OSError("receipt unavailable"),
+            ), patch(
+                "schedule_memory.run_commands",
+                return_value=0,
+            ), patch(
+                "schedule_memory.restore_schedule_files",
+                return_value=True,
+            ), patch(
+                "schedule_memory.run_schedule_command",
+                return_value=(124, True, 102),
+            ) as reload_command, redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "linux",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["rollback_complete"])
+        self.assertIn("schedule receipt write failed", payload["error"])
+        reload_command.assert_called_once()
+
+    def test_schedule_command_batch_stops_without_rollback_after_lock_loss(self) -> None:
+        commands = build_schedule_commands(
+            Path("D:/vault"),
+            "install",
+            target_platform="windows",
+        )
+        rollback_commands = build_schedule_commands(
+            Path("D:/vault"),
+            "remove",
+            target_platform="windows",
+        )
+        validations = 0
+
+        def validate() -> None:
+            nonlocal validations
+            validations += 1
+            if validations == 2:
+                raise ConfigError("config_lock_error", source="schedule")
+
+        with patch(
+            "schedule_memory.run_schedule_command",
+            return_value=(0, False, 123),
+        ) as runner, self.assertRaises(ConfigError):
+            run_install_commands(commands, rollback_commands, validate)
+
+        self.assertEqual(runner.call_count, 1)
+
+    def test_schedule_command_batches_compensate_keyboard_interrupt(self) -> None:
+        root = Path("D:/vault")
+        install_commands = build_schedule_commands(
+            root,
+            "install",
+            target_platform="windows",
+        )
+        remove_commands = build_schedule_commands(
+            root,
+            "remove",
+            target_platform="windows",
+        )
+        cases = (
+            (run_install_commands, install_commands, remove_commands),
+            (run_remove_commands, remove_commands, install_commands),
+        )
+
+        for runner_fn, commands, rollback_commands in cases:
+            with self.subTest(runner=runner_fn.__name__), patch(
+                "schedule_memory.run_schedule_command",
+                side_effect=[
+                    (0, False, 101),
+                    KeyboardInterrupt(),
+                    (0, False, 102),
+                    (0, False, 103),
+                ],
+            ) as runner:
+                exit_code, rollback_complete = runner_fn(commands, rollback_commands)
+
+            self.assertEqual(exit_code, 130)
+            self.assertTrue(rollback_complete)
+            self.assertEqual(runner.call_count, 4)
+            rolled_back_names = {
+                call.args[0].name for call in runner.call_args_list[2:]
+            }
+            self.assertEqual(
+                rolled_back_names,
+                {commands[0].name, commands[1].name},
+            )
+
+    def test_schedule_command_batches_compensate_timeout_and_oserror(self) -> None:
+        root = Path("D:/vault")
+        install_commands = build_schedule_commands(
+            root,
+            "install",
+            target_platform="windows",
+        )
+        remove_commands = build_schedule_commands(
+            root,
+            "remove",
+            target_platform="windows",
+        )
+        runners = (
+            (run_install_commands, install_commands, remove_commands),
+            (run_remove_commands, remove_commands, install_commands),
+        )
+        failures = (
+            (subprocess.TimeoutExpired(["scheduler"], 60), 124),
+            (OSError("scheduler launch failed"), 1),
+        )
+
+        for runner_fn, commands, rollback_commands in runners:
+            for failure, expected_exit in failures:
+                with self.subTest(
+                    runner=runner_fn.__name__,
+                    failure=type(failure).__name__,
+                ), patch(
+                    "schedule_memory.run_schedule_command",
+                    side_effect=[
+                        (0, False, 101),
+                        failure,
+                        (0, False, 102),
+                        (0, False, 103),
+                    ],
+                ) as runner:
+                    exit_code, rollback_complete = runner_fn(
+                        commands,
+                        rollback_commands,
+                    )
+
+                self.assertEqual(exit_code, expected_exit)
+                self.assertTrue(rollback_complete)
+                self.assertEqual(runner.call_count, 4)
+                self.assertEqual(
+                    {
+                        call.args[0].name
+                        for call in runner.call_args_list[2:]
+                    },
+                    {commands[0].name, commands[1].name},
+                )
+
+    def test_schedule_command_batches_compensate_timeout_return(self) -> None:
+        root = Path("D:/vault")
+        install_commands = build_schedule_commands(
+            root,
+            "install",
+            target_platform="windows",
+        )
+        remove_commands = build_schedule_commands(
+            root,
+            "remove",
+            target_platform="windows",
+        )
+
+        for runner_fn, commands, rollback_commands in (
+            (run_install_commands, install_commands, remove_commands),
+            (run_remove_commands, remove_commands, install_commands),
+        ):
+            with self.subTest(runner=runner_fn.__name__), patch(
+                "schedule_memory.run_schedule_command",
+                side_effect=[
+                    (0, False, 101),
+                    (124, True, 102),
+                    (0, False, 103),
+                    (0, False, 104),
+                ],
+            ) as runner:
+                exit_code, rollback_complete = runner_fn(
+                    commands,
+                    rollback_commands,
+                )
+
+            self.assertEqual(exit_code, 124)
+            self.assertTrue(rollback_complete)
+            self.assertEqual(runner.call_count, 4)
+            self.assertEqual(
+                {call.args[0].name for call in runner.call_args_list[2:]},
+                {commands[0].name, commands[1].name},
+            )
+
+    def test_schedule_install_interrupt_during_readback_restores_owned_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.run_install_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.observe_schedule_definitions",
+                side_effect=KeyboardInterrupt,
+            ), patch(
+                "schedule_memory.run_commands",
+                return_value=0,
+            ) as host_rollback, patch(
+                "schedule_memory.restore_schedule_files",
+                return_value=True,
+            ) as file_rollback, patch(
+                "schedule_memory._configure_schedule"
+            ) as receipt, redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 130)
+        self.assertTrue(payload["interrupted"])
+        self.assertTrue(payload["rollback_complete"])
+        host_rollback.assert_called_once()
+        file_rollback.assert_called_once()
+        receipt.assert_not_called()
+
+    def test_schedule_install_interrupt_during_definition_write_restores_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.write_platform_schedule_files",
+                side_effect=KeyboardInterrupt,
+            ), patch(
+                "schedule_memory.restore_schedule_files",
+                return_value=True,
+            ) as restore, patch(
+                "schedule_memory.run_install_commands"
+            ) as host_install, redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 130)
+        self.assertTrue(payload["interrupted"])
+        self.assertTrue(payload["rollback_complete"])
+        restore.assert_called_once()
+        host_install.assert_not_called()
+
+    def test_schedule_receipt_interrupt_distinguishes_before_and_after_commit(self) -> None:
+        import schedule_memory
+
+        for commit_before_interrupt in (False, True):
+            with self.subTest(commit_before_interrupt=commit_before_interrupt), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                plan = schedule_plan(root, target_platform="windows")
+                digests = {
+                    f"task:{command['name']}": "a" * 64
+                    for command in plan["commands"]
+                }
+                real_configure = schedule_memory._configure_schedule
+
+                def interrupt_receipt(*args: object, **kwargs: object) -> None:
+                    if commit_before_interrupt:
+                        real_configure(*args, **kwargs)  # type: ignore[arg-type]
+                    raise KeyboardInterrupt
+
+                error = io.StringIO()
+                with patch(
+                    "schedule_memory.run_install_commands",
+                    return_value=(0, True),
+                ), patch(
+                    "schedule_memory.observe_schedule_definitions",
+                    return_value=(digests, []),
+                ), patch(
+                    "schedule_memory._configure_schedule",
+                    side_effect=interrupt_receipt,
+                ), patch(
+                    "schedule_memory.run_commands",
+                    return_value=0,
+                ) as rollback, patch(
+                    "schedule_memory.restore_schedule_files",
+                    return_value=True,
+                ) as file_rollback, redirect_stderr(error):
+                    exit_code = schedule_main(
+                        [
+                            "--root",
+                            str(root),
+                            "install",
+                            "--platform",
+                            "windows",
+                            "--expect-plan-sha256",
+                            str(plan["plan_sha256"]),
+                        ]
+                    )
+
+                payload = json.loads(error.getvalue())
+                receipt = load_config(root).get("schedule", {})
+
+                if commit_before_interrupt:
+                    self.assertEqual(exit_code, 0)
+                    self.assertTrue(payload["installed"])
+                    self.assertTrue(payload["interrupted_after_commit"])
+                    self.assertTrue(receipt.get("enabled", False))
+                    rollback.assert_not_called()
+                    file_rollback.assert_not_called()
+                else:
+                    self.assertEqual(exit_code, 130)
+                    self.assertTrue(payload["interrupted"])
+                    self.assertFalse(receipt.get("enabled", False))
+                    rollback.assert_called_once()
+                    file_rollback.assert_called_once()
+
+    def test_schedule_remove_interrupt_during_file_removal_restores_host_and_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            digests = {
+                f"task:{command['name']}": "a" * 64
+                for command in plan["commands"]
+            }
+            configure_schedule(
+                root,
+                "03:00",
+                "SUN",
+                "04:00",
+                "installed",
+                "",
+                target_platform="windows",
+                plan_sha256=str(plan["plan_sha256"]),
+                definition_digests=digests,
+            )
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.observe_schedule_definitions",
+                return_value=(digests, []),
+            ), patch(
+                "schedule_memory.run_remove_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.remove_platform_schedule_files",
+                side_effect=KeyboardInterrupt,
+            ), patch(
+                "schedule_memory.restore_schedule_files",
+                return_value=True,
+            ) as file_restore, patch(
+                "schedule_memory.run_commands",
+                return_value=0,
+            ) as host_restore, redirect_stderr(error):
+                exit_code = schedule_main(
+                    ["--root", str(root), "remove", "--platform", "windows"]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 130)
+        self.assertTrue(payload["interrupted"])
+        self.assertTrue(payload["rollback_complete"])
+        file_restore.assert_called_once()
+        host_restore.assert_called_once()
+
+    def test_schedule_sigint_is_deferred_across_install_commit_boundaries(self) -> None:
+        import schedule_memory
+
+        phases = (
+            "install_files_published",
+            "install_host_published",
+            "install_readback_complete",
+        )
+        for phase in phases:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                plan = schedule_plan(root, target_platform="windows")
+                digests = {
+                    f"task:{command['name']}": "a" * 64
+                    for command in plan["commands"]
+                }
+                previous_handler = signal.getsignal(signal.SIGINT)
+                requested = False
+
+                def request_at_checkpoint(current_phase: str) -> None:
+                    nonlocal requested
+                    if current_phase != phase or requested:
+                        return
+                    requested = True
+                    installed_handler = signal.getsignal(signal.SIGINT)
+                    self.assertTrue(callable(installed_handler))
+                    self.assertIsNot(installed_handler, previous_handler)
+                    installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+
+                error = io.StringIO()
+                with patch(
+                    "schedule_memory.run_install_commands",
+                    return_value=(0, True),
+                ), patch(
+                    "schedule_memory.observe_schedule_definitions",
+                    return_value=(digests, []),
+                ), patch(
+                    "schedule_memory._schedule_phase_checkpoint",
+                    side_effect=request_at_checkpoint,
+                ), redirect_stderr(error):
+                    exit_code = schedule_main(
+                        [
+                            "--root",
+                            str(root),
+                            "install",
+                            "--platform",
+                            "windows",
+                            "--expect-plan-sha256",
+                            str(plan["plan_sha256"]),
+                        ]
+                    )
+
+                receipt = load_config(root).get("schedule", {})
+                self.assertTrue(requested)
+                self.assertEqual(exit_code, 130)
+                self.assertTrue(receipt.get("enabled", False))
+                self.assertIn("consistent transaction boundary", error.getvalue())
+                self.assertIs(signal.getsignal(signal.SIGINT), previous_handler)
+
+    def test_schedule_sigint_is_deferred_across_remove_commit_boundaries(self) -> None:
+        import schedule_memory
+
+        phases = ("remove_host_published", "remove_files_published")
+        for phase in phases:
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                plan = schedule_plan(root, target_platform="windows")
+                digests = {
+                    f"task:{command['name']}": "a" * 64
+                    for command in plan["commands"]
+                }
+                configure_schedule(
+                    root,
+                    "03:00",
+                    "SUN",
+                    "04:00",
+                    "installed",
+                    "",
+                    target_platform="windows",
+                    plan_sha256=str(plan["plan_sha256"]),
+                    definition_digests=digests,
+                )
+                previous_handler = signal.getsignal(signal.SIGINT)
+                requested = False
+
+                def request_at_checkpoint(current_phase: str) -> None:
+                    nonlocal requested
+                    if current_phase != phase or requested:
+                        return
+                    requested = True
+                    installed_handler = signal.getsignal(signal.SIGINT)
+                    self.assertTrue(callable(installed_handler))
+                    self.assertIsNot(installed_handler, previous_handler)
+                    installed_handler(signal.SIGINT, None)  # type: ignore[operator]
+
+                error = io.StringIO()
+                with patch(
+                    "schedule_memory.observe_schedule_definitions",
+                    return_value=(digests, []),
+                ), patch(
+                    "schedule_memory.run_remove_commands",
+                    return_value=(0, True),
+                ), patch(
+                    "schedule_memory._schedule_phase_checkpoint",
+                    side_effect=request_at_checkpoint,
+                ), redirect_stderr(error):
+                    exit_code = schedule_main(
+                        ["--root", str(root), "remove", "--platform", "windows"]
+                    )
+
+                receipt = load_config(root).get("schedule", {})
+                self.assertTrue(requested)
+                self.assertEqual(exit_code, 130)
+                self.assertFalse(receipt.get("enabled", False))
+                self.assertIn("consistent transaction boundary", error.getvalue())
+                self.assertIs(signal.getsignal(signal.SIGINT), previous_handler)
+
+    def test_schedule_sigint_fence_is_inert_in_worker_threads(self) -> None:
+        import schedule_memory
+
+        states: list[bool] = []
+
+        def worker() -> None:
+            with schedule_memory.defer_schedule_sigint() as state:
+                states.append(state.requested)
+
+        with patch("schedule_memory.signal.signal") as install_handler:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(states, [False])
+        install_handler.assert_not_called()
+
+    @unittest.skipUnless(hasattr(signal, "SIGBREAK"), "Ctrl+Break is Windows-specific")
+    def test_schedule_fence_defers_sigbreak_and_restores_handler(self) -> None:
+        import schedule_memory
+
+        sigbreak = signal.SIGBREAK  # type: ignore[attr-defined]
+
+        def outer_handler(_signum: int, _frame: object) -> None:
+            return
+
+        original_handler = signal.signal(sigbreak, outer_handler)
+        try:
+            with schedule_memory.defer_schedule_sigint() as state:
+                installed_handler = signal.getsignal(sigbreak)
+                self.assertTrue(callable(installed_handler))
+                installed_handler(sigbreak, None)  # type: ignore[operator]
+            self.assertTrue(state.requested)
+            self.assertIs(signal.getsignal(sigbreak), outer_handler)
+        finally:
+            signal.signal(sigbreak, original_handler)
+
+    @unittest.skipUnless(hasattr(signal, "SIGBREAK"), "Ctrl+Break is Windows-specific")
+    def test_schedule_sigbreak_defers_through_install_transaction(self) -> None:
+        sigbreak = signal.SIGBREAK  # type: ignore[attr-defined]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            digests = {
+                f"task:{command['name']}": "a" * 64
+                for command in plan["commands"]
+            }
+            previous_handler = signal.getsignal(sigbreak)
+            requested = False
+
+            def request_at_host_boundary(phase: str) -> None:
+                nonlocal requested
+                if phase != "install_host_published" or requested:
+                    return
+                requested = True
+                installed_handler = signal.getsignal(sigbreak)
+                self.assertTrue(callable(installed_handler))
+                self.assertIsNot(installed_handler, previous_handler)
+                installed_handler(sigbreak, None)  # type: ignore[operator]
+
+            error = io.StringIO()
+            with patch(
+                "schedule_memory.run_install_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.observe_schedule_definitions",
+                return_value=(digests, []),
+            ), patch(
+                "schedule_memory._schedule_phase_checkpoint",
+                side_effect=request_at_host_boundary,
+            ), redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            self.assertTrue(requested)
+            self.assertEqual(exit_code, 130)
+            self.assertTrue(load_config(root)["schedule"]["enabled"])
+            self.assertIn("consistent transaction boundary", error.getvalue())
+            self.assertIs(signal.getsignal(sigbreak), previous_handler)
+
+    def test_schedule_lock_loss_after_host_install_requires_manual_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            digests = {
+                f"task:{command['name']}": "a" * 64
+                for command in plan["commands"]
+            }
+            error = io.StringIO()
+
+            with patch(
+                "schedule_memory.run_install_commands",
+                return_value=(0, True),
+            ), patch(
+                "schedule_memory.observe_schedule_definitions",
+                return_value=(digests, []),
+            ), patch(
+                "schedule_memory._configure_schedule",
+                side_effect=ConfigError("config_lock_error", source="schedule"),
+            ), patch("schedule_memory.run_commands") as rollback, patch(
+                "schedule_memory.restore_schedule_files"
+            ) as file_rollback, redirect_stderr(error):
+                exit_code = schedule_main(
+                    [
+                        "--root",
+                        str(root),
+                        "install",
+                        "--platform",
+                        "windows",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            payload = json.loads(error.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["installed"])
+        self.assertFalse(payload["rollback_complete"])
+        self.assertTrue(payload["manual_recovery_required"])
+        rollback.assert_not_called()
+        file_rollback.assert_not_called()
+        self.assertFalse((root / ".ai-dememory.toml").exists())
+
+    def test_schedule_partial_install_removes_every_job_attempted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install_commands = build_schedule_commands(root, "install", target_platform="windows")
+            remove_commands = build_schedule_commands(root, "remove", target_platform="windows")
+            results = [
+                (0, False, 101),
+                (1, False, 102),
+                (0, False, 103),
+                (0, False, 104),
+            ]
+
+            with patch("schedule_memory.run_owned_process", side_effect=results) as runner:
+                exit_code, rollback_complete = run_install_commands(
+                    install_commands,
+                    remove_commands,
+                )
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(rollback_complete)
+        self.assertEqual(runner.call_count, 4)
+        self.assertEqual(
+            [call.args[0] for call in runner.call_args_list[2:]],
+            [remove_commands[1].command, remove_commands[0].command],
+        )
+
+    def test_schedule_partial_remove_restores_every_job_attempted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             remove_commands = build_schedule_commands(root, "remove", target_platform="windows")
             install_commands = build_schedule_commands(root, "install", target_platform="windows")
-            results = [(0, False, 101), (1, False, 102), (0, False, 103)]
+            results = [
+                (0, False, 101),
+                (1, False, 102),
+                (0, False, 103),
+                (0, False, 104),
+            ]
 
             with patch("schedule_memory.run_owned_process", side_effect=results) as runner:
                 exit_code, rollback_complete = run_remove_commands(
@@ -11430,8 +12372,11 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertTrue(rollback_complete)
-        self.assertEqual(runner.call_count, 3)
-        self.assertEqual(runner.call_args_list[-1].args[0], install_commands[0].command)
+        self.assertEqual(runner.call_count, 4)
+        self.assertEqual(
+            [call.args[0] for call in runner.call_args_list[2:]],
+            [install_commands[0].command, install_commands[1].command],
+        )
 
     def test_mcp_schedule_plan_matches_cli_scheduler_plan_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -11515,6 +12460,114 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(status["valid"])
         self.assertTrue(status["validation_errors"])
         self.assertEqual(status["status_commands"], [])
+
+    def test_schedule_status_rejects_malformed_disabled_review_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            copy_template_tree(root)
+            (root / ".ai-dememory.toml").write_text(
+                "[false_positives]\n"
+                "enabled = false\n"
+                "[conflicts]\n"
+                "enabled = true\n",
+                encoding="utf-8",
+            )
+            canary = "schedule-review-state-must-not-escape"
+            (root / ".ai-dememory-ignore.toml").write_bytes(
+                b"\xff" + canary.encode("ascii")
+            )
+            before = {
+                path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*")
+                if path.is_file()
+            }
+
+            with patch("schedule_memory.build_schedule_commands") as commands:
+                with self.assertRaises(ValueError) as raised:
+                    schedule_status(root, target_platform="linux")
+                output = io.StringIO()
+                error = io.StringIO()
+                with redirect_stdout(output), redirect_stderr(error):
+                    exit_code = schedule_main(
+                        ["--root", str(root), "status", "--platform", "linux", "--json"]
+                    )
+
+            self.assertEqual(exit_code, 2)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("review state", str(raised.exception))
+            self.assertIn("review state", error.getvalue())
+            self.assertNotIn(canary, str(raised.exception))
+            self.assertNotIn(canary, error.getvalue())
+            self.assertNotIn("traceback", error.getvalue().lower())
+            self.assertEqual(
+                {
+                    path.relative_to(root).as_posix(): path.read_bytes()
+                    for path in root.rglob("*")
+                    if path.is_file()
+                },
+                before,
+            )
+            commands.assert_not_called()
+
+    def test_schedule_host_status_operations_are_serialized_per_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = schedule_plan(root, target_platform="windows")
+            digests = {
+                f"task:{command['name']}": "a" * 64
+                for command in plan["commands"]
+            }
+            configure_schedule(
+                root,
+                "03:00",
+                "SUN",
+                "04:00",
+                "installed",
+                "",
+                target_platform="windows",
+                plan_sha256=str(plan["plan_sha256"]),
+                definition_digests=digests,
+            )
+            first_observe = threading.Event()
+            release_first = threading.Event()
+            calls: list[int] = []
+            calls_lock = threading.Lock()
+            results: list[int] = []
+
+            def observe(*args: object, **kwargs: object) -> tuple[dict[str, str], list[str]]:
+                with calls_lock:
+                    calls.append(len(calls) + 1)
+                    call_number = len(calls)
+                if call_number == 1:
+                    first_observe.set()
+                    if not release_first.wait(timeout=5):
+                        raise TimeoutError("test schedule release timed out")
+                return digests, []
+
+            def run_status() -> None:
+                results.append(
+                    schedule_main(
+                        ["--root", str(root), "status", "--platform", "windows"]
+                    )
+                )
+
+            with patch("schedule_memory.observe_schedule_definitions", side_effect=observe):
+                first = threading.Thread(target=run_status, daemon=True)
+                second = threading.Thread(target=run_status, daemon=True)
+                first.start()
+                self.assertTrue(first_observe.wait(timeout=5))
+                second.start()
+                time.sleep(0.05)
+                self.assertEqual(calls, [1])
+                self.assertTrue(second.is_alive())
+                release_first.set()
+                first.join(timeout=5)
+                second.join(timeout=5)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertEqual(sorted(results), [0, 0])
+            self.assertEqual(calls, [1, 2])
 
     def test_mcp_schedule_status_reports_invalid_config_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -11879,6 +12932,8 @@ class MemoryToolTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (original / ".ai-dememory.toml").unlink()
+            (original / CONFIG_WRITE_LOCK_NAME).unlink()
+            (original / SCHEDULE_OPERATION_LOCK_NAME).unlink()
             original.rmdir()
             try:
                 os.symlink(missing, original, target_is_directory=True)

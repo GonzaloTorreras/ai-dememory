@@ -13,6 +13,13 @@ indexes/embeddings/
 distilled/*.md
 !distilled/README.md
 
+# Local coordination and interrupted-write recovery artifacts
+/.ai-dememory-config.lock
+/.ai-dememory-schedule.lock
+/.ai-dememory.toml.*.bak
+**/.*.ai-dememory-config-*.tmp
+**/.*.ai-dememory-onboarding-*.tmp
+
 # Local reports and sensitive temporary output
 reports/*.json
 reports/*.md

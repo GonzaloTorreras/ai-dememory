@@ -18,7 +18,7 @@ for import_root in (SCRIPTS, MCP_SERVER):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-from config_file import CONFIG_NAME  # noqa: E402
+from config_file import CONFIG_NAME, CONFIG_WRITE_LOCK_NAME  # noqa: E402
 from memory_mcp import handle_rpc  # noqa: E402
 from review_memory import (  # noqa: E402
     ReviewError,
@@ -256,7 +256,9 @@ class ReviewConfigDiagnosticRedactionTests(unittest.TestCase):
             self.assertNotIn(path_canary, formatted)
             self.assertNotIn(str(root), formatted)
             self.assertIsNone(raised.exception.__cause__)
-            self.assertEqual(self.tree_snapshot(root), before)
+            expected = dict(before)
+            expected[CONFIG_WRITE_LOCK_NAME] = ("file", b"\0")
+            self.assertEqual(self.tree_snapshot(root), expected)
 
     def test_requested_review_mode_is_redacted_in_direct_and_mcp_errors(self) -> None:
         value_canary = "DO_NOT_ECHO_REQUESTED_REVIEW_MODE"

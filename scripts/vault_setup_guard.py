@@ -20,6 +20,11 @@ PACKAGED_GITIGNORE = Path("ai_dememory_tool/templates/vault/.gitignore")
 GENERATED_DIRS = ("indexes", "distilled", "reports")
 REQUIRED_PLACEHOLDERS = tuple(f"{directory}/README.md" for directory in GENERATED_DIRS)
 REQUIRED_IGNORES = (
+    "/.ai-dememory-config.lock",
+    "/.ai-dememory-schedule.lock",
+    "/.ai-dememory.toml.*.bak",
+    "**/.*.ai-dememory-config-*.tmp",
+    "**/.*.ai-dememory-onboarding-*.tmp",
     "indexes/*.sqlite",
     "indexes/*.sqlite-wal",
     "indexes/*.sqlite-shm",

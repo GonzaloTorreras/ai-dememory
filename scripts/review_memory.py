@@ -385,6 +385,13 @@ def _load_review_root_config(root: Path) -> dict[str, dict[str, Any]]:
 
 def review_state_path(root: Path) -> Path:
     config = _load_review_root_config(root)
+    return _review_state_path_from_config(root, config)
+
+
+def _review_state_path_from_config(
+    root: Path,
+    config: dict[str, dict[str, Any]],
+) -> Path:
     false_positive_config = config.get("false_positives", {})
     configured = false_positive_config.get("ignore_file")
     if configured in {None, ""}:
@@ -481,13 +488,24 @@ def review_mode_dict(mode: ReviewMode, active: bool = False) -> dict[str, Any]:
 
 def _set_review_state_section(root: Path, section: str, values: dict[str, Any]) -> Path:
     try:
+        main_config = load_config(root)
+        observed_route = dict(main_config.get("false_positives", {}))
+        state_path = _review_state_path_from_config(root, main_config)
+        observed_state = load_config_path(
+            state_path,
+            root=root,
+            config_kind="review_state",
+            diagnostic_source=REVIEW_STATE_DIAGNOSTIC_SOURCE,
+        ).get(section, {})
         return set_section_path(
-            ignore_path(root),
+            state_path,
             section,
             values,
             root=root,
             config_kind="review_state",
             diagnostic_source=REVIEW_STATE_DIAGNOSTIC_SOURCE,
+            expected_section=observed_state,
+            expected_main_section=("false_positives", observed_route),
         )
     except OSError:
         raise ReviewError(
@@ -504,9 +522,10 @@ def configure_review_mode(root: Path, mode_name: str, reviewer: str | None = Non
     # Keep the direct API's established ValueError contract for unsafe config.
     # The CLI boundary below still normalizes it into a controlled exit.
     config = load_config(root)
-    current = dict(config.get("review", {}))
+    observed = config.get("review", {})
+    current = dict(observed)
     current.update(review_mode_config_values(mode_name, reviewer))
-    return set_section(root, "review", current)
+    return set_section(root, "review", current, expected_section=observed)
 
 
 def review_mode_config_values(mode_name: str, reviewer: str | None = None) -> dict[str, Any]:

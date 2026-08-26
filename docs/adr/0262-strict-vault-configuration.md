@@ -37,8 +37,23 @@ make the main policy too permissive.
   values or source lines; configurable review-state paths use a fixed safe
   source label.
 - Validate the existing document, requested update, and complete candidate
-  before any configuration write. Preserve exact previous bytes on failure.
+  before any configuration write. Preserve exact previous bytes for validated
+  pre-commit failures. If replacement committed before runtime-visible
+  cancellation, recognize the exact candidate as a successful commit rather
+  than report failure against changed bytes.
+- Serialize each product writer's complete read/modify/write transaction with
+  a bounded per-vault kernel file lock. Compare stale section snapshots for
+  merge-style writers and fail closed rather than losing a newer update.
+- Serialize scheduler host transactions under a separate operation lock, using
+  the invariant `schedule operation -> config writer` whenever both are needed.
+  If operation-lock identity is lost, stop automatic destructive rollback and
+  require explicit recovery from the exact receipt and artifacts.
 - Validate onboarding snapshots and candidates before plan creation or apply.
+- Use a bounded commit-wins cancellation point once a writer begins vault
+  coordination, including bounded lock acquisition: `SIGINT`/Windows
+  `SIGBREAK` is deferred until the transaction and lock cleanup are consistent.
+  If the reviewed batch commits, report success; if it does not, preserve the
+  original interruption after rollback.
 - Make Doctor report structural errors read-only. Normalize other CLI
   boundaries so they return controlled errors rather than tracebacks.
 - Preserve inert fail-open behavior for lifecycle hooks and turn-context
@@ -83,6 +98,23 @@ make the main policy too permissive.
   file-read failures.
 - Deliberate local status/admin output can expose configured paths to its local
   caller; errors remain redacted.
+- The kernel lock is advisory. Direct edits by an external program do not
+  participate and can still race a product writer; operators should not edit
+  configuration while a wizard or administrative write is running.
+- POSIX termination that bypasses Python unwind, including default `SIGTERM`,
+  `SIGKILL`, `os._exit`, or host power loss, cannot execute in-process cleanup.
+  Normal completion, timeout, and runtime-visible cancellation reap the owned
+  process tree; a supervisor remains the boundary for abrupt termination.
+- Atomic replacement guarantees runtime visibility of either the previous or
+  candidate inode. It does not claim power-loss durability because the parent
+  directory is not fsynced, and arbitrary custom signal handlers may still
+  impose their own non-`KeyboardInterrupt` termination semantics.
+- A console cancellation received after coordination begins can be delayed for
+  that bounded critical section. This deliberately favors an unambiguous
+  committed or rolled-back result over mid-write cancellation.
+- Valid manual multiline strings remain readable, but a header-like line
+  inside one makes the compatibility section scanner refuse a write. Product
+  writers emit escaped basic strings and do not create that representation.
 - `BRG-017` does not complete the separate `BRG-003` structural vault-binding
   and legacy command-policy inventory.
 

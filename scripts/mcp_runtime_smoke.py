@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 from hook_event import capture_hook_event
 from memorylib import repo_root
@@ -49,21 +50,28 @@ def ensure_pr_gate(allow_without_pr: bool) -> str:
     )
 
 
-def start_server(checkout_root: Path, memory_root: Path | None = None) -> subprocess.Popen[str]:
+@contextmanager
+def start_server(
+    checkout_root: Path,
+    memory_root: Path | None = None,
+) -> Iterator[subprocess.Popen[str]]:
     command = [sys.executable, "-m", "ai_dememory_tool.cli", "mcp"]
     if memory_root is not None:
         command.extend(["--root", str(memory_root)])
     command.extend(["--stdio", "--profile", "admin"])
-    process = start_owned_process(
+    with start_owned_process(
         command,
         cwd=checkout_root,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-    )
-    attach_bounded_stderr_drain(process)
-    return process
+    ) as process:
+        attach_bounded_stderr_drain(process)
+        try:
+            yield process
+        finally:
+            stop_server(process)
 
 
 def response_line(process: subprocess.Popen[str], timeout_seconds: float) -> str:
@@ -315,8 +323,22 @@ def run_fixture_git(repo: Path, *args: str) -> None:
 
 
 def stop_server(process: subprocess.Popen[str]) -> None:
-    close_stdin_and_reap(process, grace_seconds=MCP_SHUTDOWN_GRACE_SECONDS)
-    join_bounded_stderr_drain(process, timeout=MCP_SHUTDOWN_GRACE_SECONDS)
+    cleanup_complete = False
+    drain_complete = False
+    try:
+        cleanup_complete = close_stdin_and_reap(
+            process,
+            grace_seconds=MCP_SHUTDOWN_GRACE_SECONDS,
+        )
+    finally:
+        drain_complete = join_bounded_stderr_drain(
+            process,
+            timeout=MCP_SHUTDOWN_GRACE_SECONDS,
+        )
+    if not cleanup_complete:
+        raise SmokeError("MCP server process tree did not terminate cleanly")
+    if not drain_complete:
+        raise SmokeError("MCP server stderr drain did not terminate cleanly")
     for stream in (process.stdout, process.stderr):
         if stream:
             stream.close()
@@ -411,8 +433,7 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
         )
         hook_capture_path = hook_capture.relative_to(fixture_root).as_posix() if hook_capture else ""
 
-        process = start_server(checkout_root, fixture_root)
-        try:
+        def exercise_fixture_server(process: subprocess.Popen[str]) -> None:
             reindex = tool_call(process, 99, "memory.reindex")
             assert_condition(reindex.get("count", 0) >= 3, "memory.reindex did not index fixture memories")
             checks.append("fixture memory.reindex")
@@ -2059,16 +2080,15 @@ def run_fixture_smoke(checkout_root: Path) -> list[str]:
                 "review_recommendation_outcome_report should not have more invalid pages",
             )
             checks.append("fixture memory.review_recommendation_outcome_report")
-        finally:
-            stop_server(process)
+        with start_server(checkout_root, fixture_root) as process:
+            exercise_fixture_server(process)
     return checks
 
 
 def run_smoke(root: Path, allow_without_pr: bool = False) -> list[str]:
     gate = ensure_pr_gate(allow_without_pr)
     checks: list[str] = [f"pr_gate={gate}"]
-    process = start_server(root)
-    try:
+    def exercise_server(process: subprocess.Popen[str]) -> None:
         init = rpc(
             process,
             {
@@ -2378,8 +2398,8 @@ def run_smoke(root: Path, allow_without_pr: bool = False) -> list[str]:
         )
         assert_condition(denied.get("isError") is True, "out-of-repo secret scan was not rejected")
         checks.append("secret_scan path boundary")
-    finally:
-        stop_server(process)
+    with start_server(root) as process:
+        exercise_server(process)
     checks.extend(run_fixture_smoke(root))
     return checks
 
