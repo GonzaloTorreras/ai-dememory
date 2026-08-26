@@ -290,6 +290,42 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue()), {})
         self.assertNotIn("Captured", output.getvalue())
 
+    def test_legacy_capture_is_inert_on_invalid_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / ".ai-dememory.toml"
+            original = b'[recall]\nenabled = "false"\n'
+            config.write_bytes(original)
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                patch("sys.stdin", _Stdin('{"prompt":"reviewed input"}')),
+                patch("hook_event.capture_hook_event") as capture,
+                redirect_stdout(output),
+                redirect_stderr(error),
+            ):
+                exit_code = hook_event_main(
+                    [
+                        "--root",
+                        str(root),
+                        "--provider",
+                        "codex",
+                        "--event",
+                        "UserPromptSubmit",
+                        "--json",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                json.loads(output.getvalue()),
+                {"path": None, "captured": False},
+            )
+            self.assertEqual(error.getvalue(), "")
+            self.assertEqual(config.read_bytes(), original)
+            self.assertEqual([path.name for path in root.iterdir()], [config.name])
+            capture.assert_not_called()
+
     def test_unbound_dispatch_is_inert_without_reading_stdin_or_recalling(self) -> None:
         output = io.StringIO()
         with (

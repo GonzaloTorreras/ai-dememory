@@ -1298,17 +1298,23 @@ def run_capture(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = require_runtime_hook_vault(parser, args.root)
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
-    policy = resolved_resource_policy(root)
-    resources = policy.get("resources", {})
-    max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
-    path = capture_hook_event(
-        root,
-        args.event,
-        payload,
-        capture_raw=args.capture_raw,
-        provider=args.provider,
-        max_pending=max_pending,
-    )
+    try:
+        policy = resolved_resource_policy(root)
+        resources = policy.get("resources", {})
+        max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
+        path = capture_hook_event(
+            root,
+            args.event,
+            payload,
+            capture_raw=args.capture_raw,
+            provider=args.provider,
+            max_pending=max_pending,
+        )
+    except Exception:
+        # This legacy capture entry point is still used directly by older hook
+        # definitions. Match dispatch's protocol boundary: configuration or
+        # capture failures must leave the host unblocked and emit no details.
+        path = None
     result = {"path": repo_relative_path(path, root) if path else None, "captured": path is not None}
     # hook-event may be invoked directly by a harness; stdout is always JSON.
     print(json.dumps(result, indent=2 if args.json else None))
