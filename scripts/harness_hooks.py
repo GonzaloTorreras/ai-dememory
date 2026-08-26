@@ -150,7 +150,16 @@ def section_config(root: Path, section: str) -> dict[str, Any]:
 
 
 def client_enabled(root: Path, section: str, client: str) -> bool:
-    clients = section_config(root, section).get("clients")
+    try:
+        configured = load_config(root).get(section, {})
+    except (OSError, TypeError, ValueError):
+        # A structurally invalid configuration must never turn an explicit
+        # recall opt-out into the permissive default. Hooks stay non-blocking
+        # by returning no output, but fail closed for injection.
+        return False
+    if not isinstance(configured, dict):
+        return False
+    clients = configured.get("clients")
     if clients is None:
         return True
     if not isinstance(clients, list):

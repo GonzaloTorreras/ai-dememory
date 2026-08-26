@@ -31,6 +31,38 @@ class TurnContextTests(unittest.TestCase):
         self.assertEqual(settings.min_relevance_score, 0.18)
         self.assertIn("invalid_recall_config", errors)
 
+    def test_invalid_config_fails_closed_for_context_injection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_memory(
+                root,
+                "memories/active/retries.md",
+                "mem_retries",
+                title="Retry implementation",
+                body="Use reviewed bounded exponential backoff.",
+            )
+            (root / ".ai-dememory.toml").write_text(
+                "[recall]\n"
+                "enabled = false\n"
+                'unexpected = "invalidates-the-closed-schema"\n',
+                encoding="utf-8",
+            )
+            rebuild_index(root, root / "indexes/memory.sqlite")
+
+            result = build_turn_context(
+                root,
+                "Implement retry handling and update deterministic tests",
+                cwd=root,
+                client="codex",
+            )
+
+        self.assertEqual(result["decision"], "skip")
+        self.assertEqual(result["reason"], "invalid_config")
+        self.assertTrue(result["degraded"])
+        self.assertIn("invalid_recall_config", result["degradation"])
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["text"], "")
+
     def test_project_hint_is_explainable_and_can_retrieve_project_memory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

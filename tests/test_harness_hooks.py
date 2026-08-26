@@ -149,6 +149,34 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertFalse(capture_exists)
 
+    def test_invalid_config_disables_hook_recall_before_context_build(self) -> None:
+        module = types.SimpleNamespace(
+            build_turn_context=lambda *args, **kwargs: {
+                "decision": "inject",
+                "text": "must not be injected",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            sys.modules,
+            {"turn_context": module},
+        ):
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[recall]\n"
+                "enabled = false\n"
+                'unexpected = "invalidates-the-closed-schema"\n',
+                encoding="utf-8",
+            )
+
+            result = dispatch_hook_event(
+                root,
+                "UserPromptSubmit",
+                json.dumps({"prompt": "Continue reviewed project work"}),
+                client="codex",
+            )
+
+        self.assertEqual(result, {})
+
     def test_stop_writes_deduplicated_review_proposal_only_from_explicit_signal(self) -> None:
         payload = json.dumps(
             {
