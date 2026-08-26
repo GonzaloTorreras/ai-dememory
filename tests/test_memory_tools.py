@@ -70,7 +70,9 @@ from http_api import (  # noqa: E402
     MUTATION_INTENT_VALUE,
     ApiError,
     main as api_main,
+    parse_json_body,
     read_json_body,
+    read_request_body,
     require_safe_request_context,
     serve,
 )
@@ -8822,20 +8824,32 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertEqual(cross_site_error.exception.code, 403)
                 cross_site_error.exception.close()
 
+                unmarked_body = b'{"malformed":'
                 unmarked = Request(
                     f"{base_url}/reindex",
-                    data=b"{}",
-                    headers={"Content-Type": "application/json"},
+                    data=unmarked_body,
+                    headers={"Content-Type": "text/plain"},
                     method="POST",
                 )
-                with self.assertRaises(HTTPError) as unmarked_error:
+                consumed_bodies: list[bytes] = []
+
+                def track_body(handler: Any) -> bytes:
+                    raw = read_request_body(handler)
+                    consumed_bodies.append(raw)
+                    return raw
+
+                with (
+                    patch("http_api.read_request_body", side_effect=track_body),
+                    self.assertRaises(HTTPError) as unmarked_error,
+                ):
                     urlopen(unmarked, timeout=5)
                 self.assertEqual(unmarked_error.exception.code, 403)
                 unmarked_error.exception.close()
+                self.assertEqual(consumed_bodies, [unmarked_body])
 
                 wrong_type = Request(
                     f"{base_url}/reindex",
-                    data=b"{}",
+                    data=b'{"malformed":',
                     headers={
                         "Content-Type": "text/plain",
                         MUTATION_INTENT_HEADER: MUTATION_INTENT_VALUE,
@@ -8871,6 +8885,32 @@ class MemoryToolTests(unittest.TestCase):
             read_json_body(handler)
 
         self.assertEqual(error.exception.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(handler.rfile.tell(), 0)
+
+    def test_api_consumes_bounded_body_before_rejecting_content_type(self) -> None:
+        handler = type("FakeHandler", (), {})()
+        handler.headers = {
+            "Content-Length": "2",
+            "Content-Type": "text/plain",
+        }
+        handler.rfile = io.BytesIO(b"{}")
+
+        raw = read_request_body(handler)
+        with self.assertRaises(ApiError) as error:
+            parse_json_body(handler, raw)
+
+        self.assertEqual(error.exception.status, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
+        self.assertEqual(handler.rfile.tell(), 2)
+
+    def test_direct_json_body_helper_preserves_content_type_first_validation(self) -> None:
+        handler = type("FakeHandler", (), {})()
+        handler.headers = {"Content-Type": "text/plain"}
+        handler.rfile = io.BytesIO(b"{}")
+
+        with self.assertRaises(ApiError) as error:
+            read_json_body(handler)
+
+        self.assertEqual(error.exception.status, HTTPStatus.UNSUPPORTED_MEDIA_TYPE)
         self.assertEqual(handler.rfile.tell(), 0)
 
     def test_api_smoke_exercises_local_rest_api_contract(self) -> None:
