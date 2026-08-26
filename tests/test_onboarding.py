@@ -1412,7 +1412,7 @@ class OnboardingTests(unittest.TestCase):
 
     def test_onboarding_config_replace_never_exposes_a_missing_default_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             config_path = root / ".ai-dememory.toml"
             original = b"[recall]\nenabled = false\n"
             config_path.write_bytes(original)
@@ -1422,7 +1422,7 @@ class OnboardingTests(unittest.TestCase):
             real_replace = onboarding.os.replace
 
             def inspect_target_before_replace(source: object, target: object) -> None:
-                if Path(target) == config_path and Path(source).suffix == ".tmp":
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
                     observed_before_replace.append(read_config_bytes(config_path, root=root))
                 real_replace(source, target)  # type: ignore[arg-type]
 
@@ -1658,17 +1658,17 @@ class OnboardingTests(unittest.TestCase):
         real_unlink = Path.unlink
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             config_path = root / ".ai-dememory.toml"
             plan = operational_setup_plan(root, operational_answers())
 
             def commit_then_fail(source: object, target: object) -> None:
                 real_replace(source, target)  # type: ignore[arg-type]
-                if Path(target) == config_path and Path(source).suffix == ".tmp":
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
                     raise OSError(f"[WinError 32] {commit_canary}: {root}")
 
             def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
-                if path == config_path:
+                if path.resolve(strict=False) == config_path:
                     raise OSError(f"[Errno 13] {rollback_canary}: {root}")
                 real_unlink(path, *args, **kwargs)
 
@@ -1680,7 +1680,7 @@ class OnboardingTests(unittest.TestCase):
                 exit_code = unified_cli.main(
                     [
                         "--root",
-                        tmp,
+                        str(root),
                         "setup",
                         "wizard",
                         "--apply",
@@ -1715,17 +1715,17 @@ class OnboardingTests(unittest.TestCase):
         real_unlink = Path.unlink
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             config_path = root / ".ai-dememory.toml"
             plan = operational_setup_plan(root, operational_answers())
 
             def commit_then_fail(source: object, target: object) -> None:
                 real_replace(source, target)  # type: ignore[arg-type]
-                if Path(target) == config_path and Path(source).suffix == ".tmp":
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
                     raise OSError(f"[WinError 32] {commit_canary}: {root}")
 
             def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
-                if path == config_path:
+                if path.resolve(strict=False) == config_path:
                     raise OSError(f"[Errno 13] {rollback_canary}: {root}")
                 real_unlink(path, *args, **kwargs)
 
@@ -1737,7 +1737,7 @@ class OnboardingTests(unittest.TestCase):
                 exit_code = operational_main(
                     [
                         "--root",
-                        tmp,
+                        str(root),
                         "--apply",
                         "--expect-plan-sha256",
                         str(plan["plan_sha256"]),
