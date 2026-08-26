@@ -164,6 +164,7 @@ class McpLifecycleTests(unittest.TestCase):
             tracked.write_text("literal $Format:%H$\n", encoding="utf-8")
             executable = source / "run-smoke.sh"
             executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
 
             mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
             mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
