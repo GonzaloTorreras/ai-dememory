@@ -395,13 +395,23 @@ local-API onboarding hint and documentation follow-up.
   use generated `--mode docker` mounts instead. Documentation guards reject
   relative vault roots, relative child scripts, and unprovable shell-variable
   child paths on the active smoke surfaces.
-- Local validation passes 633 memory-tool tests with 45 expected platform
-  skips, 156 documentation/profile tests, both real MCP client smoke variants,
-  the documentation-site audit, release check, roadmap contract, secret scan,
-  Markdown validation, MCP contract/inventory checks, compileall, and diff
-  checks. No version, DAG state, package publication, installed vault, host
-  configuration, or release is changed. Exact committed-head review, PR CI, and
-  merge evidence remain pending.
+- Local validation on committed head
+  `3ff771e25060257094ff40c55067e765f49f7cd8` passes 633 memory-tool tests with
+  45 expected platform skips, 156 documentation/profile tests, both real MCP
+  client smoke variants, the 87-check PR-gated MCP runtime smoke, the strict
+  PR-bound release check, the documentation-site audit, roadmap contract,
+  secret scan, Markdown validation, MCP contract/inventory checks, compileall,
+  and diff checks. The disposable runtime vault and generated index were
+  removed afterward, and no completed Python or Git child remained.
+- GitHub Actions did not start any job for that committed head: CI run
+  [32984312243](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32984312243)
+  ended as `startup_failure` with GitHub's unexpected internal-error
+  annotation, while Pages run
+  [32984314390](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32984314390)
+  remained queued. This is recorded as an external delivery gate, not source
+  evidence. No version, DAG state, package publication, installed vault, host
+  configuration, or release is changed. Exact-head review, replacement PR CI,
+  Pages validation, and merge evidence remain pending.
 
 ## Completed BRG-017 Strict Configuration Boundary
 
