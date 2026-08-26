@@ -3441,7 +3441,7 @@ def _is_direct_mcp_client_smoke_dispatch(
         cursor = source_position + 1
 
     while cursor < command_index:
-        option = segment[cursor].casefold()
+        option = segment[cursor]
         if option == "--root" and cursor + 1 < command_index:
             cursor += 2
             continue
@@ -3449,9 +3449,61 @@ def _is_direct_mcp_client_smoke_dispatch(
             cursor += 1
             continue
         break
-    if cursor < command_index and segment[cursor].casefold() == "dev":
+    if cursor < command_index and segment[cursor] == "dev":
         cursor += 1
     return cursor == command_index
+
+
+MCP_CLIENT_SMOKE_VALUE_OPTIONS = frozenset(
+    {
+        "--client",
+        "--command",
+        "--command-arg",
+        "--config",
+        "--image",
+        "--mode",
+        "--server-name",
+    }
+)
+MCP_CLIENT_SMOKE_VALUE_CHOICES = {
+    "--client": frozenset({"generic", "codex", "claude"}),
+    "--mode": frozenset({"installed", "docker"}),
+}
+MCP_CLIENT_SMOKE_FLAG_OPTIONS = frozenset({"--json"})
+
+
+def _parse_mcp_client_smoke_arguments(
+    arguments: tuple[str, ...],
+) -> tuple[dict[str, list[str]], str | None]:
+    """Parse one documented smoke tail with argparse-compatible exact grammar."""
+
+    parsed: dict[str, list[str]] = {}
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in MCP_CLIENT_SMOKE_FLAG_OPTIONS:
+            parsed.setdefault(argument, []).append("true")
+            index += 1
+            continue
+
+        option, separator, attached_value = argument.partition("=")
+        if option not in MCP_CLIENT_SMOKE_VALUE_OPTIONS:
+            return {}, f"unsupported option or positional token {argument!r}"
+        if separator:
+            value = attached_value
+        else:
+            if index + 1 >= len(arguments) or arguments[index + 1].startswith("--"):
+                return {}, f"{option} requires a value"
+            index += 1
+            value = arguments[index]
+        if not value:
+            return {}, f"{option} requires a non-empty value"
+        choices = MCP_CLIENT_SMOKE_VALUE_CHOICES.get(option)
+        if choices is not None and value not in choices:
+            return {}, f"{option} has unsupported value {value!r}"
+        parsed.setdefault(option, []).append(value)
+        index += 1
+    return parsed, None
 
 
 def _mcp_client_smoke_command_errors(
@@ -3477,18 +3529,28 @@ def _mcp_client_smoke_command_errors(
         except ValueError:
             continue
         for segment in _source_execution_segments(tokens):
-            folded = tuple(token.casefold() for token in segment)
-            for command_index, token in enumerate(folded):
+            for command_index, token in enumerate(segment):
+                if token.casefold() != "mcp-client-smoke":
+                    continue
                 if token != "mcp-client-smoke":
+                    errors.append(
+                        f"{label}:{line_number}: mcp-client-smoke must use the exact "
+                        "lower-case subcommand spelling accepted by argparse"
+                    )
                     continue
                 direct_dispatch = _is_direct_mcp_client_smoke_dispatch(
                     segment,
                     command_index,
                 )
+                if not direct_dispatch:
+                    errors.append(
+                        f"{label}:{line_number}: mcp-client-smoke must be the directly "
+                        "executed subcommand after an exact optional dev dispatcher"
+                    )
 
                 root_positions = [
                     index
-                    for index, value in enumerate(folded[:command_index])
+                    for index, value in enumerate(segment[:command_index])
                     if value == "--root" or value.startswith("--root=")
                 ]
                 root_is_complete = len(root_positions) == 1
@@ -3496,7 +3558,7 @@ def _mcp_client_smoke_command_errors(
                 if root_is_complete:
                     root_position = root_positions[0]
                     root_option = segment[root_position]
-                    if root_option.casefold() == "--root":
+                    if root_option == "--root":
                         root_is_complete = (
                             root_position + 1 < command_index
                             and bool(segment[root_position + 1].strip())
@@ -3521,31 +3583,22 @@ def _mcp_client_smoke_command_errors(
                         "absolute initialized-vault --root before the command; bind a separate vault"
                     )
 
-                launcher = ""
-                launch_mode = "installed"
-                command_arguments: list[str] = []
-                argument_index = command_index + 1
-                while argument_index < len(segment):
-                    option = folded[argument_index]
-                    command_argument: str | None = None
-                    if option == "--command" and argument_index + 1 < len(segment):
-                        launcher = segment[argument_index + 1]
-                        argument_index += 1
-                    elif option.startswith("--command="):
-                        launcher = segment[argument_index].partition("=")[2]
-                    elif option == "--mode" and argument_index + 1 < len(segment):
-                        launch_mode = segment[argument_index + 1].casefold()
-                        argument_index += 1
-                    elif option.startswith("--mode="):
-                        launch_mode = segment[argument_index].partition("=")[2].casefold()
-                    elif option == "--command-arg" and argument_index + 1 < len(segment):
-                        command_argument = segment[argument_index + 1]
-                        argument_index += 1
-                    elif option.startswith("--command-arg="):
-                        command_argument = segment[argument_index].partition("=")[2]
-                    if command_argument is not None:
-                        command_arguments.append(command_argument.replace("\\", "/"))
-                    argument_index += 1
+                parsed_arguments, grammar_error = _parse_mcp_client_smoke_arguments(
+                    segment[command_index + 1 :]
+                )
+                if grammar_error is not None:
+                    errors.append(
+                        f"{label}:{line_number}: mcp-client-smoke must use exact supported "
+                        f"option grammar: {grammar_error}"
+                    )
+                    continue
+
+                launcher = parsed_arguments.get("--command", [""])[-1]
+                launch_mode = parsed_arguments.get("--mode", ["installed"])[-1]
+                command_arguments = [
+                    value.replace("\\", "/")
+                    for value in parsed_arguments.get("--command-arg", [])
+                ]
 
                 launcher_name = _launcher_name(launcher)
                 python_launcher = PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher_name)

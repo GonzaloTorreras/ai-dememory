@@ -398,14 +398,17 @@ local-API onboarding hint and documentation follow-up.
   must execute exactly one absolute `scripts/ai_dememory.py` child as its
   program argument, after only the optional Windows `py -3[.N]` selector.
   Preceding interpreter modes or scripts, literal `~`, relative paths, and
-  unprovable shell-variable child paths are rejected. General operations
+  unprovable shell-variable child paths are rejected. Subcommand, dispatcher,
+  option, and choice spelling is case-sensitive, and every tail token must be
+  consumed by the supported `mcp-client-smoke` grammar. General operations
   guidance can still smoke the installed `ai-dememory` command.
-- Local validation for the current candidate tree passes 641 memory-tool tests
+- Local validation for the current candidate tree passes 643 memory-tool tests
   with 45 expected platform skips, 156 documentation/profile tests, the
   documentation, PR-template and release-checklist guards, secret scan,
   compileall, and diff checks. Focal canaries additionally reject a missing,
-  shadowed, non-absolute, duplicate, Docker, echoed, or displaced Python source
-  launch while preserving direct installed-command guidance. The preceding
+  shadowed, non-absolute, duplicate, Docker, echoed, displaced, case-tampered,
+  unknown-option, invalid-choice, or incomplete Python source launch while
+  preserving direct installed-command guidance. The preceding
   committed head passed both real MCP client smoke variants, the 87-check
   PR-gated MCP runtime smoke, and the strict PR-bound release check; those
   commit-bound gates must be repeated after this corrective tree is committed.

@@ -836,8 +836,7 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] Installed `ai-dememory --root <initialized-smoke-vault> mcp-client-smoke` launches generated installed
   CLI config, sends `notifications/initialized`, and responds to `initialize`
   and `ping`.
-- [ ] Installed `ai-dememory --root <initialized-smoke-vault> mcp-client-smoke --config
-  <absolute-checkout>/plugins/ai-dememory/.mcp.json --command <installed-ai-dememory>` launches
+- [ ] Installed `ai-dememory --root <initialized-smoke-vault> mcp-client-smoke --config <absolute-checkout>/plugins/ai-dememory/.mcp.json --command ai-dememory` launches
   the checked-in plugin config, sends `notifications/initialized`, and responds
   to `initialize` and `ping`.
 - [ ] Installed `ai-dememory mcp --call memory.release_evidence --args "{}"`

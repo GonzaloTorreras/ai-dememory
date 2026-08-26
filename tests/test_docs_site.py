@@ -747,6 +747,41 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "docs/example.md",
             require_python_source_launch=True,
         )
+        tampered_grammar_commands = (
+            "python3 scripts/ai_dememory.py --ROOT /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault MCP-CLIENT-SMOKE "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--COMMAND python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --COMMAND-ARG /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--MODE INSTALLED\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--mode INSTALLED\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--bogus\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--client nope\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--server-name\n",
+            "ai-dememory --root /tmp/vault DEV mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+        )
+        tampered_grammar_errors = [
+            _mcp_client_smoke_command_errors(
+                command,
+                "docs/example.md",
+                require_python_source_launch=True,
+            )
+            for command in tampered_grammar_commands
+        ]
 
         self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
         self.assertTrue(any("requires exactly one" in error for error in relative_root), relative_root)
@@ -801,6 +836,16 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             ),
             displaced_when_source_required,
         )
+        for command_errors in tampered_grammar_errors:
+            with self.subTest(errors=command_errors):
+                self.assertTrue(command_errors)
+                self.assertTrue(
+                    any(
+                        "requires at least one complete Python source launch" in error
+                        for error in command_errors
+                    ),
+                    command_errors,
+                )
 
     def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:
         allowed = _pending_source_execution_errors(

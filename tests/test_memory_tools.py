@@ -17773,6 +17773,26 @@ jobs:
             issues,
         )
 
+    def test_pr_template_guard_rejects_case_tampered_mcp_client_smoke_grammar(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace("--command python3", "--COMMAND python3")
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("exact supported option grammar" in issue.message for issue in issues),
+            issues,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
 
@@ -18165,6 +18185,29 @@ This records future risks.
 
         issues = validate_release_checklist_text(weakened)
 
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_release_checklist_guard_rejects_unconsumed_mcp_client_smoke_tail(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py --bogus",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("exact supported option grammar" in issue.message for issue in issues),
+            issues,
+        )
         self.assertTrue(
             any(
                 "requires at least one complete Python source launch" in issue.message

@@ -47,9 +47,10 @@ accepted by the release identity guard.
 - Require PR and release-checklist MCP evidence to include a separate
   initialized vault and one direct installed-mode Python launch that executes
   the absolute source-script path as its program argument (after the optional
-  Windows `py -3[.N]` selector). General operations guidance may still test the
-  installed `ai-dememory` command; the public source checkout is never a
-  runtime vault.
+  Windows `py -3[.N]` selector). Evidence commands use the exact case-sensitive
+  CLI grammar and may not hide unknown, incomplete, or invalid-choice tail
+  options. General operations guidance may still test the installed
+  `ai-dememory` command; the public source checkout is never a runtime vault.
 
 ## [2.1.1] - 2026-08-23
 
