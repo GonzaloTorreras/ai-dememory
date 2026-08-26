@@ -5,7 +5,7 @@ import io
 import os
 import signal
 import shlex
-from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, nullcontext, redirect_stderr, redirect_stdout
 from datetime import date, datetime, timezone
 from http import HTTPStatus
 from pathlib import Path
@@ -175,7 +175,7 @@ from memorylib import (  # noqa: E402
     safe_write_text,
     validate_memories,
 )
-from provider_import import capture_source, configure_provider, configure_provider_preview, detect_providers, import_chats, main as provider_main, provider_setup_plan, providers_status  # noqa: E402
+from provider_import import capture_source, configure_provider, configure_provider_preview, default_provider_paths, detect_providers, import_chats, main as provider_main, provider_setup_plan, providers_status  # noqa: E402
 from publish_guard import (  # noqa: E402
     validate_legacy_preflight_workflow_text,
     validate_publisher_inventory,
@@ -1141,31 +1141,31 @@ class MemoryToolTests(unittest.TestCase):
                 "provider configure",
                 provider_main,
                 ["configure", "codex", "--path", str(ROOT)],
-                "provider_import.repo_root",
+                "provider_import.load_config",
             ),
             (
                 "provider plan",
                 provider_main,
                 ["plan", "--json"],
-                "provider_import.repo_root",
+                "provider_import.load_config",
             ),
             (
                 "provider configure preview",
                 provider_main,
                 ["configure", "codex", "--path", str(ROOT), "--dry-run", "--json"],
-                "provider_import.repo_root",
+                "provider_import.load_config",
             ),
             (
                 "provider import",
                 provider_main,
                 ["import", "codex"],
-                "provider_import.repo_root",
+                "provider_import.load_config",
             ),
             (
                 "provider capture",
                 provider_main,
                 ["capture", "text", "--text", "Review candidate."],
-                "provider_import.repo_root",
+                "provider_import.load_config",
             ),
         )
         for label, target, argv, resolver in invocations:
@@ -1556,8 +1556,8 @@ class MemoryToolTests(unittest.TestCase):
                 error = io.StringIO()
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                    patch("provider_import.repo_root") as legacy_root,
-                    patch("provider_import.detect_providers") as detect,
+                    patch("provider_import.resolve_runtime_vault") as root_resolver,
+                    patch("provider_import.detect_local_providers") as detect,
                     redirect_stdout(output),
                     redirect_stderr(error),
                     self.assertRaises(SystemExit) as raised,
@@ -1579,7 +1579,7 @@ class MemoryToolTests(unittest.TestCase):
                     " ".join(output.getvalue().split()),
                 )
                 self.assertEqual(error.getvalue(), "")
-                legacy_root.assert_not_called()
+                root_resolver.assert_not_called()
                 detect.assert_not_called()
 
         unified_commands = (
@@ -1616,46 +1616,461 @@ class MemoryToolTests(unittest.TestCase):
                 self.assertEqual(error.getvalue(), "")
                 root_resolver.assert_not_called()
 
-    def test_provider_detect_remains_rootless_and_legacy_compatible(self) -> None:
-        class CapturedDetectModule:
-            dispatched: list[list[str]] = []
+        for label, target, argv in (
+            ("direct providers", provider_main, ["--help"]),
+            ("unified providers", cli_main, ["providers", "--help"]),
+        ):
+            with self.subTest(entrypoint=label):
+                output = io.StringIO()
+                error = io.StringIO()
+                with (
+                    patch("provider_import.resolve_runtime_vault") as direct_resolver,
+                    patch(
+                        "ai_dememory_tool.admin.provider_import.resolve_runtime_vault"
+                    ) as packaged_resolver,
+                    patch("ai_dememory_tool.cli.find_memory_root") as root_discovery,
+                    redirect_stdout(output),
+                    redirect_stderr(error),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    target(argv)
 
-            @staticmethod
-            def main(argv: list[str]) -> int:
-                CapturedDetectModule.dispatched.append(list(argv))
-                print("[]")
-                return 0
+                self.assertEqual(raised.exception.code, 0)
+                self.assertIn(
+                    "Legacy --root is accepted for compatibility but ignored by `detect`",
+                    " ".join(output.getvalue().split()),
+                )
+                self.assertEqual(error.getvalue(), "")
+                direct_resolver.assert_not_called()
+                packaged_resolver.assert_not_called()
+                root_discovery.assert_not_called()
 
+    def test_provider_detect_is_invariant_to_vault_selectors_config_and_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "ambient-vault"
-            root.mkdir()
-            direct_output = io.StringIO()
-            with (
-                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("provider_import.repo_root", return_value=root) as legacy_root,
-                patch("provider_import.detect_providers", return_value=[]),
-                redirect_stdout(direct_output),
-            ):
-                self.assertEqual(provider_main(["detect", "--json"]), 0)
-
-            unified_output = io.StringIO()
-            with (
-                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-                patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
-                patch("ai_dememory_tool.cli.configure_imports"),
-                patch(
-                    "ai_dememory_tool.cli.importlib.import_module",
-                    return_value=CapturedDetectModule,
+            base = Path(tmp)
+            vault_a = base / "vault-a"
+            vault_b = base / "vault-b"
+            cwd_a = base / "cwd-a"
+            cwd_b = base / "cwd-b"
+            host = base / "host"
+            selector_home = base / "selector-home"
+            for path in (vault_a, vault_b, cwd_a, cwd_b, host, selector_home):
+                path.mkdir()
+            vault_a_config = vault_a / ".ai-dememory.toml"
+            vault_a_config.write_text(
+                '[providers.codex]\nenabled = true\npath = "vault-config-canary"\n',
+                encoding="utf-8",
+            )
+            vault_b_config = vault_b / ".ai-dememory.toml"
+            vault_b_config.write_bytes(b"\xff")
+            selector = selector_home / "default-vault.json"
+            selector.write_text("{invalid-selector", encoding="utf-8")
+            codex_path = host / "codex"
+            codex_path.mkdir()
+            local_paths = {
+                "codex": [codex_path],
+                "claude": [host / "claude"],
+                "chatgpt": [host / "conversations.json"],
+                "cursor": [host / "cursor"],
+                "windsurf": [host / "windsurf"],
+            }
+            protected_bytes = {
+                vault_a_config: vault_a_config.read_bytes(),
+                vault_b_config: vault_b_config.read_bytes(),
+                selector: selector.read_bytes(),
+            }
+            network_root = r"\\server\share\vault-root-canary"
+            invocations = (
+                ("direct unbound", provider_main, ["detect", "--json"], cwd_a),
+                (
+                    "direct legacy network root",
+                    provider_main,
+                    ["--root", network_root, "detect", "--json"],
+                    cwd_b,
                 ),
-                redirect_stdout(unified_output),
-            ):
-                self.assertEqual(cli_main(["providers", "detect", "--json"]), 0)
+                (
+                    "unified global root",
+                    cli_main,
+                    ["--root", str(vault_a), "providers", "detect", "--json"],
+                    cwd_a,
+                ),
+                (
+                    "unified provider root",
+                    cli_main,
+                    ["providers", "--root", str(vault_b), "detect", "--json"],
+                    cwd_b,
+                ),
+            )
+            payloads: list[list[dict[str, object]]] = []
+            previous_cwd = Path.cwd()
+            with ExitStack() as stack:
+                stack.enter_context(
+                    patch.dict(
+                        os.environ,
+                        {
+                            "AI_DEMEMORY_ROOT": str(vault_b),
+                            "AI_DEMEMORY_CONFIG_HOME": str(selector_home),
+                        },
+                    )
+                )
+                stack.enter_context(
+                    patch("provider_import.default_provider_paths", return_value=local_paths)
+                )
+                stack.enter_context(
+                    patch(
+                        "ai_dememory_tool.admin.provider_import.default_provider_paths",
+                        return_value=local_paths,
+                    )
+                )
+                boundaries = (
+                    stack.enter_context(
+                        patch(
+                            "provider_import.resolve_runtime_vault",
+                            side_effect=AssertionError("rootless detect resolved a vault"),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.admin.provider_import.resolve_runtime_vault",
+                            side_effect=AssertionError(
+                                "packaged rootless detect resolved a vault"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "provider_import.load_config",
+                            side_effect=AssertionError("rootless detect read vault config"),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.admin.provider_import.load_config",
+                            side_effect=AssertionError(
+                                "packaged rootless detect read vault config"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "provider_import.provider_config",
+                            side_effect=AssertionError(
+                                "rootless detect requested provider config"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.admin.provider_import.provider_config",
+                            side_effect=AssertionError(
+                                "packaged rootless detect requested provider config"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.cli.load_default_vault",
+                            side_effect=AssertionError(
+                                "rootless detect read the saved selector"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.cli.find_memory_root",
+                            side_effect=AssertionError("rootless detect discovered the CWD"),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "provider_import.read_provider_file",
+                            side_effect=AssertionError(
+                                "rootless detect read provider content"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch(
+                            "ai_dememory_tool.admin.provider_import.read_provider_file",
+                            side_effect=AssertionError(
+                                "packaged rootless detect read provider content"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch.object(
+                            Path,
+                            "open",
+                            side_effect=AssertionError(
+                                "rootless detect opened provider content"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch.object(
+                            Path,
+                            "read_bytes",
+                            side_effect=AssertionError(
+                                "rootless detect read provider bytes"
+                            ),
+                        )
+                    ),
+                    stack.enter_context(
+                        patch.object(
+                            Path,
+                            "read_text",
+                            side_effect=AssertionError(
+                                "rootless detect read provider text"
+                            ),
+                        )
+                    ),
+                )
+                try:
+                    for label, target, argv, cwd in invocations:
+                        with self.subTest(entrypoint=label):
+                            os.chdir(cwd)
+                            output = io.StringIO()
+                            with redirect_stdout(output):
+                                self.assertEqual(target(argv), 0)
+                            self.assertNotIn(network_root, output.getvalue())
+                            payloads.append(json.loads(output.getvalue()))
+                finally:
+                    os.chdir(previous_cwd)
 
-        self.assertEqual(json.loads(direct_output.getvalue()), [])
-        legacy_root.assert_called_once_with(None)
-        self.assertEqual(json.loads(unified_output.getvalue()), [])
-        root_resolver.assert_not_called()
-        self.assertEqual(CapturedDetectModule.dispatched, [["detect", "--json"]])
+            for boundary in boundaries:
+                boundary.assert_not_called()
+            for path, expected in protected_bytes.items():
+                self.assertEqual(path.read_bytes(), expected)
+
+        self.assertTrue(payloads)
+        self.assertTrue(all(payload == payloads[0] for payload in payloads[1:]))
+        self.assertEqual(
+            {item["name"] for item in payloads[0]},
+            {"chatgpt", "claude", "codex", "cursor", "windsurf"},
+        )
+        rows = {item["name"]: item for item in payloads[0]}
+        self.assertEqual(rows["codex"]["path"], str(codex_path))
+        self.assertTrue(rows["codex"]["exists"])
+        for name in ("chatgpt", "claude", "cursor", "windsurf"):
+            self.assertEqual(rows[name]["path"], str(local_paths[name][0]))
+            self.assertFalse(rows[name]["exists"])
+        for item in payloads[0]:
+            self.assertEqual(
+                set(item),
+                {"name", "path", "exists", "configured", "enabled"},
+            )
+            self.assertTrue(Path(str(item["path"])).is_absolute())
+            self.assertIsInstance(item["exists"], bool)
+            self.assertFalse(item["configured"])
+            self.assertFalse(item["enabled"])
+
+    def test_provider_detect_human_output_marks_vault_config_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            local_paths = {
+                name: [base / name]
+                for name in ("codex", "claude", "chatgpt", "cursor", "windsurf")
+            }
+            output = io.StringIO()
+            network_root = r"\\server\share\human-output-root-canary"
+            with (
+                patch("provider_import.default_provider_paths", return_value=local_paths),
+                patch(
+                    "provider_import.resolve_runtime_vault",
+                    side_effect=AssertionError("rootless detect resolved a legacy root"),
+                ) as root_resolver,
+                patch(
+                    "provider_import.load_config",
+                    side_effect=AssertionError("rootless detect read config"),
+                ) as config_reader,
+                redirect_stdout(output),
+            ):
+                self.assertEqual(provider_main(["--root", network_root, "detect"]), 0)
+
+            root_resolver.assert_not_called()
+            config_reader.assert_not_called()
+
+        rendered = output.getvalue()
+        self.assertEqual(rendered.count("config=n/a"), 5)
+        self.assertNotIn("disabled", rendered)
+        self.assertNotIn(network_root, rendered)
+
+    def test_provider_detect_rejects_invalid_root_grammar_before_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root_a = str((Path(tmp) / "vault-a").resolve())
+            root_b = str((Path(tmp) / "vault-b").resolve())
+            invocations = (
+                (
+                    "direct blank",
+                    provider_main,
+                    ["--root=", "detect", "--json"],
+                    "provider_import.detect_local_providers",
+                ),
+                (
+                    "direct duplicate",
+                    provider_main,
+                    ["--root", root_a, "--root", root_b, "detect", "--json"],
+                    "provider_import.detect_local_providers",
+                ),
+                (
+                    "direct misplaced",
+                    provider_main,
+                    ["detect", "--root", root_a, "--json"],
+                    "provider_import.detect_local_providers",
+                ),
+                (
+                    "unified blank",
+                    cli_main,
+                    ["--root=", "providers", "detect", "--json"],
+                    "ai_dememory_tool.admin.provider_import.detect_local_providers",
+                ),
+                (
+                    "unified duplicate",
+                    cli_main,
+                    ["--root", root_a, "providers", "--root", root_b, "detect", "--json"],
+                    "ai_dememory_tool.admin.provider_import.detect_local_providers",
+                ),
+                (
+                    "unified misplaced",
+                    cli_main,
+                    ["providers", "detect", "--root", root_a, "--json"],
+                    "ai_dememory_tool.admin.provider_import.detect_local_providers",
+                ),
+            )
+            for label, target, argv, detector_name in invocations:
+                with self.subTest(entrypoint=label):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch(detector_name) as detector,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                    ):
+                        try:
+                            exit_code = target(argv)
+                        except SystemExit as exc:
+                            exit_code = int(exc.code)
+
+                    self.assertEqual(exit_code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertTrue(error.getvalue())
+                    detector.assert_not_called()
+
+    def test_default_provider_paths_use_platform_native_cwd_invariant_fallbacks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            home = base / "home"
+            cwd_a = base / "cwd-a"
+            cwd_b = base / "cwd-b"
+            for path in (home, cwd_a, cwd_b):
+                path.mkdir()
+
+            windows_missing = default_provider_paths(
+                environ={},
+                home=home,
+                platform="win32",
+            )
+            windows_blank = default_provider_paths(
+                environ={"APPDATA": "  "},
+                home=home,
+                platform="win32",
+            )
+            windows_network = default_provider_paths(
+                environ={"APPDATA": r"\\server\share\roaming"},
+                home=home,
+                platform="win32",
+            )
+            windows_slash_network = default_provider_paths(
+                environ={"APPDATA": "//server/share/roaming"},
+                home=home,
+                platform="win32",
+            )
+            previous_cwd = Path.cwd()
+            windows_relative_results = []
+            linux_relative_results = []
+            try:
+                for cwd in (cwd_a, cwd_b):
+                    os.chdir(cwd)
+                    windows_relative_results.append(
+                        default_provider_paths(
+                            environ={"APPDATA": "relative/roaming"},
+                            home=home,
+                            platform="win32",
+                        )
+                    )
+                    linux_relative_results.append(
+                        default_provider_paths(
+                            environ={"XDG_CONFIG_HOME": "relative/config"},
+                            home=home,
+                            platform="linux",
+                        )
+                    )
+            finally:
+                os.chdir(previous_cwd)
+
+            windows_config = home / "AppData" / "Roaming"
+            custom_windows_config = base / "custom-roaming"
+            custom_windows = default_provider_paths(
+                environ={"APPDATA": str(custom_windows_config)},
+                home=home,
+                platform="win32",
+            )
+            macos = default_provider_paths(
+                environ={"APPDATA": str(base / "ignored-windows-config")},
+                home=home,
+                platform="darwin",
+            )
+            linux_missing = default_provider_paths(
+                environ={},
+                home=home,
+                platform="linux",
+            )
+            linux_network = default_provider_paths(
+                environ={"XDG_CONFIG_HOME": "//server/share/config"},
+                home=home,
+                platform="linux",
+            )
+            custom_linux_config = base / "xdg-config"
+            custom_linux = default_provider_paths(
+                environ={"XDG_CONFIG_HOME": str(custom_linux_config)},
+                home=home,
+                platform="linux",
+            )
+
+        self.assertEqual(windows_missing, windows_blank)
+        self.assertEqual(windows_missing, windows_network)
+        self.assertEqual(windows_missing, windows_slash_network)
+        self.assertEqual(windows_relative_results, [windows_missing, windows_missing])
+        self.assertEqual(
+            windows_missing["cursor"],
+            [windows_config / "Cursor" / "User"],
+        )
+        self.assertEqual(
+            custom_windows["cursor"],
+            [custom_windows_config / "Cursor" / "User"],
+        )
+        self.assertEqual(
+            macos["cursor"],
+            [home / "Library" / "Application Support" / "Cursor" / "User"],
+        )
+        self.assertEqual(linux_missing, linux_network)
+        self.assertEqual(linux_relative_results, [linux_missing, linux_missing])
+        self.assertEqual(
+            linux_missing["cursor"],
+            [home / ".config" / "Cursor" / "User"],
+        )
+        self.assertEqual(
+            custom_linux["cursor"],
+            [custom_linux_config / "Cursor" / "User"],
+        )
+        self.assertTrue(
+            all(
+                path.is_absolute()
+                for candidates in (windows_missing, macos, linux_missing)
+                for paths in candidates.values()
+                for path in paths
+            )
+        )
 
     def test_direct_maintenance_requires_runtime_binding_before_work(self) -> None:
         invocations = (
@@ -1896,7 +2311,6 @@ class MemoryToolTests(unittest.TestCase):
 
     def test_provider_config_commands_reject_invalid_config_before_writes(self) -> None:
         invocations = (
-            ("detect", ["detect", "--json"]),
             ("plan", ["plan", "--json"]),
             (
                 "configure preview",
@@ -1983,20 +2397,35 @@ class MemoryToolTests(unittest.TestCase):
                 ["run", "--dry-run", "--json"],
                 "maintenance.resolve_runtime_vault",
             ),
-            ("provider detect", provider_main, ["detect", "--json"], "provider_import.repo_root"),
-            ("provider plan", provider_main, ["plan", "--json"], "provider_import.repo_root"),
+            (
+                "provider detect",
+                provider_main,
+                ["detect", "--json"],
+                "provider_import.detect_local_providers",
+            ),
+            (
+                "provider plan",
+                provider_main,
+                ["plan", "--json"],
+                "provider_import.resolve_runtime_vault",
+            ),
             (
                 "provider configure",
                 provider_main,
                 ["configure", "codex", "--path", "C:/provider"],
-                "provider_import.repo_root",
+                "provider_import.resolve_runtime_vault",
             ),
-            ("provider import", provider_main, ["import", "codex"], "provider_import.repo_root"),
+            (
+                "provider import",
+                provider_main,
+                ["import", "codex"],
+                "provider_import.resolve_runtime_vault",
+            ),
             (
                 "provider capture",
                 provider_main,
                 ["capture", "text", "--text", "Reviewed candidate."],
-                "provider_import.repo_root",
+                "provider_import.resolve_runtime_vault",
             ),
             ("schedule plan", schedule_main, ["plan", "--json"], "schedule_memory.resolve_runtime_vault"),
             ("schedule setup", schedule_main, ["setup"], "schedule_memory.resolve_runtime_vault"),
@@ -2245,7 +2674,7 @@ class MemoryToolTests(unittest.TestCase):
         direct_error = io.StringIO()
         with (
             patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
-            patch("provider_import.repo_root") as root_resolver,
+            patch("provider_import.resolve_runtime_vault") as root_resolver,
             redirect_stdout(output),
             redirect_stderr(direct_error),
             self.assertRaises(SystemExit) as raised,
@@ -9612,10 +10041,66 @@ class MemoryToolTests(unittest.TestCase):
             configure_provider(root, "codex", provider)
 
             candidates = {candidate.name: candidate for candidate in detect_providers(root)}
+            mcp_candidates = {
+                candidate["name"]: candidate
+                for candidate in call_tool("memory.providers_detect", {}, root)["providers"]
+            }
 
         self.assertTrue(candidates["codex"].configured)
         self.assertTrue(candidates["codex"].enabled)
         self.assertTrue(candidates["codex"].exists)
+        self.assertTrue(mcp_candidates["codex"]["configured"])
+        self.assertTrue(mcp_candidates["codex"]["enabled"])
+        self.assertTrue(mcp_candidates["codex"]["exists"])
+
+    def test_vault_bound_provider_detection_rejects_relative_config_before_cwd_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "vault"
+            cwd_with_candidate = base / "cwd-with-candidate"
+            other_cwd = base / "other-cwd"
+            for path in (root, cwd_with_candidate / "relative" / "provider", other_cwd):
+                path.mkdir(parents=True)
+            (root / ".ai-dememory.toml").write_text(
+                '[providers.codex]\nenabled = true\npath = "relative/provider"\n',
+                encoding="utf-8",
+            )
+            invocations = (
+                ("direct detect", lambda: detect_providers(root)),
+                ("direct status", lambda: providers_status(root)),
+                ("direct plan", lambda: provider_setup_plan(root)),
+                ("direct import", lambda: import_chats(root, "codex", dry_run=True)),
+                ("mcp detect", lambda: call_tool("memory.providers_detect", {}, root)),
+                ("mcp status", lambda: call_tool("memory.providers_status", {}, root)),
+                ("mcp plan", lambda: call_tool("memory.providers_plan", {}, root)),
+            )
+            errors: list[str] = []
+            previous_cwd = Path.cwd()
+            try:
+                for label, target in invocations:
+                    for cwd in (cwd_with_candidate, other_cwd):
+                        with self.subTest(entrypoint=label, cwd=cwd.name):
+                            os.chdir(cwd)
+                            with (
+                                patch.object(
+                                    Path,
+                                    "exists",
+                                    side_effect=AssertionError(
+                                        "relative provider path reached a filesystem probe"
+                                    ),
+                                ) as path_probe,
+                                self.assertRaises(ValueError) as raised,
+                            ):
+                                target()
+                            path_probe.assert_not_called()
+                            errors.append(str(raised.exception))
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertEqual(
+            set(errors),
+            {"configured provider path is unsafe [provider_path_unsafe] (provider=codex)"},
+        )
 
     def test_provider_configure_dry_run_previews_without_writing_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

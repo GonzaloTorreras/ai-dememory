@@ -1053,6 +1053,60 @@ def assert_hook_dispatch(stdout: str) -> None:
         raise InstallSmokeError("hook dispatch exposed the internal install-smoke fixture")
 
 
+def snapshot_test_tree(root: Path) -> dict[str, tuple[str, str]]:
+    """Return an exact, bounded snapshot of a smoke-owned temporary tree."""
+
+    if not root.exists():
+        return {}
+    snapshot: dict[str, tuple[str, str]] = {}
+    for path in sorted(root.rglob("*"), key=lambda item: item.as_posix()):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            snapshot[relative] = ("symlink", os.readlink(path))
+        elif path.is_dir():
+            snapshot[relative] = ("directory", "")
+        elif path.is_file():
+            snapshot[relative] = ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+        else:
+            snapshot[relative] = ("other", "")
+    return snapshot
+
+
+def assert_rootless_provider_detection(
+    stdout: str,
+    *,
+    expected_paths: dict[str, Path],
+) -> None:
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise InstallSmokeError(f"provider detect did not return JSON: {exc}") from exc
+    expected_names = {"chatgpt", "claude", "codex", "cursor", "windsurf"}
+    if (
+        not isinstance(data, list)
+        or len(data) != len(expected_names)
+        or {item.get("name") for item in data if isinstance(item, dict)} != expected_names
+    ):
+        raise InstallSmokeError("provider detect did not return the complete provider inventory")
+    expected_fields = {"name", "path", "exists", "configured", "enabled"}
+    for item in data:
+        if not isinstance(item, dict) or set(item) != expected_fields:
+            raise InstallSmokeError("provider detect returned an unexpected row shape")
+        if not isinstance(item["exists"], bool):
+            raise InstallSmokeError("provider detect returned a non-boolean existence state")
+        candidate = Path(str(item["path"]))
+        if not candidate.is_absolute():
+            raise InstallSmokeError("provider detect returned a relative candidate path")
+        resolved_candidate = candidate.resolve(strict=False)
+        expected = expected_paths[item["name"]].resolve(strict=False)
+        if resolved_candidate != expected:
+            raise InstallSmokeError("provider detect returned an unexpected host candidate path")
+        if item["exists"] is not True:
+            raise InstallSmokeError("provider detect missed an existing host candidate")
+        if item["configured"] is not False or item["enabled"] is not False:
+            raise InstallSmokeError("rootless provider detect reported vault configuration state")
+
+
 def package_smoke_commands() -> list[tuple[str, list[str]]]:
     return [
         ("doctor", ["doctor"]),
@@ -1494,7 +1548,10 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         venv = temp_path / "venv"
         vault = temp_path / "vault"
         foreign_vault = temp_path / "foreign-vault"
+        environment_vault = temp_path / "environment-vault"
         config_home = temp_path / "config-home"
+        provider_home = temp_path / "provider-home"
+        provider_appdata = temp_path / "provider-appdata"
         template_export = temp_path / "vault-template-export"
         sample = vault / "sample.md"
         run_step(steps, "create venv", [sys.executable, "-m", "venv", str(venv)])
@@ -1542,6 +1599,73 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             raise InstallSmokeError(
                 "installed maintenance status did not reject foreign CWD discovery"
             )
+        # Poison every vault-selection source that a supposedly rootless
+        # diagnostic could accidentally consult. Provider candidates also live
+        # in smoke-owned trees so their complete contents can be proven stable.
+        (foreign_vault / ".ai-dememory.toml").write_bytes(b"\xff")
+        environment_vault.mkdir(parents=True, exist_ok=True)
+        (environment_vault / ".ai-dememory.toml").write_bytes(b"\xfe")
+        config_home.mkdir(parents=True, exist_ok=True)
+        (config_home / "default-vault.json").write_text("{invalid", encoding="utf-8")
+        if os.name == "nt":
+            app_config = provider_appdata
+        elif sys.platform == "darwin":
+            app_config = provider_home / "Library" / "Application Support"
+        else:
+            app_config = provider_appdata
+        expected_provider_paths = {
+            "codex": provider_home / ".codex",
+            "claude": provider_home / ".claude",
+            "chatgpt": provider_home / "Downloads" / "conversations.json",
+            "cursor": app_config / "Cursor" / "User",
+            "windsurf": app_config / "Windsurf" / "User",
+        }
+        provider_markers = tuple(
+            path
+            if name == "chatgpt"
+            else path / "smoke-marker.txt"
+            for name, path in expected_provider_paths.items()
+        )
+        for marker in provider_markers:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("install-smoke-provider-marker\n", encoding="utf-8")
+        protected_trees = (
+            vault,
+            foreign_vault,
+            environment_vault,
+            config_home,
+            provider_home,
+            provider_appdata,
+        )
+        before_detect = {tree: snapshot_test_tree(tree) for tree in protected_trees}
+        rootless_detect = run_step(
+            steps,
+            "installed provider detect ignores vault selectors and config",
+            [
+                str(ai_dememory),
+                "--root",
+                str(foreign_vault),
+                "providers",
+                "detect",
+                "--json",
+            ],
+            cwd=foreign_vault,
+            env={
+                **selector_env,
+                "AI_DEMEMORY_ROOT": str(environment_vault),
+                "HOME": str(provider_home),
+                "USERPROFILE": str(provider_home),
+                "APPDATA": str(provider_appdata),
+                "XDG_CONFIG_HOME": str(provider_appdata),
+            },
+        )
+        assert_rootless_provider_detection(
+            rootless_detect.stdout,
+            expected_paths=expected_provider_paths,
+        )
+        after_detect = {tree: snapshot_test_tree(tree) for tree in protected_trees}
+        if after_detect != before_detect:
+            raise InstallSmokeError("rootless provider detect mutated a vault, selector, or provider tree")
         run_step(
             steps,
             "select installed default vault",
@@ -1551,7 +1675,6 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         )
         # Invalid UTF-8 is a guaranteed read failure for the legacy CWD path;
         # permissive config parsing must not make this negative control pass.
-        (foreign_vault / ".ai-dememory.toml").write_bytes(b"\xff")
         selected_status = run_step(
             steps,
             "installed maintenance status uses saved vault from foreign CWD",

@@ -323,13 +323,18 @@ the memory root.
 Configure providers explicitly:
 
 ```bash
-ai-dememory --root ~/code/my-memory providers detect
+ai-dememory providers detect
 ai-dememory --root ~/code/my-memory setup plan --json
 ai-dememory --root ~/code/my-memory setup health --json
 ai-dememory --root ~/code/my-memory providers plan --json
 ai-dememory --root ~/code/my-memory providers configure codex --path "$HOME/.codex" --dry-run --json
 ai-dememory --root ~/code/my-memory import-chats codex
 ```
+
+The CLI `providers detect` command is a rootless host diagnostic. A supplied
+legacy `--root` is accepted but ignored; its human table reports vault-only
+configuration fields as `n/a`. Provider plans, status, configuration, imports,
+and all MCP provider tools remain bound to the selected vault.
 
 Imported chats are review candidates. They must be scanned and rewritten before
 promotion into canonical memory. Preview provider configuration before writing

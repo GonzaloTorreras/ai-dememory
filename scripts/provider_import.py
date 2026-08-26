@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import stat
 import sys
-from typing import Any
+from typing import Any, Mapping
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if (SOURCE_ROOT / "pyproject.toml").is_file() and str(SOURCE_ROOT) not in sys.path:
@@ -27,7 +27,6 @@ from config_file import CONFIG_NAME, load_config, set_section
 from memorylib import (
     path_is_link_like,
     repo_relative_path,
-    repo_root,
     safe_write_text,
     slugify,
 )
@@ -70,8 +69,9 @@ VAULT_BINDING_HELP = (
     "uses the working directory to discover a vault."
 )
 PROVIDER_ROOT_HELP = (
-    f"Vault root. {VAULT_BINDING_HELP} `detect` is read-only and does not "
-    "require a vault binding."
+    f"Vault root for provider commands that require a binding. {VAULT_BINDING_HELP} "
+    "Legacy --root is accepted for compatibility but ignored by `detect`; detection "
+    "uses only known host candidate locations."
 )
 
 
@@ -157,16 +157,76 @@ def provider_read_failure_message(provider: str, error: BaseException) -> str:
     )
 
 
-def default_provider_paths() -> dict[str, list[Path]]:
-    home = Path.home()
-    appdata = Path(os.environ.get("APPDATA", ""))
+def default_provider_paths(
+    *,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+    platform: str | None = None,
+) -> dict[str, list[Path]]:
+    """Return absolute host candidates without consulting the working directory.
+
+    ``Path("")`` represents the working directory. Treating a missing or invalid
+    app-config value as a path therefore made provider detection depend on where
+    the command happened to run. Each platform now uses its native config home;
+    blank, relative, and UNC-style overrides are never probed directly.
+    """
+
+    values = os.environ if environ is None else environ
+    selected_home = (Path.home() if home is None else Path(home)).expanduser()
+    if not selected_home.is_absolute():
+        raise ValueError("provider home must be an absolute path")
+    selected_home = Path(os.path.normpath(selected_home))
+    selected_platform = sys.platform if platform is None else platform
+
+    if selected_platform == "win32":
+        config_home = absolute_environment_path(values, "APPDATA")
+        app_config = config_home or selected_home / "AppData" / "Roaming"
+    elif selected_platform == "darwin":
+        app_config = selected_home / "Library" / "Application Support"
+    else:
+        config_home = absolute_environment_path(values, "XDG_CONFIG_HOME")
+        app_config = config_home or selected_home / ".config"
     return {
-        "codex": [home / ".codex"],
-        "claude": [home / ".claude", appdata / "Claude"],
-        "chatgpt": [home / "Downloads" / "conversations.json"],
-        "cursor": [appdata / "Cursor" / "User"],
-        "windsurf": [appdata / "Windsurf" / "User"],
+        "codex": [selected_home / ".codex"],
+        "claude": [selected_home / ".claude", app_config / "Claude"],
+        "chatgpt": [selected_home / "Downloads" / "conversations.json"],
+        "cursor": [app_config / "Cursor" / "User"],
+        "windsurf": [app_config / "Windsurf" / "User"],
     }
+
+
+def absolute_environment_path(values: Mapping[str, str], name: str) -> Path | None:
+    """Return one absolute non-UNC environment path without filesystem access."""
+
+    raw_value = str(values.get(name) or "").strip()
+    if not raw_value or raw_value.startswith(("\\\\", "//")):
+        return None
+    candidate = Path(raw_value).expanduser()
+    if not candidate.is_absolute():
+        return None
+    return Path(os.path.normpath(candidate))
+
+
+def absolute_provider_source_path(value: str | Path, provider: str) -> Path:
+    """Normalize an explicit provider source without falling through to CWD."""
+
+    try:
+        path = Path(value).expanduser()
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise ProviderImportError("provider_path_unsafe", provider) from exc
+    if not path.is_absolute():
+        raise ProviderImportError("provider_path_unsafe", provider)
+    return Path(os.path.abspath(path))
+
+
+def first_existing_candidate(paths: list[Path]) -> tuple[Path, bool]:
+    """Select the first existing metadata-only candidate with one probe each."""
+
+    chosen = paths[0]
+    for path in paths:
+        if path.exists():
+            return path, True
+    return chosen, False
 
 
 def provider_config(root: Path) -> dict[str, dict[str, Any]]:
@@ -184,15 +244,37 @@ def detect_providers(root: Path) -> list[ProviderCandidate]:
     for name, default_paths in default_provider_paths().items():
         values = configured.get(name, {})
         configured_path = str(values.get("path") or "")
-        paths = [Path(configured_path).expanduser()] if configured_path else default_paths
-        chosen = next((path for path in paths if path.exists()), paths[0])
+        paths = (
+            [absolute_provider_source_path(configured_path, name)]
+            if configured_path
+            else default_paths
+        )
+        chosen, exists = first_existing_candidate(paths)
         candidates.append(
             ProviderCandidate(
                 name=name,
                 path=str(chosen),
-                exists=chosen.exists(),
+                exists=exists,
                 configured=name in configured,
                 enabled=bool(values.get("enabled", False)),
+            )
+        )
+    return candidates
+
+
+def detect_local_providers() -> list[ProviderCandidate]:
+    """Detect known host locations without consulting vault or selector state."""
+
+    candidates: list[ProviderCandidate] = []
+    for name, paths in default_provider_paths().items():
+        chosen, exists = first_existing_candidate(paths)
+        candidates.append(
+            ProviderCandidate(
+                name=name,
+                path=str(chosen),
+                exists=exists,
+                configured=False,
+                enabled=False,
             )
         )
     return candidates
@@ -335,7 +417,7 @@ def configured_import_path(root: Path, provider: str, source_path: Path | None) 
         if not configured:
             raise ProviderImportError("provider_path_unset", provider)
         path = Path(configured)
-    lexical = Path(os.path.abspath(path.expanduser()))
+    lexical = absolute_provider_source_path(path, provider)
     if path_is_link_like(lexical):
         raise ProviderImportError("provider_path_unsafe", provider)
     return lexical
@@ -952,26 +1034,19 @@ def _main(argv: list[str] | None = None) -> int:
     if root_was_supplied and (not args.root or not args.root.strip()):
         parser.error("--root requires a non-empty vault path")
     if args.command == "detect":
-        # Detection is a read-only compatibility surface. It intentionally
-        # retains its legacy root resolution rather than requiring a runtime
-        # vault binding.
-        root = repo_root(args.root)
-    else:
-        try:
-            root = resolve_runtime_vault(args.root).root
-        except VaultBindingError as exc:
-            parser.error(str(exc))
-
-    if args.command == "detect":
-        candidates = detect_providers(root)
+        candidates = detect_local_providers()
         if args.json:
             print(json.dumps([asdict(candidate) for candidate in candidates], indent=2))
         else:
             for candidate in candidates:
-                marker = "enabled" if candidate.enabled else "disabled"
                 exists = "exists" if candidate.exists else "missing"
-                print(f"{candidate.name:<10} {marker:<8} {exists:<7} {candidate.path}")
+                print(f"{candidate.name:<10} {'config=n/a':<12} {exists:<7} {candidate.path}")
         return 0
+
+    try:
+        root = resolve_runtime_vault(args.root).root
+    except VaultBindingError as exc:
+        parser.error(str(exc))
 
     if args.command == "plan":
         plan_result = provider_setup_plan(root, command=args.cli_command)

@@ -43,7 +43,7 @@ packets, hooks, or scheduler work. Preview before applying any stateful action:
 ```bash
 ai-dememory --root ~/code/my-memory setup plan --json
 ai-dememory --root ~/code/my-memory setup health --json
-ai-dememory --root ~/code/my-memory providers detect
+ai-dememory providers detect
 ai-dememory --root ~/code/my-memory schedule plan --json
 ai-dememory --root ~/code/my-memory schedule setup --dry-run
 ai-dememory --root ~/code/my-memory maintenance run --profile daily --dry-run --json
