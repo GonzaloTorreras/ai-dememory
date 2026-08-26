@@ -691,6 +691,29 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "--command python3\n",
             "docs/example.md",
         )
+        shadowed_python_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /tmp/other.py "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        python_code_before_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg=-c --command-arg pass "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        literal_tilde_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg ~/code/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        valid_py_launcher = _mcp_client_smoke_command_errors(
+            "py -3 scripts/ai_dememory.py --root C:/Temp/vault mcp-client-smoke "
+            "--command py --command-arg=-3.13 "
+            "--command-arg C:/code/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
 
         self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
         self.assertTrue(any("requires exactly one" in error for error in relative_root), relative_root)
@@ -703,6 +726,19 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             any("requires exactly one absolute" in error for error in missing_python_source),
             missing_python_source,
         )
+        self.assertTrue(
+            any("first program argument" in error for error in shadowed_python_source),
+            shadowed_python_source,
+        )
+        self.assertTrue(
+            any("first program argument" in error for error in python_code_before_source),
+            python_code_before_source,
+        )
+        self.assertTrue(
+            any("must use an absolute" in error for error in literal_tilde_source),
+            literal_tilde_source,
+        )
+        self.assertEqual([], valid_py_launcher)
 
     def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:
         allowed = _pending_source_execution_errors(

@@ -45,8 +45,9 @@ accepted by the release identity guard.
 ### Documentation
 
 - Require maintainer MCP client smokes to use a separate initialized vault and
-  an absolute source-script path; the public source checkout is never a runtime
-  vault.
+  to execute the absolute source-script path as Python's program argument
+  (after the optional Windows `py -3[.N]` selector); the public source checkout
+  is never a runtime vault.
 
 ## [2.1.1] - 2026-08-23
 
