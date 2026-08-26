@@ -273,12 +273,13 @@ broaden the implementation.
 - The operator guide is `docs/configuration.md`; ADR 0262 records why strict
   parsing is implemented in the existing Python runtime without a second
   parser, daemon, database, model call, or Node dependency.
-- Rebased local evidence on public `main` passed 203 combined strict-config,
-  review, provider, wizard, MCP-profile, hook, and binding tests with six
-  expected platform skips; the integrated memory-tools module passed 592 tests
-  with 45 expected skips; Python compilation, diff validation, and a repository
-  secret scan with zero findings also passed. Full-suite and exact-head PR/CI
-  evidence are still required before merge.
+- Rebased local evidence on public `main` passed the complete 994-test suite
+  with 59 expected platform skips. Its narrower evidence includes 203 combined
+  strict-config, review, provider, wizard, MCP-profile, hook, and binding tests
+  with six expected skips; the integrated memory-tools module passed 592 tests
+  with 45 expected skips. Python compilation, diff validation, planning/docs
+  guards, and a repository secret scan with zero findings also passed.
+  Exact-head independent review and PR CI are still required before merge.
 - The normative DAG now marks `BRG-017` complete with explicit evidence paths.
   `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
   task, and no package, tag, release, installed vault, host integration, or
