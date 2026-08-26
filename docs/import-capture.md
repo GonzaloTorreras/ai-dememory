@@ -19,20 +19,45 @@ ai-dememory providers detect
 ai-dememory --root <vault-path> providers plan --json
 ```
 
-`providers detect` is a rootless, read-only local diagnostic. In the unreleased
-2.1.2 source candidate, provider plans, configuration, imports, and captures
-resolve their selected vault in this order: absolute `--root <vault-path>`,
+`providers detect` is a rootless, read-only host diagnostic. It checks only the
+fixed host-derived candidate locations for the five supported providers. It does not
+read `.ai-dememory.toml`, the saved default-vault selector, or
+`AI_DEMEMORY_ROOT`, and changing the current directory cannot change its
+candidate paths. A supplied legacy `--root` is still accepted for command
+compatibility, but `detect` deliberately ignores it.
+
+JSON rows keep the compatible `name`, `path`, `exists`, `configured`, and
+`enabled` shape. `configured` and `enabled` are always `false` because the
+rootless command does not know a vault's configuration; the human-readable
+table displays that state as `n/a`, not as a disabled provider. On Windows, a
+missing, blank, relative, or UNC-style network `APPDATA` uses the absolute
+`%USERPROFILE%/AppData/Roaming` fallback without probing that `APPDATA` value
+or using the current directory. macOS uses `~/Library/Application Support`;
+Linux and other POSIX hosts use an absolute `XDG_CONFIG_HOME` or `~/.config`
+fallback. Relative or UNC-style config-home overrides are ignored.
+An unavailable, relative, or UNC-style home fails with a stable path-redacted
+diagnostic before detection can issue filesystem or network metadata probes.
+
+Provider plans, configuration, status, imports, and captures are different:
+they remain vault-bound. In the unreleased 2.1.2 source candidate, they resolve
+their selected vault in this order: absolute `--root <vault-path>`,
 `AI_DEMEMORY_ROOT`, then a local default deliberately saved with
 `ai-dememory vault use <absolute-vault-path>`. They never infer a vault from the
 current directory or source checkout. The published 2.1.1 package supports the
 first two bindings only until 2.1.2 is released. Keep `--root` explicit for
 automation and when more than one vault is in use.
 
-MCP clients can inspect configured import readiness with
-`memory.providers_status` and review provider setup commands with
-`memory.providers_plan`. These tools report configured, enabled, import-ready,
-and recommended command state without reading chat files or writing import
-candidates.
+MCP remains vault-bound. Clients can inspect configured discovery with
+`memory.providers_detect`, configured import readiness with
+`memory.providers_status`, and review provider setup commands with
+`memory.providers_plan`. These tools read the selected vault configuration and
+report configured, enabled, import-ready, and recommended command state without
+reading chat contents or writing import candidates. Provider paths written by
+the CLI are absolute; a manually edited relative provider path fails closed
+before detection, status, planning, or import can probe the current directory.
+For backward compatibility, an explicit one-shot `import-chats --path` override
+may still be relative to the directory where that command is invoked; it is not
+persisted as provider configuration.
 
 Configure a provider path:
 

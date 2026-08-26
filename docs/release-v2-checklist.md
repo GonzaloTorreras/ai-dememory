@@ -882,7 +882,21 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   fingerprint reuse the existing inbox file.
 - [ ] Equivalent JSON hook payloads with different formatting or key order reuse
   the existing inbox file.
-- [ ] `ai-dememory providers detect` runs without mutating provider folders.
+- [ ] `ai-dememory providers detect --json` returns five absolute host-derived
+  candidates with `configured=false` and `enabled=false`, without reading a
+  vault, saved selector, or provider contents; it does not mutate provider
+  folders or depend on the current directory.
+- [ ] Human-readable `ai-dememory providers detect` reports vault-only
+  configuration state as `n/a`, not as a disabled provider; a supplied legacy
+  root remains accepted but ignored.
+- [ ] Default candidates use native Windows, macOS, and XDG config homes;
+  missing, blank, relative, or UNC-style config-home overrides cannot turn
+  detection into a CWD-dependent or network-path probe.
+- [ ] An unavailable, relative, or UNC-style home fails with a stable redacted
+  diagnostic before candidate existence checks; provider static help remains
+  available without resolving a home.
+- [ ] A manually edited relative provider path fails closed before vault-bound
+  detection, status, planning, MCP, or import probes the current directory.
 - [ ] `ai-dememory --root <vault-path> providers plan --json` returns reviewable configure/import
   commands without reading provider files or writing import candidates.
 - [ ] `ai-dememory --root <vault-path> providers configure codex --path <path> --dry-run --json`
@@ -1044,7 +1058,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures review-plan`
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures packet --write-report`
 - [ ] `python3 scripts/ai_dememory.py vector status --write-report`
-- [ ] `python3 scripts/ai_dememory.py providers detect`
+- [ ] `python3 scripts/ai_dememory.py providers detect --json` remains rootless
+  even with conflicting explicit, environment, saved-selector, config, and CWD
+  vault inputs.
 - [ ] `python3 scripts/ai_dememory.py setup plan --json`
 - [ ] `python3 scripts/ai_dememory.py setup health --json`
 - [ ] `python3 scripts/ai_dememory.py --root <vault-path> providers plan --json`
