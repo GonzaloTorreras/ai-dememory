@@ -257,6 +257,23 @@ class OnboardingTests(unittest.TestCase):
             self.assertEqual(config_path.read_bytes(), original)
             self.assertEqual(list(root.iterdir()), [config_path])
 
+    def test_operational_setup_rejects_oversized_generated_config_before_plan_or_write(self) -> None:
+        payload = operational_answers()
+        payload["clients"] = [f"client-{index:05d}" for index in range(6000)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            with patch(
+                "onboarding.integration_plan",
+                side_effect=AssertionError("oversized candidate reached plan construction"),
+            ) as integrations, self.assertRaises(ConfigError) as raised:
+                operational_setup_plan(root, payload)
+
+            integrations.assert_not_called()
+            self.assertEqual(raised.exception.code, "config_too_large")
+            self.assertEqual(str(raised.exception), ".ai-dememory.toml: config error [config_too_large]")
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_onboarding_never_rewrites_existing_operational_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

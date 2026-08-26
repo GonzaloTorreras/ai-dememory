@@ -117,4 +117,3 @@ There is deliberately no automatic "accept unknown config" mode: guessing how
 to rewrite an unsupported policy could silently change safety or resource
 limits. Restore the backup and fix the reported field if a manual migration is
 uncertain.
-

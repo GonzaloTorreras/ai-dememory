@@ -113,4 +113,3 @@ restore a known-good packaged template before retrying an affected vault.
 - ADR 0257 defines bounded autonomy and resource profiles.
 - `docs/configuration.md` is the user-facing contract and migration guide.
 - `scripts/config_file.py` is the executable schema and safe writer.
-

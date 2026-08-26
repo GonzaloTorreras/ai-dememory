@@ -273,10 +273,10 @@ broaden the implementation.
 - The operator guide is `docs/configuration.md`; ADR 0262 records why strict
   parsing is implemented in the existing Python runtime without a second
   parser, daemon, database, model call, or Node dependency.
-- Rebased local evidence on public `main` passed the complete 994-test suite
-  with 59 expected platform skips. Its narrower evidence includes 203 combined
+- Rebased local evidence on public `main` ran the complete 994-test suite with
+  59 expected platform skips. Its narrower evidence ran 203 combined
   strict-config, review, provider, wizard, MCP-profile, hook, and binding tests
-  with six expected skips; the integrated memory-tools module passed 592 tests
+  with six expected skips; the integrated memory-tools module ran 592 tests
   with 45 expected skips. Python compilation, diff validation, planning/docs
   guards, and a repository secret scan with zero findings also passed.
   A fresh virtual environment installed the local package and exercised the

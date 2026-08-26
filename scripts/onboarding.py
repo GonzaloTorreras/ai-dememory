@@ -21,7 +21,7 @@ from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.cli import build_mcp_config
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from command_render import render_copy_command
-from config_file import parse_config_text, read_config_bytes
+from config_file import ConfigError, MAX_CONFIG_BYTES, parse_config_text, read_config_bytes
 from hook_event import hook_config
 from memorylib import path_is_link_like, slugify
 from resource_policy import (
@@ -178,6 +178,11 @@ def _setup_plan(
         # snapshot above and this complete candidate must both satisfy the
         # structural contract before a plan, fingerprint, or write payload can
         # be produced.
+        if len(updated_config.encode("utf-8")) > MAX_CONFIG_BYTES:
+            raise ConfigError(
+                "config_too_large",
+                source=".ai-dememory.toml",
+            )
         parse_config_text(
             updated_config,
             source=".ai-dememory.toml",
