@@ -714,6 +714,39 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "--command-arg C:/code/ai-dememory/scripts/ai_dememory.py\n",
             "docs/example.md",
         )
+        installed_launcher = (
+            "ai-dememory --root /tmp/vault mcp-client-smoke --command ai-dememory\n"
+        )
+        installed_general = _mcp_client_smoke_command_errors(
+            installed_launcher,
+            "docs/example.md",
+        )
+        installed_when_source_required = _mcp_client_smoke_command_errors(
+            installed_launcher,
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        docker_when_source_required = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--mode docker --command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        echoed_when_source_required = _mcp_client_smoke_command_errors(
+            "echo ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        displaced_when_source_required = _mcp_client_smoke_command_errors(
+            "ai-dememory --root /tmp/vault doctor mcp-client-smoke "
+            "--command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
 
         self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
         self.assertTrue(any("requires exactly one" in error for error in relative_root), relative_root)
@@ -739,6 +772,35 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             literal_tilde_source,
         )
         self.assertEqual([], valid_py_launcher)
+        self.assertEqual([], installed_general)
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in installed_when_source_required
+            ),
+            installed_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in docker_when_source_required
+            ),
+            docker_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in echoed_when_source_required
+            ),
+            echoed_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in displaced_when_source_required
+            ),
+            displaced_when_source_required,
+        )
 
     def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:
         allowed = _pending_source_execution_errors(

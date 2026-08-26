@@ -393,19 +393,22 @@ local-API onboarding hint and documentation follow-up.
 - Loaded non-Docker client configs normalize case-insensitive root environment
   aliases and reject embedded `--root`; loaded Docker configs fail closed and
   use generated `--mode docker` mounts instead. Documentation guards reject
-  relative vault roots and require an explicit Python launcher to execute
-  exactly one absolute `scripts/ai_dememory.py` child as its program argument,
-  after only the optional Windows `py -3[.N]` selector. Preceding interpreter
-  modes or scripts, literal `~`, relative paths, and unprovable shell-variable
-  child paths are rejected on the active smoke surfaces.
-- Local validation on committed head
-  `3ff771e25060257094ff40c55067e765f49f7cd8` passes 633 memory-tool tests with
-  45 expected platform skips, 156 documentation/profile tests, both real MCP
-  client smoke variants, the 87-check PR-gated MCP runtime smoke, the strict
-  PR-bound release check, the documentation-site audit, roadmap contract,
-  secret scan, Markdown validation, MCP contract/inventory checks, compileall,
-  and diff checks. The disposable runtime vault and generated index were
-  removed afterward, and no completed Python or Git child remained.
+  relative vault roots. PR and release-checklist evidence must include at least
+  one direct installed-mode Python source launch; any explicit Python launcher
+  must execute exactly one absolute `scripts/ai_dememory.py` child as its
+  program argument, after only the optional Windows `py -3[.N]` selector.
+  Preceding interpreter modes or scripts, literal `~`, relative paths, and
+  unprovable shell-variable child paths are rejected. General operations
+  guidance can still smoke the installed `ai-dememory` command.
+- Local validation for the current candidate tree passes 641 memory-tool tests
+  with 45 expected platform skips, 156 documentation/profile tests, the
+  documentation, PR-template and release-checklist guards, secret scan,
+  compileall, and diff checks. Focal canaries additionally reject a missing,
+  shadowed, non-absolute, duplicate, Docker, echoed, or displaced Python source
+  launch while preserving direct installed-command guidance. The preceding
+  committed head passed both real MCP client smoke variants, the 87-check
+  PR-gated MCP runtime smoke, and the strict PR-bound release check; those
+  commit-bound gates must be repeated after this corrective tree is committed.
 - GitHub Actions did not start any job for that committed head: CI run
   [32984312243](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32984312243)
   ended as `startup_failure` with GitHub's unexpected internal-error

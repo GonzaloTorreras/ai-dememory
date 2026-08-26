@@ -77,7 +77,11 @@ def validate_template_text(text: str) -> list[TemplateGuardIssue]:
                     f"missing required validation snippet: {snippet}",
                 )
             )
-    for error in _mcp_client_smoke_command_errors(text, TEMPLATE_PATH.as_posix()):
+    for error in _mcp_client_smoke_command_errors(
+        text,
+        TEMPLATE_PATH.as_posix(),
+        require_python_source_launch=True,
+    ):
         issues.append(
             TemplateGuardIssue(
                 "pull_request_template:mcp_client_smoke_contract",

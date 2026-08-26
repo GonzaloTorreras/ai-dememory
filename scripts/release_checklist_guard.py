@@ -625,7 +625,11 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
                     f"forbidden stale checklist claim: {snippet}",
                 )
             )
-    for error in _mcp_client_smoke_command_errors(text, CHECKLIST_PATH.as_posix()):
+    for error in _mcp_client_smoke_command_errors(
+        text,
+        CHECKLIST_PATH.as_posix(),
+        require_python_source_launch=True,
+    ):
         issues.append(
             ChecklistGuardIssue(
                 "release_checklist:mcp_client_smoke_contract",
