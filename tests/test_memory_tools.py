@@ -161,7 +161,7 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_archive,
     write_acceptance_packet_report,
 )
-from memory_mcp import TOOLS, call_tool, handle_rpc  # noqa: E402
+from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
 from mcp_client_smoke import override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
 from mcp_inventory import build_inventory, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
@@ -326,6 +326,14 @@ from ci_guard import (  # noqa: E402
 from artifact_guard import validate_artifact_paths, validate_staged_artifacts  # noqa: E402
 from vault_setup_guard import REQUIRED_IGNORES, validate_create_memory_repo_text, validate_gitignore_text, validate_vault_setup  # noqa: E402
 from durable_provenance import audit_durable_provenance, render_markdown as render_provenance_markdown  # noqa: E402
+
+
+def initialize_minimal_runtime_vault(root: Path) -> Path:
+    """Create only the structural marker needed by runtime-bound CLI tests."""
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / ".ai-dememory.toml"
+    marker.write_text("", encoding="utf-8")
+    return marker
 
 
 class MemoryToolTests(unittest.TestCase):
@@ -941,7 +949,7 @@ class MemoryToolTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            copy_template_tree(root)
             invocations = (
                 ("global setup root", ["--root", str(root), "setup", "plan", "--json"]),
                 ("post-command setup root", ["setup", "--root", str(root), "plan", "--json"]),
@@ -1047,7 +1055,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_maintenance_run_explicit_bindings_override_malformed_environment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "explicit-vault"
-            root.mkdir()
+            copy_template_tree(root)
             invocations = (
                 (
                     "global root",
@@ -1510,7 +1518,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_unified_provider_bindings_reach_valid_commands_without_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "explicit-vault"
-            root.mkdir()
+            copy_template_tree(root)
             output = io.StringIO()
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
@@ -2182,6 +2190,130 @@ class MemoryToolTests(unittest.TestCase):
                     ):
                         work_boundary.assert_not_called()
 
+    def test_structurally_invalid_selected_vault_stops_before_stateful_work(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "missing-vault-marker"
+            root.mkdir()
+            cases = (
+                (
+                    "mcp stdio",
+                    memory_mcp_main,
+                    ["--root", str(root), "--stdio"],
+                    ("memory_mcp.run_stdio",),
+                ),
+                (
+                    "api socket",
+                    api_main,
+                    ["--root", str(root), "--host", "127.0.0.1", "--port", "0"],
+                    ("http_api.serve",),
+                ),
+                (
+                    "hook config",
+                    hook_event_main,
+                    ["config", "--root", str(root), "--client", "codex"],
+                    ("hook_event.hook_config",),
+                ),
+                (
+                    "setup plan",
+                    setup_plan_main,
+                    ["--root", str(root), "plan", "--json"],
+                    ("setup_plan.setup_plan",),
+                ),
+                (
+                    "provider writer",
+                    provider_main,
+                    [
+                        "--root",
+                        str(root),
+                        "capture",
+                        "text",
+                        "--text",
+                        "reviewed fixture",
+                        "--json",
+                    ],
+                    ("provider_import.capture_source",),
+                ),
+                (
+                    "maintenance lock provider and child",
+                    maintenance_main,
+                    ["--root", str(root), "run", "--timeout-seconds", "300", "--json"],
+                    (
+                        "maintenance.maintenance_lock",
+                        "maintenance.enabled_providers",
+                        "maintenance.import_chats",
+                        "maintenance.run_maintenance",
+                        "maintenance.run_supervised_maintenance",
+                        "maintenance.run_supervised_process",
+                    ),
+                ),
+                (
+                    "schedule lock and writer",
+                    schedule_main,
+                    ["--root", str(root), "setup", "--json"],
+                    (
+                        "schedule_memory.vault_operation_lock",
+                        "schedule_memory.build_schedule_commands",
+                        "schedule_memory.run_install_commands",
+                        "schedule_memory.safe_write_text",
+                    ),
+                ),
+            )
+
+            for label, target, argv, boundary_names in cases:
+                with self.subTest(surface=label):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with ExitStack() as stack:
+                        boundaries = [
+                            stack.enter_context(patch(boundary_name))
+                            for boundary_name in boundary_names
+                        ]
+                        stack.enter_context(
+                            patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""})
+                        )
+                        stack.enter_context(redirect_stdout(output))
+                        stack.enter_context(redirect_stderr(error))
+                        raised = stack.enter_context(self.assertRaises(SystemExit))
+                        target(argv)
+
+                    self.assertEqual(raised.exception.code, 2)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("vault is missing .ai-dememory.toml", error.getvalue())
+                    for boundary in boundaries:
+                        boundary.assert_not_called()
+
+    def test_structural_validation_leaves_provider_detect_and_help_rootless(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            invalid_root = Path(tmp) / "missing-vault-marker"
+            invalid_root.mkdir()
+            detect_output = io.StringIO()
+            with (
+                patch("provider_import.resolve_runtime_vault") as resolver,
+                patch("provider_import.detect_local_providers", return_value=[]),
+                redirect_stdout(detect_output),
+            ):
+                self.assertEqual(
+                    provider_main(
+                        ["--root", str(invalid_root), "detect", "--json"]
+                    ),
+                    0,
+                )
+
+            resolver.assert_not_called()
+            self.assertEqual(json.loads(detect_output.getvalue()), [])
+
+            help_output = io.StringIO()
+            with (
+                patch("provider_import.resolve_runtime_vault") as resolver,
+                redirect_stdout(help_output),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                provider_main(["--root", str(invalid_root), "plan", "--help"])
+
+            self.assertEqual(raised.exception.code, 0)
+            self.assertIn("usage:", help_output.getvalue())
+            resolver.assert_not_called()
+
     def test_maintenance_status_uses_strict_precedence_and_ignores_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -2548,7 +2680,7 @@ class MemoryToolTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            copy_template_tree(root)
             setup_output = io.StringIO()
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_ROOT": str(root)}),
@@ -2833,6 +2965,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_mcp_config_supports_checkout_command_args(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
             output = io.StringIO()
 
             with patch("sys.stdout", output):
@@ -2867,16 +3000,19 @@ class MemoryToolTests(unittest.TestCase):
         )
 
     def test_mcp_client_smoke_launches_generated_checkout_config(self) -> None:
-        config = build_mcp_config(
-            "generic",
-            "installed",
-            ROOT,
-            command=sys.executable,
-            command_args=["scripts/ai_dememory.py"],
-        )
-        config["cwd"] = str(ROOT)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            copy_template_tree(vault)
+            config = build_mcp_config(
+                "generic",
+                "installed",
+                vault,
+                command=sys.executable,
+                command_args=["scripts/ai_dememory.py"],
+            )
+            config["cwd"] = str(ROOT)
 
-        result = run_client_config_smoke(config, ROOT.parent)
+            result = run_client_config_smoke(config, ROOT.parent)
 
         self.assertEqual(Path(result.cwd), ROOT)
         self.assertTrue(result.initialized)
@@ -9342,6 +9478,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_api_explicit_binding_wins_over_a_malformed_environment_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "explicit-vault"
+            copy_template_tree(root)
             error = io.StringIO()
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_ROOT": " \t"}),
@@ -9381,6 +9518,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_api_refuses_unauthenticated_network_bind(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
 
             with patch("sys.stderr", io.StringIO()):
                 exit_code = api_main(["--root", str(root), "--host", "0.0.0.0", "--port", "8765"])
@@ -9402,6 +9540,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_api_refuses_cleartext_network_bind_even_with_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
             with (
                 patch.dict(os.environ, {"AI_DEMEMORY_API_KEY": "test-key"}),
                 patch("sys.stderr", io.StringIO()),
@@ -9825,6 +9964,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_cli_capture_alias_reads_stdin(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             output = io.StringIO()
 
             with patch("sys.stdout", output), patch("sys.stdin", io.StringIO("Review-first capture.")):
@@ -10192,7 +10332,8 @@ class MemoryToolTests(unittest.TestCase):
             root = Path(tmp) / "vault"
             provider = Path(tmp) / "provider"
             provider.mkdir(parents=True)
-            root.mkdir()
+            copy_template_tree(root)
+            config_before = (root / ".ai-dememory.toml").read_bytes()
             output = io.StringIO()
 
             preview = configure_provider_preview(root, "codex", provider)
@@ -10210,7 +10351,7 @@ class MemoryToolTests(unittest.TestCase):
                     ]
                 )
             payload = json.loads(output.getvalue())
-            config_exists = (root / ".ai-dememory.toml").exists()
+            config_after = (root / ".ai-dememory.toml").read_bytes()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(preview["provider"], "codex")
@@ -10228,7 +10369,7 @@ class MemoryToolTests(unittest.TestCase):
         )
         self.assertEqual(payload["values"]["path"], str(provider.resolve()))
         self.assertTrue(payload["path_exists"])
-        self.assertFalse(config_exists)
+        self.assertEqual(config_after, config_before)
 
     def test_provider_status_reports_import_readiness_without_importing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -10349,8 +10490,12 @@ class MemoryToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root_a = Path(tmp) / "vault-a"
             root_b = Path(tmp) / "vault-b"
-            root_a.mkdir()
-            root_b.mkdir()
+            copy_template_tree(root_a)
+            copy_template_tree(root_b)
+            root_a_config = root_a / ".ai-dememory.toml"
+            root_b_config = root_b / ".ai-dememory.toml"
+            root_a_config_before = root_a_config.read_bytes()
+            root_b_config_before = root_b_config.read_bytes()
             expected_root_a = str(root_a.resolve())
             command = provider_setup_plan(root_a)["providers"][0]["configure_command"]
             output = io.StringIO()
@@ -10366,16 +10511,14 @@ class MemoryToolTests(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
 
-            root_a_config = root_a / ".ai-dememory.toml"
-            root_b_config = root_b / ".ai-dememory.toml"
-            root_a_config_exists = root_a_config.exists()
-            root_b_config_exists = root_b_config.exists()
+            root_a_config_after = root_a_config.read_bytes()
+            root_b_config_after = root_b_config.read_bytes()
 
         self.assertEqual(command[:4], ["ai-dememory", "--root", expected_root_a, "providers"])
         self.assertEqual(command.count("--root"), 1)
         self.assertEqual(exit_code, 0)
-        self.assertTrue(root_a_config_exists)
-        self.assertFalse(root_b_config_exists)
+        self.assertNotEqual(root_a_config_after, root_a_config_before)
+        self.assertEqual(root_b_config_after, root_b_config_before)
 
     def test_provider_mutations_keep_root_a_when_dispatched_from_root_b(self) -> None:
         class CapturedModule:
@@ -10874,7 +11017,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_setup_plan_direct_script_prefers_source_over_stale_package(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            copy_template_tree(root)
             shadow = Path(tmp) / "shadow" / "ai_dememory_tool"
             shadow.mkdir(parents=True)
             (shadow / "__init__.py").write_text(
@@ -10913,6 +11056,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_setup_plan_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp, patch("sys.stdout", output):
+            copy_template_tree(Path(tmp))
             expected_root = str(Path(tmp).resolve())
             exit_code = setup_plan_main(
                 ["--root", tmp, "plan", "--require-version", "0.0.0", "--json"]
@@ -10968,7 +11112,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_setup_plan_human_output_includes_generated_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            copy_template_tree(root)
             output = io.StringIO()
 
             with patch("sys.stdout", output):
@@ -11316,7 +11460,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_maintenance_cli_rejects_outside_report_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            initialize_minimal_runtime_vault(root)
             write_memory(root, "memories/tools/codex.md", memory_id="mem_codex_test")
             outside = Path(tmp) / "maintenance"
             error = io.StringIO()
@@ -11637,7 +11781,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_plan_human_output_uses_copy_safe_renderer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault'$(Write-Output PWNED);"
-            root.mkdir()
+            initialize_minimal_runtime_vault(root)
             plan = schedule_plan(root, target_platform="windows")
             output = io.StringIO()
             with redirect_stdout(output):
@@ -11680,6 +11824,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_generated_installed_schedule_command_is_accepted_by_unified_cli(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             daily = build_cron_entries(root, daily_enabled=True, weekly_enabled=False)[0]
             output = io.StringIO()
             with patch("sys.stdout", output):
@@ -11810,6 +11955,8 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_plan_cli_reports_commands_and_cron_without_mutation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             output = io.StringIO()
 
             plan = schedule_plan(
@@ -11843,6 +11990,7 @@ class MemoryToolTests(unittest.TestCase):
                     ]
                 )
             payload = json.loads(output.getvalue())
+            config_after = config_path.read_bytes()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload, plan)
@@ -11855,7 +12003,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(payload["runs_commands"])
         self.assertFalse(payload["writes_files"])
         self.assertFalse(payload["installs_schedules"])
-        self.assertFalse((root / ".ai-dememory.toml").exists())
+        self.assertEqual(config_after, config_before)
         self.assertTrue(any(command["command"][:2] == ["systemctl", "--user"] for command in payload["commands"]))
         self.assertTrue(any(entry["command"][:2] == ["docker", "run"] for entry in payload["cron_entries"]))
 
@@ -11929,6 +12077,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_install_rechecks_policy_immediately_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             plan = schedule_plan(root, target_platform="windows")
             error = io.StringIO()
 
@@ -12013,6 +12162,8 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_refuses_mutable_docker_image_for_unattended_install(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             plan = schedule_plan(
                 root,
                 target_platform="windows",
@@ -12037,6 +12188,7 @@ class MemoryToolTests(unittest.TestCase):
                         str(plan["plan_sha256"]),
                     ]
                 )
+            config_after = config_path.read_bytes()
 
         self.assertFalse(plan["docker_image_immutable"])
         self.assertFalse(plan["installable"])
@@ -12044,7 +12196,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(plan["cron_entries"], [])
         self.assertEqual(exit_code, 2)
         self.assertIn("immutable", error.getvalue())
-        self.assertFalse((root / ".ai-dememory.toml").exists())
+        self.assertEqual(config_after, config_before)
 
     def test_windows_schedule_install_does_not_force_replace_existing_task(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -12060,6 +12212,8 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_install_requires_exact_plan_and_records_after_success(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             plan = schedule_plan(root, target_platform="windows")
             with redirect_stderr(io.StringIO()):
                 mismatch = schedule_main(
@@ -12074,7 +12228,7 @@ class MemoryToolTests(unittest.TestCase):
                     ]
                 )
             self.assertEqual(mismatch, 2)
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual(config_path.read_bytes(), config_before)
 
             with patch("schedule_memory.run_install_commands", return_value=(1, True)), redirect_stderr(
                 io.StringIO()
@@ -12091,7 +12245,7 @@ class MemoryToolTests(unittest.TestCase):
                     ]
                 )
             self.assertEqual(failed, 1)
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual(config_path.read_bytes(), config_before)
 
             definition_digests = {
                 f"task:{command['name']}": "a" * 64
@@ -12159,6 +12313,8 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_receipt_failure_rolls_back_installed_host_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             plan = schedule_plan(root, target_platform="windows")
             digests = {
                 f"task:{command['name']}": "a" * 64
@@ -12183,14 +12339,16 @@ class MemoryToolTests(unittest.TestCase):
                         str(plan["plan_sha256"]),
                     ]
                 )
+            config_after = config_path.read_bytes()
 
         self.assertEqual(exit_code, 1)
         self.assertTrue(rollback.called)
-        self.assertFalse((root / ".ai-dememory.toml").exists())
+        self.assertEqual(config_after, config_before)
 
     def test_linux_install_verification_failure_reloads_restored_units(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             definition = root / "owned.service"
             plan = schedule_plan(root, target_platform="linux")
             error = io.StringIO()
@@ -12250,6 +12408,7 @@ class MemoryToolTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             definition = root / "owned.service"
             plan = schedule_plan(root, target_platform="linux")
             error = io.StringIO()
@@ -12458,6 +12617,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_install_interrupt_during_readback_restores_owned_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             plan = schedule_plan(root, target_platform="windows")
             error = io.StringIO()
 
@@ -12500,6 +12660,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_install_interrupt_during_definition_write_restores_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             plan = schedule_plan(root, target_platform="windows")
             error = io.StringIO()
 
@@ -12538,6 +12699,7 @@ class MemoryToolTests(unittest.TestCase):
         for commit_before_interrupt in (False, True):
             with self.subTest(commit_before_interrupt=commit_before_interrupt), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
+                initialize_minimal_runtime_vault(root)
                 plan = schedule_plan(root, target_platform="windows")
                 digests = {
                     f"task:{command['name']}": "a" * 64
@@ -12656,6 +12818,7 @@ class MemoryToolTests(unittest.TestCase):
         for phase in phases:
             with self.subTest(phase=phase), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
+                initialize_minimal_runtime_vault(root)
                 plan = schedule_plan(root, target_platform="windows")
                 digests = {
                     f"task:{command['name']}": "a" * 64
@@ -12805,6 +12968,7 @@ class MemoryToolTests(unittest.TestCase):
         sigbreak = signal.SIGBREAK  # type: ignore[attr-defined]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             plan = schedule_plan(root, target_platform="windows")
             digests = {
                 f"task:{command['name']}": "a" * 64
@@ -12855,6 +13019,8 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_lock_loss_after_host_install_requires_manual_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             plan = schedule_plan(root, target_platform="windows")
             digests = {
                 f"task:{command['name']}": "a" * 64
@@ -12887,6 +13053,7 @@ class MemoryToolTests(unittest.TestCase):
                 )
 
             payload = json.loads(error.getvalue())
+            config_after = config_path.read_bytes()
 
         self.assertEqual(exit_code, 1)
         self.assertFalse(payload["installed"])
@@ -12894,7 +13061,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(payload["manual_recovery_required"])
         rollback.assert_not_called()
         file_rollback.assert_not_called()
-        self.assertFalse((root / ".ai-dememory.toml").exists())
+        self.assertEqual(config_after, config_before)
 
     def test_schedule_partial_install_removes_every_job_attempted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -13004,6 +13171,7 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_rejects_invalid_time_and_weekday_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
 
             with self.assertRaisesRegex(ValueError, "daily_time"):
                 build_cron_entries(root, daily_time="25:00")
@@ -13202,16 +13370,18 @@ class MemoryToolTests(unittest.TestCase):
     def test_schedule_dry_run_does_not_write_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            config_path = initialize_minimal_runtime_vault(root)
+            config_before = config_path.read_bytes()
             output = io.StringIO()
 
             with patch("sys.stdout", output):
                 exit_code = schedule_main(["--root", str(root), "setup", "--dry-run", "--platform", "windows"])
 
-            config_exists = (root / ".ai-dememory.toml").exists()
+            config_after = config_path.read_bytes()
             commands = json.loads(output.getvalue())
 
         self.assertEqual(exit_code, 0)
-        self.assertFalse(config_exists)
+        self.assertEqual(config_after, config_before)
         self.assertEqual(len(commands), 2)
 
     def test_schedule_status_reports_configured_state_without_mutation(self) -> None:
@@ -13600,6 +13770,7 @@ class MemoryToolTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            initialize_minimal_runtime_vault(root)
             untrusted_unc = r"\\attacker.invalid\vault"
             status = {
                 "install_receipt_valid": True,
@@ -13752,6 +13923,7 @@ class MemoryToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
             root.mkdir()
+            (root / ".ai-dememory.toml").write_text("", encoding="utf-8")
 
             health = setup_health(root, target_platform="linux", mode="installed")
             output = io.StringIO()
@@ -19685,6 +19857,7 @@ Generated distilled indexes reports.
     def test_hook_capture_review_cli_json_and_guards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
             captured = capture_hook_event(root, "Stop", '{"source":"stop"}')
             secret_candidate = capture_hook_event(root, "UserPromptSubmit", '{"prompt":"secret guard"}')
             relpath = repo_relative_path(captured, root) if captured else ""
@@ -19795,6 +19968,7 @@ Generated distilled indexes reports.
     def test_hook_capture_archive_cli_json_and_guards(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
             captured = capture_hook_event(root, "SessionStart", '{"source":"archive"}', provider="claude")
             relpath = repo_relative_path(captured, root) if captured else ""
             preview_output = io.StringIO()
@@ -19969,7 +20143,7 @@ Generated distilled indexes reports.
     def test_hook_capture_report_rejects_paths_outside_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "vault"
-            root.mkdir()
+            copy_template_tree(root)
             outside = Path(tmp) / "outside.md"
             error_output = io.StringIO()
             in_root = root / "README.md"
@@ -20024,6 +20198,7 @@ Generated distilled indexes reports.
     def test_hook_capture_cli_reports_json_summary_and_written_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            copy_template_tree(root)
             codex_capture = capture_hook_event(root, "Stop", '{"source":"stop"}')
             claude_capture = capture_hook_event(root, "SessionStart", '{"source":"startup"}', provider="claude")
             for path, created_at in ((codex_capture, "2026-06-21"), (claude_capture, "2026-06-19")):

@@ -115,7 +115,8 @@
         "tests/test_mcp_profiles.py",
         "tests/test_harness_hooks.py",
         "tests/test_vault_binding.py",
-        "tests/test_runtime_binding_help.py"
+        "tests/test_runtime_binding_help.py",
+        "docs/adr/0263-structural-runtime-vault-validation.md"
       ],
       "external_readback_required": false
     },

@@ -1599,6 +1599,42 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
             raise InstallSmokeError(
                 "installed maintenance status did not reject foreign CWD discovery"
             )
+        vault_marker = vault / ".ai-dememory.toml"
+        vault_marker_bytes = vault_marker.read_bytes()
+        vault_marker.unlink()
+        invalid_vault_before = snapshot_test_tree(vault)
+        try:
+            invalid_vault_run = run_step(
+                steps,
+                "installed structural vault rejection precedes maintenance work",
+                [
+                    str(ai_dememory),
+                    "--root",
+                    str(vault),
+                    "maintenance",
+                    "run",
+                    "--timeout-seconds",
+                    "300",
+                    "--json",
+                ],
+                cwd=foreign_vault,
+                env=selector_env,
+                allowed_returncodes={2},
+            )
+            if "vault is missing .ai-dememory.toml" not in invalid_vault_run.stderr:
+                raise InstallSmokeError(
+                    "installed stateful command did not report the missing vault marker"
+                )
+            if "Traceback" in invalid_vault_run.stderr:
+                raise InstallSmokeError(
+                    "installed structural vault rejection leaked a traceback"
+                )
+            if snapshot_test_tree(vault) != invalid_vault_before:
+                raise InstallSmokeError(
+                    "installed structural vault rejection mutated the selected vault"
+                )
+        finally:
+            vault_marker.write_bytes(vault_marker_bytes)
         # Poison every vault-selection source that a supposedly rootless
         # diagnostic could accidentally consult. Provider candidates also live
         # in smoke-owned trees so their complete contents can be proven stable.

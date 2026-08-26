@@ -31,6 +31,15 @@ from memory_mcp import handle_rpc, list_tools, main as mcp_main  # noqa: E402
 from index_memory import rebuild_index  # noqa: E402
 
 
+def make_runtime_vault(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / ".ai-dememory.toml").write_text(
+        '[memory]\nschema_version = "2.0"\n',
+        encoding="utf-8",
+    )
+    return path.resolve()
+
+
 class McpProfileTests(unittest.TestCase):
     def setUp(self) -> None:
         # Root-binding tests must not read a selector from the developer host.
@@ -121,24 +130,28 @@ class McpProfileTests(unittest.TestCase):
         self.assertEqual(initialized["serverInfo"]["version"], __version__)
 
     def test_unprofiled_stdio_server_fails_closed_to_core(self) -> None:
-        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
-            exit_code = mcp_main(["--stdio", "--root", str(ROOT)])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_runtime_vault(Path(temporary) / "vault")
+            with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
+                exit_code = mcp_main(["--stdio", "--root", str(root)])
 
         self.assertEqual(exit_code, 0)
         run_stdio.assert_called_once_with(
-            ROOT,
+            root,
             profile="core",
             idle_timeout_seconds=600,
         )
 
     def test_mcp_server_accepts_legacy_version_arguments_after_an_upgrade(self) -> None:
-        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
-            self.assertEqual(
-                mcp_main(["--stdio", "--root", str(ROOT), "--require-version", "0.0.0"]),
-                0,
-            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_runtime_vault(Path(temporary) / "vault")
+            with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
+                self.assertEqual(
+                    mcp_main(["--stdio", "--root", str(root), "--require-version", "0.0.0"]),
+                    0,
+                )
         run_stdio.assert_called_once_with(
-            ROOT,
+            root,
             profile="core",
             idle_timeout_seconds=600,
         )
@@ -190,10 +203,11 @@ class McpProfileTests(unittest.TestCase):
             patch.dict(os.environ, {}, clear=True),
             patch("sys.stdout", output),
         ):
+            root = make_runtime_vault(Path(temporary))
             exit_code = cli_main(
                 [
                     "--root",
-                    temporary,
+                    str(root),
                     "mcp",
                     "--list-tools",
                     "--require-bound-root",
@@ -242,22 +256,24 @@ class McpProfileTests(unittest.TestCase):
                 run_stdio.assert_not_called()
                 self.assertIn(message, error.getvalue())
 
-        valid_bindings = (
-            ("explicit root", ["--stdio", "--require-bound-root", "--root", str(ROOT)], " \t"),
-            ("environment root", ["--stdio", "--require-bound-root"], str(ROOT)),
-        )
-        for label, argv, environment_root in valid_bindings:
-            with self.subTest(binding=f"valid {label}"):
-                with (
-                    patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
-                    patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
-                ):
-                    self.assertEqual(mcp_main(argv), 0)
-                run_stdio.assert_called_once_with(
-                    ROOT,
-                    profile="core",
-                    idle_timeout_seconds=600,
-                )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_runtime_vault(Path(temporary) / "vault")
+            valid_bindings = (
+                ("explicit root", ["--stdio", "--require-bound-root", "--root", str(root)], " \t"),
+                ("environment root", ["--stdio", "--require-bound-root"], str(root)),
+            )
+            for label, argv, environment_root in valid_bindings:
+                with self.subTest(binding=f"valid {label}"):
+                    with (
+                        patch.dict(os.environ, {"AI_DEMEMORY_ROOT": environment_root}),
+                        patch("memory_mcp.run_stdio", return_value=0) as run_stdio,
+                    ):
+                        self.assertEqual(mcp_main(argv), 0)
+                    run_stdio.assert_called_once_with(
+                        root,
+                        profile="core",
+                        idle_timeout_seconds=600,
+                    )
 
     def test_mcp_runtime_requires_a_binding_before_server_or_tool_call(self) -> None:
         invocations = (
@@ -445,7 +461,7 @@ class McpProfileTests(unittest.TestCase):
 
     def test_mcp_config_accepts_legacy_version_arguments_without_emitting_them(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = make_runtime_vault(Path(temporary))
             output = io.StringIO()
             with patch("sys.stdout", output):
                 self.assertEqual(
@@ -539,26 +555,28 @@ class McpProfileTests(unittest.TestCase):
             self.assertEqual(find_memory_root(), (Path(temporary) / "vault").resolve())
 
     def test_legacy_version_argument_preserves_root_profile_and_idle_controls(self) -> None:
-        with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
-            self.assertEqual(
-                mcp_main(
-                    [
-                        "--stdio",
-                        "--root",
-                        str(ROOT),
-                        "--require-bound-root",
-                        "--require-version",
-                        "0.0.0",
-                        "--profile",
-                        "public",
-                        "--idle-timeout-seconds",
-                        "120",
-                    ]
-                ),
-                0,
-            )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = make_runtime_vault(Path(temporary) / "vault")
+            with patch("memory_mcp.run_stdio", return_value=0) as run_stdio:
+                self.assertEqual(
+                    mcp_main(
+                        [
+                            "--stdio",
+                            "--root",
+                            str(root),
+                            "--require-bound-root",
+                            "--require-version",
+                            "0.0.0",
+                            "--profile",
+                            "public",
+                            "--idle-timeout-seconds",
+                            "120",
+                        ]
+                    ),
+                    0,
+                )
         run_stdio.assert_called_once_with(
-            ROOT,
+            root,
             profile="public",
             idle_timeout_seconds=120,
         )

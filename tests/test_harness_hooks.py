@@ -22,6 +22,15 @@ from hook_event import main as hook_event_main  # noqa: E402
 from ai_dememory_tool.cli import main as cli_main  # noqa: E402
 
 
+def make_runtime_vault(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / ".ai-dememory.toml").write_text(
+        '[memory]\nschema_version = "2.0"\n',
+        encoding="utf-8",
+    )
+    return path.resolve()
+
+
 class _Stdin:
     def __init__(self, text: str) -> None:
         self.buffer = io.BytesIO(text.encode("utf-8"))
@@ -476,7 +485,7 @@ class HarnessHookTests(unittest.TestCase):
 
     def test_hook_config_requires_and_serializes_the_explicit_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "explicit-vault"
+            root = make_runtime_vault(Path(tmp) / "explicit-vault")
             environment_root = Path(tmp) / "environment-vault"
             output = io.StringIO()
             with (
@@ -563,6 +572,7 @@ class HarnessHookTests(unittest.TestCase):
     def test_subcommand_root_is_honored_from_foreign_cwd(self) -> None:
         previous = Path.cwd()
         with tempfile.TemporaryDirectory() as cwd_tmp, tempfile.TemporaryDirectory() as vault_tmp:
+            vault = make_runtime_vault(Path(vault_tmp))
             output = io.StringIO()
             try:
                 os.chdir(cwd_tmp)
@@ -570,7 +580,7 @@ class HarnessHookTests(unittest.TestCase):
                     os.environ.pop("AI_DEMEMORY_ROOT", None)
                     exit_code = cli_main(
                         [
-                            "onboard", "--root", vault_tmp, "--reviewed-by", "Test Reviewer",
+                            "onboard", "--root", str(vault), "--reviewed-by", "Test Reviewer",
                             "--value", "Prefer safe work.", "--preference", "Run narrow tests.",
                             "--recommendation", "Recall reviewed memory.", "--json",
                         ]
@@ -580,7 +590,7 @@ class HarnessHookTests(unittest.TestCase):
 
         result = json.loads(output.getvalue())
         self.assertEqual(exit_code, 0)
-        self.assertEqual(result["root"], str(Path(vault_tmp).resolve()))
+        self.assertEqual(result["root"], str(vault))
 
 
 if __name__ == "__main__":

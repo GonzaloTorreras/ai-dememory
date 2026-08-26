@@ -264,6 +264,10 @@ class ProviderDiagnosticRedactionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "vault"
             root.mkdir()
+            (root / ".ai-dememory.toml").write_text(
+                '[memory]\nschema_version = "2.0"\n',
+                encoding="utf-8",
+            )
             before = list(root.iterdir())
 
             with patch("maintenance._maintenance_status", side_effect=chained_review_error):

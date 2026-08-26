@@ -13,15 +13,17 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `8655a8f097f64cec0be7bc46d6f57d4521ba821d`, the squash merge result of
-  [PR #51](https://github.com/GonzaloTorreras/ai-dememory/pull/51). Its history
-  contains the completed strict-configuration boundary from PR #51, strict
-  maintenance and scheduler corrections from PRs #50 and #48, the
-  planning-authority consolidation from PR #49, the planning-only governed-
-  learning handoff from PR #47, and the unpublished `2.1.2` default-vault/
-  wizard correction from PR #46. The resulting public-main CI run
-  [32935981402](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32935981402)
-  passed for that exact merge commit.
+  `61c708ad421e2f3d8d520aa685771db281200b29`, the squash merge result of
+  [PR #52](https://github.com/GonzaloTorreras/ai-dememory/pull/52). Its history
+  contains the rootless provider-detection correction from PR #52, the
+  completed strict-configuration boundary from PR #51, strict maintenance and
+  scheduler corrections from PRs #50 and #48, the planning-authority
+  consolidation from PR #49, the planning-only governed-learning handoff from
+  PR #47, and the unpublished `2.1.2` default-vault/wizard correction from PR
+  #46. The resulting public-main CI run
+  [32950389813](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32950389813)
+  passed verification and all nine OS/Python compatibility jobs for that exact
+  merge commit.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -250,7 +252,7 @@ local-API onboarding hint and documentation follow-up.
   smoke remained green. This remains compatible source hardening: `BRG-003`
   stays `in_progress`, and no version, task state, package, tag, vault,
   scheduler definition, or release changes.
-- The current checkout's next `BRG-003` increment makes CLI
+- The merged tenth `BRG-003` increment makes CLI
   `providers detect` genuinely rootless. It returns the five fixed host
   candidates before any runtime-vault resolution and ignores explicit roots,
   `AI_DEMEMORY_ROOT`, the saved selector, vault configuration, and CWD. Blank,
@@ -271,14 +273,67 @@ local-API onboarding hint and documentation follow-up.
   The installed-package smoke poisons every vault selector and config source,
   runs from a foreign CWD, requires exact existing host candidates, and verifies
   exact before/after snapshots.
-- Current local evidence: the focused boundary set passes on Windows and WSL;
+- Local evidence for the merged increment: the focused boundary set passed on
+  Windows and WSL;
   the 39 provider-related tests pass with one expected Windows platform skip;
   the full Windows suite passes 1,073 tests with 60 expected platform skips;
-  and the installed package smoke passes all 96 recorded steps. The integrated CI,
-  acceptance, documentation, Pages-artifact, planning-contract, secret, and
-  diff guards pass. Cross-platform PR CI and fresh exact-head reviews remain
-  delivery gates. `BRG-003` stays `in_progress`, and this increment changes no
-  version, DAG, package publication, vault, host configuration, or release.
+  and the installed package smoke passed all 96 recorded steps. The exact PR
+  head passed [CI run 32947554012](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32947554012),
+  [Pages validation 32947554011](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32947554011),
+  and fresh independent functional and security reviews with zero reportable
+  findings. PR #52 was squash merged at
+  `61c708ad421e2f3d8d520aa685771db281200b29`; its public-main CI run
+  [32950389813](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32950389813)
+  then passed verification and all nine compatibility jobs. `BRG-003` stays
+  `in_progress`, and this increment changes no version, DAG, package
+  publication, vault, host configuration, or release.
+
+### Current Unmerged Structural Runtime-Vault Increment
+
+- The current `codex/brg003-structural-vault-validation` branch is based on
+  public `main` at `61c708ad421e2f3d8d520aa685771db281200b29`. Before it can
+  become delivery evidence, its exact committed head must be pushed, reviewed,
+  and pass PR CI; merge, tag, and publication remain separate gates.
+- Every surface already routed through `resolve_runtime_vault` now applies one
+  structural validator after selecting `--root`, then `AI_DEMEMORY_ROOT`, then
+  the saved local default. A selected but invalid higher-precedence source
+  fails without falling through. The final logical root must be a real
+  directory with stable identity; the canonical directory chain must remain
+  stable; and `.ai-dememory.toml` must be a bounded, regular, single-link,
+  identity-stable marker. Strict TOML syntax and schema remain owned by the
+  completed `BRG-017` parser rather than being duplicated here.
+- MCP, API, stateful hooks, setup/onboarding, vault-bound provider/import/
+  capture, maintenance, and scheduler work now reject a structurally invalid
+  selected vault before sockets, stdin handling, provider work, locks, children,
+  host commands, or writers. Static help, provider detection, scheduler doctor,
+  the static MCP tool list, inert unbound hook dispatch, `init`, and
+  `vault-template` preserve their intentional rootless or bootstrap behavior.
+- The complete Windows suite passed 1,091 tests with 63 expected platform skips
+  before the final documentation edits and one new no-runtime limit-alignment
+  assertion. The final resolver/help/redaction set, including that assertion,
+  passes all 39 tests with four Windows symlink skips; a direct ten-step API
+  smoke and a fresh installed-package smoke also pass. The WSL/Python 3.12
+  snapshot passed all 32 behavioral resolver cases with only the Windows UNC
+  case skipped, exercised the real POSIX symlink cases, and passed 127
+  additional focused compatibility checks. ADR, planning-contract,
+  documentation-site, secret, compile, and diff guards pass.
+- Sealed security scan `2a283221-913b-47c7-aa08-441d1aae1bb8`, bound to
+  snapshot digest
+  `codex-security-snapshot/v1:sha256:2bda6c5f93b4866d980473454a7756a4874016867ac4dd3dcf46f6a5eb843afa`,
+  records complete coverage of the three changed source files, zero deferred
+  rows, zero candidates, and zero findings. A subsequent documentation and
+  contract review exposed an overbroad Operations claim; the current
+  documentation and ADR now limit the guarantee to migrated strict-resolver
+  surfaces. Fresh exact-head functional/security review and cross-platform PR
+  CI remain delivery gates.
+- Binding-time validation does not retain a root descriptor for a long-running
+  process, cannot portably classify every mounted/remote filesystem, and has no
+  live SMB/UNC or native Windows-junction reproduction yet. The unchanged
+  generic dispatcher still needs an exhaustive `vault-bound`, `source-bound`,
+  or `rootless` command policy and removal of unintended CWD/package discovery.
+  Consequently `BRG-003` remains `in_progress`; this increment changes no
+  version, package publication, tag, installed vault, host configuration, or
+  current frontier.
 
 ## Completed BRG-017 Strict Configuration Boundary
 
@@ -479,14 +534,14 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Continue the sole `BRG-003` frontier with the remaining strict-resolver
-   inventory and structural vault-validation policy.
-   The root-bound configuration-reader, review-state,
-   provider/import/capture, scheduler, and maintenance boundaries are covered
-   for their current entry points. Do not claim structural vault validation
-   merely from an absolute path: explicit and environment bindings still
-   require shared real-directory, configuration, link-chain, and
-   stable-identity checks planned inside `BRG-003`.
+2. Continue the sole `BRG-003` frontier with the exhaustive generic-command
+   policy and removal of unintended CWD/package discovery. The current
+   unmerged increment closes the shared real-directory, configuration-marker,
+   link-chain, and stable-identity gap for surfaces already routed through
+   `resolve_runtime_vault`; do not treat that source state as delivery evidence
+   until its exact committed head passes review and CI. Classify each remaining
+   generic command as `vault-bound`, `source-bound`, or genuinely `rootless`
+   before changing its dispatch.
 3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, and the
    externally read-back `GATE-B` in their normative order after `BRG-003`.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
