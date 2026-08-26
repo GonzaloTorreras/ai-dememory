@@ -270,20 +270,30 @@ broaden the implementation.
   unknown keys, values, custom review-state/provider paths, OS error text, or
   chained causes. Successful local administrative status and plan projections
   retain their existing paths and payloads.
+- Exact-head review closed two boundary gaps before merge: onboarding now
+  rejects a generated configuration candidate that exceeds the same 64 KiB
+  limit before creating an apply plan, and invalid recall configuration makes
+  hooks inert even when the vault already has an index. Retrieval or injection
+  can no longer be re-enabled by falling back from an invalid explicit opt-out.
+- The same validation run reproduced an intermittent Windows loopback reset on
+  rejected POST requests. The API now authenticates the request context and
+  optional key first, consumes only the already bounded request body, and then
+  enforces mutation intent and JSON type. Stress coverage observed no aborted
+  connections or residual server threads; the origin, intent, content-type,
+  64 KiB body, and 15-second timeout controls remain unchanged.
 - The operator guide is `docs/configuration.md`; ADR 0262 records why strict
   parsing is implemented in the existing Python runtime without a second
   parser, daemon, database, model call, or Node dependency.
-- Rebased local evidence on public `main` ran the complete 994-test suite with
-  59 expected platform skips. Its narrower evidence ran 203 combined
-  strict-config, review, provider, wizard, MCP-profile, hook, and binding tests
-  with six expected skips; the integrated memory-tools module ran 592 tests
-  with 45 expected skips. Python compilation, diff validation, planning/docs
-  guards, and a repository secret scan with zero findings also passed.
+- Rebased exact-head evidence on public `main` ran 999 tests in the complete
+  suite with 59 expected platform skips. A focused API, onboarding, hook, and
+  turn-context regression set ran 99 tests. Python compilation, diff
+  validation, the planning contract, and a repository secret scan with zero
+  findings also passed.
   A fresh virtual environment installed the local package and exercised the
   installed CLI, strict config consumers, API, MCP, hooks, providers,
   maintenance, and scheduler successfully; the isolated package-build smoke
-  built both distributions and passed `twine check`. Exact-head independent
-  review and PR CI are still required before merge.
+  built both distributions and passed `twine check` on this exact head.
+  Exact-head independent review and PR CI are still required before merge.
 - The normative DAG now marks `BRG-017` complete with explicit evidence paths.
   `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
   task, and no package, tag, release, installed vault, host integration, or
