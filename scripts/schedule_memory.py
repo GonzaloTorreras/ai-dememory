@@ -1152,45 +1152,20 @@ def active_schedule_receipt_source(
     root: Path,
     status: dict[str, object],
 ) -> Path | None:
-    """Return the original vault when a copied enabled receipt still owns the jobs."""
+    """Return an opaque conflict marker for a receipt bound to another root.
+
+    The stored root is untrusted historical metadata.  Never resolve, probe,
+    render, or load configuration from it: on Windows even an existence check
+    against a UNC value can initiate network authentication.  Ownership must be
+    reconciled explicitly whenever the current vault root differs.
+    """
 
     schedule = status.get("schedule")
     if not isinstance(schedule, dict) or not schedule.get("root_moved", False):
         return None
-    configured_root_text = str(schedule.get("configured_root") or "").strip()
-    if not configured_root_text:
-        return None
-    configured_root = Path(configured_root_text).expanduser()
-    source_config_path = configured_root / ".ai-dememory.toml"
-    try:
-        if path_is_link_like(configured_root):
-            return configured_root
-        if not configured_root.exists():
-            return None
-        if path_is_link_like(source_config_path):
-            return configured_root
-        if not source_config_path.exists():
-            return None
-    except OSError:
-        # An unreadable or otherwise ambiguous source must fail closed instead
-        # of authorizing deletion of jobs owned by another vault path.
-        return configured_root
-    try:
-        source_config = load_config(configured_root).get("schedule", {})
-    except (OSError, UnicodeError, ValueError):
-        return configured_root
-    if not isinstance(source_config, dict) or not source_config.get("enabled", False):
-        return None
-
-    same_namespace = hmac.compare_digest(
-        str(source_config.get("task_namespace") or ""),
-        str(schedule.get("task_namespace") or ""),
-    )
-    same_plan = hmac.compare_digest(
-        str(source_config.get("plan_sha256") or ""),
-        str(schedule.get("plan_sha256") or ""),
-    )
-    return configured_root if same_namespace and same_plan else None
+    # The selected root is safe to return as an opaque non-None marker.  The
+    # caller must not infer or display the untrusted configured-root value.
+    return root
 
 
 def run_commands(
@@ -2509,8 +2484,8 @@ def _main(
             print(
                 (
                     "schedule removal refused: this vault is a copy of an enabled "
-                    f"schedule receipt still owned by {receipt_source}; remove the "
-                    "schedule from the original vault or perform an explicit transfer"
+                    "schedule receipt or the vault was moved; reconcile or explicitly "
+                    "transfer schedule ownership before removal"
                 ),
                 file=sys.stderr,
             )

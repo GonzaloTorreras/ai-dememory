@@ -12807,7 +12807,7 @@ class MemoryToolTests(unittest.TestCase):
         self.assertFalse(status["host_state_verified"])
         self.assertEqual(status["last_verified_at"], "2000-01-01T00:00:00+00:00")
 
-    def test_moved_vault_uses_receipted_namespace_for_status_and_removal(self) -> None:
+    def test_moved_vault_uses_receipted_namespace_but_requires_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             original = Path(tmp) / "original"
             moved = Path(tmp) / "moved"
@@ -12832,13 +12832,15 @@ class MemoryToolTests(unittest.TestCase):
             original.rename(moved)
 
             status = schedule_status(moved, target_platform="windows")
+            stderr = io.StringIO()
             with (
                 patch(
                     "schedule_memory.observe_schedule_definitions",
                     return_value=(digests, []),
-                ),
-                patch("schedule_memory.run_remove_commands", return_value=(0, True)),
+                ) as observe,
+                patch("schedule_memory.run_remove_commands") as remove_commands,
                 patch("schedule_memory.remove_platform_schedule_files", return_value=[]) as remove_files,
+                redirect_stderr(stderr),
             ):
                 exit_code = schedule_main(
                     ["--root", str(moved), "remove", "--platform", "windows"]
@@ -12850,14 +12852,12 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(
             all(original_namespace in item["name"] for item in status["status_commands"])
         )
-        self.assertEqual(exit_code, 0)
-        remove_files.assert_called_once_with(
-            moved,
-            "windows",
-            True,
-            True,
-            original_namespace,
-        )
+        self.assertEqual(exit_code, 2)
+        self.assertIn("reconcile", stderr.getvalue())
+        self.assertIn("transfer schedule ownership", stderr.getvalue())
+        observe.assert_not_called()
+        remove_commands.assert_not_called()
+        remove_files.assert_not_called()
 
     def test_copied_vault_cannot_remove_original_enabled_schedule(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -13003,7 +13003,7 @@ class MemoryToolTests(unittest.TestCase):
         observe.assert_not_called()
         remove_commands.assert_not_called()
 
-    def test_missing_link_like_receipt_source_fails_closed_before_exists(self) -> None:
+    def test_moved_receipt_source_fails_closed_without_source_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "copied"
             source = Path(tmp) / "missing-source"
@@ -13015,35 +13015,63 @@ class MemoryToolTests(unittest.TestCase):
                     "plan_sha256": "a" * 64,
                 }
             }
-            with patch(
-                "schedule_memory.path_is_link_like",
-                side_effect=lambda path: path == source,
-            ):
+            with patch("schedule_memory.Path") as path_probe, patch(
+                "schedule_memory.path_is_link_like"
+            ) as link_probe, patch("schedule_memory.load_config") as config_probe:
                 conflict = active_schedule_receipt_source(root, status)
 
-        self.assertEqual(conflict, source)
+        self.assertEqual(conflict, root)
+        path_probe.assert_not_called()
+        link_probe.assert_not_called()
+        config_probe.assert_not_called()
 
-    def test_missing_link_like_source_config_fails_closed_before_exists(self) -> None:
+    def test_unc_moved_receipt_remove_never_probes_or_renders_source(self) -> None:
+        import schedule_memory
+
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "copied"
-            source = Path(tmp) / "source"
-            source.mkdir()
-            source_config = source / ".ai-dememory.toml"
+            root = Path(tmp)
+            untrusted_unc = r"\\attacker.invalid\vault"
             status = {
+                "install_receipt_valid": True,
                 "schedule": {
                     "root_moved": True,
-                    "configured_root": str(source),
+                    "configured_root": untrusted_unc,
                     "task_namespace": "ai-dememory-fixture-1234567890",
                     "plan_sha256": "a" * 64,
                 }
             }
-            with patch(
-                "schedule_memory.path_is_link_like",
-                side_effect=lambda path: path == source_config,
-            ):
-                conflict = active_schedule_receipt_source(root, status)
+            real_load_config = schedule_memory.load_config
 
-        self.assertEqual(conflict, source)
+            def guarded_load_config(candidate: Path) -> dict[str, dict[str, object]]:
+                self.assertEqual(Path(candidate).resolve(), root.resolve())
+                return real_load_config(candidate)
+
+            stderr = io.StringIO()
+            with patch(
+                "schedule_memory.schedule_status",
+                return_value=status,
+            ), patch(
+                "schedule_memory.load_config",
+                side_effect=guarded_load_config,
+            ) as config_reads, patch(
+                "schedule_memory.path_is_link_like",
+            ) as source_probe, patch(
+                "schedule_memory.observe_schedule_definitions"
+            ) as observe, patch(
+                "schedule_memory.run_remove_commands"
+            ) as remove_commands, redirect_stderr(stderr):
+                exit_code = schedule_main(
+                    ["--root", str(root), "remove", "--platform", "windows"]
+                )
+
+        self.assertEqual(exit_code, 2)
+        self.assertGreater(config_reads.call_count, 0)
+        source_probe.assert_not_called()
+        observe.assert_not_called()
+        remove_commands.assert_not_called()
+        self.assertNotIn(untrusted_unc, stderr.getvalue())
+        self.assertIn("reconcile", stderr.getvalue())
+        self.assertIn("transfer schedule ownership", stderr.getvalue())
 
     def test_moved_vault_removes_linux_files_from_receipted_namespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

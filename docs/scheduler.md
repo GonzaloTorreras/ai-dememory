@@ -147,13 +147,14 @@ failed write, command, readback, or receipt commit removes the new jobs,
 restores files, and does not leave enabled config. `schedule status` refreshes
 `verified_at` only when current definitions exactly match that receipt;
 host-state verification expires after five minutes. If a vault has moved,
-status/removal reports the move and continues to address the original receipt
-namespace for host commands and systemd/launchd definition files, so it does
-not orphan old jobs. The receipted cadence and intensity remain authoritative
-for status and complete removal if resource-policy defaults change later.
-If the original path still holds the same enabled receipt, the new path is a
-copy rather than an unambiguous move and removal fails closed. Remove from the
-original vault first; a future explicit transfer flow can reassign ownership.
+status reports the move and continues to address the original receipt namespace
+for read-only host checks. Removal fails closed until schedule ownership is
+explicitly reconciled or transferred; it never probes or renders the historical
+root stored in the receipt. This treats a copied vault and an unambiguous move
+the same at the removal boundary and avoids orphaning or deleting jobs under
+ambiguous ownership. The receipted cadence and intensity remain authoritative
+for status and for removal after ownership has been reconciled if resource-policy
+defaults change later.
 Removal first performs the same
 comparison, refuses partial profile selection, and restores already removed
 jobs if a later removal fails. Windows rollback recreates the exact captured
