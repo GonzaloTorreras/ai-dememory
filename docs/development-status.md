@@ -291,9 +291,10 @@ local-API onboarding hint and documentation follow-up.
 ### Current Unmerged Structural Runtime-Vault Increment
 
 - The current `codex/brg003-structural-vault-validation` branch is based on
-  public `main` at `61c708ad421e2f3d8d520aa685771db281200b29`. Before it can
-  become delivery evidence, its exact committed head must be pushed, reviewed,
-  and pass PR CI; merge, tag, and publication remain separate gates.
+  public `main` at `61c708ad421e2f3d8d520aa685771db281200b29` and is proposed in
+  [PR #53](https://github.com/GonzaloTorreras/ai-dememory/pull/53). Before it
+  can become delivery evidence, its corrected exact committed head must be
+  reviewed and pass PR CI; merge, tag, and publication remain separate gates.
 - Every surface already routed through `resolve_runtime_vault` now applies one
   structural validator after selecting `--root`, then `AI_DEMEMORY_ROOT`, then
   the saved local default. A selected but invalid higher-precedence source
@@ -317,15 +318,40 @@ local-API onboarding hint and documentation follow-up.
   case skipped, exercised the real POSIX symlink cases, and passed 127
   additional focused compatibility checks. ADR, planning-contract,
   documentation-site, secret, compile, and diff guards pass.
+- The initial PR head `f53b2ea6e4c492841e757ea3ae79583b41597f42`
+  passed 1,092 unit tests with 11 expected Linux skips, the strict PR release
+  check, all nine Python 3.11-3.13 compatibility jobs, and
+  [Pages validation 32960690979](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32960690979).
+  [CI run 32960690972](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32960690972)
+  then failed only at MCP runtime smoke: that source-bound harness still
+  exposed the public checkout through `AI_DEMEMORY_ROOT`, so the new validator
+  correctly rejected its missing vault marker. The failure reproduced locally.
+  The corrected harness never writes or accepts a marker in the public
+  checkout. It resolves one immutable commit OID, requires Git to report a clean
+  tracked tree against that OID, and materializes only its regular blobs through
+  bounded direct Git object reads into a smoke-owned temporary tree. Untracked
+  files and arbitrary root configuration remain excluded; archive attributes,
+  local filters, replacement objects, and tar mode settings cannot alter the
+  copied bytes or modes. Strict UTF-8 decoding and explicit cross-platform path
+  rejection protect the raw tree inventory. The harness adds the reviewed
+  vault-template marker only inside the temporary tree, initializes local Git
+  evidence without a remote or hooks, rebuilds the disposable index, and binds
+  the checkout-specific server explicitly to that isolated snapshot. It does
+  not relax runtime validation or turn public source into a durable vault. The
+  lifecycle suite and the complete MCP runtime smoke pass locally; compile and
+  diff checks pass, no checkout marker remains, and no temporary snapshot
+  remains after normal completion. A new exact-head CI run is required rather
+  than reusing the failed tuple.
 - Sealed security scan `2a283221-913b-47c7-aa08-441d1aae1bb8`, bound to
   snapshot digest
   `codex-security-snapshot/v1:sha256:2bda6c5f93b4866d980473454a7756a4874016867ac4dd3dcf46f6a5eb843afa`,
-  records complete coverage of the three changed source files, zero deferred
-  rows, zero candidates, and zero findings. A subsequent documentation and
-  contract review exposed an overbroad Operations claim; the current
-  documentation and ADR now limit the guarantee to migrated strict-resolver
-  surfaces. Fresh exact-head functional/security review and cross-platform PR
-  CI remain delivery gates.
+  records complete coverage of the three changed source files in the initial
+  PR head, zero deferred rows, zero candidates, and zero findings. It predates
+  the corrective MCP smoke-harness commit and is not evidence for that later
+  patch. A subsequent documentation and contract review exposed an overbroad
+  Operations claim; the current documentation and ADR now limit the guarantee
+  to migrated strict-resolver surfaces. Fresh exact-head functional/security
+  review and cross-platform PR CI remain delivery gates.
 - Binding-time validation does not retain a root descriptor for a long-running
   process, cannot portably classify every mounted/remote filesystem, and has no
   live SMB/UNC or native Windows-junction reproduction yet. The unchanged

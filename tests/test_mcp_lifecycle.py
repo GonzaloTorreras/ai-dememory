@@ -32,6 +32,11 @@ from ai_dememory_tool.mcp_profiles import (  # noqa: E402
 )
 from memory_mcp import MAX_MCP_FRAME_CHARS, MCP_STDIN_QUEUE_DEPTH, stdio_lines  # noqa: E402
 from mcp_runtime_smoke import SmokeError, response_line, rpc_response  # noqa: E402
+from mcp_runtime_smoke import (  # noqa: E402
+    copy_distribution_worktree,
+    smoke_git_environment,
+    temporary_distribution_snapshot,
+)
 from process_control import run_owned_capture, run_owned_process  # noqa: E402
 
 
@@ -68,6 +73,308 @@ class UnresponsiveMcpProcess:
 
 
 class McpLifecycleTests(unittest.TestCase):
+    def test_smoke_git_environment_discards_ambient_repository_controls(self) -> None:
+        poisoned = {
+            "GIT_DIR": "outside.git",
+            "GIT_WORK_TREE": "outside-tree",
+            "GIT_INDEX_FILE": "outside-index",
+            "GIT_OBJECT_DIRECTORY": "outside-objects",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": "outside-alternates",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "GIT_CONFIG_VALUE_0": "outside-hooks",
+            "GIT_TEMPLATE_DIR": "outside-template",
+        }
+        with patch.dict(os.environ, poisoned, clear=False):
+            environment = smoke_git_environment()
+
+        for name in poisoned:
+            self.assertNotIn(name, environment)
+        self.assertEqual(environment["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(environment["GIT_PAGER"], "cat")
+        self.assertEqual(environment["GIT_CONFIG_NOSYSTEM"], "1")
+        self.assertEqual(environment["GIT_CONFIG_GLOBAL"], os.devnull)
+        self.assertEqual(environment["GIT_CONFIG_SYSTEM"], os.devnull)
+        self.assertEqual(environment["GIT_ATTR_NOSYSTEM"], "1")
+        self.assertEqual(environment["GIT_NO_LAZY_FETCH"], "1")
+        self.assertEqual(environment["GIT_NO_REPLACE_OBJECTS"], "1")
+        self.assertEqual(environment["GIT_OPTIONAL_LOCKS"], "0")
+
+        safe_root = Path.cwd()
+        safe_environment = smoke_git_environment(safe_root)
+        self.assertEqual(safe_environment["GIT_CONFIG_COUNT"], "1")
+        self.assertEqual(safe_environment["GIT_CONFIG_KEY_0"], "safe.directory")
+        self.assertEqual(
+            safe_environment["GIT_CONFIG_VALUE_0"],
+            str(Path(os.path.abspath(safe_root))),
+        )
+
+    def test_distribution_snapshot_copies_committed_tracked_files_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            snapshot = Path(temporary) / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            tracked = source / "tracked.txt"
+            tracked.write_text("committed\n", encoding="utf-8")
+            source_marker = source / ".ai-dememory.toml"
+            source_marker.write_text("committed arbitrary source marker\n", encoding="utf-8")
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.email", "smoke@example.invalid")
+            mcp_runtime_smoke.run_fixture_git(
+                source,
+                "add",
+                ".ai-dememory.toml",
+                "vault-template/.ai-dememory.toml",
+                "tracked.txt",
+            )
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "fixture")
+
+            (source / "untracked.txt").write_text("must stay outside\n", encoding="utf-8")
+
+            copied = copy_distribution_worktree(source, snapshot)
+
+            self.assertEqual(copied, 2)
+            self.assertEqual((snapshot / "tracked.txt").read_text(encoding="utf-8"), "committed\n")
+            self.assertFalse((snapshot / "untracked.txt").exists())
+            self.assertFalse((snapshot / ".git").exists())
+            self.assertEqual((snapshot / ".ai-dememory.toml").read_text(encoding="utf-8"), "template marker\n")
+            self.assertEqual(
+                source_marker.read_text(encoding="utf-8"),
+                "committed arbitrary source marker\n",
+            )
+
+    def test_distribution_snapshot_ignores_archive_attributes_and_preserves_commit_mode(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"
+            snapshot = base / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            tracked = source / "tracked.txt"
+            tracked.write_text("literal $Format:%H$\n", encoding="utf-8")
+            executable = source / "run-smoke.sh"
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(
+                source,
+                "config",
+                "user.email",
+                "smoke@example.invalid",
+            )
+            mcp_runtime_smoke.run_fixture_git(source, "add", "--all")
+            mcp_runtime_smoke.run_fixture_git(
+                source,
+                "update-index",
+                "--chmod=+x",
+                "run-smoke.sh",
+            )
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "fixture")
+
+            original_blob = run_owned_capture(
+                ["git", "rev-parse", "HEAD:tracked.txt"],
+                cwd=source,
+                env=smoke_git_environment(source),
+                timeout_seconds=30,
+            ).stdout.strip()
+            replacement = run_owned_capture(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=source,
+                env=smoke_git_environment(source),
+                input_text="replacement bytes\n",
+                timeout_seconds=30,
+            ).stdout.strip()
+            mcp_runtime_smoke.run_fixture_git(source, "replace", original_blob, replacement)
+
+            info_attributes = source / ".git" / "info" / "attributes"
+            info_attributes.write_text(
+                "vault-template/.ai-dememory.toml export-ignore\n"
+                "tracked.txt export-ignore export-subst\n"
+                "run-smoke.sh export-ignore -export-subst\n",
+                encoding="utf-8",
+            )
+            external_attributes = base / "local-attributes"
+            external_attributes.write_text(
+                "* export-ignore export-subst\n",
+                encoding="utf-8",
+            )
+            mcp_runtime_smoke.run_fixture_git(
+                source,
+                "config",
+                "core.attributesFile",
+                str(external_attributes),
+            )
+            mcp_runtime_smoke.run_fixture_git(source, "config", "tar.umask", "0777")
+
+            with patch("mcp_runtime_smoke.os.chmod", wraps=os.chmod) as chmod:
+                copied = copy_distribution_worktree(source, snapshot)
+
+            self.assertEqual(copied, 3)
+            self.assertEqual(
+                (snapshot / "tracked.txt").read_text(encoding="utf-8"),
+                "literal $Format:%H$\n",
+            )
+            self.assertEqual(
+                (snapshot / "run-smoke.sh").read_text(encoding="utf-8"),
+                "#!/bin/sh\nexit 0\n",
+            )
+            self.assertEqual(
+                (snapshot / ".ai-dememory.toml").read_text(encoding="utf-8"),
+                "template marker\n",
+            )
+            chmod.assert_any_call(snapshot / "run-smoke.sh", 0o755)
+            if os.name != "nt":
+                self.assertTrue((snapshot / "run-smoke.sh").stat().st_mode & 0o111)
+
+    def test_distribution_snapshot_rejects_dirty_tracked_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            snapshot = Path(temporary) / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            tracked = source / "tracked.txt"
+            tracked.write_text("committed\n", encoding="utf-8")
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.email", "smoke@example.invalid")
+            mcp_runtime_smoke.run_fixture_git(source, "add", "--all")
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "fixture")
+            tracked.write_text("dirty\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(SmokeError, "clean tracked checkout"):
+                copy_distribution_worktree(source, snapshot)
+
+            self.assertEqual(list(snapshot.iterdir()), [])
+
+    def test_distribution_snapshot_preserves_non_ascii_git_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            snapshot = Path(temporary) / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            unicode_path = source / "café-記憶.txt"
+            unicode_path.write_text("memory\n", encoding="utf-8")
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.email", "smoke@example.invalid")
+            mcp_runtime_smoke.run_fixture_git(source, "add", "--all")
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "fixture")
+
+            copied = copy_distribution_worktree(source, snapshot)
+
+            self.assertEqual(copied, 2)
+            self.assertEqual(
+                (snapshot / "café-記憶.txt").read_text(encoding="utf-8"),
+                "memory\n",
+            )
+
+    def test_distribution_snapshot_rejects_git_and_windows_reserved_paths(self) -> None:
+        for unsafe in (
+            ".git/config",
+            "nested/.GiT/hooks/pre-commit",
+            "NUL.txt",
+            "folder/trailing.",
+            "folder/trailing ",
+        ):
+            with self.subTest(path=unsafe):
+                with self.assertRaisesRegex(SmokeError, "unsafe committed path"):
+                    mcp_runtime_smoke._tree_relative_path(unsafe)
+
+        self.assertEqual(
+            mcp_runtime_smoke._tree_relative_path("café-記憶.txt"),
+            Path("café-記憶.txt"),
+        )
+
+    def test_distribution_snapshot_rejects_committed_generated_index(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            snapshot = Path(temporary) / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            index = source / "indexes" / "memory.sqlite"
+            index.parent.mkdir()
+            index.write_bytes(b"not a disposable source artifact")
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.email", "smoke@example.invalid")
+            mcp_runtime_smoke.run_fixture_git(source, "add", "--all")
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "fixture")
+
+            with self.assertRaisesRegex(SmokeError, "committed generated index"):
+                copy_distribution_worktree(source, snapshot)
+
+    def test_distribution_snapshot_rejects_git_link_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            snapshot = Path(temporary) / "snapshot"
+            source.mkdir()
+            snapshot.mkdir()
+            template = source / "vault-template" / ".ai-dememory.toml"
+            template.parent.mkdir()
+            template.write_text("template marker\n", encoding="utf-8")
+            mcp_runtime_smoke.run_fixture_git(source, "init", "--quiet")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.name", "Smoke Test")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "user.email", "smoke@example.invalid")
+            mcp_runtime_smoke.run_fixture_git(source, "config", "core.symlinks", "false")
+            mcp_runtime_smoke.run_fixture_git(source, "add", "vault-template/.ai-dememory.toml")
+            hash_result = run_owned_capture(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=source,
+                env=smoke_git_environment(source),
+                input_text="target\n",
+                timeout_seconds=30,
+            )
+            self.assertEqual(hash_result.returncode, 0, hash_result.stderr)
+            blob = hash_result.stdout.strip()
+            mcp_runtime_smoke.run_fixture_git(
+                source,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"120000,{blob},linked-entry",
+            )
+            mcp_runtime_smoke.run_fixture_git(source, "commit", "--quiet", "-m", "link fixture")
+            (source / "linked-entry").write_text("target\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(SmokeError, "link-like or non-file"):
+                copy_distribution_worktree(source, snapshot)
+
+    def test_distribution_snapshot_temp_tree_is_removed_after_prepare_failure(self) -> None:
+        observed: list[Path] = []
+
+        def fail_copy(_source: Path, snapshot: Path) -> int:
+            observed.append(snapshot)
+            (snapshot / "partial.txt").write_text("partial\n", encoding="utf-8")
+            raise SmokeError("injected preparation failure")
+
+        with patch("mcp_runtime_smoke.copy_distribution_worktree", side_effect=fail_copy):
+            with self.assertRaisesRegex(SmokeError, "injected preparation failure"):
+                with temporary_distribution_snapshot(ROOT):
+                    self.fail("failed preparation must not yield a snapshot")
+
+        self.assertEqual(len(observed), 1)
+        self.assertFalse(observed[0].exists())
+
     def bounded_blocking_call(
         self,
         stream: ControlledBlockingEof,

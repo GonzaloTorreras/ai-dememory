@@ -7,8 +7,9 @@ import argparse
 from contextlib import contextmanager
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import queue
+import stat
 import subprocess
 import sys
 import tempfile
@@ -33,10 +34,72 @@ MCP_RESPONSE_TIMEOUT_SECONDS = 30
 MCP_SHUTDOWN_GRACE_SECONDS = 2
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 PINNED_SMOKE_IMAGE = "registry.example/ai-dememory@sha256:" + ("a" * 64)
+VAULT_MARKER = ".ai-dememory.toml"
+MAX_DISTRIBUTION_TREE_BYTES = 8 * 1024 * 1024
+MAX_DISTRIBUTION_FILE_BYTES = 16 * 1024 * 1024
+MAX_DISTRIBUTION_FILES = 5_000
+MAX_DISTRIBUTION_STDERR_BYTES = 64 * 1024
+MAX_DISTRIBUTION_TOTAL_BYTES = 128 * 1024 * 1024
+MAX_DISTRIBUTION_BATCH_BYTES = (
+    MAX_DISTRIBUTION_TOTAL_BYTES + (MAX_DISTRIBUTION_FILES * 128)
+)
+MAX_DISTRIBUTION_BATCH_INPUT_BYTES = MAX_DISTRIBUTION_FILES * 66
+MAX_DISTRIBUTION_PATH_BYTES = 4 * 1024
+MAX_DISTRIBUTION_HEADER_BYTES = 256
+TRACKED_REGULAR_MODES = {b"100644": 0o644, b"100755": 0o755}
+GENERATED_INDEX_PATHS = {
+    "indexes/memory.sqlite",
+    "indexes/memory.sqlite-journal",
+    "indexes/memory.sqlite-shm",
+    "indexes/memory.sqlite-wal",
+    "indexes/memory.sqlite.tmp",
+    "indexes/memory.sqlite.tmp-journal",
+    "indexes/memory.sqlite.tmp-shm",
+    "indexes/memory.sqlite.tmp-wal",
+}
 
 
 class SmokeError(RuntimeError):
     pass
+
+
+def _link_like(metadata: os.stat_result) -> bool:
+    attributes = getattr(metadata, "st_file_attributes", 0) or 0
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    )
+
+
+def smoke_git_environment(safe_directory: Path | None = None) -> dict[str, str]:
+    """Return a prompt-free Git environment without ambient repository control."""
+    environment = {
+        key: value
+        for key, value in noninteractive_git_environment().items()
+        if not key.upper().startswith("GIT_")
+    }
+    environment.update(
+        {
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_PAGER": "cat",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_ATTR_NOSYSTEM": "1",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    if safe_directory is not None:
+        safe_path = Path(os.path.abspath(safe_directory))
+        environment.update(
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "safe.directory",
+                "GIT_CONFIG_VALUE_0": str(safe_path),
+            }
+        )
+    return environment
 
 
 def ensure_pr_gate(allow_without_pr: bool) -> str:
@@ -62,6 +125,7 @@ def start_server(
     with start_owned_process(
         command,
         cwd=checkout_root,
+        env=smoke_git_environment(checkout_root),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -310,7 +374,7 @@ def run_fixture_git(repo: Path, *args: str) -> None:
     completed = run_owned_capture(
         command,
         cwd=repo,
-        env=noninteractive_git_environment(),
+        env=smoke_git_environment(repo),
         timeout_seconds=30,
     )
     if completed.returncode != 0:
@@ -320,6 +384,407 @@ def run_fixture_git(repo: Path, *args: str) -> None:
             output=completed.stdout,
             stderr=completed.stderr,
         )
+
+
+def _require_clean_tracked_tree(checkout_root: Path, commit_oid: str) -> None:
+    """Require Git to report the worktree clean against one immutable commit."""
+    completed = run_owned_capture(
+        [
+            "git",
+            "-c",
+            "core.fsmonitor=false",
+            "diff-index",
+            "--quiet",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--ignore-submodules=none",
+            commit_oid,
+            "--",
+        ],
+        cwd=checkout_root,
+        env=smoke_git_environment(checkout_root),
+        timeout_seconds=30,
+        max_output_bytes=8 * 1024,
+    )
+    if completed.returncode == 1:
+        raise SmokeError("distribution snapshot requires a clean tracked checkout")
+    if completed.returncode != 0:
+        raise SmokeError("distribution snapshot could not verify the tracked checkout")
+
+
+def _tree_relative_path(raw_path: str) -> Path:
+    segments = raw_path.split("/")
+    posix_path = PurePosixPath(raw_path)
+    if (
+        not raw_path
+        or "\\" in raw_path
+        or ":" in raw_path
+        or any(
+            ord(character) < 32
+            or ord(character) == 127
+            or 0xD800 <= ord(character) <= 0xDFFF
+            for character in raw_path
+        )
+        or posix_path.is_absolute()
+        or any(
+            segment in {"", ".", ".."}
+            or segment.casefold() == ".git"
+            or segment.endswith((" ", "."))
+            or PureWindowsPath(segment).is_reserved()
+            for segment in segments
+        )
+    ):
+        raise SmokeError("distribution snapshot found an unsafe committed path")
+    relative = Path(*segments)
+    if relative.is_absolute() or relative.drive:
+        raise SmokeError("distribution snapshot found an unsafe committed path")
+    return relative
+
+
+@contextmanager
+def _bounded_git_raw_output(
+    checkout_root: Path,
+    arguments: list[str],
+    *,
+    operation: str,
+    max_stdout_bytes: int,
+    input_bytes: bytes | None = None,
+    timeout_seconds: float = 60,
+) -> Iterator[Any]:
+    """Yield one completed Git command's raw stdout with strict byte caps."""
+    if max_stdout_bytes < 1:
+        raise ValueError("max_stdout_bytes must be positive")
+    if input_bytes is not None and len(input_bytes) > MAX_DISTRIBUTION_BATCH_INPUT_BYTES:
+        raise SmokeError("distribution snapshot batch input exceeds its resource limit")
+
+    command = ["git", *arguments]
+    with (
+        tempfile.TemporaryFile() as input_file,
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+    ):
+        stdin: Any = subprocess.DEVNULL
+        if input_bytes is not None:
+            input_file.write(input_bytes)
+            input_file.seek(0)
+            stdin = input_file
+
+        deadline = time.monotonic() + timeout_seconds
+        exceeded = False
+        timed_out = False
+        try:
+            with start_owned_process(
+                command,
+                cwd=checkout_root,
+                env=smoke_git_environment(checkout_root),
+                stdin=stdin,
+                stdout=stdout_file,
+                stderr=stderr_file,
+            ) as process:
+                while process.poll() is None:
+                    if (
+                        os.fstat(stdout_file.fileno()).st_size > max_stdout_bytes
+                        or os.fstat(stderr_file.fileno()).st_size
+                        > MAX_DISTRIBUTION_STDERR_BYTES
+                    ):
+                        exceeded = True
+                        break
+                    if time.monotonic() >= deadline:
+                        timed_out = True
+                        break
+                    time.sleep(0.01)
+        except OSError as exc:
+            raise SmokeError(f"distribution snapshot could not {operation}") from exc
+
+        # A child can append its last bytes between poll() and exit. Check both
+        # streams again only after the owned process tree has been reaped.
+        stdout_size = os.fstat(stdout_file.fileno()).st_size
+        stderr_size = os.fstat(stderr_file.fileno()).st_size
+        if (
+            exceeded
+            or stdout_size > max_stdout_bytes
+            or stderr_size > MAX_DISTRIBUTION_STDERR_BYTES
+        ):
+            raise SmokeError(f"distribution snapshot {operation} exceeds its resource limit")
+        if timed_out:
+            raise SmokeError(f"distribution snapshot {operation} timed out")
+        if getattr(process, "_ai_dememory_cleanup_complete", False) is not True:
+            raise SmokeError(f"distribution snapshot {operation} left an owned process")
+
+        if process.returncode != 0:
+            raise SmokeError(f"distribution snapshot could not {operation}")
+        stdout_file.seek(0)
+        yield stdout_file
+
+
+def _resolve_commit_oid(checkout_root: Path) -> str:
+    with _bounded_git_raw_output(
+        checkout_root,
+        ["rev-parse", "--verify", "HEAD^{commit}"],
+        operation="resolve the source commit",
+        max_stdout_bytes=256,
+        timeout_seconds=30,
+    ) as output:
+        raw = output.read(257)
+    oid = raw.removesuffix(b"\n")
+    if (
+        oid.endswith(b"\r")
+        or len(oid) not in {40, 64}
+        or any(character not in b"0123456789abcdef" for character in oid)
+    ):
+        raise SmokeError("distribution snapshot resolved an invalid source commit")
+    return oid.decode("ascii")
+
+
+def _commit_tree_entries(
+    checkout_root: Path,
+    commit_oid: str,
+) -> list[tuple[str, Path, int]]:
+    with _bounded_git_raw_output(
+        checkout_root,
+        ["ls-tree", "-rz", "--full-tree", commit_oid],
+        operation="inventory the committed tree",
+        max_stdout_bytes=MAX_DISTRIBUTION_TREE_BYTES,
+    ) as output:
+        raw_tree = output.read(MAX_DISTRIBUTION_TREE_BYTES + 1)
+
+    if not raw_tree or not raw_tree.endswith(b"\0"):
+        raise SmokeError("distribution snapshot committed tree inventory is invalid")
+    entries: list[tuple[str, Path, int]] = []
+    for record in raw_tree[:-1].split(b"\0"):
+        metadata, separator, raw_path = record.partition(b"\t")
+        fields = metadata.split(b" ")
+        if not separator or len(fields) != 3 or not raw_path:
+            raise SmokeError("distribution snapshot committed tree inventory is invalid")
+        raw_mode, object_type, raw_oid = fields
+        mode = TRACKED_REGULAR_MODES.get(raw_mode)
+        if mode is None or object_type != b"blob":
+            raise SmokeError(
+                "distribution snapshot refuses committed link-like or non-file entries"
+            )
+        if (
+            len(raw_oid) not in {40, 64}
+            or any(character not in b"0123456789abcdef" for character in raw_oid)
+        ):
+            raise SmokeError("distribution snapshot committed tree inventory is invalid")
+        if len(raw_path) > MAX_DISTRIBUTION_PATH_BYTES:
+            raise SmokeError("distribution snapshot committed path exceeds its resource limit")
+        try:
+            path_text = raw_path.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise SmokeError("distribution snapshot committed path is not valid UTF-8") from exc
+        relative = _tree_relative_path(path_text)
+        entries.append((raw_oid.decode("ascii"), relative, mode))
+        if len(entries) > MAX_DISTRIBUTION_FILES:
+            raise SmokeError("distribution snapshot contents exceed resource limits")
+    return entries
+
+
+def _write_snapshot_file(destination: Path, payload: bytes, mode: int) -> None:
+    destination_descriptor: int | None = None
+    try:
+        write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+            write_flags |= getattr(os, name, 0)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination_descriptor = os.open(destination, write_flags, mode)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(destination_descriptor, remaining)
+            if written <= 0:
+                raise SmokeError("distribution snapshot copy did not progress")
+            remaining = remaining[written:]
+        os.fsync(destination_descriptor)
+        written_metadata = os.fstat(destination_descriptor)
+        if (
+            not stat.S_ISREG(written_metadata.st_mode)
+            or written_metadata.st_size != len(payload)
+            or written_metadata.st_nlink != 1
+        ):
+            raise SmokeError("distribution snapshot wrote an unstable file")
+    except SmokeError:
+        raise
+    except OSError as exc:
+        raise SmokeError("distribution snapshot could not copy a tracked file") from exc
+    finally:
+        if destination_descriptor is not None:
+            try:
+                os.close(destination_descriptor)
+            except OSError:
+                pass
+    try:
+        os.chmod(destination, mode)
+    except OSError as exc:
+        raise SmokeError("distribution snapshot could not set tracked file mode") from exc
+
+
+def copy_distribution_worktree(checkout_root: Path, snapshot_root: Path) -> int:
+    """Materialize one commit's regular blobs without archive/filter semantics."""
+    commit_oid = _resolve_commit_oid(checkout_root)
+    entries = _commit_tree_entries(checkout_root, commit_oid)
+    _require_clean_tracked_tree(checkout_root, commit_oid)
+    try:
+        if any(snapshot_root.iterdir()):
+            raise SmokeError("distribution snapshot destination is not empty")
+    except OSError as exc:
+        raise SmokeError("distribution snapshot destination is unavailable") from exc
+
+    template_relative = Path("vault-template") / VAULT_MARKER
+    template_payload: bytes | None = None
+    file_count = 0
+    total_bytes = 0
+    if not entries:
+        raise SmokeError("distribution snapshot found no committed regular files")
+    if any(relative.as_posix() in GENERATED_INDEX_PATHS for _, relative, _ in entries):
+        raise SmokeError("distribution snapshot refuses a committed generated index")
+    batch_input = b"".join(oid.encode("ascii") + b"\n" for oid, _, _ in entries)
+    with _bounded_git_raw_output(
+        checkout_root,
+        ["cat-file", "--batch"],
+        operation="read the committed blobs",
+        max_stdout_bytes=MAX_DISTRIBUTION_BATCH_BYTES,
+        input_bytes=batch_input,
+    ) as batch:
+        for expected_oid, relative, mode in entries:
+            header = batch.readline(MAX_DISTRIBUTION_HEADER_BYTES + 1)
+            if len(header) > MAX_DISTRIBUTION_HEADER_BYTES or not header.endswith(b"\n"):
+                raise SmokeError("distribution snapshot blob response is invalid")
+            fields = header[:-1].split(b" ")
+            if len(fields) != 3:
+                raise SmokeError("distribution snapshot blob response is invalid")
+            raw_oid, object_type, raw_size = fields
+            if (
+                raw_oid != expected_oid.encode("ascii")
+                or object_type != b"blob"
+                or not raw_size.isdigit()
+            ):
+                raise SmokeError("distribution snapshot blob response is invalid")
+            size = int(raw_size)
+            total_bytes += size
+            if (
+                size > MAX_DISTRIBUTION_FILE_BYTES
+                or total_bytes > MAX_DISTRIBUTION_TOTAL_BYTES
+            ):
+                raise SmokeError("distribution snapshot contents exceed resource limits")
+            payload = batch.read(size)
+            if len(payload) != size or batch.read(1) != b"\n":
+                raise SmokeError("distribution snapshot blob response is truncated")
+
+            if relative == Path(VAULT_MARKER):
+                # An arbitrary source-root marker is never trusted.
+                continue
+            file_count += 1
+            _write_snapshot_file(snapshot_root / relative, payload, mode)
+            if relative == template_relative:
+                template_payload = payload
+        if batch.read(1):
+            raise SmokeError("distribution snapshot blob response has trailing data")
+
+    if file_count == 0:
+        raise SmokeError("distribution snapshot found no committed regular files")
+    if template_payload is None:
+        raise SmokeError("distribution snapshot found no reviewed vault template")
+    _write_snapshot_file(snapshot_root / VAULT_MARKER, template_payload, 0o600)
+    return file_count
+
+
+def initialize_distribution_snapshot_git(snapshot_root: Path) -> None:
+    try:
+        run_fixture_git(snapshot_root, "init", "--quiet")
+        run_fixture_git(snapshot_root, "config", "user.name", "ai-dememory MCP Smoke")
+        run_fixture_git(snapshot_root, "config", "user.email", "mcp-smoke@example.invalid")
+        run_fixture_git(snapshot_root, "config", "commit.gpgSign", "false")
+        run_fixture_git(snapshot_root, "config", "core.hooksPath", ".git/no-hooks")
+        run_fixture_git(snapshot_root, "add", "--all")
+        run_fixture_git(snapshot_root, "commit", "--quiet", "--no-gpg-sign", "-m", "MCP runtime smoke snapshot")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SmokeError("distribution snapshot could not initialize its local git evidence") from exc
+
+
+def rebuild_distribution_snapshot_index(snapshot_root: Path) -> None:
+    index_path = snapshot_root / "indexes" / "memory.sqlite"
+    transient_paths = [
+        index_path,
+        index_path.with_name(index_path.name + ".tmp"),
+        index_path.with_name(index_path.name + "-journal"),
+        index_path.with_name(index_path.name + "-shm"),
+        index_path.with_name(index_path.name + "-wal"),
+        index_path.with_name(index_path.name + ".tmp-journal"),
+        index_path.with_name(index_path.name + ".tmp-shm"),
+        index_path.with_name(index_path.name + ".tmp-wal"),
+    ]
+    for path in transient_paths:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SmokeError("distribution snapshot index path is unavailable") from exc
+        raise SmokeError("distribution snapshot refuses a preexisting generated index")
+
+    completed = run_owned_capture(
+        [
+            sys.executable,
+            "-m",
+            "ai_dememory_tool.cli",
+            "--root",
+            str(snapshot_root),
+            "index",
+        ],
+        cwd=snapshot_root,
+        env=smoke_git_environment(snapshot_root),
+        timeout_seconds=60,
+    )
+    descriptor: int | None = None
+    try:
+        before = index_path.lstat()
+        flags = os.O_RDONLY
+        for name in ("O_BINARY", "O_CLOEXEC", "O_NOFOLLOW"):
+            flags |= getattr(os, name, 0)
+        descriptor = os.open(index_path, flags)
+        opened = os.fstat(descriptor)
+        after = index_path.lstat()
+    except OSError as exc:
+        raise SmokeError("distribution snapshot index rebuild produced no index") from exc
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+    identity_fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")
+    if completed.returncode != 0 or any(
+        _link_like(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_ino == 0
+        or metadata.st_nlink != 1
+        for metadata in (before, opened, after)
+    ) or any(
+        getattr(before, field) != getattr(opened, field)
+        or getattr(opened, field) != getattr(after, field)
+        for field in identity_fields
+    ):
+        raise SmokeError("distribution snapshot index rebuild failed")
+    for path in transient_paths[1:]:
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SmokeError("distribution snapshot index sidecar is unavailable") from exc
+        raise SmokeError("distribution snapshot index rebuild left a transient sidecar")
+
+
+@contextmanager
+def temporary_distribution_snapshot(checkout_root: Path) -> Iterator[Path]:
+    """Build a git-backed, indexed smoke root without mutating the checkout."""
+    with tempfile.TemporaryDirectory(prefix="ai-dememory-mcp-distribution-") as temporary:
+        snapshot_root = Path(temporary) / "distribution"
+        snapshot_root.mkdir()
+        copy_distribution_worktree(checkout_root, snapshot_root)
+        initialize_distribution_snapshot_git(snapshot_root)
+        rebuild_distribution_snapshot_index(snapshot_root)
+        yield snapshot_root
 
 
 def stop_server(process: subprocess.Popen[str]) -> None:
@@ -2398,8 +2863,11 @@ def run_smoke(root: Path, allow_without_pr: bool = False) -> list[str]:
         )
         assert_condition(denied.get("isError") is True, "out-of-repo secret scan was not rejected")
         checks.append("secret_scan path boundary")
-    with start_server(root) as process:
-        exercise_server(process)
+    # Exercise distribution-only tools in a tracked-file snapshot. The public
+    # checkout remains source code and is never exposed as a memory vault.
+    with temporary_distribution_snapshot(root) as distribution_root:
+        with start_server(distribution_root, distribution_root) as process:
+            exercise_server(process)
     checks.extend(run_fixture_smoke(root))
     return checks
 
