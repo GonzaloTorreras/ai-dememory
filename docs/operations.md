@@ -9,12 +9,13 @@ when you choose one of those integrations.
 Normal vault commands use the installed `ai-dememory` CLI. Keep `--root`
 explicit in automation or whenever more than one vault is in play, for example
 `ai-dememory --root ~/code/my-memory <command>`. In the upcoming 2.1.2
-correction, a deliberately saved local default lets shorter `ai-dememory
-<command>` forms use that same private vault. Resolution is `--root`, then
-`AI_DEMEMORY_ROOT`, then the saved default. The selector stores only an
-absolute local path outside the vault; it is not memory and does not change an
-environment variable. Source-checkout commands are confined to the maintainer
-section below.
+correction, a deliberately saved local default lets shorter forms of commands
+already migrated to the strict resolver use that same private vault. On those
+surfaces resolution is `--root`, then `AI_DEMEMORY_ROOT`, then the saved
+default. The selector stores only an absolute local path outside the vault; it
+is not memory and does not change an environment variable. Older generic
+commands remain subject to the `BRG-003` caveat below. Source-checkout commands
+are confined to the maintainer section below.
 
 **Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
 Source candidate: 2.1.2, unreleased; it is not installable from a package index
@@ -58,6 +59,28 @@ is deliberately local; use explicit `--root` or `AI_DEMEMORY_ROOT` for a
 network location. If its path later becomes stale or unsafe, the CLI fails
 closed—run `ai-dememory vault clear` and select a vault again. Prefer an
 explicit `--root` in scripts and when switching between vaults.
+
+Runtime surfaces already migrated to the strict resolver must point to an
+initialized vault whose final root is a real directory and whose
+`.ai-dememory.toml` is a bounded, stable regular file. This includes MCP, API,
+stateful hooks, setup/onboarding, vault-bound provider/import/capture,
+maintenance, and scheduler operations. On those surfaces the CLI rejects
+missing roots, a symlink or junction as the final vault root, and linked,
+hard-linked, oversized, or concurrently replaced configuration markers before
+the selected command performs vault work. Stable aliases in an ancestor path
+are canonicalized, so normal platform aliases remain usable. Create a new vault
+with `ai-dememory init`; strict runtime consumers do not initialize a missing
+directory implicitly.
+
+`BRG-003` still tracks older generic-dispatch commands until each is classified
+as vault-bound, source-bound, or genuinely rootless. Their acceptance of a path
+must not yet be interpreted as proof that the shared structural validator ran.
+
+On strict-resolver surfaces, explicit `--root` or `AI_DEMEMORY_ROOT` can
+deliberately name a network path, but that is not a guarantee that every remote
+filesystem is compatible. It must still provide stable file identities and
+regular-file behavior; otherwise the binding fails closed. The saved default
+remains local-only.
 
 Generated private-vault configuration defaults to the reduced four-tool `core`
 profile. Explicit `admin` preserves the complete historical MCP surface for

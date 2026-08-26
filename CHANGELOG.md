@@ -10,10 +10,10 @@ accepted by the release identity guard.
 ### Added
 
 - Add an explicit, per-user default-vault selector. After the user chooses a
-  local initialized vault, runtime commands resolve `--root`, then
-  `AI_DEMEMORY_ROOT`, then that selector without rediscovering an arbitrary
-  working directory. The selector stores only an absolute local path and can
-  be inspected, changed, or cleared with `ai-dememory vault`.
+  local initialized vault, migrated strict-resolver commands resolve `--root`,
+  then `AI_DEMEMORY_ROOT`, then that selector without rediscovering an arbitrary
+  working directory. The selector stores only an absolute local path and can be
+  inspected, changed, or cleared with `ai-dememory vault`.
 
 ### Fixed
 
@@ -22,6 +22,10 @@ accepted by the release identity guard.
   preserving fail-closed handling for stale or unsafe selections.
 - Prevent an in-process CLI invocation from leaking a resolved vault into the
   next invocation, so clearing or replacing a default takes effect immediately.
+- Require strict-resolver commands to bind to an initialized vault with a real,
+  stable root and `.ai-dememory.toml`. A selected explicit, environment, or
+  saved-default root that is missing, linked, uninitialized, or replaced during
+  validation now fails without falling through to another source.
 
 ### Changed
 

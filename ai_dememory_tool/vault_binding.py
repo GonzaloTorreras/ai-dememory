@@ -20,6 +20,7 @@ CONFIG_HOME_ENV = "AI_DEMEMORY_CONFIG_HOME"
 DEFAULT_VAULT_SELECTOR_FILE = "default-vault.json"
 DEFAULT_VAULT_SELECTOR_SCHEMA_VERSION = 1
 MAX_DEFAULT_VAULT_SELECTOR_BYTES = 4096
+# Keep this structural ceiling aligned with scripts/config_file.MAX_CONFIG_BYTES.
 MAX_VAULT_CONFIG_BYTES = 64 * 1024
 
 
@@ -36,7 +37,7 @@ class VaultBinding:
 
 
 def _is_unsafe_entry(metadata: os.stat_result) -> bool:
-    attributes = getattr(metadata, "st_file_attributes", 0)
+    attributes = getattr(metadata, "st_file_attributes", 0) or 0
     return stat.S_ISLNK(metadata.st_mode) or bool(
         attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     )
@@ -54,6 +55,13 @@ def _validate_regular_file(metadata: os.stat_result, label: str) -> None:
         raise VaultBindingError(f"{label} has no stable file identity")
     if metadata.st_nlink != 1:
         raise VaultBindingError(f"{label} must not have multiple hard links")
+
+
+def _validate_real_directory(metadata: os.stat_result, label: str) -> None:
+    if _is_unsafe_entry(metadata) or not stat.S_ISDIR(metadata.st_mode):
+        raise VaultBindingError(f"{label} must be a real directory")
+    if not _has_stable_file_identity(metadata):
+        raise VaultBindingError(f"{label} has no stable directory identity")
 
 
 def _is_windows_network_path(path: Path) -> bool:
@@ -88,12 +96,69 @@ def _read_flags() -> int:
     return flags
 
 
-def _same_file(before: os.stat_result, after: os.stat_result) -> bool:
+def _same_file(
+    before: os.stat_result,
+    after: os.stat_result,
+    *,
+    compare_ctime: bool = False,
+) -> bool:
     return (
         before.st_dev == after.st_dev
         and before.st_ino == after.st_ino
         and stat.S_IFMT(before.st_mode) == stat.S_IFMT(after.st_mode)
         and before.st_size == after.st_size
+        and before.st_mtime_ns == after.st_mtime_ns
+        # Windows reports ctime differently for a path lookup and its open
+        # descriptor.  It remains a useful same-handle mutation signal.
+        and (not compare_ctime or before.st_ctime_ns == after.st_ctime_ns)
+    )
+
+
+def _same_entry(before: os.stat_result, after: os.stat_result) -> bool:
+    """Compare durable entry identity without volatile directory metadata."""
+    return (
+        before.st_dev == after.st_dev
+        and before.st_ino == after.st_ino
+        and stat.S_IFMT(before.st_mode) == stat.S_IFMT(after.st_mode)
+    )
+
+
+def _directory_chain(path: Path) -> tuple[Path, ...]:
+    """Return an absolute path's canonical chain from its anchor to itself."""
+    chain: list[Path] = []
+    current = path
+    while True:
+        chain.append(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    chain.reverse()
+    return tuple(chain)
+
+
+def _directory_snapshot(path: Path, label: str) -> tuple[tuple[Path, os.stat_result], ...]:
+    """Inspect a canonical chain without following any final directory entry."""
+    snapshot: list[tuple[Path, os.stat_result]] = []
+    for entry in _directory_chain(path):
+        try:
+            metadata = entry.lstat()
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            raise VaultBindingError(f"{label} directory chain does not exist") from exc
+        except (OSError, ValueError) as exc:
+            raise VaultBindingError(f"{label} directory chain is unavailable") from exc
+        _validate_real_directory(metadata, f"{label} directory chain")
+        snapshot.append((entry, metadata))
+    return tuple(snapshot)
+
+
+def _same_directory_snapshot(
+    before: tuple[tuple[Path, os.stat_result], ...],
+    after: tuple[tuple[Path, os.stat_result], ...],
+) -> bool:
+    return len(before) == len(after) and all(
+        before_path == after_path and _same_entry(before_metadata, after_metadata)
+        for (before_path, before_metadata), (after_path, after_metadata) in zip(before, after)
     )
 
 
@@ -125,9 +190,13 @@ def _read_regular(path: Path, *, limit: int, label: str) -> bytes:
             body.extend(chunk)
         if len(body) > limit:
             raise VaultBindingError(f"{label} exceeds its byte limit")
+        opened_after = os.fstat(descriptor)
+        _validate_regular_file(opened_after, label)
+        if not _same_file(opened, opened_after, compare_ctime=True):
+            raise VaultBindingError(f"{label} changed during access")
         after = path.lstat()
         _validate_regular_file(after, label)
-        if not _same_file(opened, after):
+        if not _same_file(opened_after, after):
             raise VaultBindingError(f"{label} changed during access")
         return bytes(body)
     except OSError as exc:
@@ -139,29 +208,65 @@ def _read_regular(path: Path, *, limit: int, label: str) -> bytes:
             pass
 
 
-def _validate_selected_vault(value: str | Path) -> Path:
-    """Require a real configured vault every time the selector is consumed."""
-    root = _local_selector_path(value, "default vault", noun="vault path")
+def _validate_structural_vault(
+    value: str | Path,
+    *,
+    binding_label: str,
+    local_only: bool,
+) -> Path:
+    """Validate one chosen runtime vault without parsing its configuration."""
+    root = (
+        _local_selector_path(value, binding_label, noun="vault path")
+        if local_only
+        else _absolute_path(value, binding_label, noun="vault path")
+    )
+    vault_label = binding_label if binding_label.endswith("vault") else f"{binding_label} vault"
     try:
         root_metadata = root.lstat()
-    except FileNotFoundError as exc:
-        raise VaultBindingError("default vault directory does not exist") from exc
-    except OSError as exc:
-        raise VaultBindingError("default vault directory is unavailable") from exc
-    if _is_unsafe_entry(root_metadata) or not stat.S_ISDIR(root_metadata.st_mode):
-        raise VaultBindingError("default vault must be a real directory")
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise VaultBindingError(f"{vault_label} directory does not exist") from exc
+    except (OSError, ValueError) as exc:
+        raise VaultBindingError(f"{vault_label} directory is unavailable") from exc
+    _validate_real_directory(root_metadata, vault_label)
+
+    # Resolve only after the final logical entry has been proven to be a real
+    # directory.  This permits host aliases in ancestors (for example macOS
+    # /var -> /private/var) without accepting a linked vault root.
+    try:
+        canonical_root = root.resolve(strict=True)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise VaultBindingError(f"{vault_label} directory does not exist") from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise VaultBindingError(f"{vault_label} directory is unavailable") from exc
+
+    before_chain = _directory_snapshot(canonical_root, vault_label)
+    if not _same_entry(root_metadata, before_chain[-1][1]):
+        raise VaultBindingError(f"{vault_label} changed during validation")
     try:
         _read_regular(
-            root / ".ai-dememory.toml",
+            canonical_root / ".ai-dememory.toml",
             limit=MAX_VAULT_CONFIG_BYTES,
-            label="default vault config",
+            label=f"{vault_label} config",
         )
     except FileNotFoundError as exc:
-        raise VaultBindingError("default vault is missing .ai-dememory.toml") from exc
+        raise VaultBindingError(f"{vault_label} is missing .ai-dememory.toml") from exc
+
+    after_chain = _directory_snapshot(canonical_root, vault_label)
+    if not _same_directory_snapshot(before_chain, after_chain):
+        raise VaultBindingError(f"{vault_label} changed during validation")
     # Command modules own strict TOML parsing. Selection validates only the
     # bounded, stable file identity so the invoked command can return its
     # schema-specific controlled diagnostic without duplicating that parser.
-    return root.resolve(strict=True)
+    return canonical_root
+
+
+def _validate_selected_vault(value: str | Path) -> Path:
+    """Require a real configured local vault every time the selector is consumed."""
+    return _validate_structural_vault(
+        value,
+        binding_label="default vault",
+        local_only=True,
+    )
 
 
 def _config_home(environ: Mapping[str, str] | None) -> Path | None:
@@ -342,7 +447,11 @@ def resolve_runtime_vault(
         if not explicit_root.strip():
             raise VaultBindingError("--root requires a non-empty vault path")
         return VaultBinding(
-            _absolute_path(explicit_root, "--root", noun="vault path").resolve(),
+            _validate_structural_vault(
+                explicit_root,
+                binding_label="--root",
+                local_only=False,
+            ),
             "argument",
         )
     values = os.environ if environ is None else environ
@@ -351,11 +460,11 @@ def resolve_runtime_vault(
         if not configured_root.strip():
             raise VaultBindingError("AI_DEMEMORY_ROOT requires a non-empty vault path")
         return VaultBinding(
-            _absolute_path(
+            _validate_structural_vault(
                 configured_root,
-                "AI_DEMEMORY_ROOT",
-                noun="vault path",
-            ).resolve(),
+                binding_label="AI_DEMEMORY_ROOT",
+                local_only=False,
+            ),
             "environment",
         )
     binding = load_default_vault(environ=environ)

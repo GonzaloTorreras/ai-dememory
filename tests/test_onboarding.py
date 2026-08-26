@@ -80,6 +80,15 @@ def operational_main(argv: list[str]) -> int:
     return onboarding_main(argv, mode="operational")
 
 
+def make_runtime_vault(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    (path / ".ai-dememory.toml").write_text(
+        '[memory]\nschema_version = "2.0"\n',
+        encoding="utf-8",
+    )
+    return path.resolve()
+
+
 class InteractiveStdin:
     def isatty(self) -> bool:
         return True
@@ -439,11 +448,12 @@ class OnboardingTests(unittest.TestCase):
 
     def test_plain_preview_prints_fingerprint_and_apply_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with redirect_stdout(output):
                 exit_code = onboarding_main(
                     [
-                        "--root", tmp, "--reviewed-by", "Unit Test", "--value", "Prefer safe work.",
+                        "--root", str(root), "--reviewed-by", "Unit Test", "--value", "Prefer safe work.",
                         "--preference", "Run tests.", "--recommendation", "Recall reviewed memory.",
                     ]
                 )
@@ -463,14 +473,15 @@ class OnboardingTests(unittest.TestCase):
             "",
         ]
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
+            config_before = (root / ".ai-dememory.toml").read_bytes()
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ) as prompt, redirect_stdout(output):
-                exit_code = onboarding_main(["--root", tmp])
+                exit_code = onboarding_main(["--root", str(root)])
 
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual((root / ".ai-dememory.toml").read_bytes(), config_before)
             self.assertFalse((root / "memories").exists())
 
         self.assertEqual(exit_code, 0)
@@ -496,11 +507,12 @@ class OnboardingTests(unittest.TestCase):
             "",
         ]
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ) as prompt, redirect_stdout(output):
-                exit_code = onboarding_main(["--root", tmp])
+                exit_code = onboarding_main(["--root", str(root)])
 
         rendered = output.getvalue()
         prompt_text = "\n".join(str(call.args[0]) for call in prompt.call_args_list)
@@ -526,12 +538,12 @@ class OnboardingTests(unittest.TestCase):
             "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ) as prompt, redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp])
+                exit_code = operational_main(["--root", str(root)])
 
             config = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
             memories_exist = (root / "memories").exists()
@@ -569,11 +581,12 @@ class OnboardingTests(unittest.TestCase):
             "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ) as prompt, redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp])
+                exit_code = operational_main(["--root", str(root)])
 
         rendered = output.getvalue()
         prompt_text = "\n".join(str(call.args[0]) for call in prompt.call_args_list)
@@ -590,7 +603,7 @@ class OnboardingTests(unittest.TestCase):
     def test_guided_wizard_can_remember_the_applied_vault_as_local_default(self) -> None:
         prompted_answers = ["", "", "yes", "yes"]
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
             saved = VaultBinding(root.resolve(), "default")
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
@@ -599,7 +612,7 @@ class OnboardingTests(unittest.TestCase):
                 "ai_dememory_tool.vault_binding.save_default_vault",
                 return_value=saved,
             ) as save_default, redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp])
+                exit_code = operational_main(["--root", str(root)])
 
             config_exists = (root / ".ai-dememory.toml").exists()
 
@@ -614,7 +627,7 @@ class OnboardingTests(unittest.TestCase):
     def test_default_vault_failure_does_not_undo_successful_operational_setup(self) -> None:
         prompted_answers = ["", "", "yes", "yes"]
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
@@ -622,7 +635,7 @@ class OnboardingTests(unittest.TestCase):
                 "ai_dememory_tool.vault_binding.save_default_vault",
                 side_effect=VaultBindingError("selector is unavailable"),
             ), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp])
+                exit_code = operational_main(["--root", str(root)])
 
             config = (root / ".ai-dememory.toml").read_text(encoding="utf-8")
 
@@ -633,9 +646,10 @@ class OnboardingTests(unittest.TestCase):
 
     def test_operational_dry_run_does_not_offer_a_default_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp, "--dry-run"])
+                exit_code = operational_main(["--root", str(root), "--dry-run"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Preview:", output.getvalue())
@@ -802,15 +816,16 @@ class OnboardingTests(unittest.TestCase):
             "no",
         ]
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
+            config_before = (root / ".ai-dememory.toml").read_bytes()
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=prompted_answers
             ), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp])
+                exit_code = operational_main(["--root", str(root)])
 
             self.assertFalse((root / "memories").exists())
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual((root / ".ai-dememory.toml").read_bytes(), config_before)
 
         self.assertEqual(exit_code, onboarding.GUIDED_DECLINED_EXIT_CODE)
         self.assertIn("Setup was not applied", output.getvalue())
@@ -818,13 +833,14 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_json_input_remains_passive_and_noninteractive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
+            config_before = (root / ".ai-dememory.toml").read_bytes()
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
                 exit_code = operational_main(
                     [
                         "--root",
-                        tmp,
+                        str(root),
                         "--input-json",
                         json.dumps(operational_answers()),
                         "--json",
@@ -833,7 +849,7 @@ class OnboardingTests(unittest.TestCase):
             payload = json.loads(output.getvalue())
 
             self.assertFalse((root / "memories").exists())
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual((root / ".ai-dememory.toml").read_bytes(), config_before)
 
         self.assertEqual(exit_code, 0)
         self.assertFalse(payload["applied"])
@@ -843,13 +859,15 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_input_file_without_json_is_a_passive_preview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            input_path = Path(tmp) / "setup.json"
+            root = make_runtime_vault(Path(tmp))
+            config_before = (root / ".ai-dememory.toml").read_bytes()
+            input_path = root / "setup.json"
             input_path.write_text(json.dumps(operational_answers()), encoding="utf-8")
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp, "--input-file", str(input_path)])
+                exit_code = operational_main(["--root", str(root), "--input-file", str(input_path)])
 
-            self.assertFalse((Path(tmp) / ".ai-dememory.toml").exists())
+            self.assertEqual((root / ".ai-dememory.toml").read_bytes(), config_before)
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Preview:", output.getvalue())
@@ -857,22 +875,24 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_stdin_without_json_is_a_passive_preview(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             stream = io.StringIO(json.dumps(operational_answers()))
             with patch.object(onboarding.sys, "stdin", stream), patch(
                 "builtins.input", side_effect=AssertionError("must not prompt")
             ), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp, "--stdin"])
+                exit_code = operational_main(["--root", str(root), "--stdin"])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("Preview:", output.getvalue())
 
     def test_setup_rejects_personal_cli_flags_instead_of_ignoring_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with redirect_stdout(output):
                 exit_code = operational_main(
-                    ["--root", tmp, "--reviewed-by", "Reviewer", "--json"]
+                    ["--root", str(root), "--reviewed-by", "Reviewer", "--json"]
                 )
             payload = json.loads(output.getvalue())
 
@@ -881,11 +901,12 @@ class OnboardingTests(unittest.TestCase):
 
     def test_onboard_rejects_operational_cli_flags(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with redirect_stdout(output):
                 exit_code = onboarding_main(
                     [
-                        "--root", tmp, "--reviewed-by", "Reviewer", "--value", "Safe work",
+                        "--root", str(root), "--reviewed-by", "Reviewer", "--value", "Safe work",
                         "--preference", "Narrow tests", "--recommendation", "Recall first",
                         "--intensity", "minimal", "--json",
                     ]
@@ -897,15 +918,16 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_json_without_answers_previews_safe_operational_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
+            config_before = (root / ".ai-dememory.toml").read_bytes()
             output = io.StringIO()
             with patch.object(onboarding.sys, "stdin", InteractiveStdin()), patch(
                 "builtins.input", side_effect=AssertionError("must not prompt")
             ), redirect_stdout(output):
-                exit_code = operational_main(["--root", tmp, "--json"])
+                exit_code = operational_main(["--root", str(root), "--json"])
             payload = json.loads(output.getvalue())
 
-            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual((root / ".ai-dememory.toml").read_bytes(), config_before)
             self.assertFalse((root / "memories").exists())
 
         self.assertEqual(exit_code, 0)
@@ -917,17 +939,17 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_json_apply_requires_exact_operational_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = make_runtime_vault(Path(tmp))
             preview_output = io.StringIO()
             with redirect_stdout(preview_output):
-                preview_exit = operational_main(["--root", tmp, "--json"])
+                preview_exit = operational_main(["--root", str(root), "--json"])
             preview = json.loads(preview_output.getvalue())
 
             drift_output = io.StringIO()
             with redirect_stdout(drift_output):
                 drift_exit = operational_main(
                     [
-                        "--root", tmp, "--intensity", "minimal", "--apply",
+                        "--root", str(root), "--intensity", "minimal", "--apply",
                         "--expect-plan-sha256", preview["plan_sha256"], "--json",
                     ]
                 )
@@ -936,7 +958,7 @@ class OnboardingTests(unittest.TestCase):
             with redirect_stdout(apply_output):
                 apply_exit = operational_main(
                     [
-                        "--root", tmp, "--apply", "--expect-plan-sha256",
+                        "--root", str(root), "--apply", "--expect-plan-sha256",
                         preview["plan_sha256"], "--json",
                     ]
                 )
@@ -956,12 +978,13 @@ class OnboardingTests(unittest.TestCase):
 
     def test_setup_wizard_generated_json_command_executes_without_prompting(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
                 exit_code = unified_cli.main(
                     [
                         "--root",
-                        tmp,
+                        str(root),
                         "setup",
                         "wizard",
                         "--json",
@@ -977,11 +1000,12 @@ class OnboardingTests(unittest.TestCase):
         output = io.StringIO()
         error = io.StringIO()
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             with patch("sys.stdout", output), patch("sys.stderr", error):
                 exit_code = unified_cli.main(
                     [
                         "--root",
-                        tmp,
+                        str(root),
                         "setup",
                         "wizard",
                         "--require-version",
@@ -996,10 +1020,11 @@ class OnboardingTests(unittest.TestCase):
 
     def test_guided_json_rejects_personal_baseline_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = make_runtime_vault(Path(tmp))
             output = io.StringIO()
             with patch("builtins.input", side_effect=AssertionError("must not prompt")), redirect_stdout(output):
                 exit_code = operational_main(
-                    ["--root", tmp, "--input-json", json.dumps(answers()), "--json"]
+                    ["--root", str(root), "--input-json", json.dumps(answers()), "--json"]
                 )
             payload = json.loads(output.getvalue())
 
@@ -1655,28 +1680,24 @@ class OnboardingTests(unittest.TestCase):
         commit_canary = "do-not-echo-json-commit-errno"
         rollback_canary = "do-not-echo-json-rollback-errno"
         real_replace = os.replace
-        real_unlink = Path.unlink
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
+            root = make_runtime_vault(Path(tmp))
             config_path = root / ".ai-dememory.toml"
             plan = operational_setup_plan(root, operational_answers())
 
             def commit_then_fail(source: object, target: object) -> None:
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".bak":
+                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
                 real_replace(source, target)  # type: ignore[arg-type]
                 if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
                     raise OSError(f"[WinError 32] {commit_canary}: {root}")
 
-            def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
-                if path.resolve(strict=False) == config_path:
-                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
-                real_unlink(path, *args, **kwargs)
-
             output = io.StringIO()
             error = io.StringIO()
-            with patch("onboarding.os.replace", side_effect=commit_then_fail), patch(
-                "onboarding.Path.unlink", autospec=True, side_effect=fail_candidate_unlink
-            ), redirect_stdout(output), redirect_stderr(error):
+            with patch("onboarding.os.replace", side_effect=commit_then_fail), redirect_stdout(
+                output
+            ), redirect_stderr(error):
                 exit_code = unified_cli.main(
                     [
                         "--root",
@@ -1712,28 +1733,24 @@ class OnboardingTests(unittest.TestCase):
         commit_canary = "do-not-echo-human-commit-errno"
         rollback_canary = "do-not-echo-human-rollback-errno"
         real_replace = os.replace
-        real_unlink = Path.unlink
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
+            root = make_runtime_vault(Path(tmp))
             config_path = root / ".ai-dememory.toml"
             plan = operational_setup_plan(root, operational_answers())
 
             def commit_then_fail(source: object, target: object) -> None:
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".bak":
+                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
                 real_replace(source, target)  # type: ignore[arg-type]
                 if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
                     raise OSError(f"[WinError 32] {commit_canary}: {root}")
 
-            def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
-                if path.resolve(strict=False) == config_path:
-                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
-                real_unlink(path, *args, **kwargs)
-
             output = io.StringIO()
             error = io.StringIO()
-            with patch("onboarding.os.replace", side_effect=commit_then_fail), patch(
-                "onboarding.Path.unlink", autospec=True, side_effect=fail_candidate_unlink
-            ), redirect_stdout(output), redirect_stderr(error):
+            with patch("onboarding.os.replace", side_effect=commit_then_fail), redirect_stdout(
+                output
+            ), redirect_stderr(error):
                 exit_code = operational_main(
                     [
                         "--root",

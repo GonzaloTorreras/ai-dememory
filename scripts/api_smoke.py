@@ -110,6 +110,10 @@ def run_api_smoke() -> list[ApiSmokeStep]:
     steps: list[ApiSmokeStep] = []
     with tempfile.TemporaryDirectory(prefix="ai-dememory-api-smoke-") as tmp:
         root = Path(tmp)
+        (root / ".ai-dememory.toml").write_text(
+            '[memory]\nschema_version = "2.0"\n',
+            encoding="utf-8",
+        )
         write_memory(root, "memories/tools/api.md", "mem_api_smoke")
         write_memory(root, "memories/tools/sensitive.md", "mem_api_sensitive", sensitivity="sensitive")
         db_path, count = rebuild_index(root, root / "indexes" / "memory.sqlite")
