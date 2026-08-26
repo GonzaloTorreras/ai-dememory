@@ -17699,6 +17699,22 @@ jobs:
             issues,
         )
 
+    def test_pr_template_guard_requires_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("requires exactly one absolute" in issue.message for issue in issues),
+            issues,
+        )
+
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
 
@@ -18022,6 +18038,22 @@ This records future risks.
 
         self.assertTrue(
             any("must use an absolute" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_release_checklist_guard_requires_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("requires exactly one absolute" in issue.message for issue in issues),
             issues,
         )
 

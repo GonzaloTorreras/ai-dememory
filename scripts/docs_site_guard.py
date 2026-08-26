@@ -3469,11 +3469,18 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
                     "absolute initialized-vault --root before the command; bind a separate vault"
                 )
 
+            launcher = ""
+            source_arguments: list[str] = []
             argument_index = command_index + 1
             while argument_index < len(tokens):
                 option = folded[argument_index]
                 source_argument: str | None = None
-                if option == "--command-arg" and argument_index + 1 < len(tokens):
+                if option == "--command" and argument_index + 1 < len(tokens):
+                    launcher = tokens[argument_index + 1]
+                    argument_index += 1
+                elif option.startswith("--command="):
+                    launcher = tokens[argument_index].partition("=")[2]
+                elif option == "--command-arg" and argument_index + 1 < len(tokens):
                     source_argument = tokens[argument_index + 1]
                     argument_index += 1
                 elif option.startswith("--command-arg="):
@@ -3481,19 +3488,31 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
                 if source_argument is not None:
                     normalized = source_argument.replace("\\", "/")
                     if normalized.casefold().endswith("scripts/ai_dememory.py"):
-                        anchored = (
-                            normalized.startswith(
-                                ("/", "~", "__ai_dememory_path_absolute_checkout__/")
-                            )
-                            or re.match(r"^[A-Za-z]:/", normalized) is not None
-                        )
-                        if not anchored:
-                            errors.append(
-                                f"{label}:{line_number}: mcp-client-smoke source launch "
-                                "must use an absolute scripts/ai_dememory.py path because "
-                                "the child runs from the bound vault"
-                            )
+                        source_arguments.append(normalized)
                 argument_index += 1
+
+            launcher_name = _launcher_name(launcher)
+            python_launcher = PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher_name)
+            for normalized in source_arguments:
+                anchored = (
+                    normalized.startswith(
+                        ("/", "~", "__ai_dememory_path_absolute_checkout__/")
+                    )
+                    or re.match(r"^[A-Za-z]:/", normalized) is not None
+                )
+                if not anchored:
+                    errors.append(
+                        f"{label}:{line_number}: mcp-client-smoke source launch "
+                        "must use an absolute scripts/ai_dememory.py path because "
+                        "the child runs from the bound vault"
+                    )
+            if python_launcher is not None:
+                if len(source_arguments) != 1:
+                    errors.append(
+                        f"{label}:{line_number}: mcp-client-smoke Python launch requires "
+                        "exactly one absolute scripts/ai_dememory.py --command-arg because "
+                        "the child runs from the bound vault"
+                    )
     return errors
 
 

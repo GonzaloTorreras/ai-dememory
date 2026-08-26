@@ -686,6 +686,11 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "--command python3 --command-arg $CHECKOUT/scripts/ai_dememory.py\n",
             "docs/example.md",
         )
+        missing_python_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3\n",
+            "docs/example.md",
+        )
 
         self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
         self.assertTrue(any("requires exactly one" in error for error in relative_root), relative_root)
@@ -693,6 +698,10 @@ class DocumentationSiteGuardTests(unittest.TestCase):
         self.assertTrue(
             any("must use an absolute" in error for error in unprovable_variable_source),
             unprovable_variable_source,
+        )
+        self.assertTrue(
+            any("requires exactly one absolute" in error for error in missing_python_source),
+            missing_python_source,
         )
 
     def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:

@@ -393,8 +393,9 @@ local-API onboarding hint and documentation follow-up.
 - Loaded non-Docker client configs normalize case-insensitive root environment
   aliases and reject embedded `--root`; loaded Docker configs fail closed and
   use generated `--mode docker` mounts instead. Documentation guards reject
-  relative vault roots, relative child scripts, and unprovable shell-variable
-  child paths on the active smoke surfaces.
+  relative vault roots and require an explicit Python launcher to name exactly
+  one absolute `scripts/ai_dememory.py` child; relative and unprovable
+  shell-variable child paths are rejected on the active smoke surfaces.
 - Local validation on committed head
   `3ff771e25060257094ff40c55067e765f49f7cd8` passes 633 memory-tool tests with
   45 expected platform skips, 156 documentation/profile tests, both real MCP
