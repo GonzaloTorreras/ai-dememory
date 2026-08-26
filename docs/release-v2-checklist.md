@@ -833,11 +833,11 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   `schedule cron` command arrays without writing scheduler state.
 - [ ] Installed `ai-dememory mcp --stdio` accepts
   `initialize`/`notifications/initialized`/`ping` with response-id matching.
-- [ ] Installed `ai-dememory mcp-client-smoke` launches generated installed
+- [ ] Installed `ai-dememory --root <initialized-smoke-vault> mcp-client-smoke` launches generated installed
   CLI config, sends `notifications/initialized`, and responds to `initialize`
   and `ping`.
-- [ ] Installed `ai-dememory mcp-client-smoke --config
-  plugins/ai-dememory/.mcp.json --command <installed-ai-dememory>` launches
+- [ ] Installed `ai-dememory --root <initialized-smoke-vault> mcp-client-smoke --config
+  <absolute-checkout>/plugins/ai-dememory/.mcp.json --command <installed-ai-dememory>` launches
   the checked-in plugin config, sends `notifications/initialized`, and responds
   to `initialize` and `ping`.
 - [ ] Installed `ai-dememory mcp --call memory.release_evidence --args "{}"`

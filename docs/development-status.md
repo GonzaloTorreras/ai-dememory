@@ -374,9 +374,11 @@ local-API onboarding hint and documentation follow-up.
   `BRG-003` / `B04b`.
 - It freezes an exhaustive target contract for all 45 commands still routed
   through the legacy generic dispatcher: 19 vault-bound, 14 source-bound, 10
-  whose contract varies by parsed submode, and two package/rootless commands.
-  The 11 parser-owned commands remain a disjoint, independently resolved set.
-  Aliases share both dispatch module and policy.
+  context-dependent, and two package/rootless commands. Each contextual entry
+  names its selector and terminal source/vault/rootless branches; there is no
+  inaccurate assumption that one parsed-submode rule covers all ten. The 11
+  parser-owned commands remain a disjoint, independently resolved set. Aliases
+  share both dispatch module and policy.
 - Behavioral checks prove that `verify-mcp` consumes the packaged server
   contract without a checkout, normal/profile MCP inventory is package-derived
   while `--check-docs` consumes source documentation, and MCP client smoke runs
@@ -388,7 +390,12 @@ local-API onboarding hint and documentation follow-up.
   Active maintainer docs, the PR template, and release checklist now require a
   disposable initialized smoke vault and an absolute child script path; they no
   longer imply that the public checkout or checked-in plugin config is a vault.
-- Local validation passes 627 memory-tool tests with 45 expected platform
+- Loaded non-Docker client configs normalize case-insensitive root environment
+  aliases and reject embedded `--root`; loaded Docker configs fail closed and
+  use generated `--mode docker` mounts instead. Documentation guards reject
+  relative vault roots, relative child scripts, and unprovable shell-variable
+  child paths on the active smoke surfaces.
+- Local validation passes 633 memory-tool tests with 45 expected platform
   skips, 156 documentation/profile tests, both real MCP client smoke variants,
   the documentation-site audit, release check, roadmap contract, secret scan,
   Markdown validation, MCP contract/inventory checks, compileall, and diff
@@ -595,12 +602,13 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Continue the sole `BRG-003` frontier with an exhaustive, test-enforced policy
-   for the 45 generic commands before changing their dispatch: 19 are
-   `vault-bound`, 14 are `source-bound`, 10 have a contract selected by their
-   parsed submode, and two are genuinely `rootless`. Then remove unintended
-   CWD/package discovery in policy-specific, compatible slices; never reuse the
-   vault resolver for source-bound commands.
+2. Continue the sole `BRG-003` frontier from the structurally tested target
+   inventory for the 45 generic commands before changing their dispatch: 19 are
+   `vault-bound`, 14 are `source-bound`, 10 are context-dependent with explicit
+   selector/branch records, and two are genuinely `rootless`. Behavioral
+   enforcement remains a later policy-specific slice. Remove unintended
+   CWD/package discovery in compatible slices; never reuse the vault resolver
+   for source-bound commands.
 3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, and the
    externally read-back `GATE-B` in their normative order after `BRG-003`.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their

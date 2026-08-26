@@ -279,6 +279,10 @@ MCP_CLIENT_SMOKE_GUIDES = (
     "docs/operations.md",
     "scripts/README.md",
 )
+MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE = re.compile(
+    r"<(?P<kind>absolute-checkout|initialized-[A-Za-z0-9-]+)>",
+    re.IGNORECASE,
+)
 
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
@@ -3413,8 +3417,16 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
     """Require documented client smokes to bind a vault and source path."""
     errors: list[str] = []
     for line_number, command, _, _ in _executable_command_entries(text):
+        parseable_command = MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE.sub(
+            lambda match: (
+                "__ai_dememory_path_"
+                + match.group("kind").casefold().replace("-", "_")
+                + "__"
+            ),
+            command,
+        )
         try:
-            tokens = _preferred_shell_tokens(command)
+            tokens = _preferred_shell_tokens(parseable_command)
         except ValueError:
             continue
         folded = tuple(token.casefold() for token in tokens)
@@ -3428,6 +3440,7 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
                 if value == "--root" or value.startswith("--root=")
             ]
             root_is_complete = len(root_positions) == 1
+            root_value = ""
             if root_is_complete:
                 root_position = root_positions[0]
                 root_option = tokens[root_position]
@@ -3437,12 +3450,23 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
                         and bool(tokens[root_position + 1].strip())
                         and not tokens[root_position + 1].startswith("--")
                     )
+                    if root_is_complete:
+                        root_value = tokens[root_position + 1]
                 else:
-                    root_is_complete = bool(root_option.partition("=")[2].strip())
+                    root_value = root_option.partition("=")[2].strip()
+                    root_is_complete = bool(root_value)
+            if root_is_complete:
+                normalized_root = root_value.replace("\\", "/")
+                root_is_complete = (
+                    normalized_root.startswith(
+                        ("/", "~", "__ai_dememory_path_initialized_")
+                    )
+                    or re.match(r"^[A-Za-z]:/", normalized_root) is not None
+                )
             if not root_is_complete:
                 errors.append(
                     f"{label}:{line_number}: mcp-client-smoke requires exactly one "
-                    "non-empty --root before the command; bind a separate initialized vault"
+                    "absolute initialized-vault --root before the command; bind a separate vault"
                 )
 
             argument_index = command_index + 1
@@ -3458,7 +3482,9 @@ def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
                     normalized = source_argument.replace("\\", "/")
                     if normalized.casefold().endswith("scripts/ai_dememory.py"):
                         anchored = (
-                            normalized.startswith(("/", "$", "~", "<absolute-checkout>/"))
+                            normalized.startswith(
+                                ("/", "~", "__ai_dememory_path_absolute_checkout__/")
+                            )
                             or re.match(r"^[A-Za-z]:/", normalized) is not None
                         )
                         if not anchored:

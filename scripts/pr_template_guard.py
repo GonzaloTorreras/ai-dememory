@@ -11,6 +11,7 @@ import re
 import sys
 
 from memorylib import repo_root
+from docs_site_guard import _mcp_client_smoke_command_errors
 
 
 TEMPLATE_PATH = Path(".github/pull_request_template.md")
@@ -76,6 +77,13 @@ def validate_template_text(text: str) -> list[TemplateGuardIssue]:
                     f"missing required validation snippet: {snippet}",
                 )
             )
+    for error in _mcp_client_smoke_command_errors(text, TEMPLATE_PATH.as_posix()):
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_contract",
+                error,
+            )
+        )
     return issues
 
 

@@ -73,10 +73,27 @@ with `ai-dememory init`; strict runtime consumers do not initialize a missing
 directory implicitly.
 
 `BRG-003` now inventories every older generic-dispatch command as vault-bound,
-source-bound, package/rootless, or selected by parsed submode. Enforcement is
-still being migrated in policy-specific slices, so accepting a path on one of
-those legacy commands must not yet be interpreted as proof that the shared
-structural validator ran.
+source-bound, package/rootless, or context-dependent. Context-dependent does
+not imply one shared subcommand rule: each entry records its selector and
+terminal branches. Depending on the command, that selector is the caller-chosen
+corpus, root structure or artifact availability, an acceptance action, or the
+`mcp-inventory --check-docs` flag. Enforcement is still being migrated in
+policy-specific slices, so accepting a path on one of those legacy commands
+must not yet be interpreted as proof that the shared structural validator ran.
+
+The contextual target contract is explicit:
+
+| Command | Selector | Terminal branches |
+| --- | --- | --- |
+| `doctor` | selected-root structure | distribution checkout → source; initialized vault → vault |
+| `validate`, `index` | caller-selected memory corpus | distribution fixtures → source; initialized corpus → vault |
+| `secret-scan` | caller-selected scan corpus | distribution tree → source; initialized vault tree → vault |
+| `search` | caller-selected indexed corpus | distribution fixtures → source; initialized corpus → vault |
+| `eval-recall` | selected corpus and fixtures path | distribution fixtures → source; initialized vault fixtures → vault |
+| `roadmap` | evidence availability | distribution evidence → source; installed-vault compatibility report → vault |
+| `acceptance` | parsed action and selected ledger | distribution release ledger → source; initialized ledger → vault |
+| `publish-plan` | release-artifact availability | distribution release checkout → source; installed-vault unavailable-evidence diagnostic → vault |
+| `mcp-inventory` | presence of `--check-docs` | default/`--profile` → packaged rootless; `--check-docs` → source |
 
 On strict-resolver surfaces, explicit `--root` or `AI_DEMEMORY_ROOT` can
 deliberately name a network path, but that is not a guarantee that every remote

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 import importlib
@@ -120,8 +121,16 @@ class CommandRootPolicy(str, Enum):
 
     SOURCE_BOUND = "source-bound"
     VAULT_BOUND = "vault-bound"
-    MODE_SPLIT = "mode-split"
+    CONTEXTUAL = "contextual"
     ROOTLESS = "rootless"
+
+
+@dataclass(frozen=True)
+class ContextualRootContract:
+    """Describe how one contextual command selects a terminal root role."""
+
+    selector: str
+    branches: tuple[tuple[str, CommandRootPolicy], ...]
 
 
 PARSER_OWNED_COMMANDS = frozenset(
@@ -177,20 +186,96 @@ COMMAND_ROOT_POLICIES: dict[str, CommandRootPolicy] = {
     "false-positive": CommandRootPolicy.VAULT_BOUND,
     "conflict": CommandRootPolicy.VAULT_BOUND,
     "mcp-client-smoke": CommandRootPolicy.VAULT_BOUND,
-    # Commands whose root contract varies by parsed submode.
-    "doctor": CommandRootPolicy.MODE_SPLIT,
-    "validate": CommandRootPolicy.MODE_SPLIT,
-    "secret-scan": CommandRootPolicy.MODE_SPLIT,
-    "index": CommandRootPolicy.MODE_SPLIT,
-    "search": CommandRootPolicy.MODE_SPLIT,
-    "eval-recall": CommandRootPolicy.MODE_SPLIT,
-    "roadmap": CommandRootPolicy.MODE_SPLIT,
-    "acceptance": CommandRootPolicy.MODE_SPLIT,
-    "publish-plan": CommandRootPolicy.MODE_SPLIT,
-    "mcp-inventory": CommandRootPolicy.MODE_SPLIT,
+    # Commands whose terminal role depends on an explicit contextual contract
+    # rather than one shared parsed-subcommand rule. See the exhaustive table
+    # below; the legacy dispatcher does not enforce these branches yet.
+    "doctor": CommandRootPolicy.CONTEXTUAL,
+    "validate": CommandRootPolicy.CONTEXTUAL,
+    "secret-scan": CommandRootPolicy.CONTEXTUAL,
+    "index": CommandRootPolicy.CONTEXTUAL,
+    "search": CommandRootPolicy.CONTEXTUAL,
+    "eval-recall": CommandRootPolicy.CONTEXTUAL,
+    "roadmap": CommandRootPolicy.CONTEXTUAL,
+    "acceptance": CommandRootPolicy.CONTEXTUAL,
+    "publish-plan": CommandRootPolicy.CONTEXTUAL,
+    "mcp-inventory": CommandRootPolicy.CONTEXTUAL,
     # These commands use packaged code and do not consume a caller-owned root.
     "api-smoke": CommandRootPolicy.ROOTLESS,
     "verify-mcp": CommandRootPolicy.ROOTLESS,
+}
+
+
+COMMAND_CONTEXTUAL_ROOT_CONTRACTS: dict[str, ContextualRootContract] = {
+    "doctor": ContextualRootContract(
+        selector="selected-root structure",
+        branches=(
+            ("distribution checkout", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "validate": ContextualRootContract(
+        selector="caller-selected memory corpus",
+        branches=(
+            ("distribution fixture corpus", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault corpus", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "secret-scan": ContextualRootContract(
+        selector="caller-selected scan corpus",
+        branches=(
+            ("distribution source tree", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault tree", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "index": ContextualRootContract(
+        selector="caller-selected memory corpus",
+        branches=(
+            ("distribution fixture corpus", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault corpus", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "search": ContextualRootContract(
+        selector="caller-selected indexed corpus",
+        branches=(
+            ("distribution fixture corpus", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault corpus", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "eval-recall": ContextualRootContract(
+        selector="caller-selected corpus and fixtures path",
+        branches=(
+            ("distribution fixtures", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault fixtures", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "roadmap": ContextualRootContract(
+        selector="evidence availability below the selected root",
+        branches=(
+            ("distribution evidence checkout", CommandRootPolicy.SOURCE_BOUND),
+            ("installed-vault compatibility report", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "acceptance": ContextualRootContract(
+        selector="acceptance action and caller-selected ledger root",
+        branches=(
+            ("distribution release-evidence ledger", CommandRootPolicy.SOURCE_BOUND),
+            ("initialized vault ledger", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "publish-plan": ContextualRootContract(
+        selector="release artifacts available below the selected root",
+        branches=(
+            ("distribution release checkout", CommandRootPolicy.SOURCE_BOUND),
+            ("installed-vault unavailable-evidence diagnostic", CommandRootPolicy.VAULT_BOUND),
+        ),
+    ),
+    "mcp-inventory": ContextualRootContract(
+        selector="presence of --check-docs",
+        branches=(
+            ("default or --profile packaged inventory", CommandRootPolicy.ROOTLESS),
+            ("--check-docs distribution documentation", CommandRootPolicy.SOURCE_BOUND),
+        ),
+    ),
 }
 
 

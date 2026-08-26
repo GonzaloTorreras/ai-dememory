@@ -162,7 +162,7 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
-from mcp_client_smoke import bind_config_runtime_root, main as mcp_client_smoke_main, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
+from mcp_client_smoke import ClientSmokeError, bind_config_runtime_root, main as mcp_client_smoke_main, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
 from mcp_inventory import INVENTORY_DOCS, build_inventory, main as mcp_inventory_main, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import (  # noqa: E402
@@ -302,6 +302,7 @@ from review_memory import (  # noqa: E402
     write_stale_false_positive_report,
 )
 from ai_dememory_tool.cli import (  # noqa: E402
+    COMMAND_CONTEXTUAL_ROOT_CONTRACTS,
     COMMAND_ROOT_POLICIES,
     COMMANDS,
     PARSER_OWNED_COMMANDS,
@@ -415,7 +416,7 @@ class MemoryToolTests(unittest.TestCase):
                 "conflict",
                 "mcp-client-smoke",
             },
-            CommandRootPolicy.MODE_SPLIT: {
+            CommandRootPolicy.CONTEXTUAL: {
                 "doctor",
                 "validate",
                 "secret-scan",
@@ -445,6 +446,32 @@ class MemoryToolTests(unittest.TestCase):
             sum(len(commands) for commands in actual_by_policy.values()),
             len(flattened),
         )
+
+    def test_contextual_root_contracts_define_terminal_branches(self) -> None:
+        contextual_commands = {
+            command
+            for command, policy in COMMAND_ROOT_POLICIES.items()
+            if policy is CommandRootPolicy.CONTEXTUAL
+        }
+
+        self.assertEqual(set(COMMAND_CONTEXTUAL_ROOT_CONTRACTS), contextual_commands)
+        for command, contract in COMMAND_CONTEXTUAL_ROOT_CONTRACTS.items():
+            with self.subTest(command=command):
+                self.assertTrue(contract.selector.strip())
+                self.assertGreaterEqual(len(contract.branches), 2)
+                labels = [label for label, _ in contract.branches]
+                self.assertEqual(len(labels), len(set(labels)))
+                self.assertTrue(all(label.strip() for label in labels))
+                self.assertTrue(
+                    all(
+                        policy in {
+                            CommandRootPolicy.SOURCE_BOUND,
+                            CommandRootPolicy.VAULT_BOUND,
+                            CommandRootPolicy.ROOTLESS,
+                        }
+                        for _, policy in contract.branches
+                    )
+                )
 
     def test_command_aliases_share_root_policy_and_dispatch_module(self) -> None:
         alias_groups = (
@@ -16180,6 +16207,60 @@ class MemoryToolTests(unittest.TestCase):
             {"AI_DEMEMORY_ROOT": str(vault)},
         )
 
+    def test_mcp_client_smoke_normalizes_conflicting_root_env_case_insensitively(self) -> None:
+        config = {
+            "mcpServers": {
+                "ai-dememory": {
+                    "command": "ai-dememory",
+                    "args": ["mcp", "--stdio"],
+                    "env": {
+                        "AI_DEMEMORY_ROOT": "C:/private/stale-vault",
+                        "ai_dememory_root": "C:/private/attacker-vault",
+                        "KEEP_ME": "yes",
+                    },
+                }
+            }
+        }
+        vault = Path("C:/private/selected-vault")
+
+        bound = bind_config_runtime_root(config, vault)
+
+        self.assertEqual(
+            bound["mcpServers"]["ai-dememory"]["env"],
+            {"KEEP_ME": "yes", "AI_DEMEMORY_ROOT": str(vault)},
+        )
+        self.assertEqual(
+            config["mcpServers"]["ai-dememory"]["env"]["ai_dememory_root"],
+            "C:/private/attacker-vault",
+        )
+
+    def test_mcp_client_smoke_rejects_loaded_config_root_arguments(self) -> None:
+        for args in (
+            ["--root", "C:/private/old-vault", "mcp", "--stdio"],
+            ["--root=C:/private/old-vault", "mcp", "--stdio"],
+        ):
+            with self.subTest(args=args), self.assertRaisesRegex(
+                ClientSmokeError,
+                "must not contain --root",
+            ):
+                bind_config_runtime_root(
+                    {"command": "ai-dememory", "args": args, "env": {}},
+                    Path("C:/private/selected-vault"),
+                )
+
+    def test_mcp_client_smoke_rejects_loaded_docker_config(self) -> None:
+        config = build_mcp_config(
+            "generic",
+            "docker",
+            Path("C:/private/old-vault"),
+        )
+
+        with self.assertRaisesRegex(ClientSmokeError, "use --mode docker"):
+            bind_config_runtime_root(
+                config,
+                Path("C:/private/selected-vault"),
+            )
+
     def test_mcp_client_smoke_verifies_enabled_tools_from_tools_list(self) -> None:
         stdout = "\n".join(
             [
@@ -17602,6 +17683,22 @@ jobs:
         self.assertIn("python3 scripts/ai_dememory.py roadmap status --json", messages)
         self.assertIn("AI_DEMEMORY_PR_URL", messages)
 
+    def test_pr_template_guard_rejects_relative_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "<absolute-checkout>/scripts/ai_dememory.py",
+            "scripts/ai_dememory.py",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("must use an absolute" in issue.message for issue in issues),
+            issues,
+        )
+
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
 
@@ -17911,6 +18008,22 @@ This records future risks.
         self.assertIn("python3 scripts/ai_dememory.py release-checklist-guard", messages)
         self.assertIn("docker build -t ai-dememory:local .", messages)
         self.assertIn("AI_DEMEMORY_PR_URL", messages)
+
+    def test_release_checklist_guard_rejects_relative_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "<absolute-checkout>/scripts/ai_dememory.py",
+            "scripts/ai_dememory.py",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("must use an absolute" in issue.message for issue in issues),
+            issues,
+        )
 
     def test_acceptance_guard_rejects_missing_registry_items(self) -> None:
         incomplete = """

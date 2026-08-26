@@ -26,8 +26,11 @@ accepted by the release identity guard.
   stable root and `.ai-dememory.toml`. A selected explicit, environment, or
   saved-default root that is missing, linked, uninitialized, or replaced during
   validation now fails without falling through to another source.
-- Bind an existing MCP client-config smoke fixture explicitly to its selected
-  initialized vault instead of depending on ambient process state.
+- Bind a supported existing MCP client-config smoke fixture explicitly to its
+  selected initialized vault instead of depending on ambient process state.
+  Case-insensitive root environment aliases are normalized, while embedded
+  `--root` arguments and loaded Docker configs fail closed; Docker smoke
+  regenerates its mount from the selected vault with `--mode docker`.
 
 ### Changed
 
@@ -35,7 +38,9 @@ accepted by the release identity guard.
   schedule state, host-AI policy, model-cost boundary and Stop proposals.
   Keep optional personal-baseline questions in the distinct `onboard` flow.
 - Classify every generic CLI command by its target root contract before the
-  remaining legacy dispatcher is migrated away from ambient CWD discovery.
+  remaining legacy dispatcher is migrated away from ambient CWD discovery,
+  including explicit selectors and terminal branches for context-dependent
+  commands.
 
 ### Documentation
 

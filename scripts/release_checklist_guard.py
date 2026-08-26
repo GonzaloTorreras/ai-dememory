@@ -11,6 +11,7 @@ import re
 import sys
 
 from memorylib import repo_root
+from docs_site_guard import _mcp_client_smoke_command_errors
 
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
@@ -624,6 +625,13 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
                     f"forbidden stale checklist claim: {snippet}",
                 )
             )
+    for error in _mcp_client_smoke_command_errors(text, CHECKLIST_PATH.as_posix()):
+        issues.append(
+            ChecklistGuardIssue(
+                "release_checklist:mcp_client_smoke_contract",
+                error,
+            )
+        )
     return issues
 
 

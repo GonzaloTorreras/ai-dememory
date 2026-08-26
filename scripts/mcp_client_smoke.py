@@ -95,9 +95,31 @@ def bind_config_runtime_root(
     root: Path,
     server_name: str = "ai-dememory",
 ) -> dict[str, Any]:
-    """Bind a loaded client fixture to the selected smoke vault explicitly."""
+    """Bind a supported loaded client fixture to the selected smoke vault."""
     data = json.loads(json.dumps(config))
     server, _ = select_server_config(data, server_name)
+    command = server.get("command")
+    if not isinstance(command, str) or not command:
+        raise ClientSmokeError("MCP client config command must be a non-empty string")
+    launcher = command.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    if launcher in {"docker", "docker.exe"}:
+        raise ClientSmokeError(
+            "Loaded Docker MCP configs cannot be rebound safely; omit --config and "
+            "use --mode docker so the selected --root generates the /memory mount"
+        )
+    args = server.get("args")
+    if args is None:
+        args = []
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise ClientSmokeError("MCP client config args must be an array of strings")
+    if any(
+        argument.casefold() == "--root" or argument.casefold().startswith("--root=")
+        for argument in args
+    ):
+        raise ClientSmokeError(
+            "Loaded MCP client config must not contain --root; select the smoke vault "
+            "with mcp-client-smoke --root"
+        )
     env = server.get("env")
     if env is None:
         env = {}
@@ -106,7 +128,12 @@ def bind_config_runtime_root(
         for key, value in env.items()
     ):
         raise ClientSmokeError("MCP client config env must be an object of strings")
-    server["env"] = {**env, "AI_DEMEMORY_ROOT": str(root)}
+    normalized_env = {
+        key: value
+        for key, value in env.items()
+        if key.casefold() != "ai_dememory_root"
+    }
+    server["env"] = {**normalized_env, "AI_DEMEMORY_ROOT": str(root)}
     return data
 
 
@@ -414,7 +441,14 @@ def dict_env() -> dict[str, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=None, help="Initialized vault root used by the launched MCP server.")
-    parser.add_argument("--config", default=None, help="Existing MCP client config JSON to launch.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Existing reviewed non-Docker MCP client config JSON to launch. It must not "
+            "contain --root; this command binds the selected smoke vault."
+        ),
+    )
     parser.add_argument("--server-name", default="ai-dememory", help="Server name inside mcpServers.")
     parser.add_argument("--client", choices=("generic", "codex", "claude"), default="codex")
     parser.add_argument("--mode", choices=("installed", "docker"), default="installed")
