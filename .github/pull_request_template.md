@@ -31,7 +31,8 @@
 - [ ] PR exists before MCP runtime testing.
 - [ ] `AI_DEMEMORY_PR_URL` is set to this PR.
 - [ ] `python3 scripts/ai_dememory.py mcp-smoke`
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --command python3 --command-arg scripts/ai_dememory.py`
+- [ ] A separate disposable smoke vault was initialized with `python3 scripts/ai_dememory.py init <initialized-smoke-vault> --no-wizard`; the public checkout has no vault marker.
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
 - [ ] Smoke output includes `OK ping`.
 - [ ] Docker local MCP smoke passes if Docker-related files changed.
 - [ ] `docs/mcp-v2-gap-analysis.md` is still accurate for any MCP protocol

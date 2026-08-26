@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from enum import Enum
 from functools import wraps
 import importlib
 from importlib import resources
@@ -108,6 +109,91 @@ COMMANDS = {
     "conflict": ("Manage memory conflict review decisions.", "review_memory"),
 }
 
+
+class CommandRootPolicy(str, Enum):
+    """Describe the target root contract for valid non-help execution.
+
+    The legacy generic dispatcher does not enforce this inventory yet. Command
+    grammar and ``--help`` remain orthogonal and must be handled before a later
+    slice applies any root policy.
+    """
+
+    SOURCE_BOUND = "source-bound"
+    VAULT_BOUND = "vault-bound"
+    MODE_SPLIT = "mode-split"
+    ROOTLESS = "rootless"
+
+
+PARSER_OWNED_COMMANDS = frozenset(
+    {
+        "mcp",
+        "api",
+        "hook-event",
+        "hooks",
+        "setup",
+        "onboard",
+        "providers",
+        "import-chats",
+        "capture",
+        "maintenance",
+        "schedule",
+    }
+)
+
+
+COMMAND_ROOT_POLICIES: dict[str, CommandRootPolicy] = {
+    # Distribution-source validation and release tooling.
+    "release-check": CommandRootPolicy.SOURCE_BOUND,
+    "install-smoke": CommandRootPolicy.SOURCE_BOUND,
+    "package-build-smoke": CommandRootPolicy.SOURCE_BOUND,
+    "publish-guard": CommandRootPolicy.SOURCE_BOUND,
+    "ci-guard": CommandRootPolicy.SOURCE_BOUND,
+    "artifact-guard": CommandRootPolicy.SOURCE_BOUND,
+    "vault-setup-guard": CommandRootPolicy.SOURCE_BOUND,
+    "pr-template-guard": CommandRootPolicy.SOURCE_BOUND,
+    "pr-draft-guard": CommandRootPolicy.SOURCE_BOUND,
+    "acceptance-guard": CommandRootPolicy.SOURCE_BOUND,
+    "adr-guard": CommandRootPolicy.SOURCE_BOUND,
+    "release-checklist-guard": CommandRootPolicy.SOURCE_BOUND,
+    "release-evidence": CommandRootPolicy.SOURCE_BOUND,
+    "mcp-smoke": CommandRootPolicy.SOURCE_BOUND,
+    # Runtime memory operations whose selected root is a vault.
+    "context": CommandRootPolicy.VAULT_BOUND,
+    "graph": CommandRootPolicy.VAULT_BOUND,
+    "recall-fixtures": CommandRootPolicy.VAULT_BOUND,
+    "vector": CommandRootPolicy.VAULT_BOUND,
+    "capture-miss": CommandRootPolicy.VAULT_BOUND,
+    "provenance": CommandRootPolicy.VAULT_BOUND,
+    "export-context": CommandRootPolicy.VAULT_BOUND,
+    "consolidate": CommandRootPolicy.VAULT_BOUND,
+    "sleep": CommandRootPolicy.VAULT_BOUND,
+    "learn": CommandRootPolicy.VAULT_BOUND,
+    "turn-context": CommandRootPolicy.VAULT_BOUND,
+    "working": CommandRootPolicy.VAULT_BOUND,
+    "lifecycle": CommandRootPolicy.VAULT_BOUND,
+    "mark-seen": CommandRootPolicy.VAULT_BOUND,
+    "outcome": CommandRootPolicy.VAULT_BOUND,
+    "review": CommandRootPolicy.VAULT_BOUND,
+    "false-positive": CommandRootPolicy.VAULT_BOUND,
+    "conflict": CommandRootPolicy.VAULT_BOUND,
+    "mcp-client-smoke": CommandRootPolicy.VAULT_BOUND,
+    # Commands whose root contract varies by parsed submode.
+    "doctor": CommandRootPolicy.MODE_SPLIT,
+    "validate": CommandRootPolicy.MODE_SPLIT,
+    "secret-scan": CommandRootPolicy.MODE_SPLIT,
+    "index": CommandRootPolicy.MODE_SPLIT,
+    "search": CommandRootPolicy.MODE_SPLIT,
+    "eval-recall": CommandRootPolicy.MODE_SPLIT,
+    "roadmap": CommandRootPolicy.MODE_SPLIT,
+    "acceptance": CommandRootPolicy.MODE_SPLIT,
+    "publish-plan": CommandRootPolicy.MODE_SPLIT,
+    "mcp-inventory": CommandRootPolicy.MODE_SPLIT,
+    # These commands use packaged code and do not consume a caller-owned root.
+    "api-smoke": CommandRootPolicy.ROOTLESS,
+    "verify-mcp": CommandRootPolicy.ROOTLESS,
+}
+
+
 DEV_COMMANDS = {
     "acceptance",
     "acceptance-guard",
@@ -179,16 +265,6 @@ def _is_local_directory(path: Path) -> bool:
     )
 
 
-def _has_vault_manifest(path: Path) -> bool:
-    return _is_local_regular_file(path / ".ai-dememory.toml")
-
-
-def _has_git_marker(path: Path) -> bool:
-    # Presence is enough to make a nested ambient root ambiguous. Never open a
-    # .git pointer, config, include, UNC path, symlink, reparse point, or device.
-    return _path_entry_status(path / ".git") is not None
-
-
 def _is_source_project_tree(path: Path) -> bool:
     """Recognize full or partial ai-dememory source trees without remote I/O."""
     if not _is_local_regular_file(path / "pyproject.toml"):
@@ -220,19 +296,6 @@ def is_within_tool_checkout(path: Path) -> bool:
     except (OSError, RuntimeError, ValueError):
         return False
     return any(is_tool_checkout(candidate) for candidate in (resolved, *resolved.parents))
-
-
-def ambient_root_requires_explicit_binding(path: Path) -> bool:
-    """Fail closed for unconfigured or nested roots used by persistent flows."""
-    try:
-        resolved = path.expanduser().resolve(strict=False)
-    except (OSError, RuntimeError, ValueError):
-        return True
-    if not _has_vault_manifest(resolved) or is_within_tool_checkout(resolved):
-        return True
-    # A standalone Git-backed vault is valid. A vault nested inside any other
-    # checkout is ambiguous and must be selected deliberately.
-    return any(_has_git_marker(parent) for parent in resolved.parents)
 
 
 def is_memory_vault(path: Path) -> bool:
@@ -303,72 +366,6 @@ def cli_argument_error(message: str) -> None:
     raise SystemExit(2)
 
 
-def command_subcommand(argv: list[str]) -> str | None:
-    """Return the first command token after an optional global root binding."""
-    index = 0
-    while index < len(argv):
-        argument = argv[index]
-        if argument in {"--root", "--command"}:
-            index += 2
-            continue
-        if argument.startswith(("--root=", "--command=")):
-            index += 1
-            continue
-        if argument.startswith("-"):
-            return None
-        return argument
-    return None
-
-
-def command_mutates_vault(command: str, argv: list[str]) -> bool:
-    """Identify persistent packaged flows before ambient root discovery."""
-    if command in {"setup", "onboard", "capture"}:
-        return True
-    if command == "import-chats":
-        return "--dry-run" not in argv
-    subcommand = command_subcommand(argv)
-    if command == "providers":
-        return subcommand == "capture" or (
-            subcommand in {"configure", "import"} and "--dry-run" not in argv
-        )
-    if command == "maintenance":
-        return subcommand == "run" and "--dry-run" not in argv
-    return False
-
-
-def provider_command_requires_explicit_vault_binding(command: str, argv: list[str]) -> bool:
-    """Identify provider flows that must never infer a vault from the CWD."""
-    if command in {"import-chats", "capture"}:
-        return True
-    return command == "providers" and command_subcommand(argv) in {
-        "plan",
-        "configure",
-        "import",
-        "capture",
-    }
-
-
-def command_emits_bound_vault_command(command: str, argv: list[str]) -> bool:
-    """Identify read-only command surfaces and stateful runs that need a bound vault."""
-    subcommand = command_subcommand(argv)
-    if command == "maintenance":
-        return subcommand in {"run", "status"}
-    if command == "providers":
-        return subcommand == "plan" or (
-            subcommand == "configure" and "--dry-run" in argv
-        )
-    return False
-
-
-def command_requires_explicit_vault_binding(command: str, argv: list[str]) -> bool:
-    """Require a binding before a command writes or prints a durable root."""
-    return (
-        provider_command_requires_explicit_vault_binding(command, argv)
-        or command_mutates_vault(command, argv)
-        or command_emits_bound_vault_command(command, argv)
-    )
-
-
 def run_packaged_command(
     command: str,
     argv: list[str],
@@ -377,19 +374,7 @@ def run_packaged_command(
 ) -> int:
     if onboarding_mode is not None and command != "onboard":
         raise ValueError("onboarding_mode is valid only for the internal onboarding command")
-    if command in {
-        "mcp",
-        "api",
-        "hook-event",
-        "hooks",
-        "setup",
-        "onboard",
-        "providers",
-        "import-chats",
-        "capture",
-        "maintenance",
-        "schedule",
-    }:
+    if command in PARSER_OWNED_COMMANDS:
         # Runtime, provider, maintenance, onboarding, and scheduler surfaces
         # own parsing and vault resolution (or an explicitly rootless path).
         # In particular, never discover a
@@ -413,7 +398,6 @@ def run_packaged_command(
         # Never discover a hook vault from an untrusted project working tree.
         print("{}")
         return 0
-    used_default_binding = False
     try:
         if explicit_root:
             root = Path(explicit_root).expanduser().resolve()
@@ -426,7 +410,6 @@ def run_packaged_command(
             default_binding = load_default_vault()
             if default_binding is not None:
                 root = default_binding.root
-                used_default_binding = True
             else:
                 root = find_memory_root()
     except VaultBindingError as exc:
@@ -441,17 +424,6 @@ def run_packaged_command(
             print("{}")
             return 0
         raise
-    if (
-        command_requires_explicit_vault_binding(command, argv)
-        and not (explicit_root or configured_root or used_default_binding)
-        and ambient_root_requires_explicit_binding(root)
-    ):
-        cli_argument_error(
-            f"{command} refuses an unconfigured or nested ambient root; "
-            "pass --root <vault-path>, set AI_DEMEMORY_ROOT, or save a local "
-            "default with `ai-dememory vault use <absolute-vault-path>`; the "
-            "working directory is not a runtime binding"
-        )
     # Some legacy command modules still inspect AI_DEMEMORY_ROOT. Keep their
     # invocation compatible without making a saved default sticky in a
     # long-running host process: selector changes must affect the next command.

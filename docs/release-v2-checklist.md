@@ -492,7 +492,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   review-mode receipt tools.
 - [ ] Every MCP tool is classified as either plugin-enabled or server-only, and
   `docs/codex-plugin.md` documents the server-only MCP tools.
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --config plugins/ai-dememory/.mcp.json --command python3 --command-arg scripts/ai_dememory.py`
+- [ ] One disposable smoke vault was initialized with `python3 scripts/ai_dememory.py init <initialized-smoke-vault> --no-wizard`; the public checkout has no vault marker.
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --config <absolute-checkout>/plugins/ai-dememory/.mcp.json --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
   verifies plugin `enabled_tools` against paginated `tools/list`.
 - [ ] Plugin `enabled_tools` smoke follows cursors in one single stdio session
   for paginated `tools/list`.
@@ -710,8 +711,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py acceptance plan --json` includes
   `suggested_artifacts`
 - [ ] `python3 scripts/ai_dememory.py acceptance verify --json`
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --command python3 --command-arg scripts/ai_dememory.py`
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --config plugins/ai-dememory/.mcp.json --command python3 --command-arg scripts/ai_dememory.py`
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --config <absolute-checkout>/plugins/ai-dememory/.mcp.json --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
 - [ ] `python3 scripts/ai_dememory.py provenance --json`
 - [ ] `python3 scripts/ai_dememory.py provenance --write-report --report-path
   reports/durable-provenance.md`
@@ -1116,8 +1117,8 @@ Run only after the PR exists, preserving the requested workflow order.
 
 - [ ] Set `AI_DEMEMORY_PR_URL` to the draft PR URL.
 - [ ] `python3 scripts/ai_dememory.py mcp-smoke`
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --command python3 --command-arg scripts/ai_dememory.py`
-- [ ] `python3 scripts/ai_dememory.py mcp-client-smoke --config plugins/ai-dememory/.mcp.json --command python3 --command-arg scripts/ai_dememory.py`
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
+- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> mcp-client-smoke --config <absolute-checkout>/plugins/ai-dememory/.mcp.json --command python3 --command-arg <absolute-checkout>/scripts/ai_dememory.py`
 - [ ] Initialize over stdio with protocol `2025-11-25`.
 - [ ] PR-gated runtime smoke sends `notifications/initialized` before `ping`.
 - [ ] PR-gated runtime smoke matches JSON-RPC responses by id and skips server

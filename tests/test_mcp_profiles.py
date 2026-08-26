@@ -17,7 +17,13 @@ for candidate in (ROOT, ROOT / "scripts", ROOT / "mcp" / "server"):
         sys.path.insert(0, str(candidate))
 
 from ai_dememory_tool import __version__  # noqa: E402
-from ai_dememory_tool.cli import build_mcp_config, find_memory_root, main as cli_main  # noqa: E402
+from ai_dememory_tool.cli import (  # noqa: E402
+    COMMAND_ROOT_POLICIES,
+    CommandRootPolicy,
+    build_mcp_config,
+    find_memory_root,
+    main as cli_main,
+)
 from ai_dememory_tool.vault_binding import save_default_vault  # noqa: E402
 from ai_dememory_tool.mcp_profiles import (  # noqa: E402
     CORE_MCP_TOOLS,
@@ -596,6 +602,10 @@ class McpProfileTests(unittest.TestCase):
         self.assertIn("publish-guard", output.getvalue())
 
     def test_dev_and_legacy_alias_dispatch_same_command(self) -> None:
+        self.assertIs(
+            COMMAND_ROOT_POLICIES["release-check"],
+            CommandRootPolicy.SOURCE_BOUND,
+        )
         with patch("ai_dememory_tool.cli.run_packaged_command", return_value=0) as run:
             self.assertEqual(cli_main(["dev", "release-check", "--json"]), 0)
             run.assert_called_once_with("release-check", ["--json"])

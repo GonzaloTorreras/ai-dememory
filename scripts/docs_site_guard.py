@@ -272,6 +272,14 @@ STABLE_DOC_REQUIRED_COMMANDS = {
 
 EXPLICIT_ROOT_MCP_DOCS = {"docs/mcp-tool-profiles.md"}
 
+MCP_CLIENT_SMOKE_GUIDES = (
+    "docs/codex-plugin.md",
+    "docs/local-mcp.md",
+    "docs/mcp-client-config.md",
+    "docs/operations.md",
+    "scripts/README.md",
+)
+
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
         "pipx install ai-dememory",
@@ -3401,6 +3409,68 @@ def _pending_source_execution_errors(
     return errors
 
 
+def _mcp_client_smoke_command_errors(text: str, label: str) -> list[str]:
+    """Require documented client smokes to bind a vault and source path."""
+    errors: list[str] = []
+    for line_number, command, _, _ in _executable_command_entries(text):
+        try:
+            tokens = _preferred_shell_tokens(command)
+        except ValueError:
+            continue
+        folded = tuple(token.casefold() for token in tokens)
+        for command_index, token in enumerate(folded):
+            if token != "mcp-client-smoke":
+                continue
+
+            root_positions = [
+                index
+                for index, value in enumerate(folded[:command_index])
+                if value == "--root" or value.startswith("--root=")
+            ]
+            root_is_complete = len(root_positions) == 1
+            if root_is_complete:
+                root_position = root_positions[0]
+                root_option = tokens[root_position]
+                if root_option.casefold() == "--root":
+                    root_is_complete = (
+                        root_position + 1 < command_index
+                        and bool(tokens[root_position + 1].strip())
+                        and not tokens[root_position + 1].startswith("--")
+                    )
+                else:
+                    root_is_complete = bool(root_option.partition("=")[2].strip())
+            if not root_is_complete:
+                errors.append(
+                    f"{label}:{line_number}: mcp-client-smoke requires exactly one "
+                    "non-empty --root before the command; bind a separate initialized vault"
+                )
+
+            argument_index = command_index + 1
+            while argument_index < len(tokens):
+                option = folded[argument_index]
+                source_argument: str | None = None
+                if option == "--command-arg" and argument_index + 1 < len(tokens):
+                    source_argument = tokens[argument_index + 1]
+                    argument_index += 1
+                elif option.startswith("--command-arg="):
+                    source_argument = tokens[argument_index].partition("=")[2]
+                if source_argument is not None:
+                    normalized = source_argument.replace("\\", "/")
+                    if normalized.casefold().endswith("scripts/ai_dememory.py"):
+                        anchored = (
+                            normalized.startswith(("/", "$", "~", "<absolute-checkout>/"))
+                            or re.match(r"^[A-Za-z]:/", normalized) is not None
+                        )
+                        if not anchored:
+                            errors.append(
+                                f"{label}:{line_number}: mcp-client-smoke source launch "
+                                "must use an absolute scripts/ai_dememory.py path because "
+                                "the child runs from the bound vault"
+                            )
+                argument_index += 1
+    return errors
+
+
 def audit_public_skill_guides(
     repo_root: Path,
     stable_version: str,
@@ -4127,6 +4197,9 @@ def _audit_claims(repo_root: Path, site_root: Path, errors: list[str]) -> None:
         errors.extend(
             audit_public_skill_guides(repo_root, stable_version, source_version)
         )
+        for relative in MCP_CLIENT_SMOKE_GUIDES:
+            text = (repo_root / relative).read_text(encoding="utf-8")
+            errors.extend(_mcp_client_smoke_command_errors(text, relative))
     development_status = (repo_root / "docs" / "development-status.md").read_text(
         encoding="utf-8"
     )

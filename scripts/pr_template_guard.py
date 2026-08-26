@@ -39,7 +39,8 @@ REQUIRED_SNIPPETS = {
     "compileall": "python3 -m compileall -q scripts mcp/server ai_dememory_tool",
     "pr_gate": "AI_DEMEMORY_PR_URL",
     "mcp_smoke": "python3 scripts/ai_dememory.py mcp-smoke",
-    "mcp_client_smoke": "python3 scripts/ai_dememory.py mcp-client-smoke",
+    "mcp_client_smoke_vault": "init <initialized-smoke-vault> --no-wizard",
+    "mcp_client_smoke": "--root <initialized-smoke-vault> mcp-client-smoke",
     "generated_artifacts": "No generated SQLite, reports, caches, or distilled context outputs are staged",
 }
 

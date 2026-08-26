@@ -17,6 +17,7 @@ from scripts.docs_site_guard import (
     PUBLIC_SKILL_FIRST_RUN_GUIDES,
     PUBLIC_SKILL_GUIDE_ROOTS,
     PUBLIC_SOURCE_ROUTE_DOCS,
+    MCP_CLIENT_SMOKE_GUIDES,
     RELEASE_PENDING_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
@@ -25,6 +26,7 @@ from scripts.docs_site_guard import (
     ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
     _release_contract_errors,
     _pending_source_execution_errors,
+    _mcp_client_smoke_command_errors,
     _stable_command_errors,
     audit_public_skill_guides,
     audit_site,
@@ -653,6 +655,30 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         allow_explicit_maintainer_sections=True,
                     ),
                 )
+
+    def test_mcp_client_smoke_guides_bind_a_separate_vault_and_absolute_source(self) -> None:
+        for relative in MCP_CLIENT_SMOKE_GUIDES:
+            with self.subTest(path=relative):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(
+                        (REPO_ROOT / relative).read_text(encoding="utf-8"),
+                        relative,
+                    ),
+                )
+
+        unbound = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py mcp-client-smoke --command ai-dememory\n",
+            "docs/example.md",
+        )
+        relative_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+
+        self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
+        self.assertTrue(any("must use an absolute" in error for error in relative_source), relative_source)
 
     def test_scheduler_source_diagnostics_stay_limited_to_the_exact_maintainer_heading(self) -> None:
         allowed = _pending_source_execution_errors(

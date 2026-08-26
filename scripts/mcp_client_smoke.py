@@ -90,6 +90,26 @@ def override_launch(
     return data
 
 
+def bind_config_runtime_root(
+    config: dict[str, Any],
+    root: Path,
+    server_name: str = "ai-dememory",
+) -> dict[str, Any]:
+    """Bind a loaded client fixture to the selected smoke vault explicitly."""
+    data = json.loads(json.dumps(config))
+    server, _ = select_server_config(data, server_name)
+    env = server.get("env")
+    if env is None:
+        env = {}
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in env.items()
+    ):
+        raise ClientSmokeError("MCP client config env must be an object of strings")
+    server["env"] = {**env, "AI_DEMEMORY_ROOT": str(root)}
+    return data
+
+
 def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name: str = "ai-dememory") -> ClientSmokeResult:
     server, selected_name = select_server_config(config, server_name)
     command = server.get("command")
@@ -393,7 +413,7 @@ def dict_env() -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Vault or checkout root. Defaults to this repo.")
+    parser.add_argument("--root", default=None, help="Initialized vault root used by the launched MCP server.")
     parser.add_argument("--config", default=None, help="Existing MCP client config JSON to launch.")
     parser.add_argument("--server-name", default="ai-dememory", help="Server name inside mcpServers.")
     parser.add_argument("--client", choices=("generic", "codex", "claude"), default="codex")
@@ -407,10 +427,14 @@ def main(argv: list[str] | None = None) -> int:
     root = repo_root(args.root)
     try:
         if args.config:
-            config = override_launch(
-                load_config(Path(args.config)),
-                command=args.command,
-                command_args=args.command_arg,
+            config = bind_config_runtime_root(
+                override_launch(
+                    load_config(Path(args.config)),
+                    command=args.command,
+                    command_args=args.command_arg,
+                    server_name=args.server_name,
+                ),
+                root,
                 server_name=args.server_name,
             )
         else:

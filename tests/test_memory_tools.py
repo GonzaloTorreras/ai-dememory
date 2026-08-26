@@ -162,8 +162,8 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
-from mcp_client_smoke import override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
-from mcp_inventory import build_inventory, validate_inventory_docs, validate_inventory_texts  # noqa: E402
+from mcp_client_smoke import bind_config_runtime_root, main as mcp_client_smoke_main, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
+from mcp_inventory import INVENTORY_DOCS, build_inventory, main as mcp_inventory_main, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import (  # noqa: E402
     MemoryError,
@@ -269,6 +269,7 @@ from onboarding import main as onboarding_main  # noqa: E402
 from sleep_consolidation import SleepError, apply_review_packets, build_sleep_plan, main as sleep_main, write_sleep_report  # noqa: E402
 from vector_gate import VectorReadiness, evaluate_vector_readiness, write_vector_report  # noqa: E402
 from validate_memory import main as validate_main, validate_repo, validate_repo_result  # noqa: E402
+from verify_mcp_contract import validate_contract  # noqa: E402
 from working_memory import handoff, show_current, snapshot, working_status  # noqa: E402
 from review_memory import (  # noqa: E402
     REVIEW_MODE_ALIASES,
@@ -301,10 +302,11 @@ from review_memory import (  # noqa: E402
     write_stale_false_positive_report,
 )
 from ai_dememory_tool.cli import (  # noqa: E402
-    ambient_root_requires_explicit_binding,
+    COMMAND_ROOT_POLICIES,
+    COMMANDS,
+    PARSER_OWNED_COMMANDS,
+    CommandRootPolicy,
     build_mcp_config,
-    command_requires_explicit_vault_binding,
-    command_mutates_vault,
     copy_template_tree,
     export_vault_template,
     find_memory_root,
@@ -349,6 +351,153 @@ class MemoryToolTests(unittest.TestCase):
         self._default_selector_patch.start()
         self.addCleanup(self._default_selector_home.cleanup)
         self.addCleanup(self._default_selector_patch.stop)
+
+    def test_command_root_policy_covers_every_generic_command_exactly(self) -> None:
+        expected_parser_owned = {
+            "mcp",
+            "api",
+            "hook-event",
+            "hooks",
+            "setup",
+            "onboard",
+            "providers",
+            "import-chats",
+            "capture",
+            "maintenance",
+            "schedule",
+        }
+
+        self.assertEqual(PARSER_OWNED_COMMANDS, expected_parser_owned)
+        self.assertEqual(
+            set(COMMAND_ROOT_POLICIES),
+            set(COMMANDS) - expected_parser_owned,
+        )
+        self.assertFalse(set(COMMAND_ROOT_POLICIES) & expected_parser_owned)
+        self.assertEqual(len(COMMANDS), 56)
+        self.assertEqual(len(COMMAND_ROOT_POLICIES), 45)
+
+    def test_command_root_policy_groups_are_exhaustive_and_disjoint(self) -> None:
+        expected_by_policy = {
+            CommandRootPolicy.SOURCE_BOUND: {
+                "release-check",
+                "install-smoke",
+                "package-build-smoke",
+                "publish-guard",
+                "ci-guard",
+                "artifact-guard",
+                "vault-setup-guard",
+                "pr-template-guard",
+                "pr-draft-guard",
+                "acceptance-guard",
+                "adr-guard",
+                "release-checklist-guard",
+                "release-evidence",
+                "mcp-smoke",
+            },
+            CommandRootPolicy.VAULT_BOUND: {
+                "context",
+                "graph",
+                "recall-fixtures",
+                "vector",
+                "capture-miss",
+                "provenance",
+                "export-context",
+                "consolidate",
+                "sleep",
+                "learn",
+                "turn-context",
+                "working",
+                "lifecycle",
+                "mark-seen",
+                "outcome",
+                "review",
+                "false-positive",
+                "conflict",
+                "mcp-client-smoke",
+            },
+            CommandRootPolicy.MODE_SPLIT: {
+                "doctor",
+                "validate",
+                "secret-scan",
+                "index",
+                "search",
+                "eval-recall",
+                "roadmap",
+                "acceptance",
+                "publish-plan",
+                "mcp-inventory",
+            },
+            CommandRootPolicy.ROOTLESS: {"api-smoke", "verify-mcp"},
+        }
+
+        actual_by_policy = {
+            policy: {
+                command
+                for command, command_policy in COMMAND_ROOT_POLICIES.items()
+                if command_policy is policy
+            }
+            for policy in CommandRootPolicy
+        }
+        self.assertEqual(actual_by_policy, expected_by_policy)
+        flattened = set().union(*actual_by_policy.values())
+        self.assertEqual(flattened, set(COMMAND_ROOT_POLICIES))
+        self.assertEqual(
+            sum(len(commands) for commands in actual_by_policy.values()),
+            len(flattened),
+        )
+
+    def test_command_aliases_share_root_policy_and_dispatch_module(self) -> None:
+        alias_groups = (
+            ("lifecycle", "mark-seen", "outcome"),
+            ("review", "false-positive", "conflict"),
+        )
+        for aliases in alias_groups:
+            with self.subTest(aliases=aliases):
+                self.assertEqual(
+                    {COMMAND_ROOT_POLICIES[command] for command in aliases},
+                    {CommandRootPolicy.VAULT_BOUND},
+                )
+                self.assertEqual(
+                    len({COMMANDS[command][1] for command in aliases}),
+                    1,
+                )
+
+    def test_verify_mcp_contract_is_package_bound_not_source_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_root = Path(tmp) / "not-a-checkout-or-vault"
+
+            self.assertFalse(missing_root.exists())
+            self.assertEqual(validate_contract(missing_root), [])
+
+    def test_mcp_inventory_reads_source_only_for_check_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_root = Path(tmp) / "not-a-checkout-or-vault"
+
+            inventory_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(inventory_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--json"]), 0)
+            self.assertEqual(json.loads(inventory_output.getvalue())["tool_count"], len(TOOLS))
+
+            profile_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(profile_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--profile", "core", "--json"]), 0)
+            self.assertEqual(json.loads(profile_output.getvalue())["profile"], "core")
+
+            documentation_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(documentation_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--check-docs", "--json"]), 1)
+            issues = json.loads(documentation_output.getvalue())
+            self.assertEqual({issue["target"] for issue in issues}, set(INVENTORY_DOCS))
+            self.assertFalse(missing_root.exists())
 
     def test_repo_vault_template_matches_packaged_template(self) -> None:
         packaged = ROOT / "ai_dememory_tool" / "templates" / "vault"
@@ -475,30 +624,8 @@ class MemoryToolTests(unittest.TestCase):
         root_resolver.assert_not_called()
         self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_nested_vault_in_sparse_checkout_requires_an_explicit_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            checkout = base / "sparse-checkout"
-            nested = checkout / "selected-vault"
-            (nested / "memories").mkdir(parents=True)
-            (checkout / ".git").write_text(
-                "gitdir: //untrusted.invalid/share/metadata\n",
-                encoding="utf-8",
-            )
-            (nested / ".ai-dememory.toml").write_text(
-                "[memory]\ncanonical = \"markdown\"\n",
-                encoding="utf-8",
-            )
-
-            self.assertFalse((checkout / "docs" / "schema.md").exists())
-            self.assertFalse((checkout / "scripts").exists())
-            self.assertFalse(is_tool_checkout(checkout))
-            self.assertFalse(is_within_tool_checkout(nested))
-            self.assertTrue(ambient_root_requires_explicit_binding(nested))
-
     def test_tool_checkout_recognizes_the_source_that_loaded_the_cli(self) -> None:
         self.assertTrue(is_tool_checkout(ROOT))
-        self.assertTrue(ambient_root_requires_explicit_binding(ROOT))
 
     def test_source_archive_is_detected_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -515,7 +642,6 @@ class MemoryToolTests(unittest.TestCase):
             )
 
             self.assertTrue(is_tool_checkout(source))
-            self.assertTrue(ambient_root_requires_explicit_binding(source))
 
     def test_installed_site_packages_is_not_a_source_checkout_or_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -536,14 +662,6 @@ class MemoryToolTests(unittest.TestCase):
             ):
                 find_memory_root(start=unrelated)
 
-    def test_non_file_vault_manifest_does_not_authorize_ambient_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp) / "vault"
-            (vault / "memories").mkdir(parents=True)
-            (vault / ".ai-dememory.toml").mkdir()
-
-            self.assertTrue(ambient_root_requires_explicit_binding(vault))
-
     def test_unrelated_git_vault_is_not_a_tool_checkout_even_with_mutable_markers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault"
@@ -562,14 +680,6 @@ class MemoryToolTests(unittest.TestCase):
 
             self.assertFalse(is_tool_checkout(vault))
             self.assertFalse(is_within_tool_checkout(nested))
-            self.assertFalse(ambient_root_requires_explicit_binding(vault))
-
-    def test_unconfigured_legacy_vault_requires_deliberate_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp) / "legacy-vault"
-            (vault / "memories").mkdir(parents=True)
-
-            self.assertTrue(ambient_root_requires_explicit_binding(vault))
 
     def test_mcp_config_requires_a_bound_vault_without_ambient_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -647,39 +757,35 @@ class MemoryToolTests(unittest.TestCase):
                 root_resolver.assert_not_called()
                 self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_rootless_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
+    def test_parser_owned_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
             (
                 "providers configure",
                 ["providers", "configure", "codex", "--path", str(ROOT)],
-                True,
             ),
             (
                 "providers import",
                 ["providers", "import", "codex", "--path", str(ROOT)],
-                True,
             ),
             (
                 "providers capture",
                 ["providers", "capture", "text", "--text", "Review candidate."],
-                True,
             ),
-            ("import chats", ["import-chats", "codex", "--path", str(ROOT)], True),
-            ("capture", ["capture", "text", "--text", "Review candidate."], True),
-            ("schedule", ["schedule", "setup"], True),
+            ("import chats", ["import-chats", "codex", "--path", str(ROOT)]),
+            ("capture", ["capture", "text", "--text", "Review candidate."]),
+            ("schedule", ["schedule", "setup"]),
             (
                 "schedule with a global command option",
                 ["schedule", "--command", "ai-dememory", "setup"],
-                True,
             ),
-            ("schedule status", ["schedule", "status"], True),
+            ("schedule status", ["schedule", "status"]),
         )
         roots = (
             ROOT,
             ROOT / "vault-template",
             ROOT / "ai_dememory_tool" / "templates" / "vault",
         )
-        for label, argv, requires_strict_binding in invocations:
+        for label, argv in invocations:
             for root in roots:
                 with self.subTest(command=label, root=root):
                     error = io.StringIO()
@@ -692,14 +798,8 @@ class MemoryToolTests(unittest.TestCase):
                         cli_main(argv)
 
                     self.assertEqual(raised.exception.code, 2)
-                    if requires_strict_binding:
-                        root_resolver.assert_not_called()
-                        self.assertIn("runtime vault binding requires", error.getvalue())
-                    else:
-                        self.assertIn(
-                            "refuses an unconfigured or nested ambient root",
-                            error.getvalue(),
-                        )
+                    root_resolver.assert_not_called()
+                    self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_maintenance_commands_require_bound_roots_without_discovery(self) -> None:
         invocations = (
@@ -726,20 +826,19 @@ class MemoryToolTests(unittest.TestCase):
                 root_resolver.assert_not_called()
                 self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_root_bound_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
+    def test_parser_owned_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
-            ("providers plan", ["providers", "plan", "--json"], True),
+            ("providers plan", ["providers", "plan", "--json"]),
             (
                 "providers configure preview",
                 ["providers", "configure", "codex", "--path", str(ROOT), "--dry-run"],
-                True,
             ),
-            ("schedule plan", ["schedule", "plan", "--json"], True),
-            ("schedule cron", ["schedule", "cron", "--json"], True),
-            ("schedule setup preview", ["schedule", "setup", "--dry-run"], True),
-            ("schedule install preview", ["schedule", "install", "--dry-run"], True),
+            ("schedule plan", ["schedule", "plan", "--json"]),
+            ("schedule cron", ["schedule", "cron", "--json"]),
+            ("schedule setup preview", ["schedule", "setup", "--dry-run"]),
+            ("schedule install preview", ["schedule", "install", "--dry-run"]),
         )
-        for label, argv, requires_strict_binding in invocations:
+        for label, argv in invocations:
             with self.subTest(command=label):
                 error = io.StringIO()
                 with (
@@ -751,43 +850,8 @@ class MemoryToolTests(unittest.TestCase):
                     cli_main(argv)
 
                 self.assertEqual(raised.exception.code, 2)
-                if requires_strict_binding:
-                    root_resolver.assert_not_called()
-                    self.assertIn("runtime vault binding requires", error.getvalue())
-                else:
-                    self.assertIn(
-                        "refuses an unconfigured or nested ambient root",
-                        error.getvalue(),
-                    )
-
-    def test_root_guard_classifies_mutating_and_root_bound_commands(self) -> None:
-        for command, argv in (("providers", ["detect"]),):
-            with self.subTest(command=command, argv=argv):
-                self.assertFalse(command_mutates_vault(command, argv))
-                self.assertFalse(command_requires_explicit_vault_binding(command, argv))
-
-        for command, argv in (
-            ("maintenance", ["status"]),
-            ("maintenance", ["run", "--dry-run"]),
-            ("providers", ["plan", "--json"]),
-            ("providers", ["configure", "codex", "--dry-run"]),
-            ("import-chats", ["codex", "--dry-run"]),
-        ):
-            with self.subTest(command=command, argv=argv):
-                self.assertFalse(command_mutates_vault(command, argv))
-                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
-
-        for command, argv in (
-            ("providers", ["configure", "codex"]),
-            ("providers", ["import", "codex"]),
-            ("providers", ["capture", "text", "--text", "Review candidate."]),
-            ("import-chats", ["codex"]),
-            ("capture", ["text", "--text", "Review candidate."]),
-            ("maintenance", ["run"]),
-        ):
-            with self.subTest(command=command, argv=argv):
-                self.assertTrue(command_mutates_vault(command, argv))
-                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
+                root_resolver.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_setup_and_onboarding_accept_deliberate_bindings(self) -> None:
         checkout_root = ROOT / "vault-template"
@@ -2999,7 +3063,7 @@ class MemoryToolTests(unittest.TestCase):
             ],
         )
 
-    def test_mcp_client_smoke_launches_generated_checkout_config(self) -> None:
+    def test_mcp_client_smoke_launches_source_code_against_separate_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault"
             copy_template_tree(vault)
@@ -3008,17 +3072,54 @@ class MemoryToolTests(unittest.TestCase):
                 "installed",
                 vault,
                 command=sys.executable,
-                command_args=["scripts/ai_dememory.py"],
+                command_args=[str(ROOT / "scripts" / "ai_dememory.py")],
             )
-            config["cwd"] = str(ROOT)
+            server, _ = select_server_config(config)
 
-            result = run_client_config_smoke(config, ROOT.parent)
+            self.assertIs(
+                COMMAND_ROOT_POLICIES["mcp-client-smoke"],
+                CommandRootPolicy.VAULT_BOUND,
+            )
+            self.assertEqual(server["env"]["AI_DEMEMORY_ROOT"], str(vault))
+            result = run_client_config_smoke(config, vault)
 
-        self.assertEqual(Path(result.cwd), ROOT)
+        self.assertEqual(Path(result.cwd), vault)
         self.assertTrue(result.initialized)
         self.assertTrue(result.pinged)
         self.assertFalse(result.enabled_tools_verified)
         self.assertEqual(result.enabled_tool_count, 0)
+
+    def test_mcp_client_smoke_binds_checked_in_config_to_explicit_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            copy_template_tree(vault)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("mcp_client_smoke.repo_root", return_value=vault),
+                redirect_stdout(output),
+            ):
+                exit_code = mcp_client_smoke_main(
+                    [
+                        "--root",
+                        str(vault),
+                        "--config",
+                        str(ROOT / "plugins" / "ai-dememory" / ".mcp.json"),
+                        "--command",
+                        sys.executable,
+                        "--command-arg",
+                        str(ROOT / "scripts" / "ai_dememory.py"),
+                        "--json",
+                    ]
+                )
+            result = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(Path(result["cwd"]), vault)
+        self.assertTrue(result["initialized"])
+        self.assertTrue(result["pinged"])
+        self.assertTrue(result["enabled_tools_verified"])
+        self.assertEqual(result["enabled_tool_count"], 3)
 
     def test_mcp_runtime_fixture_smoke_exercises_v2_tools(self) -> None:
         checks = run_fixture_smoke(ROOT)
@@ -16058,6 +16159,26 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(server["command"], sys.executable)
         self.assertEqual(server["args"], ["scripts/ai_dememory.py", "mcp", "--stdio"])
         self.assertEqual(server["enabled_tools"], ["memory.search"])
+
+    def test_mcp_client_smoke_binds_loaded_config_to_selected_vault(self) -> None:
+        config = {
+            "mcpServers": {
+                "ai-dememory": {
+                    "command": "ai-dememory",
+                    "args": ["mcp", "--stdio"],
+                    "env": {},
+                }
+            }
+        }
+        vault = Path("C:/private/smoke-vault")
+
+        bound = bind_config_runtime_root(config, vault)
+
+        self.assertEqual(config["mcpServers"]["ai-dememory"]["env"], {})
+        self.assertEqual(
+            bound["mcpServers"]["ai-dememory"]["env"],
+            {"AI_DEMEMORY_ROOT": str(vault)},
+        )
 
     def test_mcp_client_smoke_verifies_enabled_tools_from_tools_list(self) -> None:
         stdout = "\n".join(

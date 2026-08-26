@@ -26,12 +26,22 @@ accepted by the release identity guard.
   stable root and `.ai-dememory.toml`. A selected explicit, environment, or
   saved-default root that is missing, linked, uninitialized, or replaced during
   validation now fails without falling through to another source.
+- Bind an existing MCP client-config smoke fixture explicitly to its selected
+  initialized vault instead of depending on ambient process state.
 
 ### Changed
 
 - Explain the operational wizard before prompting, including intensity ceilings,
   schedule state, host-AI policy, model-cost boundary and Stop proposals.
   Keep optional personal-baseline questions in the distinct `onboard` flow.
+- Classify every generic CLI command by its target root contract before the
+  remaining legacy dispatcher is migrated away from ambient CWD discovery.
+
+### Documentation
+
+- Require maintainer MCP client smokes to use a separate initialized vault and
+  an absolute source-script path; the public source checkout is never a runtime
+  vault.
 
 ## [2.1.1] - 2026-08-23
 

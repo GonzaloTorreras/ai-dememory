@@ -64,7 +64,7 @@ namespace:
 ```bash
 ai-dememory dev verify-mcp
 ai-dememory dev api-smoke
-ai-dememory dev mcp-client-smoke
+ai-dememory --root <initialized-vault> dev mcp-client-smoke
 ai-dememory dev release-check
 ai-dememory dev publish-plan --repository testpypi --json
 ai-dememory dev release-evidence --json

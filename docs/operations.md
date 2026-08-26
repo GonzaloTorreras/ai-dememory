@@ -72,9 +72,11 @@ are canonicalized, so normal platform aliases remain usable. Create a new vault
 with `ai-dememory init`; strict runtime consumers do not initialize a missing
 directory implicitly.
 
-`BRG-003` still tracks older generic-dispatch commands until each is classified
-as vault-bound, source-bound, or genuinely rootless. Their acceptance of a path
-must not yet be interpreted as proof that the shared structural validator ran.
+`BRG-003` now inventories every older generic-dispatch command as vault-bound,
+source-bound, package/rootless, or selected by parsed submode. Enforcement is
+still being migrated in policy-specific slices, so accepting a path on one of
+those legacy commands must not yet be interpreted as proof that the shared
+structural validator ran.
 
 On strict-resolver surfaces, explicit `--root` or `AI_DEMEMORY_ROOT` can
 deliberately name a network path, but that is not a guarantee that every remote
