@@ -18,6 +18,13 @@ distilled/*.md
 working/*
 !working/README.md
 
+# Local coordination and interrupted-write recovery artifacts
+/.ai-dememory-config.lock
+/.ai-dememory-schedule.lock
+/.ai-dememory.toml.*.bak
+**/.*.ai-dememory-config-*.tmp
+**/.*.ai-dememory-onboarding-*.tmp
+
 # Local capture inbox. Only the structural README belongs in the public tree.
 inbox/**
 !inbox/README.md

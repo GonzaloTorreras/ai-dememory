@@ -5,10 +5,16 @@ import io
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 from ai_dememory_tool.cli import main as cli_main
 from ai_dememory_tool.cli import run_packaged_command
@@ -21,6 +27,7 @@ from ai_dememory_tool.vault_binding import (
     resolve_runtime_vault,
     save_default_vault,
 )
+from config_file import ConfigError, load_config
 
 
 def make_vault(path: Path) -> Path:
@@ -145,7 +152,7 @@ class RuntimeVaultBindingTests(unittest.TestCase):
             self.assertTrue(clear_default_vault(environ=environment))
             self.assertIsNone(load_default_vault(environ=environment))
 
-    def test_legacy_permissive_config_text_remains_a_valid_default(self) -> None:
+    def test_selector_is_parser_agnostic_but_downstream_config_load_can_fail(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             root = make_vault(base / "vault")
@@ -157,6 +164,11 @@ class RuntimeVaultBindingTests(unittest.TestCase):
 
             save_default_vault(root, environ=environment)
             self.assertEqual(resolve_runtime_vault(environ=environment).root, root.resolve())
+            with self.assertRaises(ConfigError) as raised:
+                load_config(root)
+
+        self.assertEqual(raised.exception.code, "toml_syntax")
+        self.assertNotIn("plain text", str(raised.exception))
 
     def test_nonregular_selector_is_never_read(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

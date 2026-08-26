@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import queue
 from dataclasses import asdict, dataclass
 import json
@@ -12,7 +13,7 @@ import subprocess
 import sys
 import threading
 import tomllib
-from typing import Any
+from typing import Any, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -190,31 +191,53 @@ def assert_mcp_initialize_and_ping(stdout: str) -> None:
         raise ClientSmokeError("MCP ping did not return an empty result")
 
 
+@contextmanager
 def start_mcp_process(
     command: str,
     args: list[str],
     launch_cwd: Path,
     env: dict[str, str],
-) -> subprocess.Popen[str]:
+) -> Iterator[subprocess.Popen[str]]:
+    process_scope = start_owned_process(
+        [command, *args],
+        cwd=launch_cwd,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    entered = False
     try:
-        process = start_owned_process(
-            [command, *args],
-            cwd=launch_cwd,
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        attach_bounded_stderr_drain(process)
-        return process
+        with process_scope as process:
+            entered = True
+            attach_bounded_stderr_drain(process)
+            try:
+                yield process
+            finally:
+                stop_mcp_process(process)
     except FileNotFoundError as exc:
+        if entered:
+            raise
+        # The child is created on context entry, not when process_scope is
+        # constructed, so translate the error around the complete `with`.
         raise ClientSmokeError(f"MCP client config command not found: {command}") from exc
 
 
 def stop_mcp_process(process: subprocess.Popen[str]) -> None:
-    close_stdin_and_reap(process, grace_seconds=2)
-    join_bounded_stderr_drain(process, timeout=2)
+    cleanup_complete = False
+    drain_complete = False
+    try:
+        cleanup_complete = close_stdin_and_reap(process, grace_seconds=2)
+    finally:
+        drain_complete = join_bounded_stderr_drain(process, timeout=2)
+    if not cleanup_complete:
+        # The child may still own the pipe endpoints. Closing a buffered stream
+        # while its drain holds the stream lock can block forever, so fail
+        # promptly and leave final reclamation to the OS/supervisor boundary.
+        raise ClientSmokeError("MCP client process tree did not terminate cleanly")
+    if not drain_complete:
+        raise ClientSmokeError("MCP client stderr drain did not terminate cleanly")
     for pipe in (process.stdout, process.stderr):
         if pipe is not None:
             try:
@@ -285,8 +308,9 @@ def rpc_result(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple
 def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: dict[str, str]) -> str:
     stdout_parts: list[str] = []
     cursor: str | None = None
-    process = start_mcp_process(command, args, launch_cwd, env)
-    try:
+
+    def exercise_process(process: subprocess.Popen[str]) -> str:
+        nonlocal cursor
         init, init_line = rpc_result(process, MCP_INIT)
         if init.get("protocolVersion") != "2025-11-25":
             raise ClientSmokeError("MCP client config initialize negotiated the wrong protocol")
@@ -309,8 +333,8 @@ def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: d
             if not isinstance(cursor, str) or not cursor:
                 raise ClientSmokeError("MCP tools/list response returned invalid nextCursor")
             page += 1
-    finally:
-        stop_mcp_process(process)
+    with start_mcp_process(command, args, launch_cwd, env) as process:
+        return exercise_process(process)
 
 
 def tools_list_request(request_id: int, cursor: str | None = None) -> dict[str, Any]:

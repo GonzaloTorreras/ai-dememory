@@ -25,6 +25,7 @@ if str(SOURCE_ROOT) not in sys.path:
 
 from ai_dememory_tool.argument_safety import duplicate_options
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
+from config_file import ConfigError
 from memorylib import (
     FrontmatterError,
     SOURCE_KINDS,
@@ -1298,17 +1299,23 @@ def run_capture(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = require_runtime_hook_vault(parser, args.root)
     payload = sys.stdin.buffer.read(MAX_STDIN_BYTES).decode("utf-8", errors="replace")
-    policy = resolved_resource_policy(root)
-    resources = policy.get("resources", {})
-    max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
-    path = capture_hook_event(
-        root,
-        args.event,
-        payload,
-        capture_raw=args.capture_raw,
-        provider=args.provider,
-        max_pending=max_pending,
-    )
+    try:
+        policy = resolved_resource_policy(root)
+        resources = policy.get("resources", {})
+        max_pending = int(resources.get("hook_capture_max_pending", 0)) if isinstance(resources, dict) else 0
+        path = capture_hook_event(
+            root,
+            args.event,
+            payload,
+            capture_raw=args.capture_raw,
+            provider=args.provider,
+            max_pending=max_pending,
+        )
+    except Exception:
+        # This legacy capture entry point is still used directly by older hook
+        # definitions. Match dispatch's protocol boundary: configuration or
+        # capture failures must leave the host unblocked and emit no details.
+        path = None
     result = {"path": repo_relative_path(path, root) if path else None, "captured": path is not None}
     # hook-event may be invoked directly by a harness; stdout is always JSON.
     print(json.dumps(result, indent=2 if args.json else None))
@@ -1476,8 +1483,13 @@ def run_captures(argv: list[str]) -> int:
             review_after_from=args.review_after_from,
             review_after_to=args.review_after_to,
         )
-    except HookEventError as exc:
+    except (HookEventError, ConfigError) as exc:
         print(str(exc), file=sys.stderr)
+        return 1
+    except Exception:
+        # Administrative hook commands fail visibly but must not expose local
+        # paths, configured values, OS details, or a traceback.
+        print("hook capture operation failed", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(summary, indent=2))

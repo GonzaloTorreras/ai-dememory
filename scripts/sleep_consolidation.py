@@ -27,13 +27,16 @@ from memorylib import (
     today,
     validate_memories,
 )
-from review_memory import conflict_reviews, false_positive_reviews
+from review_memory import ReviewError, conflict_reviews, false_positive_reviews
 from secret_scan import scan_paths, scan_text
 
 
 DEFAULT_REPORT = Path("reports/sleep-plan.md")
 DEFAULT_JSON = Path("reports/sleep-plan.json")
 PACKET_DIR = Path("inbox/sleep-consolidation")
+SLEEP_REVIEW_STATE_ERROR_MESSAGE = (
+    "sleep review state unavailable [review_state_error]"
+)
 
 
 class SleepError(RuntimeError):
@@ -128,7 +131,16 @@ def build_sleep_plan(root: Path) -> SleepPlan:
             )
         )
 
-    for conflict in conflict_reviews(root):
+    try:
+        conflicts = conflict_reviews(root)
+        false_positives = false_positive_reviews(root)
+    except ReviewError:
+        # Review helpers can retain a chained config/filesystem exception.
+        # Sleep plan consumers need one path-independent diagnostic, and plan
+        # construction must fail before any report or packet writer can run.
+        raise SleepError(SLEEP_REVIEW_STATE_ERROR_MESSAGE) from None
+
+    for conflict in conflicts:
         if conflict.status != "active":
             continue
         candidates.append(
@@ -143,7 +155,7 @@ def build_sleep_plan(root: Path) -> SleepPlan:
             )
         )
 
-    for finding in false_positive_reviews(root):
+    for finding in false_positives:
         if finding.ignored:
             continue
         candidates.append(

@@ -38,7 +38,12 @@ from memorylib import (
     repo_relative_path,
     safe_write_text,
 )
-from provider_import import import_chats, provider_config, providers_status
+from provider_import import (
+    import_chats,
+    provider_config,
+    provider_failure_result,
+    providers_status,
+)
 from process_control import (
     process_is_running,
     process_matches_identity,
@@ -52,6 +57,7 @@ from review_memory import (
     ReviewError,
     conflict_reviews,
     false_positive_reviews,
+    load_review_config,
     review_recommendations,
     stale_false_positive_suppressions,
 )
@@ -67,6 +73,7 @@ MAINTENANCE_ROOT_HELP = (
     "saved local default selected with `ai-dememory vault use "
     "<absolute-vault-path>`; the command never uses the working directory to discover a vault."
 )
+REVIEW_STATE_ERROR_MESSAGE = "maintenance review state unavailable [review_state_error]"
 
 GENERATED_ARTIFACTS: dict[str, Path] = {
     "index": Path("indexes/memory.sqlite"),
@@ -252,6 +259,25 @@ def resource_policy_error_details(policy: dict[str, object]) -> str:
     return details or "resource policy validation failed without diagnostics"
 
 
+def maintenance_review_preflight(
+    root: Path,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+    """Read every review projection needed by a maintenance report.
+
+    This must run before the lock, provider imports, or generated-artifact
+    writers. A strict review-state failure therefore has the same read-only
+    behavior in preview and apply, rather than failing after partial refreshes.
+    """
+
+    load_review_config(root)
+    return (
+        review_due_summary(root),
+        conflict_review_summary(root),
+        review_recommendation_summary(root),
+        generated_packet_archive_summary(root),
+    )
+
+
 def run_maintenance(
     root: Path,
     profile: str,
@@ -269,6 +295,12 @@ def run_maintenance(
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):
         raise ValueError("resolved resource policy is invalid")
+    (
+        review_due,
+        conflict_review,
+        recommendation_summary,
+        packet_archive_summary,
+    ) = maintenance_review_preflight(root)
 
     with maintenance_lock(
         root,
@@ -288,7 +320,7 @@ def run_maintenance(
                     )
                 )
             except Exception as exc:
-                imports.append({"provider": provider, "error": str(exc)})
+                imports.append(provider_failure_result(provider, exc))
 
         findings = scan_paths(root)
         if findings:
@@ -310,10 +342,6 @@ def run_maintenance(
         weights_path = write_weights(root)
         lifecycle_scores_path, lifecycle_rows = write_lifecycle_scores(root)
         lifecycle_report_path, _ = write_lifecycle_report(root)
-        review_due = review_due_summary(root)
-        conflict_review = conflict_review_summary(root)
-        recommendation_summary = review_recommendation_summary(root)
-        packet_archive_summary = generated_packet_archive_summary(root)
 
         recall_summary: dict[str, object] | None = None
         hook_capture_report_path: Path | None = None
@@ -403,6 +431,7 @@ def dry_run_maintenance(
     resources = resource_policy["resources"]
     if not isinstance(resources, dict):
         raise ValueError("resolved resource policy is invalid")
+    maintenance_review_preflight(root)
     imports: list[dict[str, object]] = []
     for provider in enabled_providers(root):
         try:
@@ -417,7 +446,7 @@ def dry_run_maintenance(
                 )
             )
         except Exception as exc:
-            imports.append({"provider": provider, "error": str(exc), "dry_run": True})
+            imports.append(provider_failure_result(provider, exc, dry_run=True))
     return {
         "profile": profile,
         "dry_run": True,
@@ -928,8 +957,14 @@ def write_maintenance_report(
     return path
 
 
-def maintenance_status(root: Path) -> dict[str, object]:
+def _maintenance_status(root: Path) -> dict[str, object]:
     config = load_config(root)
+    (
+        review_due,
+        conflict_review,
+        recommendation_summary,
+        packet_archive_summary,
+    ) = maintenance_review_preflight(root)
     report_dir = root / "reports" / "maintenance"
     reports = [
         repo_relative_path(path, root)
@@ -940,10 +975,10 @@ def maintenance_status(root: Path) -> dict[str, object]:
         "schedule": config.get("schedule", {}),
         "providers": provider_config(root),
         "provider_readiness": providers_status(root),
-        "review_due": review_due_summary(root),
-        "conflict_review": conflict_review_summary(root),
-        "review_recommendations": review_recommendation_summary(root),
-        "generated_packet_archives": generated_packet_archive_summary(root),
+        "review_due": review_due,
+        "conflict_review": conflict_review,
+        "review_recommendations": recommendation_summary,
+        "generated_packet_archives": packet_archive_summary,
         "hook_captures": hook_capture_summary(root),
         "recent_reports": reports,
         "artifacts": artifacts,
@@ -951,6 +986,19 @@ def maintenance_status(root: Path) -> dict[str, object]:
         "lock_exists": (root / "indexes" / ".maintenance.lock").exists(),
         "resource_policy": resolved_resource_policy(root),
     }
+
+
+def maintenance_status(root: Path) -> dict[str, object]:
+    """Return status without propagating review paths through error chains."""
+
+    review_error = False
+    try:
+        return _maintenance_status(root)
+    except ReviewError:
+        review_error = True
+    if review_error:
+        raise ReviewError(REVIEW_STATE_ERROR_MESSAGE)
+    raise AssertionError("unreachable maintenance review state")
 
 
 def run_supervised_process(command: list[str], timeout_seconds: float) -> tuple[int, bool, int]:
@@ -999,7 +1047,7 @@ def run_supervised_maintenance(
     return exit_code
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
@@ -1076,6 +1124,9 @@ def main(argv: list[str] | None = None) -> int:
                 json_output=args.json,
             )
         result = run_maintenance(root, args.profile, Path(args.report_dir))
+    except ReviewError:
+        print(REVIEW_STATE_ERROR_MESSAGE, file=sys.stderr)
+        return 1
     except (RuntimeError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -1084,6 +1135,22 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(f"Completed {result.profile} maintenance. Report: {result.report}")
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the CLI with a controlled boundary for strict config failures."""
+
+    try:
+        return _main(argv)
+    except ReviewError:
+        print(REVIEW_STATE_ERROR_MESSAGE, file=sys.stderr)
+        return 2
+    except ValueError as exc:
+        # Config readers redact values from their diagnostics.  Keep malformed
+        # or unsafe config on the normal CLI error path instead of leaking a
+        # traceback from the read-only status surface.
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

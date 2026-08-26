@@ -147,7 +147,10 @@ class McpProfileTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             vault = Path(temporary) / "vault"
             vault.mkdir()
-            (vault / ".ai-dememory.toml").write_text("[policy]\n", encoding="utf-8")
+            (vault / ".ai-dememory.toml").write_text(
+                '[memory]\nschema_version = "2.0"\n',
+                encoding="utf-8",
+            )
             save_default_vault(vault)
 
             with (

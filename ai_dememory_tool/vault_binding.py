@@ -158,9 +158,9 @@ def _validate_selected_vault(value: str | Path) -> Path:
         )
     except FileNotFoundError as exc:
         raise VaultBindingError("default vault is missing .ai-dememory.toml") from exc
-    # Command modules own config parsing. The shipped config reader supports a
-    # deliberately small permissive TOML subset, so selecting a default must
-    # not reject a legacy config that the command itself accepts.
+    # Command modules own strict TOML parsing. Selection validates only the
+    # bounded, stable file identity so the invoked command can return its
+    # schema-specific controlled diagnostic without duplicating that parser.
     return root.resolve(strict=True)
 
 

@@ -130,6 +130,53 @@ class HarnessHookTests(unittest.TestCase):
             self.assertEqual(dispatch_hook_event(root, "PreCompact", "{}", client="codex"), {})
             self.assertEqual(dispatch_hook_event(root, "PostCompact", "{}", client="codex"), {})
 
+    def test_invalid_config_fails_open_without_hook_output_or_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                '[unknown]\nsensitive_value = "must-not-appear"\n',
+                encoding="utf-8",
+            )
+
+            result = dispatch_hook_event(
+                root,
+                "UserPromptSubmit",
+                json.dumps({"prompt": "Continue reviewed project work"}),
+                client="codex",
+            )
+            capture_exists = (root / "inbox" / "session-events").exists()
+
+        self.assertEqual(result, {})
+        self.assertFalse(capture_exists)
+
+    def test_invalid_config_disables_hook_recall_before_context_build(self) -> None:
+        module = types.SimpleNamespace(
+            build_turn_context=lambda *args, **kwargs: {
+                "decision": "inject",
+                "text": "must not be injected",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(
+            sys.modules,
+            {"turn_context": module},
+        ):
+            root = Path(tmp)
+            (root / ".ai-dememory.toml").write_text(
+                "[recall]\n"
+                "enabled = false\n"
+                'unexpected = "invalidates-the-closed-schema"\n',
+                encoding="utf-8",
+            )
+
+            result = dispatch_hook_event(
+                root,
+                "UserPromptSubmit",
+                json.dumps({"prompt": "Continue reviewed project work"}),
+                client="codex",
+            )
+
+        self.assertEqual(result, {})
+
     def test_stop_writes_deduplicated_review_proposal_only_from_explicit_signal(self) -> None:
         payload = json.dumps(
             {
@@ -242,6 +289,80 @@ class HarnessHookTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(output.getvalue()), {})
         self.assertNotIn("Captured", output.getvalue())
+
+    def test_legacy_capture_is_inert_on_invalid_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / ".ai-dememory.toml"
+            original = b'[recall]\nenabled = "false"\n'
+            config.write_bytes(original)
+            output = io.StringIO()
+            error = io.StringIO()
+            with (
+                patch("sys.stdin", _Stdin('{"prompt":"reviewed input"}')),
+                patch("hook_event.capture_hook_event") as capture,
+                redirect_stdout(output),
+                redirect_stderr(error),
+            ):
+                exit_code = hook_event_main(
+                    [
+                        "--root",
+                        str(root),
+                        "--provider",
+                        "codex",
+                        "--event",
+                        "UserPromptSubmit",
+                        "--json",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                json.loads(output.getvalue()),
+                {"path": None, "captured": False},
+            )
+            self.assertEqual(error.getvalue(), "")
+            self.assertEqual(config.read_bytes(), original)
+            self.assertEqual([path.name for path in root.iterdir()], [config.name])
+            capture.assert_not_called()
+
+    def test_capture_admin_commands_report_invalid_configuration_without_traceback(self) -> None:
+        commands = (
+            ["captures", "--json"],
+            ["captures", "--write-report", "--json"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / ".ai-dememory.toml"
+            canary = "hook-config-value-must-not-escape"
+            original = f'[recall]\nenabled = "{canary}"\n'.encode("utf-8")
+
+            for command in commands:
+                with self.subTest(command=command):
+                    config.write_bytes(original)
+                    before = {
+                        path.relative_to(root).as_posix(): path.read_bytes()
+                        for path in root.rglob("*")
+                        if path.is_file()
+                    }
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with redirect_stdout(output), redirect_stderr(error):
+                        exit_code = hook_event_main(
+                            ["--root", str(root), *command]
+                        )
+
+                    self.assertEqual(exit_code, 1)
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertIn("config error [invalid_type]", error.getvalue())
+                    self.assertNotIn(canary, error.getvalue())
+                    self.assertNotIn("traceback", error.getvalue().lower())
+                    after = {
+                        path.relative_to(root).as_posix(): path.read_bytes()
+                        for path in root.rglob("*")
+                        if path.is_file()
+                    }
+                    self.assertEqual(after, before)
 
     def test_unbound_dispatch_is_inert_without_reading_stdin_or_recalling(self) -> None:
         output = io.StringIO()

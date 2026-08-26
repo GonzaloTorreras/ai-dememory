@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -12,11 +13,14 @@ import json
 from pathlib import Path
 import platform
 import re
+import signal
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+from typing import Callable, Iterator
 from xml.sax.saxutils import escape
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
@@ -29,18 +33,22 @@ from ai_dememory_tool.vault_binding import (  # noqa: E402
     VaultBindingError,
     resolve_runtime_vault,
 )
-from config_file import load_config
-from config_file import set_section
+from config_file import ConfigError, load_config, set_section, vault_operation_lock
 from command_render import render_copy_command
 from maintenance import review_due_summary
 from memorylib import path_is_link_like, safe_write_text
 from process_control import run_owned_capture, run_owned_process
 from resource_policy import get_resource_profile, profile_names, resolved_resource_policy
+from review_memory import ReviewError, load_review_config
 
 
 WEEKDAYS = {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}
 SCHEDULER_COMMAND_TIMEOUT_SECONDS = 60
 SCHEDULE_VERIFICATION_TTL_SECONDS = 300
+SCHEDULE_OPERATION_LOCK_NAME = ".ai-dememory-schedule.lock"
+SCHEDULE_REVIEW_STATE_ERROR_MESSAGE = (
+    "schedule review state unavailable [review_state_error]"
+)
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 SCHEDULE_ROOT_HELP = (
     "Vault root. Resolution order: --root, "
@@ -48,6 +56,44 @@ SCHEDULE_ROOT_HELP = (
     "vault use <absolute-vault-path>`; `ai-dememory schedule` never uses the "
     "working directory to discover a vault."
 )
+
+
+@dataclass
+class ScheduleInterruptFence:
+    requested: bool = False
+
+
+@contextmanager
+def defer_schedule_sigint() -> Iterator[ScheduleInterruptFence]:
+    """Defer console cancellation until the schedule transaction is consistent."""
+
+    state = ScheduleInterruptFence()
+    if threading.current_thread() is not threading.main_thread():
+        yield state
+        return
+    signals = [signal.SIGINT]
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if isinstance(sigbreak, int):
+        signals.append(sigbreak)
+    previous: dict[int, object] = {}
+    installed: list[int] = []
+
+    def request_interrupt(_signum: int, _frame: object) -> None:
+        state.requested = True
+
+    try:
+        for signum in signals:
+            previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, request_interrupt)
+            installed.append(signum)
+        yield state
+    finally:
+        for signum in reversed(installed):
+            signal.signal(signum, previous[signum])
+
+
+def _schedule_phase_checkpoint(_phase: str) -> None:
+    """Stable internal seam for cancellation-fence regression tests."""
 
 
 @dataclass(frozen=True)
@@ -240,6 +286,50 @@ def configure_schedule(
     definition_digests: dict[str, str] | None = None,
     command: str = "ai-dememory",
 ) -> Path:
+    """Persist a standalone schedule receipt under schedule-then-config locks."""
+
+    with vault_operation_lock(
+        root,
+        lock_name=SCHEDULE_OPERATION_LOCK_NAME,
+        source="schedule",
+    ) as validate_schedule_lock:
+        observed = load_config(root).get("schedule", {})
+        return _configure_schedule(
+            root,
+            daily_time,
+            weekly_day,
+            weekly_time,
+            mode,
+            image,
+            daily_enabled,
+            weekly_enabled,
+            intensity,
+            target_platform,
+            plan_sha256,
+            definition_digests,
+            command,
+            expected_section=(dict(observed) if isinstance(observed, dict) else {}),
+            schedule_lock_validator=validate_schedule_lock,
+        )
+
+
+def _configure_schedule(
+    root: Path,
+    daily_time: str,
+    weekly_day: str,
+    weekly_time: str,
+    mode: str,
+    image: str,
+    daily_enabled: bool = True,
+    weekly_enabled: bool = True,
+    intensity: str | None = None,
+    target_platform: str | None = None,
+    plan_sha256: str = "",
+    definition_digests: dict[str, str] | None = None,
+    command: str = "ai-dememory",
+    expected_section: dict[str, object] | None = None,
+    schedule_lock_validator: Callable[[], None] | None = None,
+) -> Path:
     daily_time = normalize_time(daily_time, "daily_time")
     weekly_day = normalize_weekday(weekly_day)
     weekly_time = normalize_time(weekly_time, "weekly_time")
@@ -278,6 +368,13 @@ def configure_schedule(
             separators=(",", ":"),
             ensure_ascii=False,
         )
+    write_precondition = (
+        {}
+        if expected_section is None
+        else {"expected_section": expected_section}
+    )
+    if schedule_lock_validator is not None:
+        schedule_lock_validator()
     return set_section(
         root,
         "schedule",
@@ -306,10 +403,24 @@ def configure_schedule(
             "installed_at": installed_at,
             "verified_at": installed_at if digests and plan_sha256 else "",
         },
+        **write_precondition,
     )
 
 
 def disable_schedule(root: Path) -> Path:
+    with vault_operation_lock(
+        root,
+        lock_name=SCHEDULE_OPERATION_LOCK_NAME,
+        source="schedule",
+    ) as validate_schedule_lock:
+        return _disable_schedule(root, schedule_lock_validator=validate_schedule_lock)
+
+
+def _disable_schedule(
+    root: Path,
+    *,
+    schedule_lock_validator: Callable[[], None] | None = None,
+) -> Path:
     config = load_config(root).get("schedule", {})
     current = dict(config) if isinstance(config, dict) else {}
     current.update(
@@ -324,10 +435,30 @@ def disable_schedule(root: Path) -> Path:
             "task_namespace": schedule_namespace(root),
         }
     )
-    return set_section(root, "schedule", current)
+    if schedule_lock_validator is not None:
+        schedule_lock_validator()
+    return set_section(root, "schedule", current, expected_section=config)
 
 
 def mark_schedule_verified(root: Path, observed_definition_digests: dict[str, str]) -> Path:
+    with vault_operation_lock(
+        root,
+        lock_name=SCHEDULE_OPERATION_LOCK_NAME,
+        source="schedule",
+    ) as validate_schedule_lock:
+        return _mark_schedule_verified(
+            root,
+            observed_definition_digests,
+            schedule_lock_validator=validate_schedule_lock,
+        )
+
+
+def _mark_schedule_verified(
+    root: Path,
+    observed_definition_digests: dict[str, str],
+    *,
+    schedule_lock_validator: Callable[[], None] | None = None,
+) -> Path:
     config = load_config(root).get("schedule", {})
     current = dict(config) if isinstance(config, dict) else {}
     if not current.get("enabled", False):
@@ -341,16 +472,36 @@ def mark_schedule_verified(root: Path, observed_definition_digests: dict[str, st
     ):
         raise ValueError("host schedule definitions differ from the install receipt")
     current["verified_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    return set_section(root, "schedule", current)
+    if schedule_lock_validator is not None:
+        schedule_lock_validator()
+    return set_section(root, "schedule", current, expected_section=config)
 
 
 def clear_schedule_verification(root: Path) -> Path | None:
+    with vault_operation_lock(
+        root,
+        lock_name=SCHEDULE_OPERATION_LOCK_NAME,
+        source="schedule",
+    ) as validate_schedule_lock:
+        return _clear_schedule_verification(
+            root,
+            schedule_lock_validator=validate_schedule_lock,
+        )
+
+
+def _clear_schedule_verification(
+    root: Path,
+    *,
+    schedule_lock_validator: Callable[[], None] | None = None,
+) -> Path | None:
     config = load_config(root).get("schedule", {})
     current = dict(config) if isinstance(config, dict) else {}
     if not current.get("enabled", False) or not current.get("verified_at"):
         return None
     current["verified_at"] = ""
-    return set_section(root, "schedule", current)
+    if schedule_lock_validator is not None:
+        schedule_lock_validator()
+    return set_section(root, "schedule", current, expected_section=config)
 
 
 def maintenance_run_args(
@@ -828,12 +979,30 @@ def schedule_plan_fingerprint(plan: dict[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def require_schedule_review_state(root: Path) -> None:
+    try:
+        load_review_config(root)
+    except ReviewError:
+        raise ValueError(SCHEDULE_REVIEW_STATE_ERROR_MESSAGE) from None
+
+
+def schedule_operation_lock_lost(error: BaseException) -> bool:
+    """Return whether the scheduler's own lock namespace became untrusted."""
+
+    return (
+        isinstance(error, ConfigError)
+        and error.code == "config_lock_error"
+        and error.source == "schedule"
+    )
+
+
 def schedule_status(
     root: Path,
     command: str = "ai-dememory",
     target_platform: str | None = None,
 ) -> dict[str, object]:
     config = load_config(root).get("schedule", {})
+    require_schedule_review_state(root)
     if not isinstance(config, dict):
         config = {}
     mode = str(config.get("mode") or "installed")
@@ -933,6 +1102,13 @@ def schedule_status(
         validation_errors.append("enabled schedule is missing an exact install receipt")
     verified_at = str(config.get("verified_at") or "")
     is_verification_fresh = verification_fresh(verified_at)
+    try:
+        review_due = review_due_summary(root)
+    except ReviewError:
+        # ReviewError may retain a chained filesystem/config exception. This
+        # status object is consumed by CLI, setup health, release evidence, and
+        # MCP, so terminate the chain at this integration boundary.
+        raise ValueError(SCHEDULE_REVIEW_STATE_ERROR_MESSAGE) from None
     return {
         "configured": bool(config.get("enabled", False)),
         "install_receipt_valid": receipt_valid,
@@ -966,7 +1142,7 @@ def schedule_status(
             "installed_at": str(config.get("installed_at") or ""),
             "verified_at": verified_at,
         },
-        "review_due": review_due_summary(root),
+        "review_due": review_due,
         "status_commands": [asdict(item) for item in commands],
         "mutates_system": False,
     }
@@ -976,54 +1152,38 @@ def active_schedule_receipt_source(
     root: Path,
     status: dict[str, object],
 ) -> Path | None:
-    """Return the original vault when a copied enabled receipt still owns the jobs."""
+    """Return an opaque conflict marker for a receipt bound to another root.
+
+    The stored root is untrusted historical metadata.  Never resolve, probe,
+    render, or load configuration from it: on Windows even an existence check
+    against a UNC value can initiate network authentication.  Ownership must be
+    reconciled explicitly whenever the current vault root differs.
+    """
 
     schedule = status.get("schedule")
     if not isinstance(schedule, dict) or not schedule.get("root_moved", False):
         return None
-    configured_root_text = str(schedule.get("configured_root") or "").strip()
-    if not configured_root_text:
-        return None
-    configured_root = Path(configured_root_text).expanduser()
-    source_config_path = configured_root / ".ai-dememory.toml"
-    try:
-        if path_is_link_like(configured_root):
-            return configured_root
-        if not configured_root.exists():
-            return None
-        if path_is_link_like(source_config_path):
-            return configured_root
-        if not source_config_path.exists():
-            return None
-    except OSError:
-        # An unreadable or otherwise ambiguous source must fail closed instead
-        # of authorizing deletion of jobs owned by another vault path.
-        return configured_root
-    try:
-        source_config = load_config(configured_root).get("schedule", {})
-    except (OSError, UnicodeError, ValueError):
-        return configured_root
-    if not isinstance(source_config, dict) or not source_config.get("enabled", False):
-        return None
-
-    same_namespace = hmac.compare_digest(
-        str(source_config.get("task_namespace") or ""),
-        str(schedule.get("task_namespace") or ""),
-    )
-    same_plan = hmac.compare_digest(
-        str(source_config.get("plan_sha256") or ""),
-        str(schedule.get("plan_sha256") or ""),
-    )
-    return configured_root if same_namespace and same_plan else None
+    # The selected root is safe to return as an opaque non-None marker.  The
+    # caller must not infer or display the untrusted configured-root value.
+    return root
 
 
-def run_commands(commands: list[ScheduleCommand]) -> int:
+def run_commands(
+    commands: list[ScheduleCommand],
+    operation_validator: Callable[[], None] | None = None,
+) -> int:
     exit_code = 0
     for command in commands:
+        if operation_validator is not None:
+            operation_validator()
         try:
             returncode, _, _ = run_schedule_command(command)
         except OSError:
             returncode = 1
+        except KeyboardInterrupt:
+            returncode = 130
+        if operation_validator is not None:
+            operation_validator()
         if returncode != 0:
             exit_code = returncode
     return exit_code
@@ -1134,27 +1294,53 @@ def run_schedule_command(
 def run_install_commands(
     commands: list[ScheduleCommand],
     rollback_commands: list[ScheduleCommand],
+    operation_validator: Callable[[], None] | None = None,
 ) -> tuple[int, bool]:
-    """Run install commands and remove newly completed profile jobs on failure."""
-    completed_names: set[str] = set()
+    """Run install commands and remove every possibly applied job on failure."""
+    attempted_names: list[str] = []
     for command in commands:
+        if operation_validator is not None:
+            operation_validator()
+        # Once execution is attempted, a failure cannot prove that the host
+        # mutation did not commit. Every inverse is idempotent, so compensate
+        # the current command as well as earlier successful commands.
+        attempted_names.append(command.name)
         try:
-            returncode, _, _ = run_schedule_command(command)
+            returncode, timed_out, _ = run_schedule_command(command)
+        except subprocess.TimeoutExpired:
+            returncode = 124
+            timed_out = True
         except OSError:
             returncode = 1
+            timed_out = False
+        except KeyboardInterrupt:
+            returncode = 130
+            timed_out = False
+        if timed_out and returncode == 0:
+            returncode = 124
+        if operation_validator is not None:
+            operation_validator()
         if returncode == 0:
-            completed_names.add(command.name)
             continue
         rollback_complete = True
         rollback_by_name = {item.name: item for item in rollback_commands}
-        for name in reversed([item.name for item in commands if item.name in completed_names]):
+        for name in reversed(attempted_names):
             rollback = rollback_by_name.get(name)
             if rollback is None:
+                rollback_complete = False
                 continue
+            if operation_validator is not None:
+                operation_validator()
             try:
                 rollback_returncode, _, _ = run_schedule_command(rollback)
+            except subprocess.TimeoutExpired:
+                rollback_returncode = 124
             except OSError:
                 rollback_returncode = 1
+            except KeyboardInterrupt:
+                rollback_returncode = 130
+            if operation_validator is not None:
+                operation_validator()
             rollback_complete = rollback_complete and rollback_returncode == 0
         return returncode, rollback_complete
     return 0, True
@@ -1163,29 +1349,53 @@ def run_install_commands(
 def run_remove_commands(
     commands: list[ScheduleCommand],
     rollback_commands: list[ScheduleCommand],
+    operation_validator: Callable[[], None] | None = None,
 ) -> tuple[int, bool]:
     """Remove all jobs or restore the complete pre-remove enabled state."""
 
-    completed_names: set[str] = set()
+    attempted_names: list[str] = []
     for command in commands:
+        if operation_validator is not None:
+            operation_validator()
+        # A failed delete may still have removed the host definition. Treat
+        # every attempted mutation as possibly applied and restore its inverse.
+        attempted_names.append(command.name)
         try:
-            returncode, _, _ = run_schedule_command(command)
+            returncode, timed_out, _ = run_schedule_command(command)
+        except subprocess.TimeoutExpired:
+            returncode = 124
+            timed_out = True
         except OSError:
             returncode = 1
+            timed_out = False
+        except KeyboardInterrupt:
+            returncode = 130
+            timed_out = False
+        if timed_out and returncode == 0:
+            returncode = 124
+        if operation_validator is not None:
+            operation_validator()
         if returncode == 0:
-            completed_names.add(command.name)
             continue
         rollback_complete = True
         rollback_by_name = {item.name: item for item in rollback_commands}
-        for name in [item.name for item in commands if item.name in completed_names]:
+        for name in attempted_names:
             rollback = rollback_by_name.get(name)
             if rollback is None:
                 rollback_complete = False
                 continue
+            if operation_validator is not None:
+                operation_validator()
             try:
                 rollback_returncode, _, _ = run_schedule_command(rollback)
+            except subprocess.TimeoutExpired:
+                rollback_returncode = 124
             except OSError:
                 rollback_returncode = 1
+            except KeyboardInterrupt:
+                rollback_returncode = 130
+            if operation_validator is not None:
+                operation_validator()
             rollback_complete = rollback_complete and rollback_returncode == 0
         return returncode, rollback_complete
     return 0, True
@@ -1228,10 +1438,15 @@ def snapshot_schedule_files(paths: list[Path]) -> dict[Path, bytes | None]:
     return snapshot
 
 
-def restore_schedule_files(snapshot: dict[Path, bytes | None]) -> bool:
+def restore_schedule_files(
+    snapshot: dict[Path, bytes | None],
+    operation_validator: Callable[[], None] | None = None,
+) -> bool:
     restored = True
     for path, content in snapshot.items():
         try:
+            if operation_validator is not None:
+                operation_validator()
             if path_is_link_like(path):
                 restored = False
                 continue
@@ -1241,9 +1456,38 @@ def restore_schedule_files(snapshot: dict[Path, bytes | None]) -> bool:
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
-        except OSError:
+            if operation_validator is not None:
+                operation_validator()
+        except (OSError, KeyboardInterrupt):
             restored = False
     return restored
+
+
+def reload_restored_linux_schedule_files(
+    target_platform: str,
+    operation_validator: Callable[[], None] | None = None,
+) -> bool:
+    """Refresh systemd after restored unit files, using the normal time bound."""
+
+    if target_platform != "linux":
+        return True
+    command = ScheduleCommand(
+        name="rollback-daemon-reload",
+        platform="linux",
+        action="restore",
+        command=["systemctl", "--user", "daemon-reload"],
+    )
+    if operation_validator is not None:
+        operation_validator()
+    try:
+        returncode, timed_out, _ = run_schedule_command(command)
+    except subprocess.TimeoutExpired:
+        return False
+    except (OSError, KeyboardInterrupt):
+        return False
+    if operation_validator is not None:
+        operation_validator()
+    return returncode == 0 and not timed_out
 
 
 def write_platform_schedule_files(
@@ -1566,7 +1810,13 @@ def add_schedule_options(
         )
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(
+    argv: list[str] | None = None,
+    *,
+    _schedule_lock_held: bool = False,
+    _resolved_root: Path | None = None,
+    _schedule_lock_validator: Callable[[], None] | None = None,
+) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help=SCHEDULE_ROOT_HELP)
@@ -1611,10 +1861,13 @@ def main(argv: list[str] | None = None) -> int:
                 status = "ok" if check["available"] else ("missing" if check["required"] else "optional-missing")
                 print(f"- {status}: {check['name']} command `{check['command']}`")
         return 0
-    try:
-        root = resolve_runtime_vault(args.root).root
-    except VaultBindingError as exc:
-        parser.error(str(exc))
+    if _resolved_root is None:
+        try:
+            root = resolve_runtime_vault(args.root).root
+        except VaultBindingError as exc:
+            parser.error(str(exc))
+    else:
+        root = _resolved_root
     if args.command_name == "plan":
         values = schedule_cli_values(root, args)
         try:
@@ -1689,6 +1942,60 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     action = "install" if args.command_name == "setup" else args.command_name
+    # Reject malformed main configuration before even creating the persistent
+    # operation sentinel. Status/remove also consume generated review state.
+    # The in-lock pass repeats these reads against the serialized snapshot.
+    load_config(root)
+    if action in {"status", "remove"}:
+        try:
+            require_schedule_review_state(root)
+        except ValueError:
+            # `remove --json` historically emits a command-list projection
+            # before reporting a later status failure.  Preserve that
+            # machine-readable shape without deriving commands from an
+            # untrusted review snapshot or creating the operation sentinel.
+            if action == "remove" and args.json:
+                print("[]")
+            raise
+    if not args.dry_run and not _schedule_lock_held:
+        # Re-enter after acquiring a distinct host-operation lock so every
+        # config read, host mutation, receipt write, and rollback below shares
+        # one serialized transaction. Final TOML writes use the separate
+        # config lock and therefore do not recurse on this sentinel.
+        with vault_operation_lock(
+            root,
+            lock_name=SCHEDULE_OPERATION_LOCK_NAME,
+            source="schedule",
+        ) as validate_schedule_lock:
+            return _main(
+                argv,
+                _schedule_lock_held=True,
+                _resolved_root=root,
+                _schedule_lock_validator=validate_schedule_lock,
+            )
+
+    def validate_schedule_operation() -> None:
+        if _schedule_lock_validator is not None:
+            _schedule_lock_validator()
+
+    def stop_after_schedule_lock_loss(action_name: str) -> int:
+        # Once the sentinel identity changes, another operation may own a new
+        # lock namespace. Never run automatic host/file rollback that could
+        # undo that newer owner's work; leave exact receipts/artifacts for
+        # explicit operator reconciliation.
+        print(
+            json.dumps(
+                {
+                    action_name: False,
+                    "rollback_complete": False,
+                    "manual_recovery_required": True,
+                    "error": "schedule coordination was lost; automatic recovery stopped [config_lock_error]",
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
     values = schedule_cli_values(root, args)
     if action == "install":
         initial_policy = resolved_resource_policy(
@@ -1804,6 +2111,7 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(persisted, dict) and persisted.get("enabled", False):
             print("an enabled schedule already exists; remove its exact receipt before reinstalling", file=sys.stderr)
             return 2
+        install_schedule_snapshot = dict(persisted) if isinstance(persisted, dict) else {}
         current_policy = resolved_resource_policy(
             root,
             intensity=str(values["intensity"]),
@@ -1828,6 +2136,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"schedule definition preflight failed: {exc}", file=sys.stderr)
             return 1
         try:
+            validate_schedule_operation()
             written = write_platform_schedule_files(
                 root,
                 str(values["daily_time"]),
@@ -1841,8 +2150,42 @@ def main(argv: list[str] | None = None) -> int:
                 bool(values["weekly_enabled"]),
                 str(values["intensity"]),
             )
+            _schedule_phase_checkpoint("install_files_published")
+        except KeyboardInterrupt:
+            try:
+                validate_schedule_operation()
+                rollback_complete = restore_schedule_files(
+                    snapshot,
+                    validate_schedule_operation,
+                )
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
+            print(
+                json.dumps(
+                    {
+                        "installed": False,
+                        "interrupted": True,
+                        "rollback_complete": rollback_complete,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return 130
         except OSError as exc:
-            rollback_complete = restore_schedule_files(snapshot)
+            try:
+                validate_schedule_operation()
+                rollback_complete = restore_schedule_files(
+                    snapshot,
+                    validate_schedule_operation,
+                )
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
             print(
                 json.dumps(
                     {
@@ -1870,9 +2213,57 @@ def main(argv: list[str] | None = None) -> int:
             weekly_enabled=bool(values["weekly_enabled"]),
             intensity=str(values["intensity"]),
         )
-        exit_code, host_rollback_complete = run_install_commands(commands, rollback_commands)
+
+        def restore_files_after_host_attempt() -> bool:
+            files_restored = restore_schedule_files(
+                snapshot,
+                validate_schedule_operation,
+            )
+            manager_reloaded = reload_restored_linux_schedule_files(
+                target_platform,
+                validate_schedule_operation,
+            )
+            return files_restored and manager_reloaded
+
+        try:
+            validate_schedule_operation()
+        except ValueError as exc:
+            if schedule_operation_lock_lost(exc):
+                return stop_after_schedule_lock_loss("installed")
+            files_rollback_complete = restore_schedule_files(
+                snapshot,
+                validate_schedule_operation,
+            )
+            print(
+                json.dumps(
+                    {
+                        "installed": False,
+                        "rollback_complete": files_rollback_complete,
+                        "error": str(exc),
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            exit_code, host_rollback_complete = run_install_commands(
+                commands,
+                rollback_commands,
+                validate_schedule_operation,
+            )
+        except ConfigError as exc:
+            if schedule_operation_lock_lost(exc):
+                return stop_after_schedule_lock_loss("installed")
+            raise
         if exit_code != 0:
-            files_rollback_complete = restore_schedule_files(snapshot)
+            try:
+                validate_schedule_operation()
+                files_rollback_complete = restore_files_after_host_attempt()
+                validate_schedule_operation()
+            except ConfigError as exc:
+                if schedule_operation_lock_lost(exc):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
             print(
                 json.dumps(
                     {
@@ -1883,6 +2274,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return exit_code
+        _schedule_phase_checkpoint("install_host_published")
         status_commands = build_schedule_commands(
             root,
             "status",
@@ -1897,13 +2289,46 @@ def main(argv: list[str] | None = None) -> int:
             weekly_enabled=bool(values["weekly_enabled"]),
             intensity=str(values["intensity"]),
         )
-        observed_digests, verification_errors = observe_schedule_definitions(
-            status_commands,
-            paths,
-        )
+        try:
+            observed_digests, verification_errors = observe_schedule_definitions(
+                status_commands,
+                paths,
+            )
+        except KeyboardInterrupt:
+            try:
+                validate_schedule_operation()
+                host_cleanup_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                files_rollback_complete = restore_files_after_host_attempt()
+                validate_schedule_operation()
+            except ConfigError as exc:
+                if schedule_operation_lock_lost(exc):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
+            print(
+                json.dumps(
+                    {
+                        "installed": False,
+                        "interrupted": True,
+                        "rollback_complete": host_cleanup_complete and files_rollback_complete,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return 130
         if verification_errors:
-            host_cleanup_complete = run_commands(rollback_commands) == 0
-            files_rollback_complete = restore_schedule_files(snapshot)
+            try:
+                validate_schedule_operation()
+                host_cleanup_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                files_rollback_complete = restore_files_after_host_attempt()
+                validate_schedule_operation()
+            except ConfigError as exc:
+                if schedule_operation_lock_lost(exc):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
             print(
                 json.dumps(
                     {
@@ -1915,8 +2340,10 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        _schedule_phase_checkpoint("install_readback_complete")
         try:
-            configure_schedule(
+            validate_schedule_operation()
+            _configure_schedule(
                 root,
                 str(values["daily_time"]),
                 str(values["weekly_day"]),
@@ -1930,10 +2357,74 @@ def main(argv: list[str] | None = None) -> int:
                 plan_sha256=str(reviewed_plan["plan_sha256"]),
                 definition_digests=observed_digests,
                 command=args.command,
+                expected_section=install_schedule_snapshot,
+                schedule_lock_validator=_schedule_lock_validator,
             )
+        except KeyboardInterrupt:
+            try:
+                validate_schedule_operation()
+                current_receipt = load_config(root).get("schedule", {})
+                committed = bool(
+                    isinstance(current_receipt, dict)
+                    and current_receipt.get("enabled", False)
+                    and hmac.compare_digest(
+                        str(current_receipt.get("plan_sha256") or ""),
+                        str(reviewed_plan["plan_sha256"]),
+                    )
+                    and hmac.compare_digest(
+                        str(current_receipt.get("task_namespace") or ""),
+                        schedule_namespace(root),
+                    )
+                    and decode_definition_digests(
+                        current_receipt.get("definition_digests")
+                    )
+                    == observed_digests
+                )
+                if committed:
+                    print(
+                        json.dumps(
+                            {
+                                "installed": True,
+                                "interrupted_after_commit": True,
+                            }
+                        ),
+                        file=sys.stderr,
+                    )
+                    return 0
+                host_cleanup_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                files_rollback_complete = restore_files_after_host_attempt()
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
+            print(
+                json.dumps(
+                    {
+                        "installed": False,
+                        "interrupted": True,
+                        "rollback_complete": host_cleanup_complete and files_rollback_complete,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return 130
         except (OSError, ValueError) as exc:
-            host_cleanup_complete = run_commands(rollback_commands) == 0
-            files_rollback_complete = restore_schedule_files(snapshot)
+            if schedule_operation_lock_lost(exc):
+                return stop_after_schedule_lock_loss("installed")
+            try:
+                validate_schedule_operation()
+                host_cleanup_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                files_rollback_complete = restore_files_after_host_attempt()
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("installed")
+                raise
             print(
                 json.dumps(
                     {
@@ -1960,13 +2451,26 @@ def main(argv: list[str] | None = None) -> int:
         )
         observed_digests, verification_errors = observe_schedule_definitions(commands, paths)
         if verification_errors:
-            clear_schedule_verification(root)
+            validate_schedule_operation()
+            _clear_schedule_verification(
+                root,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
             print(json.dumps({"verified": False, "errors": verification_errors}), file=sys.stderr)
             return 1
         try:
-            mark_schedule_verified(root, observed_digests)
+            validate_schedule_operation()
+            _mark_schedule_verified(
+                root,
+                observed_digests,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
         except (OSError, ValueError) as exc:
-            clear_schedule_verification(root)
+            validate_schedule_operation()
+            _clear_schedule_verification(
+                root,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
             print(str(exc), file=sys.stderr)
             return 1
         return 0
@@ -1980,8 +2484,8 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 (
                     "schedule removal refused: this vault is a copy of an enabled "
-                    f"schedule receipt still owned by {receipt_source}; remove the "
-                    "schedule from the original vault or perform an explicit transfer"
+                    "schedule receipt or the vault was moved; reconcile or explicitly "
+                    "transfer schedule ownership before removal"
                 ),
                 file=sys.stderr,
             )
@@ -2019,7 +2523,11 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         if verification_errors:
-            clear_schedule_verification(root)
+            validate_schedule_operation()
+            _clear_schedule_verification(
+                root,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
             print(
                 json.dumps(
                     {
@@ -2032,9 +2540,18 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         try:
-            mark_schedule_verified(root, observed_digests)
+            validate_schedule_operation()
+            _mark_schedule_verified(
+                root,
+                observed_digests,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
         except (OSError, ValueError) as exc:
-            clear_schedule_verification(root)
+            validate_schedule_operation()
+            _clear_schedule_verification(
+                root,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
             print(f"schedule removal refused: {exc}", file=sys.stderr)
             return 2
         try:
@@ -2061,14 +2578,26 @@ def main(argv: list[str] | None = None) -> int:
                 task_namespace=receipt_namespace or None,
             )
         )
-        exit_code, rollback_complete = run_remove_commands(commands, rollback_commands)
+        validate_schedule_operation()
+        try:
+            exit_code, rollback_complete = run_remove_commands(
+                commands,
+                rollback_commands,
+                validate_schedule_operation,
+            )
+        except ConfigError as exc:
+            if schedule_operation_lock_lost(exc):
+                return stop_after_schedule_lock_loss("removed")
+            raise
         if exit_code != 0:
             print(
                 json.dumps({"removed": False, "rollback_complete": rollback_complete}),
                 file=sys.stderr,
             )
             return exit_code
+        _schedule_phase_checkpoint("remove_host_published")
         try:
+            validate_schedule_operation()
             removed = remove_platform_schedule_files(
                 root,
                 target_platform,
@@ -2085,10 +2614,70 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if reload_returncode != 0:
                     raise RuntimeError(f"systemd daemon-reload failed with exit {reload_returncode}")
-            disable_schedule(root)
+            _schedule_phase_checkpoint("remove_files_published")
+            validate_schedule_operation()
+            _disable_schedule(
+                root,
+                schedule_lock_validator=_schedule_lock_validator,
+            )
+        except KeyboardInterrupt:
+            try:
+                validate_schedule_operation()
+                current_receipt = load_config(root).get("schedule", {})
+                if isinstance(current_receipt, dict) and not current_receipt.get(
+                    "enabled",
+                    False,
+                ):
+                    print(
+                        json.dumps(
+                            {
+                                "removed": True,
+                                "interrupted_after_commit": True,
+                            }
+                        ),
+                        file=sys.stderr,
+                    )
+                    return 0
+                files_rollback_complete = restore_schedule_files(
+                    snapshot,
+                    validate_schedule_operation,
+                )
+                host_rollback_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("removed")
+                raise
+            print(
+                json.dumps(
+                    {
+                        "removed": False,
+                        "interrupted": True,
+                        "rollback_complete": files_rollback_complete and host_rollback_complete,
+                    }
+                ),
+                file=sys.stderr,
+            )
+            return 130
         except (OSError, RuntimeError, ValueError) as exc:
-            files_rollback_complete = restore_schedule_files(snapshot)
-            host_rollback_complete = run_commands(rollback_commands) == 0
+            if schedule_operation_lock_lost(exc):
+                return stop_after_schedule_lock_loss("removed")
+            try:
+                validate_schedule_operation()
+                files_rollback_complete = restore_schedule_files(
+                    snapshot,
+                    validate_schedule_operation,
+                )
+                host_rollback_complete = (
+                    run_commands(rollback_commands, validate_schedule_operation) == 0
+                )
+                validate_schedule_operation()
+            except ConfigError as recovery_error:
+                if schedule_operation_lock_lost(recovery_error):
+                    return stop_after_schedule_lock_loss("removed")
+                raise
             print(
                 json.dumps(
                     {
@@ -2102,6 +2691,30 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run scheduler commands with a controlled strict-config error boundary."""
+
+    try:
+        with defer_schedule_sigint() as interrupt_fence:
+            exit_code = _main(argv)
+    except ValueError as exc:
+        # Every config-bound scheduler action reads and validates the selected
+        # vault before host commands or receipt writes.  Surface malformed or
+        # unsafe config as a normal CLI failure, never a traceback.
+        print(str(exc), file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("schedule interrupted; no unhandled child process remains", file=sys.stderr)
+        return 130
+    if interrupt_fence.requested:
+        print(
+            "schedule interrupt deferred until a consistent transaction boundary; verify `schedule status`",
+            file=sys.stderr,
+        )
+        return 130
+    return exit_code
 
 
 if __name__ == "__main__":

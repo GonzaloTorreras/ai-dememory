@@ -87,8 +87,13 @@ The following properties must hold:
   API key and TLS; credentials must not enter repository configuration or logs.
 - Scans, imports, graph operations, recall, maintenance, reports, and MCP sessions
   enforce documented resource ceilings. Package-owned descendants remain in an
-  owned process group or tree and are reaped on timeout, cancellation, or parent
-  exit. Generated MCP configurations retain a bounded idle lease unless a user
+  owned process group or tree and are reaped on timeout, normal parent unwind,
+  and runtime-visible cancellation. After assignment succeeds, Windows Job
+  Objects also kill descendants when the retained Job handle closes. A parent
+  death that bypasses Python unwind—including `SIGKILL`, `os._exit`, host power
+  loss, or the narrow Windows interval before Job assignment—cannot run the
+  in-process handoff/cleanup and requires an external supervisor.
+  Generated MCP configurations retain a bounded idle lease unless a user
   deliberately opts into a supervised persistent server.
 - Python owns canonical memory and security policy. Optional Node/browser tooling
   may provide validation or presentation, but cannot become an alternate memory,

@@ -60,6 +60,14 @@ def build_turn_context(
     root = Path(root).resolve()
     trace_id = make_trace_id(root, prompt, cwd, client, session_id, budget_tokens, public_only)
     settings, config_degradation = recall_settings(root)
+    if "invalid_recall_config" in config_degradation:
+        project = project_payload(None, None, "none")
+        base = base_payload(trace_id, project)
+        base["public_only"] = public_only
+        base["security"]["public_only"] = public_only
+        base["degradation"] = unique(config_degradation)
+        base["degraded"] = True
+        return skip(base, "invalid_config")
     project, inference_degradation = infer_project(
         root,
         prompt,

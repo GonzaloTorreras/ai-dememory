@@ -116,8 +116,12 @@ def make_handler(
                 if method == "GET":
                     result = route_get(root, parsed.path, parse_qs(parsed.query))
                 elif method == "POST":
+                    # Consume the bounded request body before rejecting mutation
+                    # metadata. Closing a Windows socket with unread client data
+                    # can reset the connection before the JSON error is received.
+                    raw_body = read_request_body(self)
                     require_mutation_intent(self.headers.get(MUTATION_INTENT_HEADER))
-                    result = route_post(root, parsed.path, read_json_body(self))
+                    result = route_post(root, parsed.path, parse_json_body(self, raw_body))
                 else:
                     raise ApiError(HTTPStatus.METHOD_NOT_ALLOWED, "method not allowed")
                 self.write_json(HTTPStatus.OK, result)
@@ -195,13 +199,10 @@ def require_mutation_intent(value: str | None) -> None:
         )
 
 
-def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+def read_request_body(handler: BaseHTTPRequestHandler) -> bytes:
     transfer_encoding = str(handler.headers.get("Transfer-Encoding") or "").strip()
     if transfer_encoding and transfer_encoding.casefold() != "identity":
         raise ApiError(HTTPStatus.BAD_REQUEST, "Transfer-Encoding is not supported")
-    content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
-    if content_type != "application/json":
-        raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")
     raw_length = handler.headers.get("Content-Length")
     if raw_length is None:
         raise ApiError(HTTPStatus.LENGTH_REQUIRED, "Content-Length is required")
@@ -219,6 +220,13 @@ def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
         raise ApiError(HTTPStatus.REQUEST_TIMEOUT, "request body timed out") from exc
     if len(raw) != length:
         raise ApiError(HTTPStatus.BAD_REQUEST, "request body ended before Content-Length bytes")
+    return raw
+
+
+def parse_json_body(handler: BaseHTTPRequestHandler, raw: bytes) -> dict[str, Any]:
+    content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
+    if content_type != "application/json":
+        raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")
     if not raw:
         return {}
     try:
@@ -228,6 +236,16 @@ def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ApiError(HTTPStatus.BAD_REQUEST, "request body must be a JSON object")
     return parsed
+
+
+def read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    # Direct callers retain the no-consumption rejection for a wrong media
+    # type. The live HTTP handler uses the split read/parse flow above so a
+    # bounded rejected POST body is consumed before the response closes.
+    content_type = str(handler.headers.get("Content-Type") or "").split(";", 1)[0].strip().casefold()
+    if content_type != "application/json":
+        raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type must be application/json")
+    return parse_json_body(handler, read_request_body(handler))
 
 
 def route_get(root: Path, path: str, query: dict[str, list[str]]) -> dict[str, Any]:

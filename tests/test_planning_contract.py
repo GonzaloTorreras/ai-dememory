@@ -42,8 +42,10 @@ class PlanningContractTests(unittest.TestCase):
             self.assertTrue(set(batch["tasks"]).issubset(tasks))
 
         frontier = sequence["current_frontier"]
-        self.assertEqual(frontier, ["BRG-003", "BRG-017"])
+        self.assertEqual(frontier, ["BRG-003"])
         self.assertTrue(all(tasks[item]["status"] == "in_progress" for item in frontier))
+        self.assertEqual(tasks["BRG-017"]["status"], "complete")
+        self.assertTrue(tasks["BRG-017"]["evidence"])
         self.assertEqual(batches["B04c"]["depends_on"], ["B04b"])
         self.assertEqual(tasks["BRG-019"]["batch"], "B04c")
         self.assertEqual(tasks["BRG-019"]["depends_on"], ["BRG-003", "BRG-017"])

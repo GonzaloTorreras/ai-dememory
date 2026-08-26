@@ -5,8 +5,11 @@ import json
 import io
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
+import threading
+import time
 import tomllib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -25,6 +28,7 @@ if str(SCRIPTS) not in sys.path:
 
 import onboarding  # noqa: E402
 from command_render import render_copy_command  # noqa: E402
+from config_file import ConfigError, config_write_lock, read_config_bytes  # noqa: E402
 from onboarding import (  # noqa: E402
     apply_onboarding,
     apply_operational_setup,
@@ -187,6 +191,91 @@ class OnboardingTests(unittest.TestCase):
         self.assertFalse(plan["can_apply"])
         self.assertIn(".ai-dememory.toml:[enabled-schedule]", plan["conflicts"])
         self.assertEqual(current, original)
+
+    def test_operational_setup_rejects_invalid_config_snapshot_without_writing_or_disclosure(self) -> None:
+        redaction_canary = "do-not-echo-this-sensitive-value"
+        cases = (
+            (
+                f'[unknown]\nunexpected = "{redaction_canary}"\n',
+                "unknown_section",
+                "unknown",
+            ),
+            (
+                f"[review]\nreviewer = {redaction_canary}\n",
+                "toml_syntax",
+                None,
+            ),
+            (
+                f'[recall]\nenabled = "{redaction_canary}"\n',
+                "invalid_type",
+                "recall.enabled",
+            ),
+        )
+        for original, code, field in cases:
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                config_path = root / ".ai-dememory.toml"
+                original_bytes = original.encode("utf-8")
+                config_path.write_bytes(original_bytes)
+                output = io.StringIO()
+
+                with patch(
+                    "onboarding.merge_onboarding_config",
+                    side_effect=AssertionError("invalid snapshot reached candidate merge"),
+                ) as merge, redirect_stdout(output):
+                    exit_code = operational_main(["--root", tmp, "--json"])
+
+                payload = json.loads(output.getvalue())
+                merge.assert_not_called()
+                self.assertEqual(exit_code, 1)
+                self.assertFalse(payload["ok"])
+                self.assertIn(f"config error [{code}]", payload["error"])
+                if field is not None:
+                    self.assertIn(field, payload["error"])
+                self.assertNotIn(redaction_canary, payload["error"])
+                self.assertEqual(config_path.read_bytes(), original_bytes)
+                self.assertEqual(list(root.iterdir()), [config_path])
+
+    def test_operational_setup_rejects_invalid_merged_candidate_before_plan_or_write(self) -> None:
+        redaction_canary = "do-not-echo-this-candidate-value"
+        original = b'[mcp]\r\ntransport = "stdio"\r\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            config_path.write_bytes(original)
+
+            with patch(
+                "onboarding.merge_onboarding_config",
+                return_value=f'[recall]\nenabled = "{redaction_canary}"\n',
+            ), patch(
+                "onboarding.integration_plan",
+                side_effect=AssertionError("invalid candidate reached plan construction"),
+            ) as integrations, self.assertRaises(ConfigError) as raised:
+                operational_setup_plan(root, operational_answers())
+
+            integrations.assert_not_called()
+            self.assertEqual(raised.exception.code, "invalid_type")
+            self.assertEqual(raised.exception.field, "recall.enabled")
+            self.assertNotIn(redaction_canary, str(raised.exception))
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertEqual(list(root.iterdir()), [config_path])
+
+    def test_operational_setup_rejects_oversized_generated_config_before_plan_or_write(self) -> None:
+        payload = operational_answers()
+        payload["clients"] = [f"client-{index:05d}" for index in range(6000)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            with patch(
+                "onboarding.integration_plan",
+                side_effect=AssertionError("oversized candidate reached plan construction"),
+            ) as integrations, self.assertRaises(ConfigError) as raised:
+                operational_setup_plan(root, payload)
+
+            integrations.assert_not_called()
+            self.assertEqual(raised.exception.code, "config_too_large")
+            self.assertEqual(str(raised.exception), ".ai-dememory.toml: config error [config_too_large]")
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_onboarding_never_rewrites_existing_operational_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1136,12 +1225,19 @@ class OnboardingTests(unittest.TestCase):
             plan = operational_setup_plan(root, operational_answers())
             real_batch_write = onboarding.atomic_batch_write
 
-            def drift_then_write(batch: object) -> None:
+            def drift_then_write(
+                batch: object,
+                *,
+                config_lock_validator: object | None = None,
+            ) -> None:
                 (root / ".ai-dememory.toml").write_text(
-                    "[external]\nchanged = true\n",
+                    "[context]\ndefault_budget_tokens = 777\n",
                     encoding="utf-8",
                 )
-                real_batch_write(batch)  # type: ignore[arg-type]
+                real_batch_write(  # type: ignore[arg-type]
+                    batch,
+                    config_lock_validator=config_lock_validator,
+                )
 
             with patch(
                 "onboarding.atomic_batch_write",
@@ -1151,15 +1247,155 @@ class OnboardingTests(unittest.TestCase):
 
             self.assertEqual(
                 (root / ".ai-dememory.toml").read_text(encoding="utf-8"),
-                "[external]\nchanged = true\n",
+                "[context]\ndefault_budget_tokens = 777\n",
             )
             self.assertFalse((root / "memories").exists())
+
+    def test_operational_setup_uses_the_shared_config_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = operational_answers()
+            plan = operational_setup_plan(root, payload)
+            reached_lock = threading.Event()
+            failures: list[BaseException] = []
+            result: dict[str, object] = {}
+            real_lock = onboarding.config_write_lock
+
+            def marked_lock(*args: object, **kwargs: object) -> object:
+                reached_lock.set()
+                return real_lock(*args, **kwargs)  # type: ignore[arg-type]
+
+            def apply() -> None:
+                try:
+                    result.update(
+                        apply_operational_setup(root, payload, str(plan["plan_sha256"]))
+                    )
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    failures.append(exc)
+
+            with config_write_lock(root), patch(
+                "onboarding.config_write_lock",
+                side_effect=marked_lock,
+            ):
+                worker = threading.Thread(target=apply, daemon=True)
+                worker.start()
+                self.assertTrue(reached_lock.wait(timeout=5))
+                time.sleep(0.05)
+                self.assertTrue(worker.is_alive())
+                self.assertFalse((root / ".ai-dememory.toml").exists())
+
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(failures, [])
+            self.assertTrue(result["applied"])
+            self.assertTrue((root / ".ai-dememory.toml").is_file())
+
+    def test_operational_setup_defers_sigint_before_batch_and_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = operational_answers()
+            plan = operational_setup_plan(root, payload)
+            previous_handler = signal.getsignal(signal.SIGINT)
+            installed_handler_invoked = False
+            real_batch_write = onboarding.atomic_batch_write
+
+            def signal_then_write(
+                batch: object,
+                *,
+                config_lock_validator: object | None = None,
+            ) -> None:
+                nonlocal installed_handler_invoked
+                handler = signal.getsignal(signal.SIGINT)
+                self.assertTrue(callable(handler))
+                self.assertIsNot(handler, previous_handler)
+                installed_handler_invoked = True
+                handler(signal.SIGINT, None)  # type: ignore[operator]
+                real_batch_write(  # type: ignore[arg-type]
+                    batch,
+                    config_lock_validator=config_lock_validator,
+                )
+
+            with patch(
+                "onboarding.atomic_batch_write",
+                side_effect=signal_then_write,
+            ):
+                result = apply_operational_setup(
+                    root,
+                    payload,
+                    str(plan["plan_sha256"]),
+                )
+
+            self.assertTrue(installed_handler_invoked)
+            self.assertEqual(signal.getsignal(signal.SIGINT), previous_handler)
+            self.assertTrue(result["applied"])
+            self.assertEqual(result["changed"], [".ai-dememory.toml"])
+            self.assertTrue((root / ".ai-dememory.toml").is_file())
+
+    def test_concurrent_personal_applies_never_overwrite_the_winner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidates = {
+                "alpha": {**answers(), "values": ["Prefer the alpha candidate."]},
+                "beta": {**answers(), "values": ["Prefer the beta candidate."]},
+            }
+            plans = {
+                name: onboarding_plan(root, payload)
+                for name, payload in candidates.items()
+            }
+            start_together = threading.Barrier(2)
+            real_lock = onboarding.config_write_lock
+            successes: list[str] = []
+            failures: dict[str, BaseException] = {}
+
+            def synchronized_lock(*args: object, **kwargs: object) -> object:
+                start_together.wait(timeout=5)
+                return real_lock(*args, **kwargs)  # type: ignore[arg-type]
+
+            def apply_candidate(name: str) -> None:
+                try:
+                    apply_onboarding(
+                        root,
+                        candidates[name],
+                        str(plans[name]["plan_sha256"]),
+                    )
+                    successes.append(name)
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    failures[name] = exc
+
+            with patch(
+                "onboarding.config_write_lock",
+                side_effect=synchronized_lock,
+            ):
+                workers = [
+                    threading.Thread(target=apply_candidate, args=(name,), daemon=True)
+                    for name in candidates
+                ]
+                for worker in workers:
+                    worker.start()
+                for worker in workers:
+                    worker.join(timeout=5)
+
+            self.assertTrue(all(not worker.is_alive() for worker in workers))
+            self.assertEqual(len(successes), 1)
+            self.assertEqual(len(failures), 1)
+            loser = next(iter(failures))
+            self.assertIsInstance(failures[loser], ValueError)
+            self.assertIn("changed after review", str(failures[loser]))
+            winner = successes[0]
+            winner_value = str(candidates[winner]["values"][0])  # type: ignore[index]
+            loser_value = str(candidates[loser]["values"][0])  # type: ignore[index]
+            canonical = (root / "memories/durable/onboarding-values.md").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn(winner_value, canonical)
+            self.assertNotIn(loser_value, canonical)
+            self.assertEqual(list(root.glob(".*.ai-dememory-onboarding-*.tmp")), [])
 
     def test_existing_crlf_config_uses_exact_byte_precondition(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             config_path = root / ".ai-dememory.toml"
-            original = b"[legacy]\r\nenabled = true\r\n"
+            original = b'[mcp]\r\ntransport = "stdio"\r\n'
             config_path.write_bytes(original)
             plan = operational_setup_plan(root, operational_answers())
             config_write = next(
@@ -1170,9 +1406,134 @@ class OnboardingTests(unittest.TestCase):
             updated = config_path.read_text(encoding="utf-8")
 
         self.assertEqual(config_write["current_sha256"], hashlib.sha256(original).hexdigest())
-        self.assertIn("[legacy]", updated)
+        self.assertIn("[mcp]", updated)
         self.assertIn("[recall]", updated)
         self.assertIn(".ai-dememory.toml", result["changed"])
+
+    def test_onboarding_config_replace_never_exposes_a_missing_default_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            config_path = root / ".ai-dememory.toml"
+            original = b"[recall]\nenabled = false\n"
+            config_path.write_bytes(original)
+            payload = operational_answers()
+            plan = operational_setup_plan(root, payload)
+            observed_before_replace: list[bytes | None] = []
+            real_replace = onboarding.os.replace
+
+            def inspect_target_before_replace(source: object, target: object) -> None:
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
+                    observed_before_replace.append(read_config_bytes(config_path, root=root))
+                real_replace(source, target)  # type: ignore[arg-type]
+
+            with patch("onboarding.os.replace", side_effect=inspect_target_before_replace):
+                result = apply_operational_setup(
+                    root,
+                    payload,
+                    str(plan["plan_sha256"]),
+                )
+
+            self.assertTrue(result["applied"])
+            self.assertEqual(observed_before_replace, [original])
+            self.assertIs(
+                tomllib.loads(config_path.read_text(encoding="utf-8"))["recall"]["enabled"],
+                True,
+            )
+
+    def test_failed_backup_sync_preserves_target_and_removes_partial_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            original = b"[recall]\nenabled = false\n"
+            config_path.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+
+            with patch("onboarding.os.fsync", side_effect=OSError("simulated backup sync failure")), self.assertRaisesRegex(
+                OSError,
+                "backup sync failure",
+            ):
+                onboarding.atomic_batch_write(
+                    [(config_path, "[recall]\nenabled = true\n", True, expected, root)]
+                )
+
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertEqual(list(root.glob(".*.bak")), [])
+
+    def test_target_drift_after_backup_creation_preserves_newer_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            original = b"[recall]\nenabled = false\n"
+            newer = b"[recall]\nenabled = false\ndefault_budget_tokens = 777\n"
+            config_path.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+            real_current_sha256 = onboarding.current_file_sha256
+            drifted = False
+
+            def drift_after_backup(path: Path, *, root: Path | None = None) -> str | None:
+                nonlocal drifted
+                digest = real_current_sha256(path, root=root)
+                if path.suffix == ".bak" and not drifted:
+                    config_path.write_bytes(newer)
+                    drifted = True
+                return digest
+
+            with patch(
+                "onboarding.current_file_sha256",
+                side_effect=drift_after_backup,
+            ), self.assertRaisesRegex(ValueError, "changed after review"):
+                onboarding.atomic_batch_write(
+                    [(config_path, "[recall]\nenabled = true\n", True, expected, root)]
+                )
+
+            self.assertTrue(drifted)
+            self.assertEqual(config_path.read_bytes(), newer)
+            self.assertEqual(list(root.glob(".*.bak")), [])
+
+    def test_rollback_never_overwrites_a_newer_post_install_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            later_path = root / "memories" / "durable" / "later.md"
+            original = b"[recall]\nenabled = false\n"
+            candidate = "[recall]\nenabled = true\n"
+            newer = b"[recall]\nenabled = false\ndefault_budget_tokens = 999\n"
+            config_path.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+            real_replace = onboarding.os.replace
+            install_calls = 0
+
+            def fail_later_after_external_update(source: object, target: object) -> None:
+                nonlocal install_calls
+                if Path(source).suffix == ".tmp":
+                    install_calls += 1
+                    if install_calls == 2:
+                        config_path.write_bytes(newer)
+                        raise OSError("simulated later commit failure")
+                real_replace(source, target)  # type: ignore[arg-type]
+
+            with patch(
+                "onboarding.os.replace",
+                side_effect=fail_later_after_external_update,
+            ), self.assertRaises(onboarding.OnboardingApplyError) as raised:
+                onboarding.atomic_batch_write(
+                    [
+                        (config_path, candidate, True, expected, root),
+                        (later_path, "later\n", False, None, None),
+                    ]
+                )
+
+            self.assertEqual(raised.exception.code, "rollback_incomplete")
+            self.assertFalse(raised.exception.rollback_complete)
+            self.assertTrue(raised.exception.manual_recovery_required)
+            self.assertNotIn(str(root), str(raised.exception))
+            self.assertNotIn("simulated later commit failure", str(raised.exception))
+            self.assertEqual(config_path.read_bytes(), newer)
+            backups = list(root.glob(".*.bak"))
+            expected_backup = root / f".ai-dememory.toml.{os.getpid()}.bak"
+            self.assertEqual(backups, [expected_backup])
+            self.assertEqual(expected_backup.read_bytes(), original)
+            self.assertFalse(later_path.exists())
 
     def test_apply_rolls_back_when_batch_commit_fails(self) -> None:
         real_replace = os.replace
@@ -1194,21 +1555,76 @@ class OnboardingTests(unittest.TestCase):
             self.assertFalse((root / ".ai-dememory.toml").exists())
             self.assertEqual(list((root / "memories").rglob("*.md")), [])
 
+    def test_apply_rolls_back_when_batch_commit_is_interrupted(self) -> None:
+        real_replace = os.replace
+        calls = 0
+
+        def interrupt_second(source: object, target: object) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise KeyboardInterrupt
+            real_replace(source, target)  # type: ignore[arg-type]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = onboarding_plan(root, answers())
+            with patch(
+                "onboarding.os.replace",
+                side_effect=interrupt_second,
+            ), self.assertRaises(KeyboardInterrupt):
+                apply_onboarding(root, answers(), str(plan["plan_sha256"]))
+
+            self.assertFalse((root / ".ai-dememory.toml").exists())
+            self.assertEqual(list((root / "memories").rglob("*.md")), [])
+
+    def test_config_rollback_detects_interrupt_after_replace_committed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".ai-dememory.toml"
+            original = b"[recall]\nenabled = false\n"
+            config_path.write_bytes(original)
+            expected = hashlib.sha256(original).hexdigest()
+            real_replace = os.replace
+            interrupted = False
+
+            def interrupt_after_commit(source: object, target: object) -> None:
+                nonlocal interrupted
+                real_replace(source, target)  # type: ignore[arg-type]
+                if Path(target) == config_path and Path(source).suffix == ".tmp":
+                    interrupted = True
+                    raise KeyboardInterrupt
+
+            with patch(
+                "onboarding.os.replace",
+                side_effect=interrupt_after_commit,
+            ), self.assertRaises(KeyboardInterrupt):
+                onboarding.atomic_batch_write(
+                    [(config_path, "[recall]\nenabled = true\n", True, expected, root)]
+                )
+
+            self.assertTrue(interrupted)
+            self.assertEqual(config_path.read_bytes(), original)
+            self.assertEqual(list(root.glob(".*.bak")), [])
+            self.assertEqual(list(root.glob(".*.ai-dememory-onboarding-*.tmp")), [])
+
     def test_incomplete_rollback_is_reported_for_manual_recovery(self) -> None:
         real_replace = os.replace
         real_unlink = Path.unlink
         replace_calls = 0
+        commit_canary = "do-not-echo-commit-errno"
+        rollback_canary = "do-not-echo-rollback-errno"
 
         def fail_second_replace(source: object, target: object) -> None:
             nonlocal replace_calls
             replace_calls += 1
             if replace_calls == 2:
-                raise OSError("simulated commit lock")
+                raise OSError(f"[WinError 32] {commit_canary}")
             real_replace(source, target)
 
         def fail_canonical_unlink(path: Path, *args: object, **kwargs: object) -> None:
             if path.name == "onboarding-values.md":
-                raise OSError("simulated rollback lock")
+                raise OSError(f"[Errno 13] {rollback_canary}")
             real_unlink(path, *args, **kwargs)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1216,10 +1632,130 @@ class OnboardingTests(unittest.TestCase):
             plan = onboarding_plan(root, answers())
             with patch("onboarding.os.replace", side_effect=fail_second_replace), patch(
                 "onboarding.Path.unlink", autospec=True, side_effect=fail_canonical_unlink
-            ), self.assertRaisesRegex(RuntimeError, "rollback incomplete"):
+            ), self.assertRaises(onboarding.OnboardingApplyError) as raised:
                 apply_onboarding(root, answers(), str(plan["plan_sha256"]))
 
+            diagnostic = str(raised.exception)
+            self.assertEqual(raised.exception.code, "rollback_incomplete")
+            self.assertFalse(raised.exception.rollback_complete)
+            self.assertTrue(raised.exception.manual_recovery_required)
+            self.assertEqual(
+                diagnostic,
+                "onboarding apply error [rollback_incomplete]: automatic rollback was incomplete; "
+                "preserve generated backup files and inspect the vault before retrying",
+            )
+            self.assertNotIn(str(root), diagnostic)
+            self.assertNotIn(commit_canary, diagnostic)
+            self.assertNotIn(rollback_canary, diagnostic)
+            self.assertIsNone(raised.exception.__cause__)
+            self.assertTrue(raised.exception.__suppress_context__)
             self.assertTrue((root / "memories/durable/onboarding-values.md").exists())
+
+    def test_incomplete_rollback_json_diagnostic_is_structured_and_redacted(self) -> None:
+        commit_canary = "do-not-echo-json-commit-errno"
+        rollback_canary = "do-not-echo-json-rollback-errno"
+        real_replace = os.replace
+        real_unlink = Path.unlink
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            config_path = root / ".ai-dememory.toml"
+            plan = operational_setup_plan(root, operational_answers())
+
+            def commit_then_fail(source: object, target: object) -> None:
+                real_replace(source, target)  # type: ignore[arg-type]
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
+                    raise OSError(f"[WinError 32] {commit_canary}: {root}")
+
+            def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
+                if path.resolve(strict=False) == config_path:
+                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
+                real_unlink(path, *args, **kwargs)
+
+            output = io.StringIO()
+            error = io.StringIO()
+            with patch("onboarding.os.replace", side_effect=commit_then_fail), patch(
+                "onboarding.Path.unlink", autospec=True, side_effect=fail_candidate_unlink
+            ), redirect_stdout(output), redirect_stderr(error):
+                exit_code = unified_cli.main(
+                    [
+                        "--root",
+                        str(root),
+                        "setup",
+                        "wizard",
+                        "--apply",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                        "--json",
+                    ]
+                )
+
+            payload = json.loads(output.getvalue())
+            rendered = output.getvalue() + error.getvalue()
+            self.assertTrue(config_path.exists())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error_code"], "rollback_incomplete")
+        self.assertFalse(payload["rollback_complete"])
+        self.assertTrue(payload["manual_recovery_required"])
+        self.assertIn("onboarding apply error [rollback_incomplete]", payload["error"])
+        self.assertEqual(error.getvalue(), "")
+        self.assertNotIn("Traceback", rendered)
+        self.assertNotIn(str(root), rendered)
+        self.assertNotIn(commit_canary, rendered)
+        self.assertNotIn(rollback_canary, rendered)
+        self.assertNotIn("WinError", rendered)
+        self.assertNotIn("Errno", rendered)
+
+    def test_incomplete_rollback_human_diagnostic_is_controlled_and_redacted(self) -> None:
+        commit_canary = "do-not-echo-human-commit-errno"
+        rollback_canary = "do-not-echo-human-rollback-errno"
+        real_replace = os.replace
+        real_unlink = Path.unlink
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            config_path = root / ".ai-dememory.toml"
+            plan = operational_setup_plan(root, operational_answers())
+
+            def commit_then_fail(source: object, target: object) -> None:
+                real_replace(source, target)  # type: ignore[arg-type]
+                if Path(target).resolve(strict=False) == config_path and Path(source).suffix == ".tmp":
+                    raise OSError(f"[WinError 32] {commit_canary}: {root}")
+
+            def fail_candidate_unlink(path: Path, *args: object, **kwargs: object) -> None:
+                if path.resolve(strict=False) == config_path:
+                    raise OSError(f"[Errno 13] {rollback_canary}: {root}")
+                real_unlink(path, *args, **kwargs)
+
+            output = io.StringIO()
+            error = io.StringIO()
+            with patch("onboarding.os.replace", side_effect=commit_then_fail), patch(
+                "onboarding.Path.unlink", autospec=True, side_effect=fail_candidate_unlink
+            ), redirect_stdout(output), redirect_stderr(error):
+                exit_code = operational_main(
+                    [
+                        "--root",
+                        str(root),
+                        "--apply",
+                        "--expect-plan-sha256",
+                        str(plan["plan_sha256"]),
+                    ]
+                )
+
+            rendered = output.getvalue() + error.getvalue()
+            self.assertTrue(config_path.exists())
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("onboarding apply error [rollback_incomplete]", error.getvalue())
+        self.assertNotIn("Traceback", rendered)
+        self.assertNotIn(str(root), rendered)
+        self.assertNotIn(commit_canary, rendered)
+        self.assertNotIn(rollback_canary, rendered)
+        self.assertNotIn("WinError", rendered)
+        self.assertNotIn("Errno", rendered)
 
 
 if __name__ == "__main__":

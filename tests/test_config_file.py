@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import stat
@@ -22,7 +23,9 @@ from config_file import CONFIG_NAME, MAX_CONFIG_BYTES, load_config, load_config_
 import onboarding  # noqa: E402
 from onboarding import operational_setup_plan  # noqa: E402
 from review_memory import (  # noqa: E402
+    IGNORE_NAME,
     ReviewError,
+    _set_review_state_section,
     configure_review_mode,
     load_review_config,
     main as review_main,
@@ -193,11 +196,72 @@ class RootBoundConfigReadTests(unittest.TestCase):
                 "[false_positives]\nignore_file = \"state/review.toml\"\n",
                 encoding="utf-8",
             )
-            state.write_text("[false_positives.fp_safe]\nignored = true\n", encoding="utf-8")
+            state.write_text("[false_positives.fp_0123456789abcdef]\nignored = true\n", encoding="utf-8")
 
             loaded = load_review_config(root)
 
-        self.assertEqual(loaded["false_positives.fp_safe"]["ignored"], True)
+        self.assertEqual(loaded["false_positives.fp_0123456789abcdef"]["ignored"], True)
+
+    def test_review_state_writer_uses_the_configured_custom_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            root.mkdir()
+            state = root / "state" / "review.toml"
+            (root / CONFIG_NAME).write_text(
+                "[false_positives]\nignore_file = \"state/review.toml\"\n",
+                encoding="utf-8",
+            )
+
+            written = _set_review_state_section(
+                root,
+                "false_positives.fp_0123456789abcdef",
+                {"ignored": True, "reason": "reviewed"},
+            )
+            loaded = load_review_config(root)
+
+        self.assertEqual(written, state)
+        self.assertEqual(
+            loaded["false_positives.fp_0123456789abcdef"],
+            {"ignored": True, "reason": "reviewed"},
+        )
+
+    def test_review_state_writer_does_not_mutate_an_invalid_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            root.mkdir()
+            state = root / IGNORE_NAME
+            original = (
+                b"[false_positives.fp_0123456789abcdef]\n"
+                b"ignored = true\n"
+                b"unexpected = \"must-not-be-rewritten\"\n"
+            )
+            state.write_bytes(original)
+
+            with self.assertRaisesRegex(ReviewError, r"config error \[unknown_key\]"):
+                _set_review_state_section(
+                    root,
+                    "false_positives.fp_0123456789abcdef",
+                    {"ignored": False},
+                )
+
+            self.assertEqual(state.read_bytes(), original)
+
+    def test_review_state_writer_does_not_mutate_for_an_invalid_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "vault"
+            root.mkdir()
+            state = root / IGNORE_NAME
+            original = b"# preserve this exact review state\n"
+            state.write_bytes(original)
+
+            with self.assertRaisesRegex(ReviewError, r"config error \[invalid_type\]"):
+                _set_review_state_section(
+                    root,
+                    "false_positives.fp_0123456789abcdef",
+                    {"ignored": "yes"},
+                )
+
+            self.assertEqual(state.read_bytes(), original)
 
     def test_review_state_rejects_an_external_configured_path_before_load(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -205,9 +269,9 @@ class RootBoundConfigReadTests(unittest.TestCase):
             root = base / "vault"
             root.mkdir()
             outside = base / "outside.toml"
-            outside.write_text("[false_positives.fp_external]\nignored = true\n", encoding="utf-8")
+            outside.write_text("[false_positives.fp_fedcba9876543210]\nignored = true\n", encoding="utf-8")
             (root / CONFIG_NAME).write_text(
-                f'[false_positives]\nignore_file = "{outside}"\n',
+                f"[false_positives]\nignore_file = {json.dumps(str(outside))}\n",
                 encoding="utf-8",
             )
 
@@ -224,9 +288,9 @@ class RootBoundConfigReadTests(unittest.TestCase):
                 "[false_positives]\nignore_file = \"state/review.toml\"\n",
                 encoding="utf-8",
             )
-            state.write_text("[false_positives.fp_safe]\nignored = true\n", encoding="utf-8")
+            state.write_text("[false_positives.fp_0123456789abcdef]\nignored = true\n", encoding="utf-8")
             outside = base / "outside.toml"
-            outside.write_text("[false_positives.fp_external]\nignored = false\n", encoding="utf-8")
+            outside.write_text("[false_positives.fp_fedcba9876543210]\nignored = false\n", encoding="utf-8")
             held_state = state.with_name("held-review.toml")
             original_open = os.open
 

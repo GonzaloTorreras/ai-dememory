@@ -37,6 +37,11 @@ another vault. Managing an existing default belongs in the
 
 The wizard is the only required first-run command after installation.
 
+Manual edits are not required. If you maintain an existing customized vault,
+the 2.1.2 candidate validates real TOML, known fields, and exact types before
+the wizard writes anything. See [Vault Configuration](configuration.md) for the
+contract and the short migration checklist.
+
 ## Connect An AI Client (Optional)
 
 Connecting Codex, Claude, or another client is deliberately separate: inspect

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import locale
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import signal
 import subprocess
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 
 
 DEFAULT_TERMINATION_GRACE_SECONDS = 3
@@ -276,6 +277,7 @@ def _close_windows_job(process: subprocess.Popen[Any], *, terminate: bool) -> bo
     # the ownership target.
     ok = bool(close_handle(wintypes.HANDLE(job))) and ok
     setattr(process, "_ai_dememory_job_handle", 0)
+    setattr(process, "_ai_dememory_job_assigned", False)
     return ok
 
 
@@ -291,38 +293,169 @@ def process_group_options(*, hidden: bool = True) -> dict[str, Any]:
     return {"creationflags": 0, "start_new_session": True}
 
 
+def _post_spawn_checkpoint(process: subprocess.Popen[Any]) -> None:
+    """Internal cancellation/test checkpoint after the owned child exists."""
+
+    del process
+
+
+class _DeferredProcessSignals:
+    def __init__(self) -> None:
+        self.events: list[tuple[int, object]] = []
+
+
+def _replay_process_signal(signum: int, frame: object, handler: Any) -> None:
+    if handler == signal.SIG_IGN:
+        return
+    if callable(handler):
+        handler(signum, frame)
+        return
+    # Normalize the default Windows SIGBREAK action to Python cancellation so
+    # the owned tree is reaped before KeyboardInterrupt becomes visible.
+    signal.default_int_handler(signum, frame)
+
+
+@contextmanager
+def _defer_process_signals() -> Iterator[_DeferredProcessSignals]:
+    """Defer and then replay console cancellation at an owned boundary."""
+
+    state = _DeferredProcessSignals()
+    if threading.current_thread() is not threading.main_thread():
+        yield state
+        return
+    signals = [signal.SIGINT]
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if isinstance(sigbreak, int):
+        signals.append(sigbreak)
+    previous: dict[int, Any] = {}
+    installed: list[int] = []
+
+    def request_interrupt(signum: int, frame: object) -> None:
+        state.events.append((signum, frame))
+
+    try:
+        for signum in signals:
+            previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, request_interrupt)
+            installed.append(signum)
+        yield state
+    finally:
+        for signum in reversed(installed):
+            signal.signal(signum, previous[signum])
+        # Compose with an outer transaction fence or custom handler.  Replaying
+        # after restoration preserves SIG_IGN/default behavior instead of
+        # converting every console event into an unconditional KeyboardInterrupt.
+        for signum, frame in state.events:
+            handler = previous.get(signum, signal.SIG_DFL)
+            _replay_process_signal(signum, frame, handler)
+
+
+@contextmanager
+def _owned_process_cancel_guard(process: subprocess.Popen[Any]) -> Iterator[None]:
+    """Let cancellation unwind into the scoped process cleanup boundary."""
+
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    signals = [signal.SIGINT]
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if isinstance(sigbreak, int):
+        signals.append(sigbreak)
+    previous: dict[int, Any] = {}
+    installed: list[int] = []
+
+    def cancel(signum: int, frame: object) -> None:
+        handler = previous.get(signum, signal.SIG_DFL)
+        # Do not reap from inside a Python signal handler: SIGINT can interrupt
+        # Popen.wait() while subprocess owns an internal lock.  Delegating lets
+        # the interrupted frame unwind first; start_owned_process() then reaps
+        # the tree from its guarded finally block.
+        _replay_process_signal(signum, frame, handler)
+
+    try:
+        for signum in signals:
+            previous[signum] = signal.getsignal(signum)
+            signal.signal(signum, cancel)
+            installed.append(signum)
+        yield
+    finally:
+        for signum in reversed(installed):
+            signal.signal(signum, previous[signum])
+
+
+def _cleanup_owned_process(
+    process: subprocess.Popen[Any],
+    *,
+    grace_seconds: float = DEFAULT_TERMINATION_GRACE_SECONDS,
+) -> bool:
+    """Attempt exactly one bounded tree cleanup for a scoped child."""
+
+    try:
+        # Console cancellation must not split terminate/kill/wait. Replay it
+        # only after the bounded cleanup has reached a consistent boundary.
+        with _defer_process_signals():
+            if getattr(process, "_ai_dememory_cleanup_attempted", False) is True:
+                return getattr(process, "_ai_dememory_cleanup_complete", False) is True
+            setattr(process, "_ai_dememory_cleanup_attempted", True)
+            complete = terminate_process_tree(process, grace_seconds=grace_seconds)
+            setattr(process, "_ai_dememory_cleanup_complete", complete)
+    except BaseException:
+        setattr(process, "_ai_dememory_cleanup_attempted", False)
+        setattr(process, "_ai_dememory_cleanup_complete", False)
+        raise
+    return complete
+
+
+def _pre_owned_cleanup_checkpoint(_process: subprocess.Popen[Any]) -> None:
+    """Internal seam immediately before scoped process cleanup."""
+
+
+@contextmanager
 def start_owned_process(
     command: list[str],
     *,
     hidden: bool = True,
     **popen_kwargs: Any,
-) -> subprocess.Popen[Any]:
-    """Start a command inside an owned POSIX session or Windows Job Object."""
+) -> Iterator[subprocess.Popen[Any]]:
+    """Scope a command inside an owned POSIX session or Windows Job Object."""
 
     options = dict(popen_kwargs)
     options.update(process_group_options(hidden=hidden))
-    process = subprocess.Popen(command, **options)
-    if os.name != "nt":
-        return process
-
+    process: subprocess.Popen[Any] | None = None
     job = 0
     try:
-        job = _create_windows_kill_job()
-        _assign_windows_job(process, job)
-        setattr(process, "_ai_dememory_job_handle", job)
-        _resume_windows_process(process)
-        return process
-    except BaseException:
-        if job:
-            setattr(process, "_ai_dememory_job_handle", job)
-            _close_windows_job(process, terminate=True)
-        if process.poll() is None:
-            process.kill()
-        try:
-            process.wait(timeout=DEFAULT_TERMINATION_GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            pass
-        raise
+        # A real SIGINT is deferred only across Popen's CALL->STORE boundary
+        # and Windows Job assignment. Once `process` is local, every exit path
+        # is protected by this generator's finally block.
+        with _defer_process_signals():
+            process = subprocess.Popen(command, **options)
+            _post_spawn_checkpoint(process)
+            if os.name == "nt":
+                job = _create_windows_kill_job()
+                setattr(process, "_ai_dememory_job_handle", job)
+                setattr(process, "_ai_dememory_job_assigned", False)
+                _assign_windows_job(process, job)
+                setattr(process, "_ai_dememory_job_assigned", True)
+                _resume_windows_process(process)
+        with _owned_process_cancel_guard(process):
+            try:
+                yield process
+            finally:
+                # Keep the lifetime guard installed across the complete normal
+                # scope-exit -> cleanup transition.
+                with _defer_process_signals():
+                    _pre_owned_cleanup_checkpoint(process)
+                    _cleanup_owned_process(process)
+    finally:
+        if process is not None and getattr(
+            process,
+            "_ai_dememory_cleanup_complete",
+            False,
+        ) is not True:
+            # Spawn/setup can fail before the lifetime guard is installed.
+            with _defer_process_signals():
+                _pre_owned_cleanup_checkpoint(process)
+                _cleanup_owned_process(process)
 
 
 def noninteractive_git_environment() -> dict[str, str]:
@@ -469,11 +602,12 @@ def terminate_process_tree(
 
     if os.name == "nt":
         had_job = bool(getattr(process, "_ai_dememory_job_handle", 0))
+        job_owned_process = bool(getattr(process, "_ai_dememory_job_assigned", False))
         job_closed = _close_windows_job(process, terminate=process.poll() is None)
-        if not had_job and process.poll() is None:
+        if not job_owned_process and process.poll() is None:
             # Popen retains a handle to the original process object, so this
-            # fallback cannot target a recycled PID. Descendant ownership is
-            # guaranteed only for processes created through start_owned_process.
+            # fallback cannot target a recycled PID. It also closes the failure
+            # path where a Job handle existed but assignment did not complete.
             process.kill()
         try:
             process.wait(timeout=grace_seconds)
@@ -519,7 +653,7 @@ def close_stdin_and_reap(
     process: subprocess.Popen[Any],
     *,
     grace_seconds: float = DEFAULT_TERMINATION_GRACE_SECONDS,
-) -> None:
+) -> bool:
     """Request graceful EOF, then terminate the owned tree if it does not exit."""
 
     stdin = process.stdin
@@ -532,7 +666,7 @@ def close_stdin_and_reap(
         process.wait(timeout=grace_seconds)
     except subprocess.TimeoutExpired:
         pass
-    terminate_process_tree(process, grace_seconds=grace_seconds)
+    return _cleanup_owned_process(process, grace_seconds=grace_seconds)
 
 
 def run_owned_process(
@@ -544,14 +678,14 @@ def run_owned_process(
 
     options = dict(popen_kwargs)
     options.setdefault("stdin", subprocess.DEVNULL)
-    process = start_owned_process(command, **options)
-    try:
-        returncode = process.wait(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        reaped = terminate_process_tree(process)
-        return (124 if reaped else 125), True, process.pid
-    reaped = terminate_process_tree(process)
-    return (returncode if reaped else 125), False, process.pid
+    with start_owned_process(command, **options) as process:
+        try:
+            returncode = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            reaped = _cleanup_owned_process(process)
+            return (124 if reaped else 125), True, process.pid
+        reaped = _cleanup_owned_process(process)
+        return (returncode if reaped else 125), False, process.pid
 
 
 def run_owned_capture(
@@ -592,7 +726,7 @@ def run_owned_capture(
         return stdout_text, stderr_text, stdout_size + stderr_size
 
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-        process = start_owned_process(
+        with start_owned_process(
             command,
             cwd=cwd,
             env=env,
@@ -602,53 +736,53 @@ def run_owned_capture(
             text=True,
             encoding=encoding,
             errors="replace",
-        )
-        if input_text is not None and process.stdin is not None:
-            try:
-                process.stdin.write(input_text)
-                process.stdin.close()
-            except (BrokenPipeError, OSError):
-                pass
+        ) as process:
+            if input_text is not None and process.stdin is not None:
+                try:
+                    process.stdin.write(input_text)
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
 
-        deadline = time.monotonic() + timeout_seconds
-        output_limited = False
-        timed_out = False
-        while process.poll() is None:
-            output_size = (
-                os.fstat(stdout_file.fileno()).st_size
-                + os.fstat(stderr_file.fileno()).st_size
-            )
+            deadline = time.monotonic() + timeout_seconds
+            output_limited = False
+            timed_out = False
+            while process.poll() is None:
+                output_size = (
+                    os.fstat(stdout_file.fileno()).st_size
+                    + os.fstat(stderr_file.fileno()).st_size
+                )
+                if output_size > max_output_bytes:
+                    output_limited = True
+                    break
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                time.sleep(0.01)
+
+            reaped = _cleanup_owned_process(process)
+            stdout, stderr, output_size = read_outputs(stdout_file, stderr_file)
             if output_size > max_output_bytes:
                 output_limited = True
-                break
-            if time.monotonic() >= deadline:
-                timed_out = True
-                break
-            time.sleep(0.01)
-
-        reaped = terminate_process_tree(process)
-        stdout, stderr, output_size = read_outputs(stdout_file, stderr_file)
-        if output_size > max_output_bytes:
-            output_limited = True
-        if timed_out:
-            if not reaped:
+            if timed_out:
+                if not reaped:
+                    stderr += "\n[ai-dememory: owned process tree could not be fully reaped]\n"
+                raise subprocess.TimeoutExpired(
+                    command,
+                    timeout_seconds,
+                    output=stdout,
+                    stderr=stderr,
+                )
+            returncode = int(process.returncode if process.returncode is not None else 125)
+            if output_limited:
+                returncode = 125
+                stderr += (
+                    f"\n[ai-dememory: combined child output exceeded "
+                    f"{max_output_bytes} bytes and the owned tree was terminated]\n"
+                )
+            elif not reaped:
+                returncode = 125
                 stderr += "\n[ai-dememory: owned process tree could not be fully reaped]\n"
-            raise subprocess.TimeoutExpired(
-                command,
-                timeout_seconds,
-                output=stdout,
-                stderr=stderr,
-            )
-        returncode = int(process.returncode if process.returncode is not None else 125)
-        if output_limited:
-            returncode = 125
-            stderr += (
-                f"\n[ai-dememory: combined child output exceeded "
-                f"{max_output_bytes} bytes and the owned tree was terminated]\n"
-            )
-        elif not reaped:
-            returncode = 125
-            stderr += "\n[ai-dememory: owned process tree could not be fully reaped]\n"
 
     completed = subprocess.CompletedProcess(command, returncode, stdout, stderr)
     if check and completed.returncode != 0:

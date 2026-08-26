@@ -210,16 +210,19 @@ def get_resource_profile(name: str | None) -> ResourceProfile:
     value = str(name or DEFAULT_INTENSITY).strip().lower()
     try:
         return RESOURCE_PROFILES[value]
-    except KeyError as exc:
-        raise ValueError(f"unknown intensity: {value}") from exc
+    except KeyError:
+        # Configuration values are untrusted input.  Keep the diagnostic useful
+        # without echoing the supplied value (including through a chained
+        # KeyError traceback).
+        raise ValueError("unknown intensity") from None
 
 
 def get_model_policy(name: str | None) -> ModelPolicy:
     value = str(name or DEFAULT_MODEL_POLICY).strip().lower()
     try:
         return MODEL_POLICIES[value]
-    except KeyError as exc:
-        raise ValueError(f"unknown model policy: {value}") from exc
+    except KeyError:
+        raise ValueError("unknown model policy") from None
 
 
 def profile_catalog() -> list[dict[str, object]]:
@@ -271,12 +274,12 @@ def resolved_resource_policy(
     try:
         profile = get_resource_profile(intensity_name)
     except ValueError:
-        errors.append(f"invalid_automation_setting:intensity:{intensity_name}")
+        errors.append("invalid_automation_setting:intensity")
         profile = get_resource_profile(DEFAULT_INTENSITY)
     try:
         host_policy = get_model_policy(model_policy_name)
     except ValueError:
-        errors.append(f"invalid_automation_setting:model_policy:{model_policy_name}")
+        errors.append("invalid_automation_setting:model_policy")
         host_policy = get_model_policy(DEFAULT_MODEL_POLICY)
 
     values = {

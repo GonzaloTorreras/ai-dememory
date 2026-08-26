@@ -42,6 +42,28 @@ MAX_EXPORT_BYTES = 2 * 1024 * 1024
 MAX_FILES = 20
 MAX_SCAN_ENTRIES = 2500
 CAPTURE_KINDS = {"chatgpt", "claude", "codex", "cursor", "windsurf", "markdown", "text", "conversation"}
+SAFE_PROVIDER_NAMES = frozenset({"chatgpt", "claude", "codex", "cursor", "windsurf"})
+REDACTED_PROVIDER_FILE = "<provider-file>"
+PROVIDER_ERROR_MESSAGES = {
+    "unknown_provider": "provider import rejected",
+    "provider_not_configured": "provider is not configured",
+    "provider_disabled": "provider is disabled",
+    "provider_path_unset": "configured provider path is missing",
+    "provider_path_missing": "configured provider path is missing",
+    "provider_path_unsafe": "configured provider path is unsafe",
+    "provider_read_failed": "provider source could not be read",
+    "provider_import_failed": "provider import failed",
+}
+SAFE_PROVIDER_READ_FAILURES = frozenset(
+    {
+        "provider file escaped the configured source root",
+        "provider source root must not be a symlink or junction",
+        "provider file path must not contain symlinks or junctions",
+        "provider source must be a regular file",
+        "provider file changed before it could be read safely",
+        "provider file changed while it was being read",
+    }
+)
 VAULT_BINDING_HELP = (
     "Resolution order: --root, AI_DEMEMORY_ROOT, then a saved local default "
     "selected with `ai-dememory vault use <absolute-vault-path>`; the command never "
@@ -74,6 +96,65 @@ class ChatFileScan:
     files: list[Path]
     scanned_entries: int
     truncated: bool
+
+
+class ProviderImportError(ValueError):
+    """A path-redacted provider failure safe for CLI and JSON diagnostics."""
+
+    def __init__(self, code: str, provider: str | None = None) -> None:
+        safe_code = code if code in PROVIDER_ERROR_MESSAGES else "provider_import_failed"
+        safe_provider = provider if provider in SAFE_PROVIDER_NAMES else None
+        self.code = safe_code
+        self.provider = safe_provider
+        message = f"{PROVIDER_ERROR_MESSAGES[safe_code]} [{safe_code}]"
+        if safe_provider is not None:
+            message += f" (provider={safe_provider})"
+        super().__init__(message)
+
+
+def normalize_provider_error(
+    provider: str,
+    error: BaseException,
+    *,
+    default_code: str = "provider_import_failed",
+) -> ProviderImportError:
+    """Map an arbitrary internal failure to a closed public diagnostic."""
+
+    code = error.code if isinstance(error, ProviderImportError) else default_code
+    return ProviderImportError(code, provider)
+
+
+def provider_failure_result(
+    provider: str,
+    error: BaseException,
+    *,
+    dry_run: bool | None = None,
+) -> dict[str, object]:
+    """Return a path-free failure object for maintenance and other aggregators."""
+
+    normalized = normalize_provider_error(provider, error)
+    result: dict[str, object] = {
+        "provider": normalized.provider or "unknown",
+        "error": str(normalized),
+    }
+    if dry_run is not None:
+        result["dry_run"] = dry_run
+    return result
+
+
+def provider_read_failure_message(provider: str, error: BaseException) -> str:
+    """Preserve only known static read diagnostics; close every other error."""
+
+    message = str(error)
+    if type(error) is ValueError and message in SAFE_PROVIDER_READ_FAILURES:
+        return f"read failed: {message}"
+    return str(
+        normalize_provider_error(
+            provider,
+            error,
+            default_code="provider_read_failed",
+        )
+    )
 
 
 def default_provider_paths() -> dict[str, list[Path]]:
@@ -216,6 +297,10 @@ def provider_config_values(name: str, path: Path, enabled: bool = True) -> dict[
 
 
 def configure_provider_preview(root: Path, name: str, path: Path, enabled: bool = True) -> dict[str, Any]:
+    # A preview describes a candidate update to the existing configuration.
+    # Validate that snapshot before producing an apply command so a malformed
+    # file cannot appear safely configurable and then fail only at write time.
+    load_config(root)
     values = provider_config_values(name, path, enabled)
     normalized = Path(str(values["path"]))
     return {
@@ -243,16 +328,16 @@ def configured_import_path(root: Path, provider: str, source_path: Path | None) 
     else:
         config = provider_config(root).get(provider)
         if not config:
-            raise ValueError(f"provider {provider} is not configured")
+            raise ProviderImportError("provider_not_configured", provider)
         if not config.get("enabled", False):
-            raise ValueError(f"provider {provider} is disabled")
+            raise ProviderImportError("provider_disabled", provider)
         configured = str(config.get("path") or "").strip()
         if not configured:
-            raise ValueError(f"provider {provider} has no path")
+            raise ProviderImportError("provider_path_unset", provider)
         path = Path(configured)
     lexical = Path(os.path.abspath(path.expanduser()))
     if path_is_link_like(lexical):
-        raise ValueError(f"provider path must not be a symlink or junction: {lexical}")
+        raise ProviderImportError("provider_path_unsafe", provider)
     return lexical
 
 
@@ -265,11 +350,11 @@ def import_chats(
     max_scan_entries: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    if provider not in default_provider_paths():
-        raise ValueError(f"unknown provider: {provider}")
+    if provider not in SAFE_PROVIDER_NAMES:
+        raise ProviderImportError("unknown_provider")
     source_root = configured_import_path(root, provider, source_path)
     if not source_root.exists():
-        raise FileNotFoundError(f"provider path does not exist: {source_root}")
+        raise ProviderImportError("provider_path_missing", provider)
 
     policy = resolved_resource_policy(root)
     resources = policy["resources"]
@@ -290,7 +375,19 @@ def import_chats(
         int(resources["provider_scan_entries"]),
         "provider_scan_entries",
     )
-    scan = scan_chat_files(source_root, max_scan_entries=max_scan_entries)
+    scan_error: ProviderImportError | None = None
+    try:
+        scan = scan_chat_files(source_root, max_scan_entries=max_scan_entries)
+    except ProviderImportError as exc:
+        scan_error = normalize_provider_error(provider, exc)
+    except OSError as exc:
+        scan_error = normalize_provider_error(
+            provider,
+            exc,
+            default_code="provider_read_failed",
+        )
+    if scan_error is not None:
+        raise scan_error
     written: list[str] = []
     would_write: list[str] = []
     skipped: list[dict[str, str]] = []
@@ -303,7 +400,12 @@ def import_chats(
         try:
             raw = read_provider_file(source_file, source_root, max_file_bytes)
         except (OSError, ValueError) as exc:
-            skipped.append({"path": str(source_file), "reason": f"read failed: {exc}"})
+            skipped.append(
+                {
+                    "path": REDACTED_PROVIDER_FILE,
+                    "reason": provider_read_failure_message(provider, exc),
+                }
+            )
             continue
         if b"\x00" in raw[:4096]:
             skipped.append({"path": str(source_file), "reason": "binary"})
@@ -462,7 +564,7 @@ def scan_chat_files(source_root: Path, max_scan_entries: int = MAX_SCAN_ENTRIES)
     if max_scan_entries < 1:
         raise ValueError("max_scan_entries must be positive")
     if path_is_link_like(source_root):
-        raise ValueError(f"provider path must not be a symlink or junction: {source_root}")
+        raise ProviderImportError("provider_path_unsafe")
     if source_root.is_file():
         return ChatFileScan(files=[source_root], scanned_entries=1, truncated=False)
 
@@ -556,7 +658,7 @@ def extract_chatgpt_export(source_file: Path, limit: int = MAX_FILES) -> list[Ca
     return items
 
 
-def read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> bytes:
+def _read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> bytes:
     """Read one regular provider file after handle-bound no-link checks."""
 
     if max_bytes < 1:
@@ -564,10 +666,9 @@ def read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> 
     path = Path(os.path.abspath(source_file))
     root = Path(os.path.abspath(source_root))
     boundary = root if root.is_dir() else root.parent
-    try:
-        relative = path.relative_to(boundary)
-    except ValueError as exc:
-        raise ValueError("provider file escaped the configured source root") from exc
+    if not path.is_relative_to(boundary):
+        raise ValueError("provider file escaped the configured source root")
+    relative = path.relative_to(boundary)
 
     def assert_safe_components() -> None:
         current = boundary
@@ -617,6 +718,19 @@ def read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> 
         return b"".join(chunks)
     finally:
         os.close(descriptor)
+
+
+def read_provider_file(source_file: Path, source_root: Path, max_bytes: int) -> bytes:
+    """Read a provider file without exposing local paths through OS errors."""
+
+    read_error: ProviderImportError | None = None
+    try:
+        return _read_provider_file(source_file, source_root, max_bytes)
+    except OSError:
+        read_error = ProviderImportError("provider_read_failed")
+    if read_error is not None:
+        raise read_error
+    raise AssertionError("unreachable provider read state")
 
 
 def chatgpt_conversation_text(conversation: dict[str, Any]) -> str:
@@ -760,7 +874,7 @@ def write_import_candidate(root: Path, provider: str, source_file: Path, text: s
     return path
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     argv = list(argv if argv is not None else sys.argv[1:])
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument(
@@ -909,7 +1023,15 @@ def main(argv: list[str] | None = None) -> int:
                 max_scan_entries=args.scan_limit,
                 dry_run=args.dry_run,
             )
-        except (FileNotFoundError, ValueError) as exc:
+        except ProviderImportError as exc:
+            print(normalize_provider_error(args.provider, exc), file=sys.stderr)
+            return 1
+        except OSError as exc:
+            print(normalize_provider_error(args.provider, exc), file=sys.stderr)
+            return 1
+        except ValueError as exc:
+            # Non-filesystem validation diagnostics are already closed static
+            # messages (for example bounded numeric limits).
             print(str(exc), file=sys.stderr)
             return 1
         if args.json:
@@ -955,6 +1077,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run provider commands with a controlled strict-config error boundary."""
+
+    try:
+        return _main(argv)
+    except ValueError as exc:
+        # Detect, plan, and configure used to let config-reader failures escape
+        # as tracebacks.  Config diagnostics are value-redacted; preserve that
+        # contract and fail before a writer can run.
+        print(str(exc), file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

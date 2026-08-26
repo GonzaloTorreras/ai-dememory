@@ -14,14 +14,20 @@ from pathlib import Path
 import re
 import sys
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 from ai_dememory_tool import __version__ as PACKAGE_VERSION
 from ai_dememory_tool.argument_safety import reject_duplicate_options
 from ai_dememory_tool.cli import build_mcp_config
 from ai_dememory_tool.vault_binding import VaultBindingError, resolve_runtime_vault
 from command_render import render_copy_command
-from config_file import parse_config_text, read_config_bytes
+from config_file import (
+    ConfigError,
+    MAX_CONFIG_BYTES,
+    config_write_lock,
+    parse_config_text,
+    read_config_bytes,
+)
 from hook_event import hook_config
 from memorylib import path_is_link_like, slugify
 from resource_policy import (
@@ -44,6 +50,29 @@ BASELINE_KINDS = ("values", "preferences", "recommendations")
 ALLOWED_SENSITIVITY = {"public", "internal"}
 DEFAULT_CLIENTS = ["codex", "claude"]
 GUIDED_DECLINED_EXIT_CODE = 3
+
+
+class OnboardingApplyError(RuntimeError):
+    """A stable, path-redacting diagnostic for an unsafe apply outcome."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        rollback_complete: bool,
+        manual_recovery_required: bool,
+    ) -> None:
+        self.code = code
+        self.rollback_complete = rollback_complete
+        self.manual_recovery_required = manual_recovery_required
+        if code == "rollback_incomplete":
+            message = (
+                "onboarding apply error [rollback_incomplete]: automatic rollback was incomplete; "
+                "preserve generated backup files and inspect the vault before retrying"
+            )
+        else:  # Defensive fallback; callers must still receive a controlled diagnostic.
+            message = "onboarding apply error [apply_failed]"
+        super().__init__(message)
 
 
 def onboarding_plan(
@@ -157,7 +186,11 @@ def _setup_plan(
         current_config_bytes = read_config_bytes(config_path, root=root)
         current_config = current_config_bytes.decode("utf-8") if current_config_bytes is not None else ""
         existing_schedule = (
-            parse_config_text(current_config).get("schedule", {})
+            parse_config_text(
+                current_config,
+                source=".ai-dememory.toml",
+                config_kind="main",
+            ).get("schedule", {})
             if current_config_bytes is not None
             else {}
         )
@@ -169,6 +202,20 @@ def _setup_plan(
             current_config,
             normalized,
             preserve_schedule=schedule_preserved,
+        )
+        # Treat the merged text as an untrusted candidate too.  The existing
+        # snapshot above and this complete candidate must both satisfy the
+        # structural contract before a plan, fingerprint, or write payload can
+        # be produced.
+        if len(updated_config.encode("utf-8")) > MAX_CONFIG_BYTES:
+            raise ConfigError(
+                "config_too_large",
+                source=".ai-dememory.toml",
+            )
+        parse_config_text(
+            updated_config,
+            source=".ai-dememory.toml",
+            config_kind="main",
         )
         writes.append(
             planned_write(
@@ -256,28 +303,54 @@ def _apply_setup_plan(
 
     changed: list[str] = []
     batch: list[tuple[Path, str, bool, str | None, Path | None]] = []
-    for item in plan["writes"]:
-        relative_path = str(item["path"])
-        target = safe_target(root, relative_path)
-        is_config = item["kind"] == "config"
-        assert_write_precondition(
-            target,
-            item.get("current_sha256"),
-            root=root if is_config else None,
-        )
-        if item["status"] == "unchanged":
-            continue
-        batch.append(
-            (
-                target,
-                str(payloads[relative_path]),
-                item["kind"] == "config",
-                item.get("current_sha256"),
-                root if is_config else None,
+    writes_config = any(item["kind"] == "config" for item in plan["writes"])
+    coordination = config_write_lock(
+        root,
+        source=".ai-dememory.toml" if writes_config else "onboarding",
+    )
+    commit_confirmed = False
+    try:
+        # Every reviewed onboarding apply participates in the same per-vault
+        # writer protocol. This prevents concurrent personal applies from both
+        # observing absent canonical files and replacing one another, while
+        # retaining the config snapshot/CAS boundary for operational setup.
+        with coordination as validate_config_lock:
+            for item in plan["writes"]:
+                relative_path = str(item["path"])
+                target = safe_target(root, relative_path)
+                is_config = item["kind"] == "config"
+                assert_write_precondition(
+                    target,
+                    item.get("current_sha256"),
+                    root=root if is_config else None,
+                )
+                if item["status"] == "unchanged":
+                    continue
+                batch.append(
+                    (
+                        target,
+                        str(payloads[relative_path]),
+                        item["kind"] == "config",
+                        item.get("current_sha256"),
+                        root if is_config else None,
+                    )
+                )
+                changed.append(relative_path)
+            atomic_batch_write(
+                batch,
+                config_lock_validator=validate_config_lock,
             )
-        )
-        changed.append(relative_path)
-    atomic_batch_write(batch)
+            # The config lock defers SIGINT until every lock resource has been
+            # released. Mark the file transaction complete before leaving its
+            # context so a replayed interrupt cannot turn a committed setup
+            # into a false failure. A console signal received while the lock is
+            # held is therefore commit-wins if the batch finishes; a direct
+            # runtime KeyboardInterrupt raised inside atomic_batch_write still
+            # follows its rollback/re-raise path.
+            commit_confirmed = True
+    except KeyboardInterrupt:
+        if not commit_confirmed:
+            raise
 
     applied = dict(plan)
     applied.update(
@@ -858,7 +931,11 @@ def assert_write_precondition(path: Path, expected_sha256: object, *, root: Path
         raise ValueError(f"onboarding target changed after review: {path}")
 
 
-def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None, Path | None]]) -> None:
+def atomic_batch_write(
+    batch: list[tuple[Path, str, bool, str | None, Path | None]],
+    *,
+    config_lock_validator: Callable[[], None] | None = None,
+) -> None:
     """Stage every file first, then commit with best-effort rollback on failure."""
     staged: list[tuple[Path, Path, bool, str | None, Path | None]] = []
     states: list[dict[str, Any]] = []
@@ -875,15 +952,29 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None, Path | Non
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.exists() and not allow_update and path.read_text(encoding="utf-8") != content:
                 raise FileExistsError(f"refusing to overwrite canonical memory: {path}")
-            handle, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+            handle, temp_name = tempfile.mkstemp(
+                prefix=f".{path.name}.ai-dememory-onboarding-",
+                suffix=".tmp",
+                dir=path.parent,
+            )
             temp_path = Path(temp_name)
             with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
                 stream.write(content)
             staged.append((path, temp_path, allow_update, expected_sha256, config_root))
 
         for path, temp_path, allow_update, expected_sha256, config_root in staged:
-            state: dict[str, Any] = {"path": path, "backup": None, "installed": False}
+            state: dict[str, Any] = {
+                "path": path,
+                "backup": None,
+                "installed": False,
+                "possibly_installed": False,
+                "candidate_sha256": hashlib.sha256(temp_path.read_bytes()).hexdigest(),
+                "expected_sha256": expected_sha256,
+                "config_root": config_root,
+            }
             states.append(state)
+            if config_lock_validator is not None:
+                config_lock_validator()
             assert_write_precondition(path, expected_sha256, root=config_root)
             if path.exists():
                 if not allow_update:
@@ -891,40 +982,114 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None, Path | Non
                         temp_path.unlink()
                         continue
                     raise FileExistsError(f"refusing to overwrite canonical memory: {path}")
-                backup = path.with_name(f".{path.name}.{os.getpid()}.bak")
+                backup = path.with_name(f"{path.name}.{os.getpid()}.bak")
                 if backup.exists():
                     raise FileExistsError(f"onboarding backup path already exists: {backup}")
-                os.replace(path, backup)
-                state["backup"] = backup
-                if current_file_sha256(backup, root=config_root) != expected_sha256:
-                    os.replace(backup, path)
-                    state["backup"] = None
+                current_bytes = (
+                    read_config_bytes(path, root=config_root)
+                    if config_root is not None
+                    else path.read_bytes()
+                )
+                if current_bytes is None or hashlib.sha256(current_bytes).hexdigest() != expected_sha256:
                     raise ValueError(f"onboarding target changed during apply: {path}")
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                flags |= int(getattr(os, "O_NOFOLLOW", 0))
+                flags |= int(getattr(os, "O_BINARY", 0))
+                backup_fd = os.open(backup, flags, 0o600)
+                # Track the created backup immediately so a short write, fsync
+                # failure, or verification failure cannot strand it. Rollback
+                # must only restore this file after our candidate was actually
+                # installed; before that point the authoritative target is
+                # still the original (or a newer external edit).
+                state["backup"] = backup
+                try:
+                    with os.fdopen(backup_fd, "wb", closefd=True) as backup_stream:
+                        backup_fd = -1
+                        backup_stream.write(current_bytes)
+                        backup_stream.flush()
+                        os.fsync(backup_stream.fileno())
+                finally:
+                    if backup_fd >= 0:
+                        os.close(backup_fd)
+                if current_file_sha256(backup, root=config_root) != expected_sha256:
+                    raise ValueError(f"onboarding target changed during apply: {path}")
+                assert_write_precondition(path, expected_sha256, root=config_root)
+            if config_lock_validator is not None:
+                config_lock_validator()
+            # Mark ownership before the syscall.  An asynchronous interrupt can
+            # be delivered after os.replace committed but before the following
+            # Python assignment; rollback must therefore decide from bytes on
+            # disk instead of trusting a post-call flag.
+            state["possibly_installed"] = True
             os.replace(temp_path, path)
             state["installed"] = True
         committed = True
-    except Exception as original_error:
-        rollback_errors: list[str] = []
+    except BaseException:
+        rollback_incomplete = False
         for state in reversed(states):
             path = state["path"]
             backup = state["backup"]
             try:
-                if state["installed"] and path.exists():
-                    path.unlink()
+                if not state["possibly_installed"]:
+                    if isinstance(backup, Path) and backup.exists():
+                        backup.unlink()
+                        state["backup"] = None
+                    continue
+
+                config_root = state["config_root"]
+                if config_lock_validator is not None:
+                    config_lock_validator()
+                current_digest = current_file_sha256(path, root=config_root)
+                candidate_digest = state["candidate_sha256"]
+                expected_digest = state["expected_sha256"]
+                if current_digest == candidate_digest:
+                    # os.replace committed, even if the interrupt prevented the
+                    # caller from observing its return. Restore the reviewed
+                    # predecessor (or remove a newly-created target).
+                    if isinstance(backup, Path) and backup.exists():
+                        os.replace(backup, path)
+                        state["backup"] = None
+                    elif expected_digest is None and path.exists():
+                        path.unlink()
+                    elif expected_digest is not None:
+                        raise ValueError("onboarding rollback backup is unavailable")
+                elif current_digest == expected_digest:
+                    # The syscall did not commit. The original target remains
+                    # authoritative, so only discard our private backup.
+                    if isinstance(backup, Path) and backup.exists():
+                        backup.unlink()
+                        state["backup"] = None
+                else:
+                    # A later writer or external edit now owns the target.
+                    # Preserve both that target and any backup for explicit
+                    # recovery instead of erasing newer bytes.
+                    raise ValueError("onboarding target changed during rollback")
+                state["installed"] = False
+                state["possibly_installed"] = False
                 if isinstance(backup, Path) and backup.exists():
-                    os.replace(backup, path)
-            except OSError as rollback_error:
-                rollback_errors.append(f"{path}: {rollback_error}")
-        if rollback_errors:
-            raise RuntimeError(
-                "onboarding rollback incomplete; preserve any .bak files and review: "
-                + "; ".join(rollback_errors)
-            ) from original_error
+                    backup.unlink()
+                    state["backup"] = None
+            except (OSError, ValueError):
+                rollback_incomplete = True
+        if rollback_incomplete:
+            # The original failure and rollback diagnostics may contain an
+            # absolute vault path, platform errno text, or caller-controlled
+            # values.  Do not retain either as an exception cause or render
+            # them through the CLI boundary.
+            raise OnboardingApplyError(
+                "rollback_incomplete",
+                rollback_complete=False,
+                manual_recovery_required=True,
+            ) from None
         raise
     finally:
+        cleanup_incomplete = False
         for _, temp_path, _, _, _ in staged:
             if temp_path.exists():
-                temp_path.unlink()
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    cleanup_incomplete = True
         if committed:
             for state in states:
                 backup = state["backup"]
@@ -933,6 +1098,14 @@ def atomic_batch_write(batch: list[tuple[Path, str, bool, str | None, Path | Non
                         backup.unlink()
                     except OSError:
                         pass
+        elif cleanup_incomplete:
+            # A failed cleanup must not replace the controlled rollback error
+            # with an OSError that leaks its absolute temporary path.
+            raise OnboardingApplyError(
+                "rollback_incomplete",
+                rollback_complete=False,
+                manual_recovery_required=True,
+            ) from None
 
 
 def load_answers(args: argparse.Namespace) -> dict[str, Any]:
@@ -1540,6 +1713,20 @@ def print_guided_next_actions(result: dict[str, Any]) -> None:
         )
 
 
+def onboarding_error_result(exc: BaseException) -> dict[str, Any]:
+    """Render only the stable, public CLI error contract."""
+    result: dict[str, Any] = {"ok": False, "error": str(exc)}
+    if isinstance(exc, OnboardingApplyError):
+        result.update(
+            {
+                "error_code": exc.code,
+                "rollback_complete": exc.rollback_complete,
+                "manual_recovery_required": exc.manual_recovery_required,
+            }
+        )
+    return result
+
+
 def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
     operational_guided = mode == "operational"
     parser = build_parser(mode=mode)
@@ -1632,9 +1819,15 @@ def main(argv: list[str] | None = None, *, mode: str = "onboard") -> int:
                 return GUIDED_DECLINED_EXIT_CODE
             result = plan_applier(root, answers, str(result["plan_sha256"]))
             offer_default_vault(root)
+    except OnboardingApplyError as exc:
+        if args.json:
+            print(json.dumps(onboarding_error_result(exc), indent=2, ensure_ascii=False))
+        else:
+            print(str(exc), file=sys.stderr)
+        return 1
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
         if args.json:
-            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, ensure_ascii=False))
+            print(json.dumps(onboarding_error_result(exc), indent=2, ensure_ascii=False))
         else:
             print(str(exc), file=sys.stderr)
         return 1

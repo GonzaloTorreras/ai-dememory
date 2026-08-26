@@ -13,9 +13,10 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `2c3e80735b4412d94c8a67983a5d410b417fb5e9`, the squash merge result of
-  [PR #49](https://github.com/GonzaloTorreras/ai-dememory/pull/49). Its history
-  contains the strict scheduler correction from PR #48, the planning-only
+  `02aa9945f82fc895eeb4420a932610a130a497b2`, the squash merge result of
+  [PR #50](https://github.com/GonzaloTorreras/ai-dememory/pull/50). Its history
+  contains the strict maintenance and scheduler corrections from PRs #50 and
+  #48, the planning-authority consolidation from PR #49, the planning-only
   governed-learning handoff from PR #47, and the unpublished `2.1.2`
   default-vault/wizard correction from PR #46.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
@@ -219,7 +220,16 @@ local-API onboarding hint and documentation follow-up.
   plus fresh independent normative and security reviews. It consolidated the
   planning authority and hardened the advisory release-checklist parser; it did
   not change the V3 frontier or publish a package.
-- The current ninth `BRG-003` increment routes the complete `maintenance`
+- PR [#50](https://github.com/GonzaloTorreras/ai-dememory/pull/50) was squash
+  merged at `02aa9945f82fc895eeb4420a932610a130a497b2`. Its exact head passed CI
+  run [32905559559](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559559)
+  and Pages run
+  [32905559592](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559592),
+  plus fresh functional and sealed security reviews with zero findings. The
+  resulting public-main push CI run
+  [32907288634](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32907288634)
+  also passed verification and all nine OS/Python compatibility jobs.
+- The merged ninth `BRG-003` increment routes the complete `maintenance`
   family through its own parser. Both `run` and read-only `status` now resolve
   only `--root`, `AI_DEMEMORY_ROOT`, or the saved local default, in that order,
   and never discover a vault from CWD or the source checkout. Invalid grammar,
@@ -237,6 +247,83 @@ local-API onboarding hint and documentation follow-up.
   smoke remained green. This remains compatible source hardening: `BRG-003`
   stays `in_progress`, and no version, task state, package, tag, vault,
   scheduler definition, or release changes.
+
+## Completed BRG-017 Strict Configuration Boundary
+
+This checkout completes `BRG-017` within batch `B04b`; its independent review,
+PR, merge, and public-main CI remain delivery evidence rather than a reason to
+broaden the implementation.
+
+- Main vault configuration and the separate generated review-state file now
+  use Python 3.11 `tomllib` with closed, versioned structural allowlists. Empty
+  and partial configuration remains valid, while malformed TOML, duplicate
+  definitions, unknown sections/providers/keys, nested surprises, wrong types,
+  boolean-as-integer values, non-string arrays, non-finite numbers, unsafe
+  review identifiers, invalid UTF-8, and oversized files fail closed.
+- Configuration writers validate the existing snapshot, requested update, and
+  complete rendered candidate before their atomic write. Invalid input cannot
+  create parent directories or partially rewrite a file, and equivalent
+  noncanonical table spellings are rejected rather than duplicated.
+- Product writers serialize the complete read/validate/modify/replace cycle
+  with a bounded per-vault kernel lock plus an in-process reentrant lock. Stale
+  merge snapshots fail closed instead of erasing a concurrent section update;
+  cancellation is deferred from coordination acquisition through cleanup, and
+  an exact candidate already published by `os.replace` is reported as a
+  committed success. The guarantee is atomic runtime visibility, not
+  power-loss durability or protection from an external editor that ignores the
+  advisory lock.
+- Onboarding, setup health, doctor, providers, maintenance, scheduling, sleep,
+  review operations, and resource policy share controlled error boundaries.
+  Diagnostics retain stable codes and allowlisted field names but never echo
+  unknown keys, values, custom review-state/provider paths, OS error text, or
+  chained causes. Successful local administrative status and plan projections
+  retain their existing paths and payloads.
+- Exact-head review closed two boundary gaps before merge: onboarding now
+  rejects a generated configuration candidate that exceeds the same 64 KiB
+  limit before creating an apply plan, and invalid recall configuration makes
+  hooks inert even when the vault already has an index. Retrieval or injection
+  can no longer be re-enabled by falling back from an invalid explicit opt-out.
+- The same validation run reproduced an intermittent Windows loopback reset on
+  rejected POST requests. The API now authenticates the request context and
+  optional key first, consumes only the already bounded request body, and then
+  enforces mutation intent and JSON type. Stress coverage observed no aborted
+  connections or residual server threads; the origin, intent, content-type,
+  64 KiB body, and 15-second timeout controls remain unchanged.
+- Every onboarding apply, including personal-only Markdown, now holds the same
+  bounded coordination lock. Apply is transactional across reviewed files and
+  configuration; interruption either rolls back the pre-commit batch or lets a
+  fully committed batch win. Incomplete recovery returns a stable redacted
+  boundary with explicit manual-recovery state rather than a traceback, path,
+  operating-system error, or candidate content.
+- Scheduler install/remove compensates every host command it attempted,
+  including the command that returned nonzero, timed out, raised an operating
+  system error, or was interrupted. Operation/config lock ordering is fixed,
+  identity loss stops unsafe automatic rollback, and Linux file restoration is
+  followed by a bounded daemon reload before rollback can be called complete.
+- Owned subprocesses run in a scoped POSIX session or, on Windows, a suspended
+  child assigned to a kill-on-close Job Object before execution resumes.
+  Console cancellation unwinds the interrupted subprocess frame before the
+  bounded tree cleanup, and MCP smokes never synchronously close a pipe while
+  its bounded stderr drain is still alive. Abrupt parent death, power loss, or
+  a descendant that deliberately escapes the owned tree remain supervisor
+  boundaries rather than guarantees of this Python process.
+- The operator guide is `docs/configuration.md`; ADR 0262 records why strict
+  parsing is implemented in the existing Python runtime without a second
+  parser, daemon, database, model call, or Node dependency.
+- Final pre-commit Windows evidence ran 1,067 tests in the complete suite with
+  60 expected platform skips. The consolidated strict-config, onboarding,
+  process-lifecycle, review-redaction, and planning set ran 136 tests with one
+  expected skip; the integrated memory-tools run passed, and the scheduler set
+  passed 67 tests with two expected skips on both Windows and WSL. The WSL
+  config/onboarding/lifecycle/planning boundary set passed 129 tests with three
+  expected platform skips. Python compilation, diff validation, workflow and
+  documentation guards, the planning contract, and a repository secret scan
+  also pass on the frozen tree. Fresh exact-commit independent review, package
+  smokes, PR CI, and Pages validation remain required before merge.
+- The normative DAG now marks `BRG-017` complete with explicit evidence paths.
+  `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
+  task, and no package, tag, release, installed vault, host integration, or
+  future learning capability changes in this increment.
 
 ## Merged 2.1.2 Source Candidate (Unpublished)
 
@@ -349,17 +436,17 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Continue `BRG-003` with the remaining strict-resolver inventory and
-   structural vault-validation policy. The root-bound configuration-reader,
-   review-state, provider/import/capture, scheduler, and maintenance boundaries
-   are covered for their current entry points. Reconcile the documented
-   rootless intent of `providers detect` with its remaining legacy resolver
-   call. Do not claim structural vault validation merely from an absolute path:
-   explicit and environment bindings still require shared real-directory,
-   configuration, link-chain, and stable-identity checks planned inside
-   `BRG-003`.
-3. Complete `BRG-017` within `B04b`, then `BRG-019`, `MIG-001`, and the
-   externally read-back `GATE-B` in their normative order.
+2. Continue the sole `BRG-003` frontier by making rootless `providers detect`
+   independent of vault selectors and configuration reads, then resume the
+   remaining strict-resolver inventory and structural vault-validation policy.
+   The root-bound configuration-reader, review-state,
+   provider/import/capture, scheduler, and maintenance boundaries are covered
+   for their current entry points. Do not claim structural vault validation
+   merely from an absolute path: explicit and environment bindings still
+   require shared real-directory, configuration, link-chain, and
+   stable-identity checks planned inside `BRG-003`.
+3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, and the
+   externally read-back `GATE-B` in their normative order after `BRG-003`.
 4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
    [governed learning handoff](governed-learning-loop-handoff.md) adds no
    current runtime, config, wizard, ranking, or canonical-write capability.

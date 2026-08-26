@@ -49,7 +49,9 @@ The server closes cleanly on stdin EOF. Package-owned children run with closed
 stdin, bounded deadlines, and an owned process group/tree: Windows uses a
 kill-on-close Job Object and POSIX uses a separate session/process group. These
 controls cover ai-dememory children, not unrelated browser, Node, Python, or
-plugin processes owned by the host application.
+plugin processes owned by the host application. They apply after the runtime
+has completed process-tree ownership; an uncatchable parent death or host power
+loss still requires an external supervisor.
 
 ## Optional Configuration Check
 

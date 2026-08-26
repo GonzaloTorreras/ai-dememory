@@ -83,10 +83,12 @@ reads back the created host definitions, persists their SHA-256 receipt, and
 rolls back jobs and files if readback or receipt persistence fails. Later
 `schedule status` records verification only when the exact definitions still
 match and the verification timestamp is fresh. A moved vault continues to
-address the receipt's original task namespace for status/removal and local
-systemd/launchd definition cleanup. The installed receipt, not later
-resource-policy defaults, remains authoritative for cadence and intensity
-during status and complete removal. Windows
+address the receipt's original task namespace for read-only status checks, but
+removal fails closed until ownership is explicitly reconciled or transferred.
+The removal boundary never probes or renders the historical root stored in the
+receipt. The installed receipt, not later resource-policy defaults, remains
+authoritative for cadence and intensity during status and removal after
+reconciliation. Windows
 rollback restores the exact captured task XML; removal performs the same
 comparison and restores already removed jobs on partial failure. Docker jobs
 require an immutable image digest, use no network, and apply

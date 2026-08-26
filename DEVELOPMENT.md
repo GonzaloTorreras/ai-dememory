@@ -57,11 +57,12 @@ The exact moving `main`, release, PR, workflow, and package-index facts live in
 directional roadmaps. First-run setup remains `pipx install ai-dememory`
 followed by `ai-dememory init ~/code/my-memory --wizard`.
 
-The legal product implementation frontier is batch `B04b`:
+The legal product implementation frontier remains batch `B04b`:
 
 1. `BRG-003`: explicit, deterministic vault/root resolution.
-2. `BRG-017`: strict configuration parsing and unknown-key diagnostics.
-3. After both complete, `BRG-019`: bridge inventories and exact-artifact tooling.
+2. `BRG-017`: strict configuration parsing and unknown-key diagnostics is
+   complete; its evidence remains part of the current batch.
+3. After `BRG-003` completes, `BRG-019`: bridge inventories and exact-artifact tooling.
 4. Then `MIG-001`: generated canonical-writer inventory and freeze.
 5. Then `GATE-B`: compatibility evidence; no declaration without external
    readback.
