@@ -390,25 +390,29 @@ local-API onboarding hint and documentation follow-up.
   Active maintainer docs, the PR template, and release checklist now require a
   disposable initialized smoke vault and an absolute child script path; they no
   longer imply that the public checkout or checked-in plugin config is a vault.
-- Loaded non-Docker client configs normalize case-insensitive root environment
-  aliases and reject embedded `--root`; loaded Docker configs fail closed and
-  use generated `--mode docker` mounts instead. Documentation guards reject
-  relative vault roots. PR and release-checklist evidence must include at least
-  one direct installed-mode Python source launch; any explicit Python launcher
-  must execute exactly one absolute `scripts/ai_dememory.py` child as its
-  program argument, after only the optional Windows `py -3[.N]` selector.
-  Preceding interpreter modes or scripts, literal `~`, relative paths, and
-  unprovable shell-variable child paths are rejected. Subcommand, dispatcher,
-  option, and choice spelling is case-sensitive, and every tail token must be
-  consumed by the supported `mcp-client-smoke` grammar. General operations
-  guidance can still smoke the installed `ai-dememory` command.
-- Local validation for the current candidate tree passes 643 memory-tool tests
-  with 45 expected platform skips, 156 documentation/profile tests, the
+- Loaded non-Docker client configs remove every root environment spelling that
+  Windows aliases to the canonical key before injecting the selected vault,
+  and reject embedded `--root`. Configs whose direct executable is Docker fail
+  closed, including aliases that differ by case or trailing Win32 dots/spaces;
+  generated `--mode docker` owns the mount instead. Documentation guards reject
+  relative vault roots. PR and release-checklist evidence retains exact
+  cardinality and reviewed neighboring source sequences, while unrelated prose,
+  block quotes, comparisons, and fenced examples remain available. At least one
+  direct installed-mode Python source launch must execute exactly one absolute
+  `scripts/ai_dememory.py` child after only the optional Windows `py -3[.N]`
+  selector. Literal `~`, relative or dynamic paths, duplicate/abbreviated
+  singleton options, ignored config/Docker controls, and unconsumed tail tokens
+  are rejected by a closed argv contract rather than a general Markdown or shell
+  parser. General operations guidance can still smoke installed `ai-dememory`.
+- Local validation for the current candidate tree passes 648 memory-tool tests
+  with 45 expected platform skips, 157 documentation/profile tests, the
   documentation, PR-template and release-checklist guards, secret scan,
   compileall, and diff checks. Focal canaries additionally reject a missing,
   shadowed, non-absolute, duplicate, Docker, echoed, displaced, case-tampered,
-  unknown-option, invalid-choice, or incomplete Python source launch while
-  preserving direct installed-command guidance. The preceding
+  unknown-option, invalid-choice, incomplete, or separated option-like Python
+  source launch; displaced/noncanonical wrapper proof; Windows Unicode environment
+  collisions; and Docker executable aliases, while preserving ordinary Markdown
+  and direct installed-command guidance. The preceding
   committed head passed both real MCP client smoke variants, the 87-check
   PR-gated MCP runtime smoke, and the strict PR-bound release check; those
   commit-bound gates must be repeated after this corrective tree is committed.

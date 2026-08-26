@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ai_dememory_tool.cli import build_mcp_config
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 from install_smoke import MCP_INIT, MCP_PING
 from memorylib import repo_root
 from process_control import (
@@ -34,6 +35,7 @@ from process_control import (
 MCP_TOOLS_LIST_ID = 3
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 MAX_TOOLS_LIST_PAGES = 20
+ROOT_ENVIRONMENT_KEY = "AI_DEMEMORY_ROOT"
 
 
 class ClientSmokeError(RuntimeError):
@@ -101,7 +103,7 @@ def bind_config_runtime_root(
     command = server.get("command")
     if not isinstance(command, str) or not command:
         raise ClientSmokeError("MCP client config command must be a non-empty string")
-    launcher = command.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+    launcher = command.replace("\\", "/").rsplit("/", 1)[-1].casefold().rstrip(" .")
     if launcher in {"docker", "docker.exe"}:
         raise ClientSmokeError(
             "Loaded Docker MCP configs cannot be rebound safely; omit --config and "
@@ -128,13 +130,43 @@ def bind_config_runtime_root(
         for key, value in env.items()
     ):
         raise ClientSmokeError("MCP client config env must be an object of strings")
-    normalized_env = {
+    normalized_env = _without_root_environment_aliases(env)
+    server["env"] = {**normalized_env, ROOT_ENVIRONMENT_KEY: str(root)}
+    return data
+
+
+def _without_root_environment_aliases(env: dict[str, str]) -> dict[str, str]:
+    """Remove spellings that Windows aliases to the canonical root key."""
+
+    return {
         key: value
         for key, value in env.items()
-        if key.casefold() != "ai_dememory_root"
+        # Windows folds the dotless-i spelling ``aı_dememory_root`` onto
+        # the canonical variable when it builds a child environment. Unicode
+        # uppercasing matches that boundary; casefolding does not.
+        if key.upper() != ROOT_ENVIRONMENT_KEY
     }
-    server["env"] = {**normalized_env, "AI_DEMEMORY_ROOT": str(root)}
-    return data
+
+
+def merge_launch_environment(configured_env: dict[str, str]) -> dict[str, str]:
+    """Merge host/config environments without reintroducing a root alias."""
+
+    configured_roots = {
+        value
+        for key, value in configured_env.items()
+        if key.upper() == ROOT_ENVIRONMENT_KEY
+    }
+    if len(configured_roots) > 1:
+        raise ClientSmokeError(
+            "MCP client config contains conflicting AI_DEMEMORY_ROOT environment aliases"
+        )
+    selected_root = next(iter(configured_roots), None)
+    merged = {**dict_env(), **configured_env}
+    if selected_root is None:
+        return merged
+    launch_env = _without_root_environment_aliases(merged)
+    launch_env[ROOT_ENVIRONMENT_KEY] = selected_root
+    return launch_env
 
 
 def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name: str = "ai-dememory") -> ClientSmokeResult:
@@ -158,7 +190,7 @@ def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name
         raise ClientSmokeError("MCP client config enabled_tools must be an array of strings when present")
     launch_cwd = Path(configured_cwd) if configured_cwd else cwd
 
-    launch_env = {**dict_env(), **env}
+    launch_env = merge_launch_environment(env)
     stdout = run_mcp_batch(command, args, launch_cwd, launch_env, [MCP_INIT, MCP_INITIALIZED, MCP_PING])
     assert_mcp_initialize_and_ping(stdout)
     enabled_tools_verified = False
@@ -439,7 +471,7 @@ def dict_env() -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--root", default=None, help="Initialized vault root used by the launched MCP server.")
     parser.add_argument(
         "--config",
@@ -456,7 +488,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--command-arg", action="append", default=[], help="Extra argument before `mcp --stdio`; repeatable.")
     parser.add_argument("--image", default="ai-dememory:local", help="Docker image for generated Docker config.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
-    args = parser.parse_args(argv)
+    raw_argv = list(argv if argv is not None else sys.argv[1:])
+    reject_duplicate_options(
+        parser,
+        raw_argv,
+        ("--root", "--config", "--server-name", "--client", "--mode", "--command", "--image", "--json"),
+    )
+    args = parser.parse_args(raw_argv)
 
     root = repo_root(args.root)
     try:

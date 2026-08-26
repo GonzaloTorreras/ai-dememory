@@ -129,11 +129,15 @@ python3 scripts/ai_dememory.py --root /tmp/ai-dememory-mcp-smoke mcp-client-smok
 ```
 
 A config loaded with `--config` is trusted launch input: inspect its command,
-arguments and working directory first. It must be non-Docker and must not
-contain its own `--root`; the smoke command normalizes root environment aliases,
-injects the selected vault and rejects either ambiguity. To test Docker, omit
-`--config` and use `--mode docker`; the generated mount is then derived from the
-selected `--root`.
+arguments, working directory, and environment first, and use a secret-free
+fixture. Failure diagnostics can include bounded child stdout or stderr. The
+supported direct config must be non-Docker and must not contain its own
+`--root`; configs whose command directly names Docker are rejected. The smoke
+command removes environment aliases for the vault root, injects the selected
+vault, and rejects argument ambiguity. Arbitrary wrapper commands remain trusted
+input and are not classified by parsing their implementation. To test Docker,
+omit `--config` and use `--mode docker`; the generated mount is then derived from
+the selected `--root`.
 
 Replace the example absolute checkout path if needed, then delete the
 disposable vault after these diagnostics. Never add a vault marker to the

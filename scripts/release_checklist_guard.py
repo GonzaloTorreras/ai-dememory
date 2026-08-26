@@ -11,10 +11,35 @@ import re
 import sys
 
 from memorylib import repo_root
-from docs_site_guard import _mcp_client_smoke_command_errors
+from docs_site_guard import (
+    MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM,
+    MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+    _mcp_client_smoke_command_errors,
+)
 
 
 CHECKLIST_PATH = Path("docs/release-v2-checklist.md")
+MCP_CLIENT_SMOKE_SEQUENCES = {
+    "plugin": (
+        "- [ ] One disposable smoke vault was initialized with "
+        "`python3 scripts/ai_dememory.py init <initialized-smoke-vault> --no-wizard`; "
+        "the public checkout has no vault marker.",
+        MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM,
+        "  verifies plugin `enabled_tools` against paginated `tools/list`.",
+    ),
+    "acceptance": (
+        "- [ ] `python3 scripts/ai_dememory.py acceptance verify --json`",
+        MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+        MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM,
+        "- [ ] `python3 scripts/ai_dememory.py provenance --json`",
+    ),
+    "runtime": (
+        "- [ ] `python3 scripts/ai_dememory.py mcp-smoke`",
+        MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+        MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM,
+        "- [ ] Initialize over stdio with protocol `2025-11-25`.",
+    ),
+}
 GENERATED_ARTIFACTS_VAULT_PRECONDITION = (
     "For source-tree release validation, select and verify the intended "
     "initialized vault before running this section: pass "
@@ -521,6 +546,13 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _sequence_count(lines: tuple[str, ...], sequence: tuple[str, ...]) -> int:
+    return sum(
+        tuple(lines[index : index + len(sequence)]) == sequence
+        for index in range(len(lines) - len(sequence) + 1)
+    )
+
+
 def level_two_sections(text: str) -> dict[str, list[str]]:
     """Return exact top-level H2 sections, excluding fenced/indented code."""
 
@@ -584,6 +616,29 @@ def level_two_sections(text: str) -> dict[str, list[str]]:
 def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     issues: list[ChecklistGuardIssue] = []
     normalized = normalize(text)
+    lines = tuple(text.splitlines())
+    canonical_counts = {
+        "source": (MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM, 2),
+        "config": (MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM, 3),
+    }
+    for kind, (item, expected_count) in canonical_counts.items():
+        if lines.count(item) != expected_count:
+            issues.append(
+                ChecklistGuardIssue(
+                    f"release_checklist:mcp_client_smoke_exact_{kind}_proof",
+                    f"expected exactly {expected_count} canonical, unchecked, "
+                    f"column-zero mcp-client-smoke {kind} checklist item(s)",
+                )
+            )
+    for name, sequence in MCP_CLIENT_SMOKE_SEQUENCES.items():
+        if _sequence_count(lines, sequence) != 1:
+            issues.append(
+                ChecklistGuardIssue(
+                    f"release_checklist:mcp_client_smoke_exact_{name}_sequence",
+                    f"expected exactly one reviewed mcp-client-smoke {name} "
+                    "source sequence",
+                )
+            )
     sections = level_two_sections(text)
     for name, heading in REQUIRED_HEADINGS.items():
         matches = sections.get(heading, [])
@@ -629,6 +684,7 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
         text,
         CHECKLIST_PATH.as_posix(),
         require_python_source_launch=True,
+        require_template_placeholders=True,
     ):
         issues.append(
             ChecklistGuardIssue(

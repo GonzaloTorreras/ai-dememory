@@ -11,10 +11,20 @@ import re
 import sys
 
 from memorylib import repo_root
-from docs_site_guard import _mcp_client_smoke_command_errors
+from docs_site_guard import (
+    MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+    _mcp_client_smoke_command_errors,
+)
 
 
 TEMPLATE_PATH = Path(".github/pull_request_template.md")
+MCP_CLIENT_SMOKE_SOURCE_SEQUENCE = (
+    "- [ ] A separate disposable smoke vault was initialized with "
+    "`python3 scripts/ai_dememory.py init <initialized-smoke-vault> --no-wizard`; "
+    "the public checkout has no vault marker.",
+    MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+    "- [ ] Smoke output includes `OK ping`.",
+)
 
 REQUIRED_SNIPPETS = {
     "doctor": "python3 scripts/ai_dememory.py doctor",
@@ -63,9 +73,36 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _sequence_count(lines: tuple[str, ...], sequence: tuple[str, ...]) -> int:
+    return sum(
+        tuple(lines[index : index + len(sequence)]) == sequence
+        for index in range(len(lines) - len(sequence) + 1)
+    )
+
+
 def validate_template_text(text: str) -> list[TemplateGuardIssue]:
     issues: list[TemplateGuardIssue] = []
     normalized = normalize(text)
+    lines = tuple(text.splitlines())
+    canonical_source_count = lines.count(
+        MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM
+    )
+    if canonical_source_count != 1:
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_exact_proof",
+                "expected exactly one canonical, unchecked, column-zero "
+                "mcp-client-smoke source checklist item",
+            )
+        )
+    if _sequence_count(lines, MCP_CLIENT_SMOKE_SOURCE_SEQUENCE) != 1:
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_exact_proof",
+                "canonical mcp-client-smoke source evidence must remain in the "
+                "reviewed MCP Runtime source sequence",
+            )
+        )
     for name, heading in REQUIRED_HEADINGS.items():
         if heading not in text:
             issues.append(TemplateGuardIssue(f"pull_request_template:{name}", f"missing heading: {heading}"))
@@ -81,6 +118,7 @@ def validate_template_text(text: str) -> list[TemplateGuardIssue]:
         text,
         TEMPLATE_PATH.as_posix(),
         require_python_source_launch=True,
+        require_template_placeholders=True,
     ):
         issues.append(
             TemplateGuardIssue(

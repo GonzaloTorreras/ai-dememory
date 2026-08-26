@@ -162,7 +162,7 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
-from mcp_client_smoke import ClientSmokeError, bind_config_runtime_root, main as mcp_client_smoke_main, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
+from mcp_client_smoke import ClientSmokeError, bind_config_runtime_root, main as mcp_client_smoke_main, merge_launch_environment, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
 from mcp_inventory import INVENTORY_DOCS, build_inventory, main as mcp_inventory_main, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import (  # noqa: E402
@@ -3147,6 +3147,22 @@ class MemoryToolTests(unittest.TestCase):
         self.assertTrue(result["pinged"])
         self.assertTrue(result["enabled_tools_verified"])
         self.assertEqual(result["enabled_tool_count"], 3)
+
+    def test_mcp_client_smoke_rejects_abbreviated_and_duplicate_options(self) -> None:
+        for argv, message in (
+            (["--root", "C:/vault", "--serve", "alternate"], "unrecognized arguments"),
+            (["--root", "C:/vault", "--client", "codex", "--client", "generic"], "at most once"),
+        ):
+            with (
+                self.subTest(argv=argv),
+                patch("mcp_client_smoke.repo_root") as resolve_root,
+                redirect_stderr(io.StringIO()) as error,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                mcp_client_smoke_main(argv)
+            self.assertEqual(raised.exception.code, 2)
+            resolve_root.assert_not_called()
+            self.assertIn(message, error.getvalue())
 
     def test_mcp_runtime_fixture_smoke_exercises_v2_tools(self) -> None:
         checks = run_fixture_smoke(ROOT)
@@ -16216,6 +16232,8 @@ class MemoryToolTests(unittest.TestCase):
                     "env": {
                         "AI_DEMEMORY_ROOT": "C:/private/stale-vault",
                         "ai_dememory_root": "C:/private/attacker-vault",
+                        "a\u0131_dememory_root": "C:/private/windows-collision",
+                        "a\u0131_dememory_other": "preserve-me",
                         "KEEP_ME": "yes",
                     },
                 }
@@ -16227,12 +16245,68 @@ class MemoryToolTests(unittest.TestCase):
 
         self.assertEqual(
             bound["mcpServers"]["ai-dememory"]["env"],
-            {"KEEP_ME": "yes", "AI_DEMEMORY_ROOT": str(vault)},
+            {
+                "a\u0131_dememory_other": "preserve-me",
+                "KEEP_ME": "yes",
+                "AI_DEMEMORY_ROOT": str(vault),
+            },
         )
         self.assertEqual(
             config["mcpServers"]["ai-dememory"]["env"]["ai_dememory_root"],
             "C:/private/attacker-vault",
         )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows environment canary")
+    def test_mcp_client_smoke_bound_root_survives_windows_subprocess_environment(self) -> None:
+        vault = Path("C:/private/selected-vault")
+        bound = bind_config_runtime_root(
+            {
+                "command": sys.executable,
+                "args": [],
+                "env": {
+                    "a\u0131_dememory_root": "C:/private/windows-collision",
+                    "KEEP_ME": "yes",
+                },
+            },
+            vault,
+        )
+        with patch(
+            "mcp_client_smoke.dict_env",
+            return_value={
+                "a\u0131_dememory_root": "C:/private/ambient-collision",
+                "AMBIENT_KEEP": "yes",
+            },
+        ):
+            server_env = merge_launch_environment(bound["env"])
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    "print(os.environ['AI_DEMEMORY_ROOT']); "
+                    "print(os.environ['KEEP_ME']); "
+                    "print(os.environ['AMBIENT_KEEP'])"
+                ),
+            ],
+            env=server_env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(completed.stdout.splitlines(), [str(vault), "yes", "yes"])
+
+    def test_mcp_client_smoke_rejects_conflicting_config_root_env_aliases(self) -> None:
+        with self.assertRaisesRegex(ClientSmokeError, "conflicting AI_DEMEMORY_ROOT"):
+            merge_launch_environment(
+                {
+                    "AI_DEMEMORY_ROOT": "C:/private/selected-vault",
+                    "a\u0131_dememory_root": "C:/private/conflicting-vault",
+                }
+            )
 
     def test_mcp_client_smoke_rejects_loaded_config_root_arguments(self) -> None:
         for args in (
@@ -16255,11 +16329,22 @@ class MemoryToolTests(unittest.TestCase):
             Path("C:/private/old-vault"),
         )
 
-        with self.assertRaisesRegex(ClientSmokeError, "use --mode docker"):
-            bind_config_runtime_root(
-                config,
-                Path("C:/private/selected-vault"),
-            )
+        for command in (
+            "docker",
+            "Docker.EXE",
+            "docker.exe.",
+            "C:/Program Files/Docker/docker.exe. ",
+            r"C:\Program Files\Docker\DOCKER. ",
+        ):
+            with self.subTest(command=command), self.assertRaisesRegex(
+                ClientSmokeError, "use --mode docker"
+            ):
+                aliased = json.loads(json.dumps(config))
+                aliased["command"] = command
+                bind_config_runtime_root(
+                    aliased,
+                    Path("C:/private/selected-vault"),
+                )
 
     def test_mcp_client_smoke_verifies_enabled_tools_from_tools_list(self) -> None:
         stdout = "\n".join(
@@ -17793,6 +17878,62 @@ jobs:
             issues,
         )
 
+    def test_pr_template_smoke_proof_requires_exact_cardinality_and_sequence(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        canonical = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke" in line
+        )
+        tampered_lines = (
+            canonical.replace("- [ ]", "- [x]", 1),
+            "  " + canonical,
+            "> " + canonical,
+            canonical[:-1] + " --json`",
+            canonical + "\n" + canonical,
+            canonical.replace("<absolute-checkout>", "<Absolute-Checkout>"),
+            canonical.replace("<absolute-checkout>", "/__ai_dememory_absolute_checkout__"),
+            "- [ ] Unrelated inserted evidence.\n" + canonical,
+        )
+        for tampered in tampered_lines:
+            with self.subTest(tampered=tampered):
+                issues = validate_template_text(current.replace(canonical, tampered, 1))
+                self.assertTrue(
+                    any(
+                        issue.target
+                        in {
+                            "pull_request_template:mcp_client_smoke_exact_proof",
+                            "pull_request_template:mcp_client_smoke_contract",
+                        }
+                        for issue in issues
+                    ),
+                    issues,
+                )
+
+        explanatory_markdown = (
+            "\n> Note: keep release evidence local.\n\n"
+            "Target p95 < 20 ms. The mcp-client-smoke command is optional.\n\n"
+            "- [ ] (Optional) mcp-client-smoke is a local diagnostic.\n\n"
+            "$PATH may be discussed next to mcp-client-smoke prose.\n\n"
+            "```text\nThis unrelated example is not executable.\n```\n"
+        )
+        self.assertEqual([], validate_template_text(current + explanatory_markdown))
+
+        smoke_output = "- [ ] Smoke output includes `OK ping`."
+        moved = current.replace(canonical + "\n" + smoke_output, smoke_output, 1)
+        moved = moved.replace(smoke_output, smoke_output + "\n" + canonical, 1)
+        issues = validate_template_text(moved)
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_exact_proof"
+                for issue in issues
+            ),
+            issues,
+        )
+
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
 
@@ -18214,6 +18355,78 @@ This records future risks.
                 for issue in issues
             ),
             issues,
+        )
+
+    def test_release_checklist_requires_exact_smoke_proof_cardinality_and_sequences(
+        self,
+    ) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        source_line = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke --command" in line
+        )
+        config_line = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke --config" in line
+        )
+        for weakened in (
+            current + "\n" + config_line + "\n",
+            current.replace(
+                config_line,
+                config_line.replace("<absolute-checkout>", "<Absolute-Checkout>", 1),
+                1,
+            ),
+        ):
+            with self.subTest():
+                issues = validate_release_checklist_text(weakened)
+                self.assertTrue(
+                    any("exact_config_proof" in issue.target for issue in issues),
+                    issues,
+                )
+
+        acceptance_start = (
+            "- [ ] `python3 scripts/ai_dememory.py acceptance verify --json`\n"
+            + source_line
+        )
+        displaced = current.replace(
+            acceptance_start,
+            acceptance_start.replace(
+                "\n" + source_line,
+                "\n- [ ] Unrelated inserted evidence.\n" + source_line,
+            ),
+            1,
+        )
+        issues = validate_release_checklist_text(displaced)
+        self.assertTrue(
+            any(
+                issue.target
+                == "release_checklist:mcp_client_smoke_exact_acceptance_sequence"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        prefixed = current.replace(source_line, "> " + source_line, 1)
+        issues = validate_release_checklist_text(prefixed)
+        self.assertTrue(
+            any("exact_source_proof" in issue.target for issue in issues),
+            issues,
+        )
+
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(
+                current
+                + "\n> Note: preserve local evidence.\n\n"
+                + "Target p95 < 20 ms.\n\n"
+                + "```text\nUnrelated non-executable example.\n```\n"
+            ),
         )
 
     def test_acceptance_guard_rejects_missing_registry_items(self) -> None:

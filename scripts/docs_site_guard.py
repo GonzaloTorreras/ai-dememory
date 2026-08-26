@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+from fnmatch import fnmatchcase
 import re
 import shlex
 import sys
@@ -283,7 +284,6 @@ MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE = re.compile(
     r"<(?P<kind>absolute-checkout|initialized-[A-Za-z0-9-]+)>",
     re.IGNORECASE,
 )
-
 SITE_PAGE_REQUIRED_COMMANDS = {
     "index.html": (
         "pipx install ai-dememory",
@@ -661,7 +661,11 @@ def _collapsed_dynamic_shell_text(text: str) -> str:
     )
     collapsed = re.sub(r"\$\{[^{}\r\n]*\}", "", collapsed)
     collapsed = re.sub(r"\$\([^()\r\n]*\)", "", collapsed)
-    collapsed = re.sub(r"\$(?:@|\*|[0-9#?-]|[A-Za-z_][A-Za-z0-9_]*)", "", collapsed)
+    collapsed = re.sub(
+        r"\$(?:@|\*|[!0-9#?-]|[A-Za-z_][A-Za-z0-9_]*)",
+        "",
+        collapsed,
+    )
     collapsed = re.sub(r"%[^%\r\n]*%|![^!\r\n]*!", "", collapsed)
     return re.sub(
         r"\{([^{}\r\n.]*)\.\.[^{}\r\n]*\}",
@@ -1112,35 +1116,7 @@ def _contains_disallowed_sensitive_shell_syntax(text: str) -> bool:
 def _launcher_name(token: str) -> str:
     """Return a cross-platform executable basename without a Windows suffix."""
     normalized = token.replace("\\", "/").casefold()
-    name = normalized.rsplit("/", 1)[-1].removesuffix(".exe")
-    # POSIX shlex consumes unquoted Windows backslashes. A drive prefix remains,
-    # so recover only an exact known launcher suffix rather than any basename.
-    if ":" in name:
-        versioned_launcher = re.search(
-            r"(?:python|pip)3(?:\.\d+)?$",
-            name,
-            re.IGNORECASE,
-        )
-        if versioned_launcher is not None:
-            return versioned_launcher.group(0).casefold()
-        for launcher in (
-            "ai-dememory",
-            "docker",
-            "pipx",
-            "uvx",
-            "uv",
-            "python",
-            "pip",
-            "py",
-            "bash",
-            "sh",
-            "cmd",
-            "powershell",
-            "pwsh",
-        ):
-            if name.endswith(launcher):
-                return launcher
-    return name
+    return normalized.rsplit("/", 1)[-1].removesuffix(".exe")
 
 
 SHELL_LAUNCHER_NAMES = frozenset({"bash", "sh", "cmd", "powershell", "pwsh"})
@@ -1468,8 +1444,8 @@ def _has_shell_continuation(text: str) -> bool:
     return text[-1] == "`" and text.count("`") % 2 == 1
 
 
-def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool], ...]:
-    """Return line, logical command, unsupported-space, and continuation state.
+def _logical_command_entries(text: str) -> tuple[tuple[int, str, bool, bool], ...]:
+    """Return each nonblank logical line before executable classification.
 
     Stable documentation accepts Bash, PowerShell, and cmd continuation
     markers, but reconstructs their shell meaning before validation so a
@@ -1495,6 +1471,7 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
         )
         trimmed = line.rstrip(" \t")
         continued = _has_shell_continuation(trimmed)
+        next_continuation_requires_separator = False
         if continued:
             before_marker = trimmed[:-1]
             fragment = before_marker.strip(" \t")
@@ -1502,7 +1479,7 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
             # separator when it was already present before the marker, or when
             # the next physical line begins with one; otherwise concatenate the
             # fragments exactly as the shell would.
-            continuation_requires_separator = bool(
+            next_continuation_requires_separator = bool(
                 before_marker and before_marker[-1] in " \t"
             )
         else:
@@ -1515,11 +1492,12 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
         else:
             parts.append(fragment)
         if continued:
+            continuation_requires_separator = next_continuation_requires_separator
             continue
 
         command = "".join(parts)
         probe = _normalized_shell_whitespace(command)
-        if _starts_with_executable_command(probe) or _contains_unquoted_sensitive_cli(probe):
+        if probe:
             entries.append((start_line, command, unsupported_whitespace, False))
         parts = []
         continuation_requires_separator = False
@@ -1527,8 +1505,20 @@ def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool],
     if parts:
         command = "".join(parts)
         probe = _normalized_shell_whitespace(command)
-        if _starts_with_executable_command(probe) or _contains_unquoted_sensitive_cli(probe):
+        if probe:
             entries.append((start_line, command, unsupported_whitespace, True))
+    return tuple(entries)
+
+
+def _executable_command_entries(text: str) -> tuple[tuple[int, str, bool, bool], ...]:
+    """Return classified executable lines plus executable inline code spans."""
+
+    entries = [
+        entry
+        for entry in _logical_command_entries(text)
+        if _starts_with_executable_command(_normalized_shell_whitespace(entry[1]))
+        or _contains_unquoted_sensitive_cli(_normalized_shell_whitespace(entry[1]))
+    ]
     entries.extend(_inline_command_entries(text))
     return tuple(entries)
 
@@ -3413,19 +3403,168 @@ def _pending_source_execution_errors(
     return errors
 
 
-def _is_direct_mcp_client_smoke_dispatch(
+MCP_CLIENT_SMOKE_DYNAMIC_VALUE_RE = re.compile(r"[$%`*?\[\]{}!^()]")
+MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE = re.compile(r"^@[A-Za-z_][A-Za-z0-9_]*$")
+MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE = re.compile(
+    r"^[ \t]*(?:>[ \t]*)*(?:[-*+][ \t]+)?(?:\[[ xX]\][ \t]+)?"
+)
+MCP_CLIENT_SMOKE_ABSOLUTE_CHECKOUT_SENTINEL = "/__ai_dememory_absolute_checkout__"
+MCP_CLIENT_SMOKE_INITIALIZED_VAULT_SENTINEL = "/__ai_dememory_initialized_vault__"
+MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM = (
+    "- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+    "mcp-client-smoke --command python3 --command-arg "
+    "<absolute-checkout>/scripts/ai_dememory.py`"
+)
+MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM = (
+    "- [ ] `python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+    "mcp-client-smoke --config "
+    "<absolute-checkout>/plugins/ai-dememory/.mcp.json --command python3 "
+    "--command-arg <absolute-checkout>/scripts/ai_dememory.py`"
+)
+MCP_CLIENT_SMOKE_RESERVED_COMMAND_ARGS = frozenset(
+    {
+        "mcp",
+        "--root",
+        "--stdio",
+        "--idle-timeout-seconds",
+        "--require-version",
+        "--profile",
+        "--require-bound-root",
+    }
+)
+
+
+def _has_dynamic_mcp_client_smoke_value(value: str) -> bool:
+    return (
+        MCP_CLIENT_SMOKE_DYNAMIC_VALUE_RE.search(value) is not None
+        or MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE.fullmatch(value) is not None
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    )
+
+
+def _mcp_client_smoke_token_kind(value: str) -> str | None:
+    """Classify only tokens that are or can expand to the exact subcommand."""
+
+    folded = value.casefold()
+    if folded == "mcp-client-smoke":
+        return "literal"
+    if not _has_dynamic_mcp_client_smoke_value(value):
+        return None
+    if (
+        _collapsed_dynamic_shell_text(folded) == "mcp-client-smoke"
+        or fnmatchcase("mcp-client-smoke", folded)
+    ):
+        return "dynamic"
+    return None
+
+
+def _is_dynamic_mcp_client_smoke_launcher(value: str) -> bool:
+    folded = value.casefold()
+    if (
+        "$" in value
+        or re.search(r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!", value)
+        is not None
+        or MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE.fullmatch(value) is not None
+    ):
+        return True
+
+    collapsed = _collapsed_dynamic_shell_text(folded)
+    collapsed_launcher = _launcher_name(collapsed)
+    if collapsed != folded and (
+        collapsed_launcher == "ai-dememory"
+        or PYTHON_COMMAND_TOKEN_RE.fullmatch(collapsed_launcher) is not None
+    ):
+        return True
+
+    if not any(character in folded for character in "*?[]"):
+        return False
+    launcher_pattern = _launcher_name(folded)
+    possible_launchers = (
+        "ai-dememory",
+        "python",
+        "python3",
+        "py",
+        *(f"python3.{minor}" for minor in range(8, 21)),
+    )
+    return any(
+        fnmatchcase(candidate, launcher_pattern) for candidate in possible_launchers
+    )
+
+
+def _is_dynamic_mcp_client_smoke_transport(value: str) -> bool:
+    """Recognize one command-shaped dynamic launcher without resolving it."""
+
+    transport = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    if len(transport) >= 2 and transport.startswith("`") and transport.endswith("`"):
+        transport = transport[1:-1]
+    try:
+        tokens = list(_preferred_shell_tokens(transport))
+    except ValueError:
+        return False
+    if tokens[:1] == ["&"]:
+        tokens.pop(0)
+    if not tokens or not _is_dynamic_mcp_client_smoke_launcher(tokens[0]):
+        return False
+
+    for command_index, token in enumerate(tokens[1:], start=1):
+        if _mcp_client_smoke_token_kind(token) is None:
+            continue
+        cursor = 1
+        if cursor < command_index and re.fullmatch(r"-3(?:\.\d+)?", tokens[cursor]):
+            cursor += 1
+        if cursor < command_index and _is_ai_dememory_source_path(tokens[cursor]):
+            cursor += 1
+
+        while cursor < command_index:
+            argument = tokens[cursor]
+            if argument == "dev":
+                cursor += 1
+                continue
+            if argument.startswith("-"):
+                cursor += 1
+                if cursor < command_index and tokens[cursor] != "dev":
+                    cursor += 1
+                continue
+            break
+        if cursor == command_index:
+            return True
+    return False
+
+
+def _is_literal_absolute_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    return normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized) is not None
+
+
+def _is_reproducible_launcher(value: str) -> bool:
+    if not value or value.startswith("~") or _has_dynamic_mcp_client_smoke_value(value):
+        return False
+    if any(separator in value for separator in ("/", "\\", ":")):
+        return _is_literal_absolute_path(value)
+    return True
+
+
+def _is_ai_dememory_source_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    return normalized == "scripts/ai_dememory.py" or normalized.endswith(
+        "/scripts/ai_dememory.py"
+    )
+
+
+def _mcp_client_smoke_dispatch_kind(
     segment: tuple[str, ...],
     command_index: int,
-) -> bool:
+) -> str | None:
     """Recognize a directly executed installed or source dispatcher."""
-    if not segment or command_index <= 0:
-        return False
+    if not segment or command_index <= 0 or not _is_reproducible_launcher(segment[0]):
+        return None
     launcher_name = _launcher_name(segment[0])
     if launcher_name == "ai-dememory":
+        kind = "installed"
         cursor = 1
     else:
         if PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher_name) is None:
-            return False
+            return None
         source_position = 1
         if (
             launcher_name == "py"
@@ -3434,10 +3573,18 @@ def _is_direct_mcp_client_smoke_dispatch(
         ):
             source_position += 1
         if source_position >= command_index:
-            return False
-        source_dispatcher = segment[source_position].replace("\\", "/").casefold()
-        if not source_dispatcher.endswith("scripts/ai_dememory.py"):
-            return False
+            return None
+        source_dispatcher = segment[source_position]
+        if (
+            _has_dynamic_mcp_client_smoke_value(source_dispatcher)
+            or not _is_ai_dememory_source_path(source_dispatcher)
+        ):
+            return None
+        kind = (
+            "canonical-python-source"
+            if source_dispatcher.replace("\\", "/") == "scripts/ai_dememory.py"
+            else "python-source"
+        )
         cursor = source_position + 1
 
     while cursor < command_index:
@@ -3451,7 +3598,7 @@ def _is_direct_mcp_client_smoke_dispatch(
         break
     if cursor < command_index and segment[cursor] == "dev":
         cursor += 1
-    return cursor == command_index
+    return kind if cursor == command_index else None
 
 
 MCP_CLIENT_SMOKE_VALUE_OPTIONS = frozenset(
@@ -3470,6 +3617,10 @@ MCP_CLIENT_SMOKE_VALUE_CHOICES = {
     "--mode": frozenset({"installed", "docker"}),
 }
 MCP_CLIENT_SMOKE_FLAG_OPTIONS = frozenset({"--json"})
+MCP_CLIENT_SMOKE_SINGLETON_OPTIONS = frozenset(
+    (MCP_CLIENT_SMOKE_VALUE_OPTIONS - {"--command-arg"})
+    | MCP_CLIENT_SMOKE_FLAG_OPTIONS
+)
 
 
 def _parse_mcp_client_smoke_arguments(
@@ -3492,7 +3643,7 @@ def _parse_mcp_client_smoke_arguments(
         if separator:
             value = attached_value
         else:
-            if index + 1 >= len(arguments) or arguments[index + 1].startswith("--"):
+            if index + 1 >= len(arguments) or arguments[index + 1].startswith("-"):
                 return {}, f"{option} requires a value"
             index += 1
             value = arguments[index]
@@ -3511,42 +3662,87 @@ def _mcp_client_smoke_command_errors(
     label: str,
     *,
     require_python_source_launch: bool = False,
+    require_template_placeholders: bool = False,
 ) -> list[str]:
-    """Require documented client smokes to bind a vault and valid launch path."""
+    """Validate documented smoke argv, not arbitrary shell or Markdown semantics."""
     errors: list[str] = []
     has_valid_python_source_launch = False
-    for line_number, command, _, _ in _executable_command_entries(text):
+    command_entries = _executable_command_entries(text)
+    for line_number, command, unsupported_whitespace, unterminated in (
+        _logical_command_entries(text)
+    ):
+        if (
+            not unsupported_whitespace
+            and not unterminated
+            and _is_dynamic_mcp_client_smoke_transport(command)
+        ):
+            errors.append(
+                f"{label}:{line_number}: mcp-client-smoke uses an uninspectable "
+                "dynamic launcher"
+            )
+    for line_number, command, unsupported_whitespace, unterminated in command_entries:
+        raw_candidate = "mcp-client-smoke" in command.casefold()
+        if unsupported_whitespace or unterminated:
+            if raw_candidate:
+                errors.append(
+                    f"{label}:{line_number}: mcp-client-smoke contains unsupported "
+                    "whitespace or an unterminated shell continuation"
+                )
+            continue
+        placeholder_matches = tuple(MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE.finditer(command))
+        placeholder_spelling_is_valid = not require_template_placeholders or all(
+            match.group(0)
+            in {"<absolute-checkout>", "<initialized-smoke-vault>"}
+            for match in placeholder_matches
+        )
+        sentinel_source_is_valid = not (
+            require_template_placeholders and "__ai_dememory_" in command.casefold()
+        )
         parseable_command = MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE.sub(
             lambda match: (
-                "__ai_dememory_path_"
-                + match.group("kind").casefold().replace("-", "_")
-                + "__"
+                MCP_CLIENT_SMOKE_ABSOLUTE_CHECKOUT_SENTINEL
+                if match.group("kind").casefold() == "absolute-checkout"
+                else MCP_CLIENT_SMOKE_INITIALIZED_VAULT_SENTINEL
             ),
             command,
         )
         try:
             tokens = _preferred_shell_tokens(parseable_command)
-        except ValueError:
+        except ValueError as exc:
+            if raw_candidate:
+                errors.append(
+                    f"{label}:{line_number}: mcp-client-smoke has malformed shell "
+                    f"quoting: {exc}"
+                )
             continue
-        for segment in _source_execution_segments(tokens):
+        candidate_tokens = [
+            (index, kind)
+            for index, token in enumerate(tokens)
+            if (kind := _mcp_client_smoke_token_kind(token)) is not None
+        ]
+        if raw_candidate and not candidate_tokens:
+            errors.append(
+                f"{label}:{line_number}: mcp-client-smoke must be one exact argv token"
+            )
+        segments, shell_operators = _shell_segments(tokens)
+        for segment in segments:
             for command_index, token in enumerate(segment):
-                if token.casefold() != "mcp-client-smoke":
+                token_kind = _mcp_client_smoke_token_kind(token)
+                if token_kind is None:
                     continue
-                if token != "mcp-client-smoke":
-                    errors.append(
-                        f"{label}:{line_number}: mcp-client-smoke must use the exact "
-                        "lower-case subcommand spelling accepted by argparse"
-                    )
+                if token_kind == "dynamic":
+                    if _mcp_client_smoke_dispatch_kind(segment, command_index) is not None:
+                        errors.append(
+                            f"{label}:{line_number}: mcp-client-smoke must be one "
+                            "exact literal argv token, not a shell expansion or glob"
+                        )
                     continue
-                direct_dispatch = _is_direct_mcp_client_smoke_dispatch(
+                exact_subcommand = token == "mcp-client-smoke"
+                standalone_command = len(segments) == 1 and not shell_operators
+                dispatch_kind = _mcp_client_smoke_dispatch_kind(
                     segment,
                     command_index,
                 )
-                if not direct_dispatch:
-                    errors.append(
-                        f"{label}:{line_number}: mcp-client-smoke must be the directly "
-                        "executed subcommand after an exact optional dev dispatcher"
-                    )
 
                 root_positions = [
                     index
@@ -3571,17 +3767,37 @@ def _mcp_client_smoke_command_errors(
                         root_is_complete = bool(root_value)
                 if root_is_complete:
                     normalized_root = root_value.replace("\\", "/")
-                    root_is_complete = (
-                        normalized_root.startswith(
-                            ("/", "~", "__ai_dememory_path_initialized_")
-                        )
+                    root_is_complete = not _has_dynamic_mcp_client_smoke_value(
+                        root_value
+                    ) and (
+                        normalized_root == "~"
+                        or normalized_root.startswith(("/", "~/"))
                         or re.match(r"^[A-Za-z]:/", normalized_root) is not None
                     )
-                if not root_is_complete:
-                    errors.append(
-                        f"{label}:{line_number}: mcp-client-smoke requires exactly one "
-                        "absolute initialized-vault --root before the command; bind a separate vault"
-                    )
+                template_root_is_valid = not require_template_placeholders or (
+                    root_value == MCP_CLIENT_SMOKE_INITIALIZED_VAULT_SENTINEL
+                )
+                basic_checks = (
+                    (exact_subcommand,
+                     "mcp-client-smoke must use the exact lower-case subcommand spelling accepted by argparse"),
+                    (placeholder_spelling_is_valid,
+                     "reusable mcp-client-smoke placeholders must use their exact lower-case spelling"),
+                    (sentinel_source_is_valid,
+                     "reusable mcp-client-smoke evidence must use angle-bracket placeholders, not internal guard sentinels"),
+                    (standalone_command,
+                     "mcp-client-smoke must be one standalone command without shell operators or redirections"),
+                    (dispatch_kind is not None,
+                     "mcp-client-smoke must be the directly executed subcommand after an exact optional dev dispatcher"),
+                    (root_is_complete,
+                     "mcp-client-smoke requires exactly one absolute initialized-vault --root before the command; bind a separate vault"),
+                    (template_root_is_valid,
+                     "reusable mcp-client-smoke evidence must use the exact <initialized-smoke-vault> --root placeholder"),
+                )
+                errors.extend(
+                    f"{label}:{line_number}: {message}"
+                    for valid, message in basic_checks
+                    if not valid
+                )
 
                 parsed_arguments, grammar_error = _parse_mcp_client_smoke_arguments(
                     segment[command_index + 1 :]
@@ -3593,58 +3809,192 @@ def _mcp_client_smoke_command_errors(
                     )
                     continue
 
-                launcher = parsed_arguments.get("--command", [""])[-1]
+                duplicate_singletons = sorted(
+                    option
+                    for option in MCP_CLIENT_SMOKE_SINGLETON_OPTIONS
+                    if len(parsed_arguments.get(option, [])) > 1
+                )
+                singleton_options_are_valid = not duplicate_singletons
+
+                dynamic_values = sorted(
+                    {
+                        value
+                        for option in MCP_CLIENT_SMOKE_VALUE_OPTIONS
+                        for value in parsed_arguments.get(option, [])
+                        if _has_dynamic_mcp_client_smoke_value(value)
+                    }
+                )
+                tail_values_are_literal = not dynamic_values
+
                 launch_mode = parsed_arguments.get("--mode", ["installed"])[-1]
+                client = parsed_arguments.get("--client", ["codex"])[-1]
+                server_name = parsed_arguments.get(
+                    "--server-name", ["ai-dememory"]
+                )[-1]
+                explicit_launcher = parsed_arguments.get("--command", [""])[-1]
                 command_arguments = [
                     value.replace("\\", "/")
                     for value in parsed_arguments.get("--command-arg", [])
                 ]
+                config_paths = [
+                    value.replace("\\", "/")
+                    for value in parsed_arguments.get("--config", [])
+                ]
+                loaded_config = bool(config_paths)
 
-                launcher_name = _launcher_name(launcher)
-                python_launcher = PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher_name)
+                launcher_name = _launcher_name(explicit_launcher)
+                python_launcher = (
+                    PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher_name)
+                    if explicit_launcher
+                    else None
+                )
+                launcher_reproducible = (
+                    not explicit_launcher
+                    or _is_reproducible_launcher(explicit_launcher)
+                )
+                launcher_supported = (
+                    not explicit_launcher
+                    or launcher_name == "ai-dememory"
+                    or python_launcher is not None
+                )
+
+                config_is_valid = all(
+                    _is_literal_absolute_path(path)
+                    and path.casefold().endswith(".json")
+                    for path in config_paths
+                )
+                template_config_is_valid = not require_template_placeholders or (
+                    config_paths
+                    in (
+                        [],
+                        [
+                            MCP_CLIENT_SMOKE_ABSOLUTE_CHECKOUT_SENTINEL
+                            + "/plugins/ai-dememory/.mcp.json"
+                        ],
+                    )
+                )
+
+                config_controls_are_valid = not loaded_config or not any(
+                    parsed_arguments.get(option)
+                    for option in ("--client", "--mode", "--image")
+                )
+                server_selection_is_valid = (
+                    server_name == "ai-dememory"
+                    or (client == "generic" and not loaded_config)
+                )
+
+                image_values = parsed_arguments.get("--image", [])
+                image_is_valid = all(
+                    image == image.strip()
+                    and not image.startswith("-")
+                    and not any(
+                        character.isspace() or ord(character) < 32
+                        for character in image
+                    )
+                    for image in image_values
+                )
+                image_is_relevant = launch_mode == "docker" or not image_values
+
+                docker_controls_are_valid = launch_mode != "docker" or (
+                    not loaded_config
+                    and not explicit_launcher
+                    and not command_arguments
+                )
+
+                reserved_command_arguments = sorted(
+                    {
+                        argument
+                        for argument in command_arguments
+                        if argument.casefold() in MCP_CLIENT_SMOKE_RESERVED_COMMAND_ARGS
+                        or any(
+                            argument.casefold().startswith(f"{option}=")
+                            for option in MCP_CLIENT_SMOKE_RESERVED_COMMAND_ARGS
+                            if option.startswith("--")
+                        )
+                    }
+                )
+                command_arguments_are_safe = not reserved_command_arguments
+
                 source_positions = [
                     index
                     for index, value in enumerate(command_arguments)
-                    if value.casefold().endswith("scripts/ai_dememory.py")
+                    if _is_ai_dememory_source_path(value)
                 ]
-                source_paths_are_absolute = True
-                for source_position in source_positions:
-                    normalized = command_arguments[source_position]
-                    anchored = (
-                        normalized.startswith(
-                            ("/", "__ai_dememory_path_absolute_checkout__/")
-                        )
-                        or re.match(r"^[A-Za-z]:/", normalized) is not None
+                source_paths_are_absolute = bool(source_positions) and all(
+                    _is_literal_absolute_path(command_arguments[index])
+                    and not _has_dynamic_mcp_client_smoke_value(
+                        command_arguments[index]
                     )
-                    if not anchored:
-                        source_paths_are_absolute = False
-                        errors.append(
-                            f"{label}:{line_number}: mcp-client-smoke source launch "
-                            "must use an absolute scripts/ai_dememory.py path because "
-                            "the child runs from the bound vault"
-                        )
-                if python_launcher is not None:
-                    expected_source_position = 0
-                    if (
-                        launcher_name == "py"
-                        and command_arguments
-                        and re.fullmatch(r"-3(?:\.\d+)?", command_arguments[0])
-                    ):
-                        expected_source_position = 1
-                    if source_positions != [expected_source_position]:
-                        errors.append(
-                            f"{label}:{line_number}: mcp-client-smoke Python launch requires "
-                            "exactly one absolute scripts/ai_dememory.py --command-arg as the "
-                            "first program argument (after an optional py -3[.N] selector) "
-                            "because the child runs from the bound vault"
-                        )
-                    elif (
-                        source_paths_are_absolute
-                        and root_is_complete
-                        and launch_mode == "installed"
-                        and direct_dispatch
-                    ):
-                        has_valid_python_source_launch = True
+                    for index in source_positions
+                )
+
+                expected_source_position = 0
+                if (
+                    launcher_name == "py"
+                    and command_arguments
+                    and re.fullmatch(r"-3(?:\.\d+)?", command_arguments[0])
+                ):
+                    expected_source_position = 1
+                python_shape_is_valid = python_launcher is not None and (
+                    source_positions == [expected_source_position]
+                    and len(command_arguments) == expected_source_position + 1
+                )
+                template_source_is_valid = not require_template_placeholders or (
+                    python_shape_is_valid
+                    and command_arguments[expected_source_position]
+                    == MCP_CLIENT_SMOKE_ABSOLUTE_CHECKOUT_SENTINEL
+                    + "/scripts/ai_dememory.py"
+                )
+
+                installed_child_arguments_are_valid = not command_arguments or (
+                    python_launcher is not None
+                )
+
+                semantic_checks = (
+                    (singleton_options_are_valid,
+                     "mcp-client-smoke singleton options may appear at most once: " + ", ".join(duplicate_singletons)),
+                    (tail_values_are_literal,
+                     "mcp-client-smoke evidence requires literal option values without variables, globs, splats, or controls"),
+                    (launcher_reproducible and launcher_supported,
+                     "mcp-client-smoke --command must be an installed ai-dememory or Python launcher with a reproducible name"),
+                    (not loaded_config or config_is_valid,
+                     "mcp-client-smoke --config must be a literal absolute JSON path"),
+                    (template_config_is_valid,
+                     "reusable mcp-client-smoke config evidence must use the exact <absolute-checkout> plugin path"),
+                    (config_controls_are_valid,
+                     "loaded mcp-client-smoke config evidence must not include ignored --client, --mode, or --image controls"),
+                    (server_selection_is_valid,
+                     "custom mcp-client-smoke --server-name is only supported for generated generic config evidence"),
+                    (image_is_valid and image_is_relevant,
+                     "mcp-client-smoke --image must be a non-option Docker argv value used only with --mode docker"),
+                    (docker_controls_are_valid,
+                     "generated Docker smoke evidence cannot load config or include ignored --command/--command-arg overrides"),
+                    (command_arguments_are_safe,
+                     "mcp-client-smoke --command-arg cannot override reserved MCP arguments: " + ", ".join(reserved_command_arguments)),
+                    (not source_positions or source_paths_are_absolute,
+                     "mcp-client-smoke source launch must use an absolute scripts/ai_dememory.py path because the child runs from the bound vault"),
+                    (python_launcher is None or python_shape_is_valid,
+                     "mcp-client-smoke Python launch requires exactly one absolute scripts/ai_dememory.py --command-arg as the first program argument (after an optional py -3[.N] selector) with no extra child arguments"),
+                    (python_launcher is None or template_source_is_valid,
+                     "reusable mcp-client-smoke source evidence must use the exact <absolute-checkout> script path"),
+                    (installed_child_arguments_are_valid,
+                     "installed or loaded mcp-client-smoke launch evidence cannot add child arguments without an explicit Python launcher"),
+                )
+                errors.extend(
+                    f"{label}:{line_number}: {message}"
+                    for valid, message in semantic_checks
+                    if not valid
+                )
+
+                if (
+                    dispatch_kind == "canonical-python-source"
+                    and launch_mode == "installed"
+                    and not loaded_config
+                    and python_shape_is_valid
+                    and source_paths_are_absolute
+                    and all(valid for valid, _ in (*basic_checks, *semantic_checks))
+                ):
+                    has_valid_python_source_launch = True
     if require_python_source_launch and not has_valid_python_source_launch:
         errors.append(
             f"{label}: mcp-client-smoke evidence requires at least one complete "
