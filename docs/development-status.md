@@ -279,7 +279,11 @@ broaden the implementation.
   with six expected skips; the integrated memory-tools module passed 592 tests
   with 45 expected skips. Python compilation, diff validation, planning/docs
   guards, and a repository secret scan with zero findings also passed.
-  Exact-head independent review and PR CI are still required before merge.
+  A fresh virtual environment installed the local package and exercised the
+  installed CLI, strict config consumers, API, MCP, hooks, providers,
+  maintenance, and scheduler successfully; the isolated package-build smoke
+  built both distributions and passed `twine check`. Exact-head independent
+  review and PR CI are still required before merge.
 - The normative DAG now marks `BRG-017` complete with explicit evidence paths.
   `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
   task, and no package, tag, release, installed vault, host integration, or
