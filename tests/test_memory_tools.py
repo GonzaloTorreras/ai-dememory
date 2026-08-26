@@ -175,7 +175,7 @@ from memorylib import (  # noqa: E402
     safe_write_text,
     validate_memories,
 )
-from provider_import import capture_source, configure_provider, configure_provider_preview, default_provider_paths, detect_providers, import_chats, main as provider_main, provider_setup_plan, providers_status  # noqa: E402
+from provider_import import capture_source, configure_provider, configure_provider_preview, configured_import_path, default_provider_paths, detect_providers, import_chats, main as provider_main, provider_setup_plan, providers_status  # noqa: E402
 from publish_guard import (  # noqa: E402
     validate_legacy_preflight_workflow_text,
     validate_publisher_inventory,
@@ -1556,6 +1556,11 @@ class MemoryToolTests(unittest.TestCase):
                 error = io.StringIO()
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch.object(
+                        Path,
+                        "home",
+                        side_effect=AssertionError("static help resolved provider home"),
+                    ),
                     patch("provider_import.resolve_runtime_vault") as root_resolver,
                     patch("provider_import.detect_local_providers") as detect,
                     redirect_stdout(output),
@@ -1592,6 +1597,11 @@ class MemoryToolTests(unittest.TestCase):
                 error = io.StringIO()
                 with (
                     patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                    patch.object(
+                        Path,
+                        "home",
+                        side_effect=AssertionError("static help resolved provider home"),
+                    ),
                     patch("ai_dememory_tool.cli.find_memory_root") as root_resolver,
                     redirect_stdout(output),
                     redirect_stderr(error),
@@ -1624,6 +1634,11 @@ class MemoryToolTests(unittest.TestCase):
                 output = io.StringIO()
                 error = io.StringIO()
                 with (
+                    patch.object(
+                        Path,
+                        "home",
+                        side_effect=AssertionError("static help resolved provider home"),
+                    ),
                     patch("provider_import.resolve_runtime_vault") as direct_resolver,
                     patch(
                         "ai_dememory_tool.admin.provider_import.resolve_runtime_vault"
@@ -1956,6 +1971,47 @@ class MemoryToolTests(unittest.TestCase):
                     self.assertTrue(error.getvalue())
                     detector.assert_not_called()
 
+    def test_provider_detect_rejects_unsafe_home_before_candidate_probe(self) -> None:
+        targets = (
+            ("direct", provider_main, ["detect", "--json"]),
+            ("packaged", cli_main, ["providers", "detect", "--json"]),
+        )
+        home_cases = (
+            ("relative", {"return_value": Path("relative/home")}),
+            ("unc", {"return_value": Path("//server/share/home")}),
+            (
+                "unavailable",
+                {"side_effect": RuntimeError("sensitive-home-resolution-canary")},
+            ),
+        )
+        expected_error = (
+            "provider home path is unavailable or unsafe "
+            "[provider_home_unsafe]\n"
+        )
+        for entrypoint, target, argv in targets:
+            for case, home_behavior in home_cases:
+                with self.subTest(entrypoint=entrypoint, home=case):
+                    output = io.StringIO()
+                    error = io.StringIO()
+                    with (
+                        patch.object(Path, "home", **home_behavior),
+                        patch.object(
+                            Path,
+                            "exists",
+                            side_effect=AssertionError(
+                                "unsafe home reached a candidate existence probe"
+                            ),
+                        ) as path_probe,
+                        redirect_stdout(output),
+                        redirect_stderr(error),
+                    ):
+                        self.assertEqual(target(argv), 2)
+
+                    self.assertEqual(output.getvalue(), "")
+                    self.assertEqual(error.getvalue(), expected_error)
+                    self.assertNotIn("sensitive-home-resolution-canary", error.getvalue())
+                    path_probe.assert_not_called()
+
     def test_default_provider_paths_use_platform_native_cwd_invariant_fallbacks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -2030,6 +2086,13 @@ class MemoryToolTests(unittest.TestCase):
                 home=home,
                 platform="linux",
             )
+            linux_unknown_user = default_provider_paths(
+                environ={
+                    "XDG_CONFIG_HOME": "~ai_dememory_user_that_does_not_exist/config"
+                },
+                home=home,
+                platform="linux",
+            )
             custom_linux_config = base / "xdg-config"
             custom_linux = default_provider_paths(
                 environ={"XDG_CONFIG_HOME": str(custom_linux_config)},
@@ -2054,6 +2117,7 @@ class MemoryToolTests(unittest.TestCase):
             [home / "Library" / "Application Support" / "Cursor" / "User"],
         )
         self.assertEqual(linux_missing, linux_network)
+        self.assertEqual(linux_missing, linux_unknown_user)
         self.assertEqual(linux_relative_results, [linux_missing, linux_missing])
         self.assertEqual(
             linux_missing["cursor"],
@@ -10101,6 +10165,27 @@ class MemoryToolTests(unittest.TestCase):
             set(errors),
             {"configured provider path is unsafe [provider_path_unsafe] (provider=codex)"},
         )
+
+    def test_explicit_relative_provider_override_remains_cwd_relative(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "vault"
+            cwd = base / "working-directory"
+            provider = cwd / "relative" / "provider"
+            root.mkdir()
+            provider.mkdir(parents=True)
+            previous_cwd = Path.cwd()
+            try:
+                os.chdir(cwd)
+                resolved = configured_import_path(
+                    root,
+                    "codex",
+                    Path("relative/provider"),
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertEqual(resolved, provider.resolve())
 
     def test_provider_configure_dry_run_previews_without_writing_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

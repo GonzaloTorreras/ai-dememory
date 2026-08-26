@@ -50,6 +50,7 @@ PROVIDER_ERROR_MESSAGES = {
     "provider_path_unset": "configured provider path is missing",
     "provider_path_missing": "configured provider path is missing",
     "provider_path_unsafe": "configured provider path is unsafe",
+    "provider_home_unsafe": "provider home path is unavailable or unsafe",
     "provider_read_failed": "provider source could not be read",
     "provider_import_failed": "provider import failed",
 }
@@ -172,10 +173,7 @@ def default_provider_paths(
     """
 
     values = os.environ if environ is None else environ
-    selected_home = (Path.home() if home is None else Path(home)).expanduser()
-    if not selected_home.is_absolute():
-        raise ValueError("provider home must be an absolute path")
-    selected_home = Path(os.path.normpath(selected_home))
+    selected_home = absolute_provider_home(home)
     selected_platform = sys.platform if platform is None else platform
 
     if selected_platform == "win32":
@@ -195,13 +193,32 @@ def default_provider_paths(
     }
 
 
+def absolute_provider_home(home: Path | None = None) -> Path:
+    """Return a local absolute home or fail with a path-redacted diagnostic."""
+
+    try:
+        candidate = Path.home() if home is None else Path(home)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise ProviderImportError("provider_home_unsafe") from exc
+    raw_candidate = str(candidate)
+    if not candidate.is_absolute() or raw_candidate.startswith(("\\\\", "//")):
+        raise ProviderImportError("provider_home_unsafe")
+    return Path(os.path.normpath(candidate))
+
+
 def absolute_environment_path(values: Mapping[str, str], name: str) -> Path | None:
     """Return one absolute non-UNC environment path without filesystem access."""
 
     raw_value = str(values.get(name) or "").strip()
     if not raw_value or raw_value.startswith(("\\\\", "//")):
         return None
-    candidate = Path(raw_value).expanduser()
+    try:
+        candidate = Path(raw_value)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    # APPDATA and XDG_CONFIG_HOME are absolute-path contracts. Reject a raw
+    # relative value before expanduser so values such as ``~unknown/config``
+    # cannot trigger account lookup or an exception during rootless parsing.
     if not candidate.is_absolute():
         return None
     return Path(os.path.normpath(candidate))
@@ -369,7 +386,7 @@ def configure_provider(root: Path, name: str, path: Path, enabled: bool = True) 
 
 
 def provider_config_values(name: str, path: Path, enabled: bool = True) -> dict[str, Any]:
-    if name not in default_provider_paths():
+    if name not in SAFE_PROVIDER_NAMES:
         raise ValueError(f"unknown provider: {name}")
     return {
         "enabled": enabled,
@@ -406,7 +423,14 @@ def configure_provider_preview(root: Path, name: str, path: Path, enabled: bool 
 
 def configured_import_path(root: Path, provider: str, source_path: Path | None) -> Path:
     if source_path is not None:
-        path = source_path
+        # An explicit one-shot override is intentionally relative to the
+        # invoking user's CWD for backward compatibility. Persisted provider
+        # configuration is different: it must be absolute so an MCP host or
+        # later command cannot reinterpret it from another working directory.
+        try:
+            lexical = Path(os.path.abspath(source_path.expanduser()))
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise ProviderImportError("provider_path_unsafe", provider) from exc
     else:
         config = provider_config(root).get(provider)
         if not config:
@@ -416,8 +440,7 @@ def configured_import_path(root: Path, provider: str, source_path: Path | None) 
         configured = str(config.get("path") or "").strip()
         if not configured:
             raise ProviderImportError("provider_path_unset", provider)
-        path = Path(configured)
-    lexical = absolute_provider_source_path(path, provider)
+        lexical = absolute_provider_source_path(configured, provider)
     if path_is_link_like(lexical):
         raise ProviderImportError("provider_path_unsafe", provider)
     return lexical
@@ -989,7 +1012,7 @@ def _main(argv: list[str] | None = None) -> int:
         description=VAULT_BINDING_HELP,
         allow_abbrev=False,
     )
-    configure.add_argument("provider", choices=sorted(default_provider_paths()))
+    configure.add_argument("provider", choices=sorted(SAFE_PROVIDER_NAMES))
     configure.add_argument("--path", required=True, help="Provider chat/session directory.")
     configure.add_argument("--disable", action="store_true", help="Store the provider as disabled.")
     configure.add_argument("--dry-run", action="store_true", help="Preview config without writing .ai-dememory.toml.")
@@ -1001,7 +1024,7 @@ def _main(argv: list[str] | None = None) -> int:
         description=VAULT_BINDING_HELP,
         allow_abbrev=False,
     )
-    import_cmd.add_argument("provider", choices=sorted(default_provider_paths()))
+    import_cmd.add_argument("provider", choices=sorted(SAFE_PROVIDER_NAMES))
     import_cmd.add_argument("--path", default=None, help="Override provider path for this run.")
     import_cmd.add_argument("--limit", type=int, default=None, help="Maximum new candidates; defaults to the intensity profile.")
     import_cmd.add_argument(

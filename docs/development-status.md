@@ -258,19 +258,23 @@ local-API onboarding hint and documentation follow-up.
   its existing fields with `configured=false` and `enabled=false`; human output
   marks those unavailable vault-only fields as `config=n/a`. MCP detection,
   provider status, and provider plans deliberately remain vault-bound.
-- Missing, blank, relative, or UNC-style `APPDATA` no longer turns into the
-  working directory or probes that supplied network value. It uses the
-  absolute user-home `AppData/Roaming` fallback. macOS uses its application-
-  support directory and POSIX hosts use an absolute XDG config home or
-  `~/.config`. Manually edited relative provider paths now fail closed before
-  vault-bound detection, status, planning, MCP, or import can probe the CWD.
+- Missing, blank, relative, or UNC-style application-config overrides no longer
+  turn into the working directory or probe a supplied network value. Windows
+  uses the absolute user-home `AppData/Roaming` fallback, macOS uses its
+  application-support directory, and POSIX hosts use an absolute XDG config
+  home or `~/.config`. An unavailable, relative, or UNC-style home now fails
+  with a stable path-redacted error before candidate probes; static help does
+  not resolve a home. Manually edited relative provider paths fail closed before
+  vault-bound detection, status, planning, MCP, or import can probe the CWD,
+  while an explicit one-shot `import-chats --path` remains CWD-relative for
+  compatibility and is never persisted.
   The installed-package smoke poisons every vault selector and config source,
   runs from a foreign CWD, requires exact existing host candidates, and verifies
   exact before/after snapshots.
 - Current local evidence: the focused boundary set passes on Windows and WSL;
-  the 31 provider-related tests pass with one expected platform skip; the full
-  Windows suite passes 1,071 tests with 60 expected platform skips; and the
-  installed package smoke passes all 96 recorded steps. The integrated CI,
+  the 39 provider-related tests pass with one expected Windows platform skip;
+  the full Windows suite passes 1,073 tests with 60 expected platform skips;
+  and the installed package smoke passes all 96 recorded steps. The integrated CI,
   acceptance, documentation, Pages-artifact, planning-contract, secret, and
   diff guards pass. Cross-platform PR CI and fresh exact-head reviews remain
   delivery gates. `BRG-003` stays `in_progress`, and this increment changes no

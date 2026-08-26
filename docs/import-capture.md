@@ -35,6 +35,8 @@ missing, blank, relative, or UNC-style network `APPDATA` uses the absolute
 or using the current directory. macOS uses `~/Library/Application Support`;
 Linux and other POSIX hosts use an absolute `XDG_CONFIG_HOME` or `~/.config`
 fallback. Relative or UNC-style config-home overrides are ignored.
+An unavailable, relative, or UNC-style home fails with a stable path-redacted
+diagnostic before detection can issue filesystem or network metadata probes.
 
 Provider plans, configuration, status, imports, and captures are different:
 they remain vault-bound. In the unreleased 2.1.2 source candidate, they resolve
@@ -53,6 +55,9 @@ report configured, enabled, import-ready, and recommended command state without
 reading chat contents or writing import candidates. Provider paths written by
 the CLI are absolute; a manually edited relative provider path fails closed
 before detection, status, planning, or import can probe the current directory.
+For backward compatibility, an explicit one-shot `import-chats --path` override
+may still be relative to the directory where that command is invoked; it is not
+persisted as provider configuration.
 
 Configure a provider path:
 

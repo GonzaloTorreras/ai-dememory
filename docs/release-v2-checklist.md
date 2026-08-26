@@ -892,6 +892,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] Default candidates use native Windows, macOS, and XDG config homes;
   missing, blank, relative, or UNC-style config-home overrides cannot turn
   detection into a CWD-dependent or network-path probe.
+- [ ] An unavailable, relative, or UNC-style home fails with a stable redacted
+  diagnostic before candidate existence checks; provider static help remains
+  available without resolving a home.
 - [ ] A manually edited relative provider path fails closed before vault-bound
   detection, status, planning, MCP, or import probes the current directory.
 - [ ] `ai-dememory --root <vault-path> providers plan --json` returns reviewable configure/import
