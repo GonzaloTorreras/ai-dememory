@@ -56,8 +56,28 @@
           "title": {"type": "string", "minLength": 1},
           "status": {"enum": ["pending", "in_progress", "blocked", "complete", "future"]},
           "depends_on": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-          "evidence": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-          "external_readback_required": {"type": "boolean"}
+          "evidence": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "uniqueItems": true
+          },
+          "external_readback_required": {"type": "boolean"},
+          "external_readback_contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "contract_id",
+              "kind",
+              "minimum_sessions",
+              "fixture_required"
+            ],
+            "properties": {
+              "contract_id": {"type": "string", "minLength": 1, "maxLength": 128},
+              "kind": {"type": "string", "minLength": 1, "maxLength": 64},
+              "minimum_sessions": {"type": "integer", "minimum": 1},
+              "fixture_required": {"type": "boolean"}
+            }
+          }
         }
       }
     }

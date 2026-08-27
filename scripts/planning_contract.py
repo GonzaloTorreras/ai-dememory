@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+from itertools import islice
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 from typing import Any
 
@@ -17,6 +18,9 @@ PLANNING_DIR = Path("contracts/planning")
 SEQUENCE_NAME = "v3-execution-sequence.json"
 SCHEMA_NAME = "v3-execution-sequence.schema.json"
 LEDGER_NAME = "v3-execution-ledger.json"
+EXTERNAL_RECEIPT_SCHEMA_NAME = "external-readback-receipt.schema.json"
+EXTERNAL_RECEIPT_SCHEMA_REF = "../../external-readback-receipt.schema.json"
+EVIDENCE_NAMESPACE = PurePosixPath("contracts/planning/evidence")
 ROADMAP_PATH = Path("docs/v3-hybrid-visual-multiplatform-roadmap.md")
 ROADMAP_TABLE_BEGIN = "<!-- BEGIN NORMATIVE TASK STATE TABLE -->"
 ROADMAP_TABLE_END = "<!-- END NORMATIVE TASK STATE TABLE -->"
@@ -25,19 +29,61 @@ ROADMAP_TABLE_SEPARATOR = ["---", "---", "---", "---", "---"]
 ROADMAP_TABLE_MAX_CHARS = 64 * 1024
 ROADMAP_TABLE_MAX_ROWS = 512
 ROADMAP_TABLE_MAX_LINE_CHARS = 8 * 1024
+EXTERNAL_RECEIPT_MAX_BYTES = 64 * 1024
+EVIDENCE_DIRECTORY_MAX_ENTRIES = 4096
+WINDOWS_FORBIDDEN_PATH_CHARS = frozenset('<>"|?*')
+WINDOWS_RESERVED_PATH_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{index}" for index in range(1, 10)}
+    | {f"LPT{index}" for index in range(1, 10)}
+)
 
 
-def load_json_object(path: Path, errors: list[str]) -> dict[str, Any] | None:
+class DuplicateJsonKeyError(ValueError):
+    """Raised when a planning JSON object contains an ambiguous duplicate key."""
+
+
+def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateJsonKeyError(key)
+        result[key] = value
+    return result
+
+
+def load_json_object(
+    path: Path, errors: list[str], *, label: str | None = None
+) -> dict[str, Any] | None:
+    display = label or path.as_posix()
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_json_keys,
+        )
     except FileNotFoundError:
-        errors.append(f"{path.as_posix()}: missing")
+        errors.append(f"{display}: missing")
+        return None
+    except UnicodeDecodeError:
+        errors.append(f"{display}: invalid UTF-8")
+        return None
+    except DuplicateJsonKeyError as exc:
+        errors.append(f"{display}: duplicate JSON key {str(exc)!r}")
+        return None
+    except RecursionError:
+        errors.append(f"{display}: invalid JSON nesting")
         return None
     except json.JSONDecodeError as exc:
-        errors.append(f"{path.as_posix()}: invalid JSON: {exc}")
+        errors.append(f"{display}: invalid JSON: {exc}")
+        return None
+    except ValueError:
+        errors.append(f"{display}: invalid JSON value")
+        return None
+    except OSError as exc:
+        errors.append(f"{display}: cannot be read: {exc}")
         return None
     if not isinstance(value, dict):
-        errors.append(f"{path.as_posix()}: root must be an object")
+        errors.append(f"{display}: root must be an object")
         return None
     return value
 
@@ -80,6 +126,12 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
                     errors.extend(validate_json_schema(value[name], child_schema, f"{path}.{name}"))
 
     if isinstance(value, list):
+        minimum_items = schema.get("minItems")
+        if isinstance(minimum_items, int) and len(value) < minimum_items:
+            errors.append(f"{path}: array has fewer than {minimum_items} items")
+        maximum_items = schema.get("maxItems")
+        if isinstance(maximum_items, int) and len(value) > maximum_items:
+            errors.append(f"{path}: array has more than {maximum_items} items")
         if schema.get("uniqueItems") is True:
             encoded = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
             if len(encoded) != len(set(encoded)):
@@ -93,6 +145,9 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
         minimum_length = schema.get("minLength")
         if isinstance(minimum_length, int) and len(value) < minimum_length:
             errors.append(f"{path}: string is shorter than {minimum_length}")
+        maximum_length = schema.get("maxLength")
+        if isinstance(maximum_length, int) and len(value) > maximum_length:
+            errors.append(f"{path}: string is longer than {maximum_length}")
         pattern = schema.get("pattern")
         if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             errors.append(f"{path}: string does not match {pattern!r}")
@@ -163,6 +218,186 @@ def dependency_reachable(graph: dict[str, list[str]], start: str, target: str) -
             dependency for dependency in graph.get(node, []) if dependency not in visited
         )
     return False
+
+
+def transitive_dependencies(graph: dict[str, list[str]], start: str) -> set[str]:
+    """Return all known predecessor nodes without assuming an acyclic graph."""
+    result: set[str] = set()
+    pending = list(graph.get(start, []))
+    while pending:
+        node = pending.pop()
+        if node in result or node == start:
+            continue
+        result.add(node)
+        pending.extend(graph.get(node, []))
+    return result
+
+
+def validate_evidence_path(
+    task_id: str, value: str, root: Path
+) -> tuple[Path | None, list[str]]:
+    """Resolve one canonical repo-relative evidence path to a contained file."""
+    if not value or value != value.strip():
+        return None, [
+            f"task {task_id} has empty or whitespace-padded evidence path {value!r}"
+        ]
+    if "\\" in value:
+        return None, [
+            f"task {task_id} evidence path must use forward slashes: {value!r}"
+        ]
+    path = PurePosixPath(value)
+    windows_path = PureWindowsPath(value)
+    if path.is_absolute() or windows_path.is_absolute() or bool(windows_path.drive):
+        return None, [f"task {task_id} has absolute evidence path {value!r}"]
+    if ":" in value:
+        return None, [
+            f"task {task_id} evidence path must not contain ':' or an alternate stream: "
+            f"{value!r}"
+        ]
+    if ".." in path.parts:
+        return None, [f"task {task_id} has traversal evidence path {value!r}"]
+    if any(part.casefold() == ".git" for part in path.parts):
+        return None, [f"task {task_id} evidence path cannot use .git metadata: {value!r}"]
+    for part in path.parts:
+        if (
+            part.endswith((".", " "))
+            or any(character in WINDOWS_FORBIDDEN_PATH_CHARS for character in part)
+            or any(ord(character) < 32 for character in part)
+            or part.split(".", 1)[0].upper() in WINDOWS_RESERVED_PATH_NAMES
+        ):
+            return None, [
+                f"task {task_id} evidence path is not portable on Windows: {value!r}"
+            ]
+    if value == "." or path.as_posix() != value:
+        return None, [f"task {task_id} has non-normalized evidence path {value!r}"]
+
+    try:
+        root_resolved = root.resolve(strict=True)
+    except OSError as exc:
+        return None, [f"repository root cannot be resolved: {exc}"]
+    resolved = root_resolved
+    for part in path.parts:
+        try:
+            entries = list(
+                islice(resolved.iterdir(), EVIDENCE_DIRECTORY_MAX_ENTRIES + 1)
+            )
+        except OSError as exc:
+            return None, [
+                f"task {task_id} evidence path cannot inspect component {part!r}: {exc}"
+            ]
+        if len(entries) > EVIDENCE_DIRECTORY_MAX_ENTRIES:
+            return None, [
+                f"task {task_id} evidence directory exceeds "
+                f"{EVIDENCE_DIRECTORY_MAX_ENTRIES} entries before component {part!r}"
+            ]
+        exact_entry = next((entry for entry in entries if entry.name == part), None)
+        if exact_entry is None:
+            case_aliases = sorted(
+                entry.name for entry in entries if entry.name.casefold() == part.casefold()
+            )
+            if case_aliases:
+                return None, [
+                    f"task {task_id} evidence path component {part!r} does not match "
+                    f"filesystem spelling {case_aliases[0]!r}"
+                ]
+            return None, [f"task {task_id} evidence path does not exist: {value}"]
+        try:
+            resolved = exact_entry.resolve(strict=True)
+        except OSError as exc:
+            return None, [
+                f"task {task_id} evidence path cannot resolve component {part!r}: {exc}"
+            ]
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError:
+            return None, [
+                f"task {task_id} evidence path escapes repository root: {value!r}"
+            ]
+    try:
+        is_file = resolved.is_file()
+    except OSError as exc:
+        return None, [
+            f"task {task_id} evidence path cannot be inspected {value!r}: {exc}"
+        ]
+    if not is_file:
+        return None, [f"task {task_id} evidence path is not a regular file: {value}"]
+    return resolved, []
+
+
+def is_external_receipt_path(task_id: str, value: str) -> bool:
+    path = PurePosixPath(value)
+    expected_parent = EVIDENCE_NAMESPACE / task_id
+    return path.parent == expected_parent and path.suffix == ".json"
+
+
+def validate_external_receipt(
+    *,
+    task_id: str,
+    evidence_value: str,
+    resolved_path: Path,
+    receipt_schema: dict[str, Any] | None,
+    readback_contract: dict[str, Any],
+) -> list[str]:
+    """Validate one typed receipt and bind it to the completed planning task."""
+    prefix = f"task {task_id} external receipt {evidence_value}"
+    if receipt_schema is None:
+        return [f"{prefix}: receipt schema is unavailable"]
+    try:
+        receipt_size = resolved_path.stat().st_size
+    except OSError as exc:
+        return [f"{prefix}: receipt cannot be inspected: {exc}"]
+    if receipt_size > EXTERNAL_RECEIPT_MAX_BYTES:
+        return [
+            f"{prefix}: receipt exceeds {EXTERNAL_RECEIPT_MAX_BYTES} bytes"
+        ]
+    receipt_errors: list[str] = []
+    receipt = load_json_object(resolved_path, receipt_errors, label=evidence_value)
+    if receipt is None:
+        return [f"{prefix}: {error}" for error in receipt_errors]
+    errors = [
+        f"{prefix}: {error}"
+        for error in validate_json_schema(receipt, receipt_schema)
+    ]
+    if receipt.get("$schema") != EXTERNAL_RECEIPT_SCHEMA_REF:
+        errors.append(
+            f"{prefix}: $schema must be {EXTERNAL_RECEIPT_SCHEMA_REF!r}"
+        )
+    if receipt.get("task_id") != task_id:
+        errors.append(
+            f"{prefix}: task_id {receipt.get('task_id')!r} does not match {task_id!r}"
+        )
+    if receipt.get("contract_id") != readback_contract.get("contract_id"):
+        errors.append(
+            f"{prefix}: contract_id {receipt.get('contract_id')!r} does not match "
+            f"{readback_contract.get('contract_id')!r}"
+        )
+    if receipt.get("kind") != readback_contract.get("kind"):
+        errors.append(
+            f"{prefix}: kind {receipt.get('kind')!r} does not match "
+            f"{readback_contract.get('kind')!r}"
+        )
+    readback = receipt.get("readback")
+    sessions = readback.get("session_count") if isinstance(readback, dict) else None
+    minimum_sessions = readback_contract.get("minimum_sessions")
+    if (
+        isinstance(minimum_sessions, int)
+        and not isinstance(minimum_sessions, bool)
+        and (
+            not isinstance(sessions, int)
+            or isinstance(sessions, bool)
+            or sessions < minimum_sessions
+        )
+    ):
+        errors.append(
+            f"{prefix}: session_count {sessions!r} is below required minimum "
+            f"{minimum_sessions}"
+        )
+    if (
+        readback_contract.get("fixture_required") is True
+        and receipt.get("fixture_identity") == "not-applicable"
+    ):
+        errors.append(f"{prefix}: fixture_identity must be a SHA-256 digest")
+    return errors
 
 
 def split_markdown_table_row(line: str) -> list[str] | None:
@@ -348,7 +583,12 @@ def validate_roadmap_parity(sequence: dict[str, Any], roadmap: str) -> list[str]
     return errors
 
 
-def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[str]:
+def validate_sequence_semantics(
+    sequence: dict[str, Any],
+    root: Path,
+    *,
+    receipt_schema: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
     raw_tasks = sequence.get("tasks")
     raw_batches = sequence.get("batches")
@@ -385,6 +625,7 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
         batch_id: [item for item in batch.get("depends_on", []) if isinstance(item, str)]
         for batch_id, batch in batch_map.items()
     }
+    readback_contract_ids: list[str] = []
 
     for task_id, task in task_map.items():
         batch_id = task.get("batch")
@@ -412,6 +653,22 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
                 )
         evidence = task.get("evidence", [])
         status = task.get("status")
+        external_readback_required = task.get("external_readback_required") is True
+        readback_contract = task.get("external_readback_contract")
+        if external_readback_required:
+            if not isinstance(readback_contract, dict):
+                errors.append(
+                    f"task {task_id} requires an external_readback_contract descriptor"
+                )
+            else:
+                contract_id = readback_contract.get("contract_id")
+                if isinstance(contract_id, str):
+                    readback_contract_ids.append(contract_id)
+        elif readback_contract is not None:
+            errors.append(
+                f"task {task_id} must not define external_readback_contract when "
+                "external_readback_required is false"
+            )
         if status == "complete":
             if not isinstance(evidence, list) or not evidence:
                 errors.append(f"complete task {task_id} must have non-empty evidence")
@@ -423,15 +680,68 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
                     )
         if status == "future" and evidence != []:
             errors.append(f"future task {task_id} must have empty evidence")
+        resolved_evidence: dict[str, Path] = {}
         if isinstance(evidence, list):
             for value in evidence:
                 if not isinstance(value, str):
                     continue
-                path = PurePosixPath(value)
-                if path.is_absolute() or ".." in path.parts:
-                    errors.append(f"task {task_id} has unsafe evidence path {value!r}")
-                elif not (root / Path(*path.parts)).exists():
-                    errors.append(f"task {task_id} evidence path does not exist: {value}")
+                resolved, path_errors = validate_evidence_path(task_id, value, root)
+                errors.extend(path_errors)
+                if resolved is not None:
+                    resolved_evidence[value] = resolved
+        if status == "complete" and external_readback_required:
+            valid_receipt = False
+            receipt_candidates = [
+                value
+                for value in resolved_evidence
+                if is_external_receipt_path(task_id, value)
+            ]
+            for value in receipt_candidates:
+                if not isinstance(readback_contract, dict):
+                    continue
+                receipt_errors = validate_external_receipt(
+                    task_id=task_id,
+                    evidence_value=value,
+                    resolved_path=resolved_evidence[value],
+                    receipt_schema=receipt_schema,
+                    readback_contract=readback_contract,
+                )
+                errors.extend(receipt_errors)
+                if not receipt_errors:
+                    valid_receipt = True
+            if not valid_receipt:
+                errors.append(
+                    f"complete task {task_id} requires a valid task-bound external-readback "
+                    f"receipt under {EVIDENCE_NAMESPACE.as_posix()}/{task_id}/"
+                )
+
+    for duplicate in sorted(duplicate_values(readback_contract_ids)):
+        errors.append(f"duplicate external readback contract_id: {duplicate}")
+
+    for task_id, task in task_map.items():
+        status = task.get("status")
+        batch_id = task.get("batch")
+        if status not in {"in_progress", "complete"} or batch_id not in batch_map:
+            continue
+        for predecessor_batch_id in sorted(
+            transitive_dependencies(batch_graph, str(batch_id))
+        ):
+            predecessor_batch = batch_map.get(predecessor_batch_id)
+            if predecessor_batch is None:
+                continue
+            predecessor_tasks = predecessor_batch.get("tasks", [])
+            if not isinstance(predecessor_tasks, list):
+                continue
+            for predecessor_task_id in predecessor_tasks:
+                predecessor_task = task_map.get(predecessor_task_id)
+                if (
+                    predecessor_task is not None
+                    and predecessor_task.get("status") != "complete"
+                ):
+                    errors.append(
+                        f"task {task_id} cannot be {status} until predecessor batch "
+                        f"{predecessor_batch_id} task {predecessor_task_id} is complete"
+                    )
 
     task_cycle = dependency_cycle(task_graph)
     if task_cycle:
@@ -470,19 +780,30 @@ def validate_planning_contract(root: Path) -> list[str]:
     errors: list[str] = []
     sequence = load_json_object(planning / SEQUENCE_NAME, errors)
     schema = load_json_object(planning / SCHEMA_NAME, errors)
+    receipt_schema = load_json_object(
+        planning / EXTERNAL_RECEIPT_SCHEMA_NAME, errors
+    )
     ledger = load_json_object(planning / LEDGER_NAME, errors)
     if sequence is not None and schema is not None:
-        errors.extend(validate_json_schema(sequence, schema))
-        errors.extend(validate_sequence_semantics(sequence, root))
-        roadmap_path = root / ROADMAP_PATH
-        try:
-            roadmap = roadmap_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            errors.append(f"{ROADMAP_PATH.as_posix()}: missing")
-        except UnicodeDecodeError:
-            errors.append(f"{ROADMAP_PATH.as_posix()}: invalid UTF-8")
-        else:
-            errors.extend(validate_roadmap_parity(sequence, roadmap))
+        sequence_schema_errors = validate_json_schema(sequence, schema)
+        errors.extend(sequence_schema_errors)
+        if not sequence_schema_errors:
+            errors.extend(
+                validate_sequence_semantics(
+                    sequence, root, receipt_schema=receipt_schema
+                )
+            )
+            roadmap_path = root / ROADMAP_PATH
+            try:
+                roadmap = roadmap_path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                errors.append(f"{ROADMAP_PATH.as_posix()}: missing")
+            except UnicodeDecodeError:
+                errors.append(f"{ROADMAP_PATH.as_posix()}: invalid UTF-8")
+            except OSError as exc:
+                errors.append(f"{ROADMAP_PATH.as_posix()}: cannot be read: {exc}")
+            else:
+                errors.extend(validate_roadmap_parity(sequence, roadmap))
     if ledger is not None:
         expected_keys = {"contract_version", "updated_at", "entries"}
         if set(ledger) != expected_keys:

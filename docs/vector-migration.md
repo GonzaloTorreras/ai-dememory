@@ -11,6 +11,7 @@ Normative ownership lives in the
 1. `RET-001` repairs recall evaluation before `GATE-B`.
 2. `GRF-001` versions the graph projection after `GATE-B`.
 3. `RET-002` may then compare bounded retrieval candidates in shadow mode.
+4. `RET-003` separately owns any production retrieval design or promotion.
 
 The [proposal validation handoff](proposal-validation-handoff.md) records why
 this sequence changed.
@@ -41,27 +42,43 @@ first proving that each id/path exists in canonical memory.
 - both corpora have stable case ids, provenance, hashes, and leakage checks;
 - invalid, unknown, and unresolved cases remain distinguishable.
 
-It must also freeze the machine-readable `retrieval-benchmark-v1` contract
-(`contract_name=retrieval-benchmark`, `schema_version=1`) before `GATE-B`. The
-id payload is compact UTF-8 JSON with sorted keys containing the exact query
-code points, sorted expected ids, scope, and immutable provenance id, but no
-`case_id` or mutable review timestamps. Its id is `ret_` plus the first 20 hex
-characters of the payload SHA-256; the corpus digest hashes the full case
-records in case-id order joined by LF. The contract pairs every candidate result
-with an FTS result for the same case id, reviewed
-expected ids, corpus SHA-256, policy/config digest, host, and final
-context-hydration path. Case recall is the fraction of expected ids in the first
-ten final hydrated items; primary macro `Recall@10` is its unweighted case mean.
-`MRR@10` is the secondary unweighted mean reciprocal rank and uses zero when no
-expected id appears in the first ten items.
+No machine-readable `retrieval-benchmark-v1` schema or artifact is frozen today.
+`RET-001` must implement, test, version, and freeze it
+(`contract_name=retrieval-benchmark`, `schema_version=1`) before `GATE-B`. Its
+canonical JSON bytes are UTF-8 without BOM or trailing LF, sorted object keys,
+compact separators, `ensure_ascii=false`, no Unicode normalization, and no
+duplicate keys or non-finite numbers. Expected ids are unique and sorted. The
+case-id payload has exactly `expected_ids`, `provenance_id`, `query`, and
+`scope`; `case_id` is `ret_` plus the first 20 lowercase hex characters of its
+SHA-256. The full held-out record adds `case_id`, literal
+`corpus_role=held_out`, and integer `schema_version=1`. `corpus_sha256` hashes one
+canonical JSON array of those full records sorted by `case_id`. The report also
+binds the full 40-hex source commit, lowercase raw-byte executed source/package
+artifact SHA-256, and the
+same canonical-byte SHA-256 of a schema-checked, fully materialized effective
+benchmark object containing both control and candidate settings plus shared
+hydration, policy, scope, lifecycle, sensitivity, profile, and harness settings.
+Both arms reference that one object.
 
-Each arm receives one full-corpus warm-up, excluded from results, and five
-measured paired repetitions with alternating arm order. The 95% confidence
+The future contract pairs every candidate result with an FTS result for the
+same case id, reviewed expected ids, corpus, source artifact, configuration,
+host, and final context-hydration path. Case recall is the fraction of expected
+ids in the first ten final hydrated items; primary macro `Recall@10` is its
+unweighted case mean. `MRR@10` is the secondary unweighted mean reciprocal rank
+and uses zero when no expected id appears in the first ten items.
+
+The excluded warm-up runs the full corpus once with FTS first and once with the
+candidate second. Five measured paired repetitions then alternate arm order.
+The 95% confidence
 interval is a 10,000-resample paired percentile bootstrap over per-case mean
-candidate-minus-FTS recall deltas with seed `20260827`; cases use case-id order,
-portable sample indices come from the first eight bytes of
-`SHA-256(seed || ":" || replicate || ":" || draw)` modulo the case count. The
-nearest-rank 2.5th and 97.5th bootstrap values are the interval endpoints. The
+candidate-minus-FTS recall deltas with seed `20260827`. For `N` cases sorted by
+case id, replicate indices are exactly `0..9999` and each has `N` draw indices
+`0..N-1`. Portable sample indices come from the unsigned big-endian first eight
+bytes of
+`SHA-256(UTF8(decimal(seed) + ":" + decimal(replicate) + ":" + decimal(draw)))`
+modulo `N`; decimal inputs have no sign, leading zero, whitespace, BOM, or
+newline. After sorting replicate means, one-based nearest ranks
+`ceil(0.025*10000)` and `ceil(0.975*10000)` are the interval endpoints. The
 result records exact source/dependency/candidate identity, nearest-rank p50/p95
 end-to-end latency, 50 ms process-tree RSS samples and peak, errors, lock
 failures, index bytes, rebuild duration, and policy/provenance/sensitive-data
@@ -73,7 +90,9 @@ implemented and reproducible.
 
 ## Experiment trigger
 
-After `GATE-B` and `GRF-001`, `RET-002` may open an opt-in experiment only when:
+After the generic authenticated-provider compatibility evidence in `GATE-B` and
+the separate local MCP consumer receipt in `GRF-001`, `RET-002` may open an
+opt-in experiment only when:
 
 - at least 100 reviewed held-out cases exist without train/test leakage;
 - important misses repeatedly involve different vocabulary after aliases,
@@ -97,10 +116,11 @@ On one valid `retrieval-benchmark-v1` run, every candidate gate must pass:
 - policy, provenance, and sensitive-data violations are all zero.
 
 These thresholds are the version-one experiment gate, not runtime defaults or
-permission to implement or enable a candidate before `RET-001`, `GATE-B`,
-`GRF-001`, and `RET-002` reach their own review boundaries. Passing permits a
-production-design review only. Index size, rebuild duration, packaging, and
-maintenance cost remain mandatory report fields, not unstated numeric gates.
+permission to implement or enable a candidate. Passing permits only opening the
+separate `RET-003` production-design review. `RET-002` cannot implement, package,
+promote, enable, or change default ranking. Index size, rebuild duration,
+packaging, and maintenance cost remain mandatory report fields, not unstated
+numeric gates.
 
 ## Candidate comparison, not backend selection
 
@@ -130,8 +150,9 @@ run the comparison.
 - Vector candidates augment the FTS control; they cannot bypass scope, project,
   sensitivity, lifecycle, provenance, review, or final hydration checks.
 - Shadow reports are bounded, secret-scanned, and off by default.
-- FTS remains the deterministic fallback and production baseline until a later
-  reviewed task explicitly changes that contract.
+- FTS remains the deterministic fallback and production baseline. Only the
+  future `RET-003`, after a valid `RET-002` and separate approval, may design and
+  gate a production change.
 
 ## Stop and rollback gates
 
@@ -152,3 +173,15 @@ Do not proceed, or return to unchanged FTS, when any of these is true:
 Failure rejects and removes the generated shadow candidate state; production
 FTS remains unchanged. This is not a production rollback because no v1
 experiment is allowed to alter production ranking.
+
+## Separate production boundary
+
+`RET-003` is the sole future owner of production retrieval design,
+implementation, dependency/package changes, enablement, promotion, and default
+ranking. It may start only after a valid, passing, independently reviewed
+`RET-002` benchmark and readback receipt. It must select the smallest justified
+candidate, preserve a tested FTS fallback, bind privacy/provenance and resource
+budgets, cover generated-artifact lifecycle plus install/upgrade/uninstall and
+rollback, prove external readback, and cross a separate explicit production
+approval gate. A successful shadow comparison is input to that review, never
+production authorization.

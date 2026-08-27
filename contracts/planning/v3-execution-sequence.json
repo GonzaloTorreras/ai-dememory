@@ -54,6 +54,12 @@
       "tasks": ["RET-002"]
     },
     {
+      "id": "B06c",
+      "title": "Production retrieval design gate",
+      "depends_on": ["B06b"],
+      "tasks": ["RET-003"]
+    },
+    {
       "id": "B07a",
       "title": "Bounded observation shadow",
       "depends_on": ["B06"],
@@ -211,7 +217,13 @@
       "status": "blocked",
       "depends_on": ["MIG-001", "RET-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "gate-b-authenticated-provider-v1",
+        "kind": "authenticated_provider_v1",
+        "minimum_sessions": 1,
+        "fixture_required": false
+      }
     },
     {
       "id": "GRF-001",
@@ -220,7 +232,13 @@
       "status": "future",
       "depends_on": ["GATE-B"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "grf-001-local-mcp-graph-v1",
+        "kind": "local_mcp_graph_v1",
+        "minimum_sessions": 2,
+        "fixture_required": true
+      }
     },
     {
       "id": "RET-002",
@@ -229,7 +247,28 @@
       "status": "future",
       "depends_on": ["GRF-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "ret-002-retrieval-shadow-v1",
+        "kind": "retrieval_shadow_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
+    },
+    {
+      "id": "RET-003",
+      "batch": "B06c",
+      "title": "Design and gate any production retrieval change",
+      "status": "future",
+      "depends_on": ["RET-002"],
+      "evidence": [],
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "ret-003-production-retrieval-v1",
+        "kind": "production_retrieval_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
     },
     {
       "id": "OBS-001",
@@ -238,7 +277,13 @@
       "status": "future",
       "depends_on": ["GATE-B"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "obs-001-provider-observation-shadow-v1",
+        "kind": "provider_observation_shadow_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
     },
     {
       "id": "OUT-001",
@@ -247,7 +292,13 @@
       "status": "future",
       "depends_on": ["OBS-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "out-001-explicit-outcome-attribution-v1",
+        "kind": "explicit_outcome_attribution_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
     },
     {
       "id": "CON-001",
@@ -265,7 +316,13 @@
       "status": "future",
       "depends_on": ["CON-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "mem-001-reviewed-memory-form-v1",
+        "kind": "reviewed_memory_form_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
     },
     {
       "id": "ONB-001",
@@ -274,7 +331,13 @@
       "status": "future",
       "depends_on": ["GATE-B"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "onb-001-guided-onboarding-v1",
+        "kind": "guided_onboarding_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true
+      }
     }
   ]
 }

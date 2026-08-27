@@ -511,9 +511,10 @@ local-API onboarding hint and documentation follow-up.
   MCP/profile budgets under `BRG-019`; writers, accepted formats, proposal caps,
   YAML duplicate rejection, and index fencing/recovery under `MIG-001`;
   truth-preserving held-out recall evidence under new pending `RET-001`; then
-  `GATE-B`; followed by future `GRF-001` and `RET-002` as an independent
-  post-gate graph/retrieval branch. Governed learning remains the parallel
-  `OBS-001` -> `OUT-001` -> `CON-001` -> `MEM-001` branch after `GATE-B`.
+  `GATE-B`; followed by future `GRF-001`, shadow-only `RET-002`, and the separate
+  production-design gate `RET-003` as an independent post-gate graph/retrieval
+  branch. Governed learning remains the parallel `OBS-001` -> `OUT-001` ->
+  `CON-001` -> `MEM-001` branch after `GATE-B`.
 - The current ASCII token boundary is now recorded as a high-probability
   multilingual quality risk. `RET-001` must expose it with reviewed
   Spanish/Unicode cases; `RET-002` must compare one shared deterministic Unicode
@@ -525,31 +526,40 @@ local-API onboarding hint and documentation follow-up.
   `MRR@10`, deterministic corpus/config identity and bootstrap, repeated
   same-host measurements, and explicit latency, RSS, error, lock, and policy
   fields. `RET-002` remains shadow-only and requires the versioned gain and
-  resource thresholds before a production-design review. `GRF-001` now has an
-  exact external-readback receipt: two reproducible fresh out-of-process MCP
-  sessions from a client frozen by `BRG-019`, with sanitized request/contract,
-  artifact, environment, schema-validation, and canonical response-hash proof.
+  resource thresholds before `RET-003` may open a production-design review;
+  it cannot itself package, enable, promote, or change ranking. `GRF-001` must
+  produce an exact external-readback receipt from two reproducible fresh
+  out-of-process MCP sessions, with profile/allowlist, artifact, schema, fixture,
+  lifecycle, redaction, environment, and canonical response-hash proof.
 - Active quality, operations, MCP, release-checklist, vector, and roadmap docs
   now distinguish passing regression fixtures from unresolved held-out
   challenges. `vector status` is descriptive only. The current source snapshot
   reports the admin MCP profile at 74 tools, 81,234 schema bytes, and about
   20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement.
 - Reusable planning validation now rejects task dependencies whose batches are
-  not transitively compatible; requires the frontier to equal every and only
-  `in_progress` task; requires non-empty evidence and complete dependencies for
-  every `complete` task; and requires empty evidence for every `future` task.
-  Its bounded escaped-pipe-aware roadmap parser enforces exact task-id/batch/
-  state/frontier parity from `release-check`, not only from unit tests. The
-  current frontier remains exactly `BRG-003`; contract version 1 and the empty
-  public execution ledger are unchanged.
+  not transitively compatible or whose predecessor batches are incomplete;
+  requires the frontier to equal every and only `in_progress` task; requires
+  non-empty, canonical, contained regular-file evidence and complete
+  dependencies for every `complete` task; and requires empty evidence for every
+  `future` task. External tasks declare distinct versioned descriptors and can
+  complete only with a size-bounded, task/contract/class-bound JSON receipt that
+  satisfies session, fixture, lifecycle, result, and secret-scan requirements.
+  Duplicate, deeply nested, or otherwise invalid JSON fails with controlled
+  diagnostics. Its bounded escaped-pipe-aware roadmap parser enforces exact
+  task-id/batch/state/frontier parity from `release-check`, not only from unit
+  tests. The current frontier remains exactly `BRG-003`; contract version 1 and
+  the empty public execution ledger are unchanged.
 - Local pre-rebase evidence passed 181 focused planning, documentation-site,
   MCP-profile, and Pages tests. The clean rebased predecessor head passed full
-  discovery with 1,149 tests and 63 expected skips. The lifecycle/parity and
-  benchmark corrections then passed 14 focused planning tests, direct planning
-  validation, non-strict release check, documentation-site guard, secret scan,
-  artifact guard, MCP docs inventory check, and diff validation. No Python test
-  process remained after completed owned runs. Exact final-head full suite, CI,
-  Pages, and fresh independent review remain PR delivery evidence.
+  discovery with 1,149 tests and 63 expected skips. The first clean PR head then
+  passed 1,155 tests with 63 expected skips plus exact-head CI and Pages. Fresh
+  review exposed evidence-path, cross-receipt, lifecycle, and production-
+  authorization ambiguities before merge. The corrective working tree now
+  passes 35 focused planning tests with one expected Windows symlink-privilege
+  skip, direct planning validation, documentation-site guard, schema parsing,
+  compile, and diff validation. Obsolete test processes were terminated rather
+  than left resident. Exact final-head full suite, replacement CI/Pages, and
+  fresh independent review remain PR delivery evidence.
 
 ## Completed BRG-017 Strict Configuration Boundary
 

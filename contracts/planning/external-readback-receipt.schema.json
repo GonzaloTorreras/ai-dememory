@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GonzaloTorreras/ai-dememory/contracts/planning/external-readback-receipt.schema.json",
+  "title": "ai DeMemory external readback receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "receipt_type",
+    "receipt_version",
+    "task_id",
+    "contract_id",
+    "kind",
+    "source",
+    "consumer",
+    "schema_identity",
+    "environment",
+    "fixture_identity",
+    "readback",
+    "secret_scan"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "enum": ["../../external-readback-receipt.schema.json"]
+    },
+    "receipt_type": {"type": "string", "enum": ["external-readback"]},
+    "receipt_version": {"type": "integer", "enum": [1]},
+    "task_id": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[A-Z]+-[0-9A-Z]+$"
+    },
+    "contract_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "kind": {"type": "string", "minLength": 1, "maxLength": 64},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "artifact_sha256"],
+      "properties": {
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}([0-9a-f]{24})?$"},
+        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "consumer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "artifact_sha256",
+        "server_profile",
+        "allowlist_sha256"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "server_profile": {"type": "string", "minLength": 1, "maxLength": 64},
+        "allowlist_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "schema_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "artifact_sha256"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "python", "protocol"],
+      "properties": {
+        "os": {"type": "string", "minLength": 1, "maxLength": 128},
+        "python": {"type": "string", "minLength": 1, "maxLength": 64},
+        "protocol": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "fixture_identity": {
+      "type": "string",
+      "pattern": "^(not-applicable|sha256:[0-9a-f]{64})$"
+    },
+    "readback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_count",
+        "lifecycle_sha256",
+        "redaction_manifest_sha256",
+        "result_sha256",
+        "sanitized",
+        "passed"
+      ],
+      "properties": {
+        "session_count": {"type": "integer", "minimum": 1},
+        "lifecycle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "redaction_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sanitized": {"type": "boolean", "enum": [true]},
+        "passed": {"type": "boolean", "enum": [true]}
+      }
+    },
+    "secret_scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scanner", "result_sha256", "passed"],
+      "properties": {
+        "scanner": {"type": "string", "minLength": 1, "maxLength": 128},
+        "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "passed": {"type": "boolean", "enum": [true]}
+      }
+    },
+    "details": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "artifact_sha256"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 128},
+          "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}
