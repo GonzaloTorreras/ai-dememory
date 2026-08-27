@@ -402,29 +402,37 @@ local-API onboarding hint and documentation follow-up.
   `scripts/ai_dememory.py` child after only the optional Windows `py -3[.N]`
   selector. Literal `~`, relative or dynamic paths, duplicate/abbreviated
   singleton options, ignored config/Docker controls, and unconsumed tail tokens
-  are rejected by a closed argv contract rather than a general Markdown or shell
-  parser. General operations guidance can still smoke installed `ai-dememory`.
-- Local validation for the current candidate tree passes 648 memory-tool tests
-  with 45 expected platform skips, 157 documentation/profile tests, the
+  are rejected by an exact argv contract. A bounded lexical projection classifies
+  proof candidates as literal, derived, opaque, or overflow without expanding
+  assignments, substitutions, or shell semantics. Its conservative transport
+  mode is enabled only by the owned PR and release-checklist guards; general
+  operations guidance remains relaxed.
+- Local validation for the branch implementation passes 650 memory-tool tests
+  with 45 expected platform skips, 159 documentation/profile tests, the
   documentation, PR-template and release-checklist guards, secret scan,
-  compileall, and diff checks. Focal canaries additionally reject a missing,
-  shadowed, non-absolute, duplicate, Docker, echoed, displaced, case-tampered,
-  unknown-option, invalid-choice, incomplete, or separated option-like Python
-  source launch; displaced/noncanonical wrapper proof; Windows Unicode environment
-  collisions; and Docker executable aliases, while preserving ordinary Markdown
-  and direct installed-command guidance. The preceding
-  committed head passed both real MCP client smoke variants, the 87-check
-  PR-gated MCP runtime smoke, and the strict PR-bound release check; those
-  commit-bound gates must be repeated after this corrective tree is committed.
-- GitHub Actions did not start any job for that committed head: CI run
-  [32984312243](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32984312243)
-  ended as `startup_failure` with GitHub's unexpected internal-error
-  annotation, while Pages run
-  [32984314390](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32984314390)
-  remained queued. This is recorded as an external delivery gate, not source
-  evidence. No version, DAG state, package publication, installed vault, host
-  configuration, or release is changed. Exact-head review, replacement PR CI,
-  Pages validation, and merge evidence remain pending.
+  targeted Python compilation, and diff checks. Focal canaries additionally
+  reject a missing, shadowed, non-absolute, duplicate, Docker, echoed, displaced,
+  case-tampered, unknown-option, invalid-choice, incomplete, or separated
+  option-like Python source launch; displaced/noncanonical wrapper proof;
+  Windows Unicode environment collisions; and Docker executable aliases, while
+  preserving ordinary Markdown and direct installed-command guidance. Additional
+  fail-closed canaries cover
+  parameter defaults, command substitutions (including nested execution beneath
+  a literal non-smoke route), PowerShell/cmd interpolation and positional
+  parameters, wrappers, Python startup flags, dynamic
+  dispatcher/subcommand pairs, rendered HTML/Markdown reconstruction, and legal
+  newlines inside substitutions. Relevant candidate regions over 16 KiB,
+  candidates over 256 tokens, documents over 512 KiB, or more than 64 projected
+  candidates or correlated assignments fail visibly; generic dynamic CLI
+  examples remain outside strict proof surfaces rather than being guessed as
+  smoke runs.
+- Commit-bound MCP client/runtime smokes, strict release checks, independent
+  review, CI, and Pages evidence are recorded only after execution in the durable
+  [PR #54](https://github.com/GonzaloTorreras/ai-dememory/pull/54) handoff rather
+  than duplicated here as quickly stale run IDs. Evidence from every prior head
+  is invalid for a replacement head. No version, DAG state, package publication,
+  installed vault, host configuration, or release is changed; exact-head smokes,
+  review, CI/Pages, receipt, and merge readback remain delivery gates.
 
 ## Completed BRG-017 Strict Configuration Boundary
 

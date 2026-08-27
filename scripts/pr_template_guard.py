@@ -119,6 +119,7 @@ def validate_template_text(text: str) -> list[TemplateGuardIssue]:
         TEMPLATE_PATH.as_posix(),
         require_python_source_launch=True,
         require_template_placeholders=True,
+        strict_transport=True,
     ):
         issues.append(
             TemplateGuardIssue(

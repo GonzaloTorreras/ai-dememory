@@ -685,6 +685,7 @@ def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
         CHECKLIST_PATH.as_posix(),
         require_python_source_launch=True,
         require_template_placeholders=True,
+        strict_transport=True,
     ):
         issues.append(
             ChecklistGuardIssue(

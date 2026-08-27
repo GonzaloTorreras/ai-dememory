@@ -21,6 +21,18 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
+from tests.mcp_smoke_guard_cases import (
+    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT,
+    STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS,
+    STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS,
+    STRICT_MCP_SMOKE_REGION_POCS,
+    STRICT_MCP_SMOKE_TRANSPORTS,
+    strict_allow_markdown,
+    strict_transport_markdown,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -17878,6 +17890,101 @@ jobs:
             issues,
         )
 
+    def test_pr_template_guard_rejects_extra_dynamic_smoke_transports(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current + "".join(
+            strict_transport_markdown(transport)
+            for transport in STRICT_MCP_SMOKE_TRANSPORTS
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)[
+            "fenced-cross-line-aliases"
+        ]
+        strict_only_issues = validate_template_text(
+            current + strict_transport_markdown(strict_only)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in strict_only_issues
+            ),
+            strict_only_issues,
+        )
+        for name, markdown in STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS:
+            with self.subTest(cross_line_alias_region=name):
+                region_issues = validate_template_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS:
+            with self.subTest(followup_rejected_region=name):
+                region_issues = validate_template_text(
+                    current + strict_transport_markdown(command)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS:
+            with self.subTest(followup_rejected_document=name):
+                document_issues = validate_template_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in document_issues
+                    ),
+                    document_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS:
+            with self.subTest(followup_allowed_region=name):
+                self.assertEqual(
+                    [],
+                    validate_template_text(
+                        current + strict_transport_markdown(command)
+                    ),
+                )
+        for name, markdown in STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS:
+            with self.subTest(comment_allowed_document=name):
+                self.assertEqual(
+                    [],
+                    validate_template_text(current + markdown),
+                )
+        self.assertEqual(
+            [],
+            validate_template_text(
+                current
+                + strict_transport_markdown(
+                    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT
+                )
+            ),
+        )
+        self.assertEqual(
+            [],
+            validate_template_text(current + strict_allow_markdown()),
+        )
+
     def test_pr_template_smoke_proof_requires_exact_cardinality_and_sequence(self) -> None:
         current = (ROOT / ".github" / "pull_request_template.md").read_text(
             encoding="utf-8"
@@ -18355,6 +18462,96 @@ This records future risks.
                 for issue in issues
             ),
             issues,
+        )
+
+    def test_release_checklist_guard_rejects_extra_dynamic_smoke_transports(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current + "".join(
+            strict_transport_markdown(transport)
+            for transport in STRICT_MCP_SMOKE_TRANSPORTS
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)["powershell-splat"]
+        strict_only_issues = validate_release_checklist_text(
+            current + strict_transport_markdown(strict_only)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in strict_only_issues
+            ),
+            strict_only_issues,
+        )
+        for name, markdown in STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS:
+            with self.subTest(cross_line_alias_region=name):
+                region_issues = validate_release_checklist_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS:
+            with self.subTest(followup_rejected_region=name):
+                region_issues = validate_release_checklist_text(
+                    current + strict_transport_markdown(command)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS:
+            with self.subTest(followup_rejected_document=name):
+                document_issues = validate_release_checklist_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in document_issues
+                    ),
+                    document_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS:
+            with self.subTest(followup_allowed_region=name):
+                self.assertEqual(
+                    [],
+                    validate_release_checklist_text(
+                        current + strict_transport_markdown(command)
+                    ),
+                )
+        for name, markdown in STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS:
+            with self.subTest(comment_allowed_document=name):
+                self.assertEqual(
+                    [],
+                    validate_release_checklist_text(current + markdown),
+                )
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(
+                current
+                + strict_transport_markdown(
+                    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT
+                )
+            ),
+        )
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(current + strict_allow_markdown()),
         )
 
     def test_release_checklist_requires_exact_smoke_proof_cardinality_and_sequences(

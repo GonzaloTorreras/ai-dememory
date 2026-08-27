@@ -11,6 +11,7 @@ import sys
 import tomllib
 import ast
 import operator
+from dataclasses import dataclass
 from functools import lru_cache
 from enum import Enum
 from html import unescape
@@ -868,7 +869,8 @@ def _inline_command_entries(text: str) -> tuple[tuple[int, str, bool, bool], ...
         if match.re is INLINE_MARKDOWN_CODE_RE:
             line_start = text.rfind("\n", 0, match.start()) + 1
             prefix = text[line_start : match.start()]
-            if len(match.group("ticks")) >= 3 and not prefix.strip():
+            structural_prefix = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", prefix)
+            if len(match.group("ticks")) >= 3 and not structural_prefix.strip():
                 # Fenced blocks are already validated as physical/logical shell
                 # lines; they are not one giant inline code span.
                 continue
@@ -3405,8 +3407,22 @@ def _pending_source_execution_errors(
 
 MCP_CLIENT_SMOKE_DYNAMIC_VALUE_RE = re.compile(r"[$%`*?\[\]{}!^()]")
 MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE = re.compile(r"^@[A-Za-z_][A-Za-z0-9_]*$")
+MCP_CLIENT_SMOKE_CMD_POSITIONAL_RE = re.compile(
+    r"%(?:~(?:[fdpnxsatz]*|\$[A-Za-z_][A-Za-z0-9_]*:))?(?:[0-9*])",
+    re.IGNORECASE,
+)
 MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE = re.compile(
     r"^[ \t]*(?:>[ \t]*)*(?:[-*+][ \t]+)?(?:\[[ xX]\][ \t]+)?"
+)
+MCP_CLIENT_SMOKE_LITERAL_EVIDENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])mcp-client-smoke(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
+MCP_CLIENT_SMOKE_DISPATCHER_EVIDENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:ai-dememory(?:\.exe)?|"
+    r"(?:[^\s'\"`()]*/)?scripts/ai_dememory\.py|"
+    r"ai_dememory_tool\.cli)(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
 )
 MCP_CLIENT_SMOKE_ABSOLUTE_CHECKOUT_SENTINEL = "/__ai_dememory_absolute_checkout__"
 MCP_CLIENT_SMOKE_INITIALIZED_VAULT_SENTINEL = "/__ai_dememory_initialized_vault__"
@@ -3451,6 +3467,14 @@ def _mcp_client_smoke_token_kind(value: str) -> str | None:
     if not _has_dynamic_mcp_client_smoke_value(value):
         return None
     if (
+        "$" in value
+        or re.search(r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!", value)
+        is not None
+        or MCP_CLIENT_SMOKE_CMD_POSITIONAL_RE.search(value) is not None
+        or MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE.fullmatch(value) is not None
+    ):
+        return "dynamic"
+    if (
         _collapsed_dynamic_shell_text(folded) == "mcp-client-smoke"
         or fnmatchcase("mcp-client-smoke", folded)
     ):
@@ -3458,77 +3482,884 @@ def _mcp_client_smoke_token_kind(value: str) -> str | None:
     return None
 
 
-def _is_dynamic_mcp_client_smoke_launcher(value: str) -> bool:
-    folded = value.casefold()
-    if (
-        "$" in value
-        or re.search(r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!", value)
-        is not None
-        or MCP_CLIENT_SMOKE_POWERSHELL_SPLAT_RE.fullmatch(value) is not None
-    ):
-        return True
+@dataclass(frozen=True)
+class _McpSmokeCandidate:
+    line_number: int
+    text: str
+    state: str
+    unsupported_whitespace: bool = False
+    unterminated: bool = False
+    reason: str = ""
 
-    collapsed = _collapsed_dynamic_shell_text(folded)
-    collapsed_launcher = _launcher_name(collapsed)
-    if collapsed != folded and (
-        collapsed_launcher == "ai-dememory"
-        or PYTHON_COMMAND_TOKEN_RE.fullmatch(collapsed_launcher) is not None
-    ):
-        return True
 
-    if not any(character in folded for character in "*?[]"):
-        return False
-    launcher_pattern = _launcher_name(folded)
-    possible_launchers = (
-        "ai-dememory",
-        "python",
-        "python3",
-        "py",
-        *(f"python3.{minor}" for minor in range(8, 21)),
-    )
-    return any(
-        fnmatchcase(candidate, launcher_pattern) for candidate in possible_launchers
+MCP_SMOKE_REGION_LIMIT = 16 * 1024
+MCP_SMOKE_CANDIDATE_LIMIT = 64
+MCP_SMOKE_TOKEN_LIMIT = 256
+MCP_SMOKE_DOCUMENT_LIMIT = 512 * 1024
+
+
+def _mcp_smoke_has_literal_route(value: str) -> bool:
+    normalized = value.casefold().replace("\\", "/")
+    return (
+        MCP_CLIENT_SMOKE_LITERAL_EVIDENCE_RE.search(normalized) is not None
+        and MCP_CLIENT_SMOKE_DISPATCHER_EVIDENCE_RE.search(normalized) is not None
     )
 
 
-def _is_dynamic_mcp_client_smoke_transport(value: str) -> bool:
-    """Recognize one command-shaped dynamic launcher without resolving it."""
+def _mcp_smoke_is_strict_opaque(value: str) -> bool:
+    """Reject protected dynamic transports only on strict proof surfaces."""
 
-    transport = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
-    if len(transport) >= 2 and transport.startswith("`") and transport.endswith("`"):
-        transport = transport[1:-1]
-    try:
-        tokens = list(_preferred_shell_tokens(transport))
-    except ValueError:
+    normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    folded = normalized.casefold()
+    if not _has_dynamic_mcp_client_smoke_value(normalized):
         return False
-    if tokens[:1] == ["&"]:
-        tokens.pop(0)
-    if not tokens or not _is_dynamic_mcp_client_smoke_launcher(tokens[0]):
-        return False
+    has_target = MCP_CLIENT_SMOKE_LITERAL_EVIDENCE_RE.search(folded) is not None
+    has_dispatcher = (
+        MCP_CLIENT_SMOKE_DISPATCHER_EVIDENCE_RE.search(folded) is not None
+    )
+    has_root = re.search(r"(?:^|[ \t])--root(?:=|[ \t])", folded) is not None
+    has_command_option = (
+        re.search(r"(?:^|[ \t])--command(?:=|[ \t])", folded) is not None
+    )
+    if has_target and (has_dispatcher or has_root or has_command_option):
+        return True
 
-    for command_index, token in enumerate(tokens[1:], start=1):
-        if _mcp_client_smoke_token_kind(token) is None:
+    exact_route = re.search(
+        r"(?:^|[ \t])(?:ai-dememory(?:\.exe)?|"
+        r"(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?|"
+        r"\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
+        r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)[ \t]+"
+        r"(?:-3(?:\.\d+)?[ \t]+)?(?:[^ \t]+/)?scripts/ai_dememory\.py)"
+        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
+        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
+        normalized.replace("\\", "/"),
+        re.IGNORECASE,
+    )
+    dynamic_route = re.search(
+        r"^(?:&[ \t]*)?(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
+        r"\$\{[^}\r\n]+\}|%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)"
+        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
+        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
+        normalized,
+        re.IGNORECASE,
+    )
+    for route in (exact_route, dynamic_route):
+        if route is not None and route.group("command").casefold() != "mcp-client-smoke":
+            return False
+    if not has_root:
+        return False
+    dynamic_launcher = re.match(
+        r"^(?:[$%!]|&[ \t]*(?:[$%!]|\())",
+        normalized,
+        re.IGNORECASE,
+    )
+    first_token = normalized.split(maxsplit=1)[0] if normalized else ""
+    return (
+        has_dispatcher
+        or dynamic_launcher is not None
+        or _has_dynamic_mcp_client_smoke_value(first_token)
+    )
+
+
+def _mcp_smoke_noncode_text(text: str) -> str:
+    """Mask already-inspected code spans while preserving source line numbers."""
+
+    def blank_code(match: re.Match[str]) -> str:
+        return "".join(
+            character for character in match.group(0) if character in {"\n", "\0"}
+        )
+
+    without_markdown_code = INLINE_MARKDOWN_CODE_RE.sub(blank_code, text)
+    return INLINE_HTML_CODE_RE.sub(blank_code, without_markdown_code)
+
+
+def _mcp_smoke_multiline_rendered_entries(text: str) -> tuple[tuple[int, str], ...]:
+    """Render bounded nonblank regions containing multiline HTML comments."""
+
+    entries: list[tuple[int, str]] = []
+    region_lines: list[str] = []
+    region_start = 1
+
+    def inspect_region() -> None:
+        if not region_lines:
+            return
+        region = "\n".join(region_lines)
+        first_line = region_lines[0]
+        has_multiline_comment = re.search(
+            r"<!--.*?[\r\n].*?-->",
+            region,
+            re.DOTALL,
+        ) is not None
+        if not has_multiline_comment or _mcp_smoke_has_literal_route(first_line):
+            return
+        rendered = _rendered_markdown_probe(region)
+        if (
+            rendered != region
+            and _starts_with_executable_command(rendered)
+            and _mcp_smoke_has_literal_route(rendered)
+        ):
+            entries.append((region_start, rendered))
+
+    for line_number, line in enumerate(text.split("\n"), start=1):
+        if line.strip():
+            if not region_lines:
+                region_start = line_number
+            region_lines.append(line)
             continue
-        cursor = 1
-        if cursor < command_index and re.fullmatch(r"-3(?:\.\d+)?", tokens[cursor]):
-            cursor += 1
-        if cursor < command_index and _is_ai_dememory_source_path(tokens[cursor]):
-            cursor += 1
+        inspect_region()
+        region_lines = []
+    inspect_region()
+    return tuple(entries)
 
-        while cursor < command_index:
-            argument = tokens[cursor]
-            if argument == "dev":
-                cursor += 1
-                continue
-            if argument.startswith("-"):
-                cursor += 1
-                if cursor < command_index and tokens[cursor] != "dev":
-                    cursor += 1
-                continue
-            break
-        if cursor == command_index:
+
+def _mcp_smoke_assignment_record(value: str) -> tuple[str, str, str] | None:
+    """Return ``(dialect, name, value)`` for one simple shell assignment."""
+
+    normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    folded = normalized.casefold()
+    if normalized.startswith(("#", "//", "<!--", "<#", "::")) or re.match(
+        r"^rem(?:[ \t]|$)",
+        folded,
+    ):
+        return None
+
+    powershell = re.match(
+        r"^\$(?P<name>(?:env:)?[A-Za-z_][A-Za-z0-9_]*)"
+        r"[ \t]*=[ \t]*(?P<value>.*)$",
+        normalized,
+        re.IGNORECASE,
+    )
+    if powershell is not None:
+        return ("powershell", powershell.group("name"), powershell.group("value"))
+
+    cmd = re.match(
+        r'^set(?:[ \t]+/[aApP])?[ \t]+(?P<quote>")?'
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+        r"[ \t]*=[ \t]*(?P<value>.*)$",
+        normalized,
+        re.IGNORECASE,
+    )
+    if cmd is not None:
+        assignment_value = cmd.group("value")
+        if cmd.group("quote") and assignment_value.endswith('"'):
+            assignment_value = assignment_value[:-1]
+        return ("cmd", cmd.group("name"), assignment_value)
+
+    posix = re.match(
+        r"^(?:(?:export|readonly|local|declare)(?:[ \t]+-[A-Za-z]+)?[ \t]+)?"
+        r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+        r"[ \t]*=[ \t]*(?P<value>.*)$",
+        normalized,
+    )
+    if posix is None:
+        return None
+    return ("posix", posix.group("name"), posix.group("value"))
+
+
+def _mcp_smoke_assignment_is_referenced(
+    value: str,
+    assignment: tuple[str, str, str],
+) -> bool:
+    """Recognize a lexical reference without expanding the assignment."""
+
+    dialect, name, _ = assignment
+    escaped_name = re.escape(name)
+    if dialect == "cmd":
+        return re.search(
+            rf"(?:%{escaped_name}%|!{escaped_name}!)",
+            value,
+            re.IGNORECASE,
+        ) is not None
+    if dialect == "powershell":
+        if name.casefold().startswith("env:"):
+            return re.search(
+                rf"\$(?:\{{)?{escaped_name}(?=[^A-Za-z0-9_]|$)",
+                value,
+                re.IGNORECASE,
+            ) is not None
+        return re.search(
+            rf"(?:[$@]{escaped_name}(?![A-Za-z0-9_])|"
+            rf"\$\{{{escaped_name}(?=[^A-Za-z0-9_]|$))",
+            value,
+            re.IGNORECASE,
+        ) is not None
+    return re.search(
+        rf"(?:\${escaped_name}(?![A-Za-z0-9_])|"
+        rf"\$\{{{escaped_name}(?=[^A-Za-z0-9_]|$))",
+        value,
+    ) is not None
+
+
+def _mcp_smoke_assignment_bundle_is_unquoted(
+    value: str,
+    assignment: tuple[str, str, str],
+) -> bool:
+    """Require argv bundles to use a lexical word-splitting reference shape."""
+
+    dialect, name, _ = assignment
+    if dialect == "cmd":
+        reference_re = re.compile(
+            rf"(?:%{re.escape(name)}%|!{re.escape(name)}!)",
+            re.IGNORECASE,
+        )
+        for match in reference_re.finditer(value):
+            quoted = False
+            escaped = False
+            for character in value[: match.start()]:
+                if escaped:
+                    escaped = False
+                elif character == "^":
+                    escaped = True
+                elif character == '"':
+                    quoted = not quoted
+            if not quoted:
+                return True
+        return False
+    if dialect != "posix":
+        return False
+    escaped_name = re.escape(name)
+    reference_re = re.compile(
+        rf"(?:\${escaped_name}(?![A-Za-z0-9_])|"
+        rf"\$\{{{escaped_name}(?=[^A-Za-z0-9_]|$))"
+    )
+    for match in reference_re.finditer(value):
+        quote = ""
+        escaped = False
+        for character in value[: match.start()]:
+            if escaped:
+                escaped = False
+            elif character == "\\" and quote != "'":
+                escaped = True
+            elif quote:
+                if character == quote:
+                    quote = ""
+            elif character in {'"', "'"}:
+                quote = character
+        if not quote:
             return True
     return False
+
+
+def _mcp_smoke_scalar_bundle_has_route(tokens: tuple[str, ...]) -> bool:
+    """Recognize an exact root/value/target sequence in a scalar argv bundle."""
+
+    normalized = tuple(token.casefold().replace("\\", "/") for token in tokens)
+    target_positions = tuple(
+        index for index, token in enumerate(normalized) if token == "mcp-client-smoke"
+    )
+    if not target_positions:
+        return False
+    for index, token in enumerate(normalized):
+        if token == "--root":
+            if index + 1 >= len(tokens):
+                continue
+            root_value = tokens[index + 1]
+            route_end = index + 1
+        elif token.startswith("--root="):
+            root_value = tokens[index].split("=", 1)[1]
+            route_end = index
+        else:
+            continue
+        if (
+            _is_literal_absolute_path(root_value)
+            and not _has_dynamic_mcp_client_smoke_value(root_value)
+            and any(position > route_end for position in target_positions)
+        ):
+            return True
+    return False
+
+
+def _mcp_smoke_assignment_evidence(
+    assignment: tuple[str, str, str],
+) -> tuple[bool, bool, bool, bool]:
+    """Classify exact option, target, and dispatcher tokens in an assignment."""
+
+    dialect, _, value = assignment
+    stripped = value.strip()
+    tokens: list[str] = []
+    scalar_bundle = False
+    if (
+        len(stripped) >= 2
+        and stripped[0] in {'"', "'"}
+        and stripped[-1] == stripped[0]
+        and stripped.count(stripped[0]) == 2
+    ):
+        scalar = stripped[1:-1]
+        scalar_tokens = tuple(scalar.split())
+        scalar_bundle = dialect in {"posix", "cmd"} and _mcp_smoke_scalar_bundle_has_route(
+            scalar_tokens
+        )
+        tokens.extend(scalar_tokens if scalar_bundle else (scalar,))
+    elif stripped.startswith(("@(", "(", "[")):
+        quoted_spans: list[tuple[int, int]] = []
+        for match in re.finditer(r"'([^'\r\n]*)'|\"([^\"\r\n]*)\"", stripped):
+            tokens.append(match.group(1) if match.group(1) is not None else match.group(2))
+            quoted_spans.append(match.span())
+        unquoted = list(stripped)
+        for start, end in quoted_spans:
+            unquoted[start:end] = " " * (end - start)
+        tokens.extend(
+            token
+            for token in re.split(r"[\s,@()\[\]{}]+", "".join(unquoted))
+            if token
+        )
+    elif stripped:
+        scalar_tokens = tuple(stripped.split())
+        scalar_bundle = dialect in {"posix", "cmd"} and _mcp_smoke_scalar_bundle_has_route(
+            scalar_tokens
+        )
+        tokens.extend(scalar_tokens if scalar_bundle else (stripped,))
+
+    normalized_tokens = tuple(token.casefold().replace("\\", "/") for token in tokens)
+    has_root = "--root" in normalized_tokens
+    has_target = "mcp-client-smoke" in normalized_tokens
+    has_dispatcher = any(
+        token in {"ai-dememory", "ai-dememory.exe", "ai_dememory_tool.cli"}
+        or token.endswith("/scripts/ai_dememory.py")
+        or token == "scripts/ai_dememory.py"
+        for token in normalized_tokens
+    )
+    return (has_root, has_target, has_dispatcher, scalar_bundle)
+
+
+def _mcp_smoke_proof_regions(text: str) -> tuple[tuple[int, str], ...]:
+    """Return bounded fenced and plain regions with stable source lines."""
+
+    lines = text.split("\n")
+    outside_lines = list(lines)
+    fence_sentinel = "\0"
+    fenced_regions: list[tuple[int, str]] = []
+    fence_character = ""
+    fence_length = 0
+    fence_start = 0
+    fence_body: list[str] = []
+    html_comment_open = False
+
+    def mask_inline_code(value: str) -> str:
+        def blank(match: re.Match[str]) -> str:
+            return " " * len(match.group(0))
+
+        return INLINE_HTML_CODE_RE.sub(
+            blank,
+            INLINE_MARKDOWN_CODE_RE.sub(blank, value),
+        )
+
+    for index, raw_line in enumerate(lines):
+        line = raw_line.removesuffix("\r")
+        if fence_character:
+            outside_lines[index] = fence_sentinel
+            structural_line = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", line)
+            closing = re.match(
+                r"^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$",
+                structural_line,
+            )
+            if (
+                closing is not None
+                and closing.group(1)[0] == fence_character
+                and len(closing.group(1)) >= fence_length
+            ):
+                fenced_regions.append((fence_start + 2, "\n".join(fence_body)))
+                fence_character = ""
+                fence_length = 0
+                fence_body = []
+            else:
+                fence_body.append(raw_line)
+            continue
+
+        raw_structural_line = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", line)
+        raw_opening = None if html_comment_open else re.match(
+            r"^[ \t]{0,3}(?P<marker>`{3,}|~{3,}).*$",
+            raw_structural_line,
+        )
+        if raw_opening is not None:
+            marker = raw_opening.group("marker")
+            fence_character = marker[0]
+            fence_length = len(marker)
+            fence_start = index
+            fence_body = []
+            outside_lines[index] = fence_sentinel
+            continue
+
+        comment_probe = mask_inline_code(line)
+        visible_parts: list[str] = []
+        cursor = 0
+        while cursor < len(comment_probe):
+            if html_comment_open:
+                comment_end = comment_probe.find("-->", cursor)
+                if comment_end < 0:
+                    cursor = len(comment_probe)
+                    break
+                html_comment_open = False
+                cursor = comment_end + 3
+                continue
+            comment_start = comment_probe.find("<!--", cursor)
+            if comment_start < 0:
+                visible_parts.append(comment_probe[cursor:])
+                break
+            visible_parts.append(comment_probe[cursor:comment_start])
+            html_comment_open = True
+            cursor = comment_start + 4
+        visible_line = "".join(visible_parts)
+        outside_lines[index] = visible_line
+        structural_line = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", visible_line)
+        opening = re.match(
+            r"^[ \t]{0,3}(?P<marker>`{3,}|~{3,}).*$",
+            structural_line,
+        )
+        if opening is None:
+            continue
+        marker = opening.group("marker")
+        fence_character = marker[0]
+        fence_length = len(marker)
+        fence_start = index
+        fence_body = []
+        html_comment_open = False
+        outside_lines[index] = fence_sentinel
+
+    if fence_character:
+        fenced_regions.append((fence_start + 2, "\n".join(fence_body)))
+
+    outside = "\n".join(outside_lines)
+    outside = _mcp_smoke_noncode_text(outside)
+    plain_regions: list[tuple[int, str]] = []
+    region_lines: list[str] = []
+    region_start = 1
+
+    def finish_plain_region() -> None:
+        if region_lines:
+            plain_regions.append((region_start, "\n".join(region_lines)))
+            region_lines.clear()
+
+    for line_number, line in enumerate(outside.split("\n"), start=1):
+        if line == fence_sentinel:
+            finish_plain_region()
+            continue
+        if not region_lines and not line.strip():
+            continue
+        if not region_lines:
+            region_start = line_number
+        region_lines.append(line)
+    finish_plain_region()
+    return tuple(sorted((*fenced_regions, *plain_regions), key=lambda item: item[0]))
+
+
+def _mcp_smoke_without_powershell_block_comments(value: str) -> str:
+    """Blank standalone PowerShell block comments while preserving line numbers."""
+
+    visible_lines: list[str] = []
+    comment_open = False
+    for raw_line in value.split("\n"):
+        normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", raw_line)
+        if comment_open:
+            comment_end = normalized.find("#>")
+            if comment_end < 0:
+                visible_lines.append("")
+                continue
+            comment_open = False
+            visible_lines.append(normalized[comment_end + 2 :])
+            continue
+        if normalized.lstrip().startswith("<#"):
+            comment_start = normalized.find("<#")
+            comment_end = normalized.find("#>", comment_start + 2)
+            if comment_end < 0:
+                comment_open = True
+                visible_lines.append(normalized[:comment_start])
+            else:
+                visible_lines.append(
+                    normalized[:comment_start] + normalized[comment_end + 2 :]
+                )
+            continue
+        visible_lines.append(raw_line)
+    return "\n".join(visible_lines)
+
+
+def _mcp_smoke_contains_executable_substitution(value: str) -> bool:
+    """Recognize bounded shell substitution syntax without evaluating it.
+
+    A literal outer route is not an exemption when it can execute a nested
+    command.  Dollar-parenthesis is shared by POSIX shells and PowerShell;
+    backticks cover the corresponding POSIX form.  This deliberately does not
+    classify ordinary variable references such as ``$ARGS`` or ``@ARGS``.
+    """
+
+    return "$(" in value or "`" in value
+
+
+def _mcp_smoke_has_explicit_non_smoke_route(value: str) -> bool:
+    """Recognize a literal dispatcher followed by a literal non-smoke command."""
+
+    normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    if _mcp_smoke_contains_executable_substitution(normalized):
+        return False
+    try:
+        segments, operators = _shell_segments(_preferred_shell_tokens(normalized))
+    except ValueError:
+        return False
+    if operators or len(segments) != 1:
+        return False
+    route = re.match(
+        r"^(?:&[ \t]*)?(?:ai-dememory(?:\.exe)?|"
+        r"(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?[ \t]+"
+        r"(?:-3(?:\.\d+)?[ \t]+)?(?:[^ \t]+/)?scripts/ai_dememory\.py))"
+        r"[ \t]+(?P<tail>.+)$",
+        normalized.replace("\\", "/"),
+        re.IGNORECASE,
+    )
+    if route is None:
+        return False
+    tokens = route.group("tail").split()
+    cursor = 0
+    if cursor < len(tokens) and tokens[cursor].casefold() == "--root":
+        cursor += 2
+    elif cursor < len(tokens) and tokens[cursor].casefold().startswith("--root="):
+        cursor += 1
+    if cursor < len(tokens) and tokens[cursor].casefold() == "dev":
+        cursor += 1
+    if cursor >= len(tokens):
+        return False
+    command = tokens[cursor]
+    return (
+        re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*", command) is not None
+        and command.casefold() != "mcp-client-smoke"
+    )
+
+
+def _mcp_smoke_distributed_region_line(value: str) -> tuple[int, bool] | None:
+    """Locate execution that references prior root and target assignments."""
+
+    assignments: dict[
+        tuple[str, str],
+        tuple[tuple[str, str, str], tuple[bool, bool, bool, bool]],
+    ] = {}
+    visible_value = _mcp_smoke_without_powershell_block_comments(value)
+    for line_number, command, _, _ in _logical_command_entries(visible_value):
+        normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", command).strip()
+        assignment = _mcp_smoke_assignment_record(normalized)
+        if assignment is not None:
+            dialect, name, _ = assignment
+            key_name = name if dialect == "posix" else name.casefold()
+            assignment_key = (dialect, key_name)
+            evidence = _mcp_smoke_assignment_evidence(assignment)
+            if any(evidence):
+                if (
+                    assignment_key not in assignments
+                    and len(assignments) >= MCP_SMOKE_CANDIDATE_LIMIT
+                ):
+                    return (line_number, True)
+                assignments[assignment_key] = (assignment, evidence)
+            else:
+                assignments.pop(assignment_key, None)
+            continue
+        if normalized.startswith(("#", "//", "<!--", "<#", "::")) or re.match(
+            r"^rem(?:[ \t]|$)",
+            normalized,
+            re.IGNORECASE,
+        ):
+            continue
+        if _mcp_smoke_has_explicit_non_smoke_route(normalized):
+            continue
+        referenced_assignments = tuple(
+            assignment_entry
+            for assignment_entry in assignments.values()
+            if _mcp_smoke_assignment_is_referenced(
+                normalized,
+                assignment_entry[0],
+            )
+            and (
+                not assignment_entry[1][3]
+                or _mcp_smoke_assignment_bundle_is_unquoted(
+                    normalized,
+                    assignment_entry[0],
+                )
+            )
+        )
+        if not referenced_assignments:
+            continue
+        root_referenced = any(evidence[0] for _, evidence in referenced_assignments)
+        target_referenced = any(evidence[1] for _, evidence in referenced_assignments)
+        if not (root_referenced and target_referenced):
+            continue
+        dispatcher_referenced = any(
+            evidence[2] for _, evidence in referenced_assignments
+        )
+        dynamic_launcher = re.match(
+            r"^(?:[$%!]|&[ \t]*(?:[$%!]|@|\())",
+            normalized,
+            re.IGNORECASE,
+        )
+        if (
+            MCP_CLIENT_SMOKE_DISPATCHER_EVIDENCE_RE.search(normalized) is not None
+            or dispatcher_referenced
+            or dynamic_launcher is not None
+        ):
+            return (line_number, False)
+    return None
+
+
+def _mcp_smoke_strict_shell_text(text: str) -> str:
+    """Keep fenced command bodies while removing already-inspected inline code."""
+
+    def unwrap_or_blank_markdown(match: re.Match[str]) -> str:
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        line_prefix = text[line_start : match.start()]
+        structural_prefix = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", line_prefix)
+        is_fence = len(match.group("ticks")) >= 3 and not structural_prefix.strip()
+        if is_fence:
+            return match.group("body")
+        command_prefix = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub(
+            "",
+            line_prefix,
+        ).strip()
+        if command_prefix and (
+            _starts_with_executable_command(command_prefix)
+            or "--root" in command_prefix
+        ):
+            return match.group(0)
+        return "\n" * match.group(0).count("\n")
+
+    def blank_html_code(match: re.Match[str]) -> str:
+        return "\n" * match.group(0).count("\n")
+
+    without_inline_markdown = INLINE_MARKDOWN_CODE_RE.sub(
+        unwrap_or_blank_markdown,
+        text,
+    )
+    return INLINE_HTML_CODE_RE.sub(blank_html_code, without_inline_markdown)
+
+
+def _mcp_smoke_candidates(
+    text: str,
+    *,
+    strict_transport: bool,
+) -> tuple[_McpSmokeCandidate, ...]:
+    """Project bounded literal, derived, opaque, or overflow candidates once."""
+
+    if len(text) > MCP_SMOKE_DOCUMENT_LIMIT:
+        return (
+            _McpSmokeCandidate(
+                1,
+                "",
+                "overflow",
+                reason="document exceeds the inspection limit",
+            ),
+        )
+    candidates: list[_McpSmokeCandidate] = []
+    seen: set[tuple[int, str, str]] = set()
+    candidate_count_overflowed = False
+
+    def add(
+        line_number: int,
+        value: str,
+        state: str,
+        unsupported_whitespace: bool = False,
+        unterminated: bool = False,
+        reason: str = "",
+    ) -> None:
+        nonlocal candidate_count_overflowed
+        if candidate_count_overflowed:
+            return
+        if len(value) > MCP_SMOKE_REGION_LIMIT:
+            if len(candidates) >= MCP_SMOKE_CANDIDATE_LIMIT:
+                candidates.append(
+                    _McpSmokeCandidate(
+                        line_number,
+                        "",
+                        "overflow",
+                        reason="candidate count exceeds the inspection limit",
+                    )
+                )
+                candidate_count_overflowed = True
+                return
+            candidates.append(
+                _McpSmokeCandidate(
+                    line_number,
+                    "",
+                    "overflow",
+                    reason="candidate region exceeds the inspection limit",
+                )
+            )
+            return
+        normalized = _normalized_shell_whitespace(value)
+        identity = (line_number, normalized, state)
+        if not normalized or identity in seen:
+            return
+        seen.add(identity)
+        if len(candidates) >= MCP_SMOKE_CANDIDATE_LIMIT:
+            candidates.append(
+                _McpSmokeCandidate(
+                    line_number,
+                    "",
+                    "overflow",
+                    reason="candidate count exceeds the inspection limit",
+                )
+            )
+            candidate_count_overflowed = True
+            return
+        if len(normalized.split()) > MCP_SMOKE_TOKEN_LIMIT:
+            candidates.append(
+                _McpSmokeCandidate(
+                    line_number,
+                    normalized,
+                    "overflow",
+                    reason="candidate token count exceeds the inspection limit",
+                )
+            )
+            return
+        candidates.append(
+            _McpSmokeCandidate(
+                line_number,
+                normalized,
+                state,
+                unsupported_whitespace,
+                unterminated,
+                reason,
+            )
+        )
+
+    for line_number, command, unsupported, unterminated in _executable_command_entries(
+        text
+    ):
+        if candidate_count_overflowed:
+            break
+        if _mcp_smoke_assignment_record(command) is not None:
+            continue
+        if _mcp_smoke_has_literal_route(command):
+            add(line_number, command, "literal", unsupported, unterminated)
+
+    if strict_transport and not candidate_count_overflowed:
+        for region_start, region in _mcp_smoke_proof_regions(text):
+            distributed = _mcp_smoke_distributed_region_line(region)
+            if distributed is None:
+                continue
+            relative_line, assignment_overflow = distributed
+            if assignment_overflow:
+                add(
+                    region_start + relative_line - 1,
+                    "assignment-overflow",
+                    "overflow",
+                    reason="assignment correlation exceeds the inspection limit",
+                )
+                break
+            add(
+                region_start + relative_line - 1,
+                region,
+                "opaque",
+                reason="distributed dynamic transport is not auditable",
+            )
+            if candidate_count_overflowed:
+                break
+
+    inline_matches = sorted(
+        (*INLINE_MARKDOWN_CODE_RE.finditer(text), *INLINE_HTML_CODE_RE.finditer(text)),
+        key=lambda match: match.start(),
+    )
+    for match in inline_matches:
+        if candidate_count_overflowed:
+            break
+        if match.re is INLINE_MARKDOWN_CODE_RE:
+            line_start = text.rfind("\n", 0, match.start()) + 1
+            line_prefix = text[line_start : match.start()]
+            structural_prefix = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub(
+                "",
+                line_prefix,
+            )
+            is_fence = len(match.group("ticks")) >= 3 and not structural_prefix.strip()
+            if is_fence:
+                continue
+            visible = match.group("body")
+            state = "literal"
+        else:
+            visible = _html_visible_text(match.group(0))
+            state = "derived" if visible != match.group("body") else "literal"
+        if _mcp_smoke_assignment_record(visible) is not None:
+            continue
+        if strict_transport and _mcp_smoke_is_strict_opaque(visible):
+            add(
+                text.count("\n", 0, match.start()) + 1,
+                visible,
+                "opaque",
+                any(
+                    character.isspace() and character not in " \t"
+                    for character in visible
+                ),
+                reason="dynamic transport is not auditable",
+            )
+        elif _mcp_smoke_has_literal_route(visible):
+            add(
+                text.count("\n", 0, match.start()) + 1,
+                visible,
+                state,
+                any(
+                    character.isspace() and character not in " \t"
+                    for character in visible
+                ),
+                reason="rendered code differs from its source" if state == "derived" else "",
+            )
+
+    if strict_transport and not candidate_count_overflowed:
+        strict_shell_text = _mcp_smoke_strict_shell_text(text)
+        for line_number, command, unsupported, unterminated in _logical_command_entries(
+            strict_shell_text
+        ):
+            if candidate_count_overflowed:
+                break
+            if _mcp_smoke_assignment_record(command) is not None:
+                continue
+            if _mcp_smoke_is_strict_opaque(command):
+                add(
+                    line_number,
+                    command,
+                    "opaque",
+                    unsupported,
+                    unterminated,
+                    "dynamic transport is not auditable",
+                )
+            elif _mcp_smoke_has_literal_route(command):
+                add(line_number, command, "literal", unsupported, unterminated)
+
+    if not candidate_count_overflowed:
+        prose = _mcp_smoke_noncode_text(text)
+        for line_number, command, unsupported, unterminated in _logical_command_entries(
+            prose
+        ):
+            rendered = _rendered_markdown_probe(command)
+            if (
+                rendered != command
+                and _starts_with_executable_command(rendered)
+                and _mcp_smoke_has_literal_route(rendered)
+            ):
+                add(
+                    line_number,
+                    rendered,
+                    "derived",
+                    unsupported,
+                    unterminated,
+                    "rendered prose creates a protected command",
+                )
+        if not candidate_count_overflowed:
+            for line_number, rendered in _mcp_smoke_multiline_rendered_entries(prose):
+                add(
+                    line_number,
+                    rendered,
+                    "derived",
+                    reason="rendered prose creates a protected command",
+                )
+    return tuple(candidates)
+
+
+def _mcp_smoke_candidate_errors(
+    candidates: tuple[_McpSmokeCandidate, ...],
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    for candidate in candidates:
+        if candidate.state == "literal":
+            continue
+        reason = candidate.reason or f"{candidate.state} transport is not auditable"
+        errors.append(
+            f"{label}:{candidate.line_number}: mcp-client-smoke {reason}"
+        )
+    return errors
 
 
 def _is_literal_absolute_path(value: str) -> bool:
@@ -3600,7 +4431,6 @@ def _mcp_client_smoke_dispatch_kind(
         cursor += 1
     return kind if cursor == command_index else None
 
-
 MCP_CLIENT_SMOKE_VALUE_OPTIONS = frozenset(
     {
         "--client",
@@ -3663,31 +4493,29 @@ def _mcp_client_smoke_command_errors(
     *,
     require_python_source_launch: bool = False,
     require_template_placeholders: bool = False,
+    strict_transport: bool = False,
 ) -> list[str]:
     """Validate documented smoke argv, not arbitrary shell or Markdown semantics."""
     errors: list[str] = []
     has_valid_python_source_launch = False
-    command_entries = _executable_command_entries(text)
-    for line_number, command, unsupported_whitespace, unterminated in (
-        _logical_command_entries(text)
-    ):
-        if (
-            not unsupported_whitespace
-            and not unterminated
-            and _is_dynamic_mcp_client_smoke_transport(command)
-        ):
-            errors.append(
-                f"{label}:{line_number}: mcp-client-smoke uses an uninspectable "
-                "dynamic launcher"
-            )
-    for line_number, command, unsupported_whitespace, unterminated in command_entries:
+    candidates = _mcp_smoke_candidates(
+        text,
+        strict_transport=strict_transport,
+    )
+    errors.extend(_mcp_smoke_candidate_errors(candidates, label))
+    for candidate in candidates:
+        if candidate.state != "literal":
+            continue
+        line_number = candidate.line_number
+        command = candidate.text
+        unsupported_whitespace = candidate.unsupported_whitespace
+        unterminated = candidate.unterminated
         raw_candidate = "mcp-client-smoke" in command.casefold()
         if unsupported_whitespace or unterminated:
-            if raw_candidate:
-                errors.append(
-                    f"{label}:{line_number}: mcp-client-smoke contains unsupported "
-                    "whitespace or an unterminated shell continuation"
-                )
+            errors.append(
+                f"{label}:{line_number}: mcp-client-smoke contains unsupported "
+                "whitespace or an unterminated shell continuation"
+            )
             continue
         placeholder_matches = tuple(MCP_CLIENT_SMOKE_PATH_PLACEHOLDER_RE.finditer(command))
         placeholder_spelling_is_valid = not require_template_placeholders or all(
