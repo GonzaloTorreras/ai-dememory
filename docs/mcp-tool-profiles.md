@@ -40,7 +40,7 @@ ai-dememory --root ~/code/my-memory mcp-config --client codex --profile admin
 ```
 
 Inspect the exact allowlist and measure serialized tool-definition cost from
-the current server source:
+the active package, without selecting or reading a vault:
 
 ```bash
 ai-dememory dev mcp-inventory --profile core --json
@@ -49,6 +49,10 @@ ai-dememory dev mcp-inventory --profile working --json
 ai-dememory dev mcp-inventory --profile review --json
 ai-dememory dev mcp-inventory --profile admin --json
 ```
+
+These reporting commands work from an installed package outside a source
+checkout. The distinct `--check-docs` mode is maintainer-only and source-bound;
+run it from the checkout or pass an explicit absolute source `--root`.
 
 The reported `schema_bytes` is compact UTF-8 JSON for the selected MCP tool
 definitions. `estimated_schema_tokens` is a transparent bytes/4 estimate, not

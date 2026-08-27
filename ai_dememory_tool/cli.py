@@ -474,6 +474,15 @@ def run_packaged_command(
         if command == "onboard":
             return int(module.main(argv, mode=onboarding_mode or "onboard"))
         return int(module.main(argv))
+    if command == "mcp-inventory":
+        # This contextual command owns its exact grammar. Default/profile
+        # output is package-rootless; only --check-docs resolves the explicit
+        # source checkout inside the module. Never route either branch through
+        # the legacy vault/CWD resolver.
+        configure_imports()
+        _, module_name = COMMANDS[command]
+        module = importlib.import_module(f"ai_dememory_tool.admin.{module_name}")
+        return int(module.main(argv))
     if COMMAND_ROOT_POLICIES[command] is CommandRootPolicy.ROOTLESS:
         # Rootless package diagnostics must not consult a vault binding, the
         # saved selector, CWD, or an ambient source checkout. Keep a legacy
@@ -1016,7 +1025,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Unknown maintainer command: {command}", file=sys.stderr)
             print(dev_usage(), file=sys.stderr)
             return 2
-    if root_override and COMMAND_ROOT_POLICIES.get(command) is not CommandRootPolicy.ROOTLESS:
+    if command == "mcp-inventory" and root_override is not None:
+        # Preserve the legacy global spelling, but let the command decide
+        # whether it is an ignored compatibility value or the explicit source
+        # root for --check-docs. Do not expose it as vault authority.
+        argv = ["--root", root_override, *argv]
+    elif root_override and COMMAND_ROOT_POLICIES.get(command) is not CommandRootPolicy.ROOTLESS:
         # Preserve legacy global-root behavior only after policy selection.
         # The textual value remains unresolved until the owning parser accepts
         # its grammar; unconditional rootless commands never expose it through

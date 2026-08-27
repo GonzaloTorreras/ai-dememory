@@ -64,17 +64,27 @@ namespace:
 ```bash
 ai-dememory dev verify-mcp
 ai-dememory dev api-smoke
+ai-dememory mcp-inventory --json
+ai-dememory mcp-inventory --profile core --json
 ai-dememory --root <initialized-vault> dev mcp-client-smoke
 ai-dememory dev release-check
 ai-dememory dev publish-plan --repository testpypi --json
 ai-dememory dev release-evidence --json
 ```
 
-`verify-mcp` validates the contract exported by the active package and
-`api-smoke` owns a disposable temporary vault. Those two diagnostics require no
-vault binding and ignore the legacy nonempty `--root` compatibility option.
-They do not inspect a saved selector or select a vault/source checkout from
-CWD. Direct source-script execution uses the checkout containing that script.
+`verify-mcp` validates the contract exported by the active package,
+`api-smoke` owns a disposable temporary vault, and normal/profile
+`mcp-inventory` reports the active package definitions. These diagnostics
+require no vault binding and ignore the legacy nonempty `--root` compatibility
+option. They do not inspect a saved selector or select a vault/source checkout
+from CWD.
+
+`mcp-inventory --check-docs` is a separate source-bound mode. It compares the
+active package definitions with documentation in the checkout containing the
+direct script, or with an explicit absolute `--root <source-checkout>`. That
+root is source code, never a vault, and ambient vault selectors and CWD are not
+used to discover it. Direct source-script execution places its own checkout
+ahead of any older installed package.
 
 These commands can read source fixtures, create temporary test vaults, or
 validate a draft PR/release contract. They are not normal private-vault startup

@@ -555,7 +555,7 @@ class MemoryToolTests(unittest.TestCase):
                 # scripts must still move their own checkout to precedence.
                 "PYTHONPATH": os.pathsep.join((str(shadow_package.parent), str(ROOT))),
             }
-            for script in ("verify_mcp_contract.py", "api_smoke.py"):
+            for script in ("verify_mcp_contract.py", "api_smoke.py", "mcp_inventory.py"):
                 with self.subTest(script=script):
                     completed = subprocess.run(
                         [sys.executable, str(SCRIPTS / script), "--json"],
@@ -570,6 +570,12 @@ class MemoryToolTests(unittest.TestCase):
                     payload = json.loads(completed.stdout)
                     if script == "verify_mcp_contract.py":
                         self.assertEqual(payload, [])
+                    elif script == "mcp_inventory.py":
+                        self.assertEqual(payload["tool_count"], len(TOOLS))
+                        self.assertEqual(
+                            set(payload["profiles"]),
+                            {"public", "core", "working", "review", "admin"},
+                        )
                     else:
                         self.assertTrue(payload)
                         self.assertTrue(all(step["status"] == "ok" for step in payload))
@@ -654,7 +660,7 @@ class MemoryToolTests(unittest.TestCase):
                     self.assertEqual(observed["root_env"], "ambient-poison")
 
     def test_unified_rootless_help_precedes_vault_resolution(self) -> None:
-        for command in ("api-smoke", "verify-mcp"):
+        for command in ("api-smoke", "verify-mcp", "mcp-inventory"):
             with self.subTest(command=command):
                 with (
                     patch(
@@ -674,18 +680,29 @@ class MemoryToolTests(unittest.TestCase):
     def test_mcp_inventory_reads_source_only_for_check_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             missing_root = Path(tmp) / "not-a-checkout-or-vault"
+            legacy_root = r"\\invalid.example\share\must-not-resolve"
+            original_repo_root = memorylib.REPO_ROOT
 
             inventory_output = io.StringIO()
             with (
-                patch("mcp_inventory.repo_root", return_value=missing_root),
+                patch(
+                    "mcp_inventory.resolve_inventory_docs_root",
+                    side_effect=AssertionError("package inventory resolved source"),
+                ),
                 redirect_stdout(inventory_output),
             ):
-                self.assertEqual(mcp_inventory_main(["--json"]), 0)
+                self.assertEqual(
+                    mcp_inventory_main(["--root", legacy_root, "--json"]),
+                    0,
+                )
             self.assertEqual(json.loads(inventory_output.getvalue())["tool_count"], len(TOOLS))
 
             profile_output = io.StringIO()
             with (
-                patch("mcp_inventory.repo_root", return_value=missing_root),
+                patch(
+                    "mcp_inventory.resolve_inventory_docs_root",
+                    side_effect=AssertionError("profile inventory resolved source"),
+                ),
                 redirect_stdout(profile_output),
             ):
                 self.assertEqual(mcp_inventory_main(["--profile", "core", "--json"]), 0)
@@ -693,13 +710,130 @@ class MemoryToolTests(unittest.TestCase):
 
             documentation_output = io.StringIO()
             with (
-                patch("mcp_inventory.repo_root", return_value=missing_root),
+                patch("mcp_inventory.resolve_inventory_docs_root", return_value=missing_root) as resolver,
                 redirect_stdout(documentation_output),
             ):
                 self.assertEqual(mcp_inventory_main(["--check-docs", "--json"]), 1)
+            resolver.assert_called_once_with(None)
             issues = json.loads(documentation_output.getvalue())
             self.assertEqual({issue["target"] for issue in issues}, set(INVENTORY_DOCS))
             self.assertFalse(missing_root.exists())
+            self.assertEqual(memorylib.REPO_ROOT, original_repo_root)
+
+    def test_mcp_inventory_source_branch_ignores_vault_authority_and_cwd(self) -> None:
+        output = io.StringIO()
+        original_cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                os.chdir(tmp)
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"AI_DEMEMORY_ROOT": r"\\invalid.example\vault\must-not-resolve"},
+                        clear=False,
+                    ),
+                    patch("mcp_inventory.validate_inventory_docs", return_value=[]) as validate,
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(mcp_inventory_main(["--check-docs", "--json"]), 0)
+            finally:
+                os.chdir(original_cwd)
+
+        validate.assert_called_once_with(ROOT)
+        self.assertEqual(json.loads(output.getvalue()), [])
+
+    def test_mcp_inventory_rejects_ambiguous_modes_and_roots_before_work(self) -> None:
+        invalid_arguments = (
+            ["--ro", "legacy"],
+            ["--root"],
+            ["--root="],
+            ["--root", "first", "--root", "second"],
+            ["--profile", "core", "--profile", "admin"],
+            ["--check-docs", "--check-docs"],
+            ["--json", "--json"],
+            ["--check-docs", "--profile", "core"],
+            ["--check-docs", "--root", "."],
+            ["--unknown"],
+            ["--", "--root", "legacy"],
+        )
+        for arguments in invalid_arguments:
+            with self.subTest(arguments=arguments):
+                with (
+                    patch("mcp_inventory.build_inventory") as inventory,
+                    patch("mcp_inventory.validate_inventory_docs") as validate,
+                    redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    mcp_inventory_main(list(arguments))
+                self.assertEqual(raised.exception.code, 2)
+                inventory.assert_not_called()
+                validate.assert_not_called()
+
+    def test_unified_mcp_inventory_dispatches_context_without_vault_resolution(self) -> None:
+        canary = r"\\invalid.example\share\must-not-resolve"
+        cases = (
+            (["mcp-inventory", "--json"], ["--json"]),
+            (["dev", "mcp-inventory", "--json"], ["--json"]),
+            (
+                ["--root", canary, "mcp-inventory", "--json"],
+                ["--root", canary, "--json"],
+            ),
+            (
+                ["--root", canary, "dev", "mcp-inventory", "--profile", "core", "--json"],
+                ["--root", canary, "--profile", "core", "--json"],
+            ),
+            (
+                ["mcp-inventory", "--root", canary, "--profile", "core", "--json"],
+                ["--root", canary, "--profile", "core", "--json"],
+            ),
+            (
+                ["dev", "mcp-inventory", "--root", canary, "--profile", "core", "--json"],
+                ["--root", canary, "--profile", "core", "--json"],
+            ),
+            (
+                ["--root", str(ROOT), "mcp-inventory", "--check-docs", "--json"],
+                ["--root", str(ROOT), "--check-docs", "--json"],
+            ),
+        )
+        for arguments, expected_argv in cases:
+            with self.subTest(arguments=arguments):
+                observed: dict[str, object] = {}
+
+                def module_main(module_argv: list[str]) -> int:
+                    observed["argv"] = list(module_argv)
+                    observed["root_env"] = os.environ.get("AI_DEMEMORY_ROOT")
+                    return 0
+
+                module = type(
+                    "InventoryModule",
+                    (),
+                    {"main": staticmethod(module_main)},
+                )
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"AI_DEMEMORY_ROOT": "ambient-poison"},
+                        clear=False,
+                    ),
+                    patch("ai_dememory_tool.cli.configure_imports"),
+                    patch(
+                        "ai_dememory_tool.cli.load_default_vault",
+                        side_effect=AssertionError("inventory read the vault selector"),
+                    ),
+                    patch(
+                        "ai_dememory_tool.cli.find_memory_root",
+                        side_effect=AssertionError("inventory discovered CWD"),
+                    ),
+                    patch(
+                        "ai_dememory_tool.cli.importlib.import_module",
+                        return_value=module,
+                    ),
+                ):
+                    self.assertEqual(cli_main(list(arguments)), 0)
+                    self.assertEqual(os.environ["AI_DEMEMORY_ROOT"], "ambient-poison")
+
+                self.assertEqual(observed["argv"], expected_argv)
+                self.assertEqual(observed["root_env"], "ambient-poison")
 
     def test_repo_vault_template_matches_packaged_template(self) -> None:
         packaged = ROOT / "ai_dememory_tool" / "templates" / "vault"

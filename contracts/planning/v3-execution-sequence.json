@@ -135,6 +135,7 @@
         "scripts/review_memory.py",
         "scripts/schedule_memory.py",
         "scripts/install_smoke.py",
+        "scripts/mcp_inventory.py",
         "tests/test_config_file.py",
         "tests/test_memory_tools.py",
         "tests/test_onboarding.py",
@@ -142,6 +143,7 @@
         "tests/test_harness_hooks.py",
         "tests/test_vault_binding.py",
         "tests/test_runtime_binding_help.py",
+        "docs/adr/0010-mcp-inventory-drift-check.md",
         "docs/adr/0263-structural-runtime-vault-validation.md"
       ],
       "external_readback_required": false
