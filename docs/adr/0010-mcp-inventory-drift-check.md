@@ -19,7 +19,8 @@ boundaries.
 
 Add `ai-dememory mcp-inventory` backed by `scripts/mcp_inventory.py`.
 
-The command reads `mcp/server/memory_mcp.py` directly and reports:
+Default and `--profile` output load the canonical server definitions from the
+active package and report:
 
 - supported protocol versions
 - server capabilities
@@ -27,10 +28,16 @@ The command reads `mcp/server/memory_mcp.py` directly and reports:
 - prompts
 - resource templates
 
+Those reporting branches are package/rootless. They do not resolve a vault,
+read `AI_DEMEMORY_ROOT`, inspect the saved selector, or discover the current
+working directory. A legacy nonempty `--root` is accepted but ignored there.
+
 `ai-dememory mcp-inventory --check-docs` verifies that the MCP gap analysis,
 root MCP README, server README, and inventory-related ADRs mention the current
 `74 MCP tools` inventory, and that the root MCP README lists every tool name.
-`release-check` fails when that documentation drifts.
+This separate source-bound branch reads only the checkout containing the direct
+script or an explicit absolute `--root`; vault selectors and CWD are never
+source authority. `release-check` fails when that documentation drifts.
 
 ## Benefits
 
@@ -45,6 +52,8 @@ root MCP README, server README, and inventory-related ADRs mention the current
 - It does not prove that every tool behaves correctly; runtime smoke tests cover
   representative behavior separately.
 - It does not query external MCP documentation.
+- An installed wheel can always report package inventory. Documentation
+  validation requires a source checkout and is not an installed-vault command.
 
 ## Future Risks
 

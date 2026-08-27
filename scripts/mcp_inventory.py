@@ -11,15 +11,17 @@ import re
 import sys
 from typing import Any
 
-from memorylib import repo_root
+# A direct source-script invocation starts with ``scripts/`` on sys.path. Put
+# this script's own checkout ahead of an older installed ai_dememory_tool before
+# the first package import. Installed namespaced execution already has the
+# authoritative package path and must not select a checkout this way.
+if not __package__:
+    source_root = Path(__file__).resolve().parents[1]
+    if (source_root / "ai_dememory_tool").is_dir():
+        sys.path.insert(0, str(source_root))
 
-try:
-    from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
-except ModuleNotFoundError:  # Direct execution from scripts/ outside the repo cwd.
-    package_root = Path(__file__).resolve().parents[1]
-    if str(package_root) not in sys.path:
-        sys.path.insert(0, str(package_root))
-    from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
+from ai_dememory_tool.argument_safety import reject_duplicate_options
+from ai_dememory_tool.mcp_profiles import MCP_PROFILE_NAMES, enabled_tools_for_profile
 
 
 INVENTORY_DOCS = (
@@ -45,14 +47,16 @@ class InventoryIssue:
     message: str
 
 
-def load_server(root: Path) -> Any:
+def load_server(_legacy_root: Path | None = None) -> Any:
+    """Load the canonical server definitions from the active package."""
     from ai_dememory_tool.mcp_server import memory_mcp
 
     return memory_mcp
 
 
-def build_inventory(root: Path) -> dict[str, Any]:
-    server = load_server(root)
+def build_inventory(_legacy_root: Path | None = None) -> dict[str, Any]:
+    """Build package metadata without consulting a vault or source checkout."""
+    server = load_server()
     tools = sorted(tool["name"] for tool in server.TOOLS)
     tool_definitions = {tool["name"]: tool for tool in server.TOOLS}
     prompts = sorted(prompt["name"] for prompt in server.PROMPTS)
@@ -83,6 +87,24 @@ def build_inventory(root: Path) -> dict[str, Any]:
         "prompts": prompts,
         "resource_templates": sorted(resource_templates),
     }
+
+
+def resolve_inventory_docs_root(value: str | Path | None = None) -> Path:
+    """Resolve only the source tree used by the explicit documentation check.
+
+    The default is the checkout containing this module. An explicit path must
+    be absolute after ``~`` expansion. Deliberately ignore ``AI_DEMEMORY_ROOT``,
+    the saved vault selector, and CWD: none is source-code authority.
+    """
+    if value is None:
+        return Path(__file__).resolve().parents[1]
+    text = str(value)
+    if not text.strip():
+        raise ValueError("--root requires a non-empty source path")
+    candidate = Path(text).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("--root requires an absolute source path for --check-docs")
+    return candidate.resolve(strict=False)
 
 
 def validate_inventory_docs(root: Path) -> list[InventoryIssue]:
@@ -118,15 +140,35 @@ def validate_inventory_texts(inventory: dict[str, Any], documents: dict[str, str
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
-    parser.add_argument("--check-docs", action="store_true", help="Validate docs against the server inventory.")
-    parser.add_argument("--profile", choices=MCP_PROFILE_NAMES, help="Report one client tool profile.")
+    arguments = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument(
+        "--root",
+        default=None,
+        help=(
+            "Absolute source-checkout root for --check-docs. Ignored by "
+            "package-derived inventory output for compatibility."
+        ),
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--check-docs",
+        action="store_true",
+        help="Validate source documentation against the packaged server inventory.",
+    )
+    mode.add_argument("--profile", choices=MCP_PROFILE_NAMES, help="Report one client tool profile.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
-    args = parser.parse_args(argv)
+    reject_duplicate_options(parser, arguments, ("--root", "--check-docs", "--profile", "--json"))
+    args = parser.parse_args(arguments)
 
-    root = repo_root(args.root)
+    if args.root is not None and not args.root.strip():
+        parser.error("--root requires a non-empty compatibility value")
+
     if args.check_docs:
+        try:
+            root = resolve_inventory_docs_root(args.root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
         issues = validate_inventory_docs(root)
         if args.json:
             print(json.dumps([asdict(issue) for issue in issues], indent=2))
@@ -138,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
             print("MCP inventory docs are current.")
         return 1 if issues else 0
 
-    inventory = build_inventory(root)
+    inventory = build_inventory()
     if args.profile:
         inventory = {"profile": args.profile, **inventory["profiles"][args.profile]}
     if args.json:

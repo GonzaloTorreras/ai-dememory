@@ -13,21 +13,23 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`, the squash merge result of
-  [PR #55](https://github.com/GonzaloTorreras/ai-dememory/pull/55). Its history
-  contains the package-rootless diagnostic enforcement from PR #55, the
-  exhaustive generic-command root-policy inventory from PR #54, structural
-  runtime-vault validation from PR #53, rootless provider detection from PR
-  #52, the completed strict-configuration boundary from PR #51, and the prior
-  public planning and compatible `2.1.2` source corrections. The exact PR #55
-  head passed
-  [CI run 33070363903](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33070363903)
-  and [Pages validation 33070363887](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33070363887);
-  fresh functional and security reviewers returned `READY`, and the owner
-  receipt bound those results to the exact base/head/tree tuple. Post-merge
-  public [CI run 33072030026](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33072030026)
-  then passed `verify` plus all nine OS/Python compatibility jobs, and local
-  `origin/main` readback matched the squash commit.
+  `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`, the squash merge result of
+  [PR #56](https://github.com/GonzaloTorreras/ai-dememory/pull/56). Its history
+  contains the validated proposal/planning contracts from PR #56, package-
+  rootless diagnostic enforcement from PR #55, the exhaustive generic-command
+  root-policy inventory from PR #54, structural runtime-vault validation from
+  PR #53, rootless provider detection from PR #52, the completed strict-
+  configuration boundary from PR #51, and the prior public planning and
+  compatible `2.1.2` source corrections. The exact PR #56 head
+  `89cbbd7faa387d36b397d5ce8a35d71dc488204a` and tree
+  `41da5c36442eb2884e4fd1f9841296d0bbb29836` passed
+  [CI run 33087858096](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33087858096)
+  and [Pages validation 33087858102](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33087858102).
+  Three fresh exact-head reviews returned `READY` with no P0-P2 findings, and
+  the owner receipt bound them to the exact base/head/tree tuple. Post-merge
+  public [CI run 33090677528](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33090677528)
+  then passed `verify` plus all nine OS/Python compatibility jobs; GitHub
+  readback reported public `main` identical to the squash commit.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -500,13 +502,13 @@ local-API onboarding hint and documentation follow-up.
   no version, package, tag, release, installed vault, host configuration, or
   future learning capability changes.
 
-## Current Proposal Validation And Planning Consolidation
+## Merged Proposal Validation And Planning Consolidation
 
-- The current `codex/proposal-validation-roadmap` branch is based directly on
-  public `main` at `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`. It treats the
-  supplied external repository assessment as hypotheses, not instructions or
-  evidence, and changes no runtime, package, vault, version, configuration, or
-  current frontier.
+- PR [#56](https://github.com/GonzaloTorreras/ai-dememory/pull/56) was squash
+  merged to public `main` at `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`.
+  It treats the supplied external repository assessment as hypotheses, not
+  instructions or evidence, and changes no runtime, package, vault, version,
+  configuration, or current frontier.
 - Confirmed gaps are assigned to existing or explicit future owners: exact
   MCP/profile budgets under `BRG-019`; writers, accepted formats, proposal caps,
   YAML duplicate rejection, and index fencing/recovery under `MIG-001`;
@@ -561,17 +563,37 @@ local-API onboarding hint and documentation follow-up.
   task-id/batch/state/frontier parity from `release-check`, not only from unit
   tests. The current frontier remains exactly `BRG-003`; contract version 1 and
   the empty public execution ledger are unchanged.
-- Local pre-rebase evidence passed 181 focused planning, documentation-site,
-  MCP-profile, and Pages tests. The clean rebased predecessor head passed full
-  discovery with 1,149 tests and 63 expected skips. The first clean PR head then
-  passed 1,155 tests with 63 expected skips plus exact-head CI and Pages. Fresh
-  review exposed evidence-path, cross-receipt, lifecycle, and production-
-  authorization ambiguities before merge. The corrective working tree now
-  passes 51 focused planning tests with three honest filesystem/Windows
-  capability skips, direct planning validation, documentation-site guard,
-  MCP-doc inventory, secret scan, artifact guard, non-strict release check,
-  compile, and diff validation. Obsolete test processes were terminated rather
-  than left resident. Exact final-head full suite, replacement CI/Pages, and
+- Earlier review exposed evidence-path, cross-receipt, lifecycle, and
+  production-authorization ambiguities before merge; all were corrected on the
+  final exact head. That head passed 1,192 tests with 66 expected skips, 51
+  focused planning tests with three honest capability skips, direct planning,
+  documentation-site, MCP-doc, secret, artifact, release, compile, and diff
+  guards, the exact CI and Pages runs above, and three fresh independent
+  reviews. No stale test process remained after the final suite.
+
+## Current BRG-003 MCP Inventory Contextual Slice
+
+- The current `codex/brg003-mcp-inventory-rootless` branch is based directly on
+  public `main` at `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`. It remains
+  `BRG-003` / `B04b`; no planning state, version, package, tag, release, vault,
+  selector, or installed configuration changes.
+- The frozen policy already classified default/profile `mcp-inventory` as
+  package/rootless and `--check-docs` as source-bound, but the legacy dispatcher
+  still resolved an explicit, environment, saved, CWD, or package/vault root
+  before either branch. The old focused test mocked that resolver to return a
+  path instead of proving it was never called.
+- The command now owns exact, non-abbreviated grammar before any root work.
+  Default and profile output load the active packaged server definitions and
+  ignore legacy root values without resolving them. Only `--check-docs` selects
+  the direct script's checkout or an explicit absolute source root; it never
+  treats `AI_DEMEMORY_ROOT`, a saved vault selector, or CWD as source authority.
+  Direct source execution also places its own package ahead of a stale installed
+  copy before the first package import.
+- Focused evidence passes 40 dispatcher, module, import-precedence, install-
+  command, and MCP-profile tests. Fresh-wheel smoke passed every step, including
+  full and `core` inventory from an unrelated directory before vault creation,
+  and verified that the directory remained unchanged. Full discovery passes
+  1,195 tests with 66 expected Windows capability skips. Exact-head CI/Pages and
   fresh independent review remain PR delivery evidence.
 
 ## Completed BRG-017 Strict Configuration Boundary
@@ -773,10 +795,9 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Continue `BRG-003` by splitting `mcp-inventory`: normal/profile output is
-   package-derived and rootless, while `--check-docs` is source-bound. Continue
-   the remaining source, vault, and contextual policies in compatible slices;
-   never reuse the vault resolver for a source-bound command.
+2. Complete the current reviewed `mcp-inventory` contextual slice, then continue
+   the remaining source, vault, and contextual policies in compatible slices.
+   Never reuse the vault resolver for a source-bound command.
 3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, `RET-001`,
    and the externally read-back `GATE-B` in their normative order after
    `BRG-003`.

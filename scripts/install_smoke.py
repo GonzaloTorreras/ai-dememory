@@ -1627,6 +1627,32 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         )
         if json.loads(rootless_contract.stdout) != []:
             raise InstallSmokeError("installed rootless MCP verification reported issues")
+        rootless_inventory = run_step(
+            steps,
+            "installed MCP inventory is rootless outside a vault",
+            [str(ai_dememory), "mcp-inventory", "--json"],
+            cwd=rootless_cwd,
+            env=rootless_env,
+        )
+        inventory = json.loads(rootless_inventory.stdout)
+        if inventory.get("tool_count") != 74 or set(inventory.get("profiles", {})) != {
+            "public",
+            "core",
+            "working",
+            "review",
+            "admin",
+        }:
+            raise InstallSmokeError("installed rootless MCP inventory is incomplete")
+        rootless_profile = run_step(
+            steps,
+            "installed MCP profile inventory is rootless outside a vault",
+            [str(ai_dememory), "mcp-inventory", "--profile", "core", "--json"],
+            cwd=rootless_cwd,
+            env=rootless_env,
+        )
+        profile = json.loads(rootless_profile.stdout)
+        if profile.get("profile") != "core" or profile.get("tool_count") != 4:
+            raise InstallSmokeError("installed rootless MCP profile inventory is invalid")
         rootless_api = run_step(
             steps,
             "installed API smoke is rootless outside a vault",

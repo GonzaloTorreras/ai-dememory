@@ -31,7 +31,7 @@ local stdio server.
 | Lifecycle | Implemented | `initialize` negotiates `2025-11-25` or `2024-11-05`; `notifications/initialized` is accepted and exercised by client and runtime smoke. |
 | Ping | Implemented | `ping` returns an empty result for connection health checks. |
 | Tools | Implemented | The explicit `admin` profile retains 74 MCP tools for compatibility. Server-enforced `public`, `core`, `working`, and `review` profiles expose smaller allowlists in both `tools/list` and `tools/call`; ordinary clients do not all pay the admin schema cost. `ai-dememory mcp-inventory --check-docs` guards documented tool names. |
-| Profile schema measurement | Implemented with a planning gap | `mcp-inventory --json` reports per-profile tool count, compact schema bytes, and estimated tokens. It does not yet make the human profile table or named growth budgets exact artifacts; `BRG-019` owns that gap. |
+| Profile schema measurement | Implemented with a planning gap | Package/rootless `mcp-inventory --json` reports per-profile tool count, compact schema bytes, and estimated tokens without selecting a vault; the distinct `--check-docs` branch is source-bound. It does not yet make the human profile table or named growth budgets exact artifacts; `BRG-019` owns that gap. |
 | Resources | Implemented | Public/internal memory resources can be listed/read by id or path. |
 | Resource templates | Implemented | `memory://id/{id}` and `memory://path/{path}` are advertised. |
 | Prompts | Implemented | Recall, capture proposal, and inbox review prompts are listed/read. |
