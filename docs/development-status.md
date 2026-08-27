@@ -520,7 +520,9 @@ local-API onboarding hint and documentation follow-up.
   Spanish/Unicode cases; `RET-002` must compare one shared deterministic Unicode
   normalization boundary before an optional local embedding candidate. Graph
   output must separately declare page-local closure and body-mention reference
-  detection rather than imply semantic links.
+  detection rather than imply semantic links, and `GRF-001` must share the
+  canonical id grammar so trailing `-`/`/` and non-`mem_` ids cannot be silently
+  lost or truncated.
 - `RET-001` must freeze the machine-readable `retrieval-benchmark-v1` contract
   before `GATE-B`: paired end-to-end FTS/candidate `Recall@10`, secondary
   `MRR@10`, deterministic corpus/config identity and bootstrap, repeated
@@ -535,7 +537,12 @@ local-API onboarding hint and documentation follow-up.
   now distinguish passing regression fixtures from unresolved held-out
   challenges. `vector status` is descriptive only. The current source snapshot
   reports the admin MCP profile at 74 tools, 81,234 schema bytes, and about
-  20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement.
+  20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement and
+  must flag read-only capabilities, including `memory.graph`, that are trapped
+  in writer-bearing profiles before any downstream consumer uses them.
+- `CON-001` must measure oldest pending age, bounded-window admissions and
+  resolutions, net queue growth, and cap discards. One candidate per run is a
+  safety limit, not evidence that review debt is shrinking.
 - Reusable planning validation now rejects task dependencies whose batches are
   not transitively compatible or whose predecessor batches are incomplete;
   requires the frontier to equal every and only `in_progress` task; requires
@@ -543,9 +550,14 @@ local-API onboarding hint and documentation follow-up.
   dependencies for every `complete` task; and requires empty evidence for every
   `future` task. External tasks declare distinct versioned descriptors and can
   complete only with a size-bounded, task/contract/class-bound JSON receipt that
-  satisfies session, fixture, lifecycle, result, and secret-scan requirements.
-  Duplicate, deeply nested, or otherwise invalid JSON fails with controlled
-  diagnostics. Its bounded escaped-pipe-aware roadmap parser enforces exact
+  satisfies fixture requirements, distinct session identities, and the exact
+  required detail set. Session lifecycle, redaction, result, secret-scan, and
+  detail claims now point to task-local bounded JSON artifacts whose byte size
+  and SHA-256 are recomputed. Portable-path validation rejects case-fold
+  ambiguity, Windows reserved names, symlinks/reparse points, and hardlinks.
+  Duplicate, deeply nested, oversized, unsupported-schema, or otherwise invalid
+  JSON fails with controlled bounded diagnostics; cycle validation is iterative.
+  Its bounded escaped-pipe-aware roadmap parser enforces exact
   task-id/batch/state/frontier parity from `release-check`, not only from unit
   tests. The current frontier remains exactly `BRG-003`; contract version 1 and
   the empty public execution ledger are unchanged.
@@ -555,8 +567,9 @@ local-API onboarding hint and documentation follow-up.
   passed 1,155 tests with 63 expected skips plus exact-head CI and Pages. Fresh
   review exposed evidence-path, cross-receipt, lifecycle, and production-
   authorization ambiguities before merge. The corrective working tree now
-  passes 35 focused planning tests with one expected Windows symlink-privilege
-  skip, direct planning validation, documentation-site guard, schema parsing,
+  passes 51 focused planning tests with three honest filesystem/Windows
+  capability skips, direct planning validation, documentation-site guard,
+  MCP-doc inventory, secret scan, artifact guard, non-strict release check,
   compile, and diff validation. Obsolete test processes were terminated rather
   than left resident. Exact final-head full suite, replacement CI/Pages, and
   fresh independent review remain PR delivery evidence.
@@ -767,8 +780,9 @@ remain intact.
 3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, `RET-001`,
    and the externally read-back `GATE-B` in their normative order after
    `BRG-003`.
-4. After `GATE-B`, keep `GRF-001` -> `RET-002` and `OBS-001` -> `OUT-001` ->
-   `CON-001` -> `MEM-001` as separate future branches. Their planning handoffs
+4. After `GATE-B`, keep `GRF-001` -> shadow-only `RET-002` -> production-design
+   gate `RET-003` and `OBS-001` -> `OUT-001` -> `CON-001` -> `MEM-001` as
+   separate future branches. Their planning handoffs
    add no current runtime, config, wizard, ranking, model, vector, graph-recall,
    or canonical-write capability.
 5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence. The next

@@ -71,13 +71,14 @@ The legal product implementation frontier remains batch `B04b`:
 6. Then `GATE-B`: compatibility evidence; no declaration without external
    readback.
 
-Only after `GATE-B` may the future graph/retrieval branch begin with `GRF-001`
-then `RET-002`. The independent governed-learning sequence may also begin:
-`OBS-001`, `OUT-001`, `CON-001`, then `MEM-001`. Its technical handoff is
-`docs/governed-learning-loop-handoff.md`; adding that plan does not change the
-current frontier or authorize runtime work. The audit disposition and precise
-quality/graph boundaries are in `docs/proposal-validation-handoff.md`, which is
-also non-executable.
+Only after `GATE-B` may the future graph/retrieval branch begin with `GRF-001`,
+continue with shadow-only `RET-002`, and reach the separate production-design
+and explicit-approval gate `RET-003`. The independent governed-learning
+sequence may also begin: `OBS-001`, `OUT-001`, `CON-001`, then `MEM-001`. Its
+technical handoff is `docs/governed-learning-loop-handoff.md`; adding that plan
+does not change the current frontier or authorize runtime work. The audit
+disposition and precise quality/graph boundaries are in
+`docs/proposal-validation-handoff.md`, which is also non-executable.
 
 Do not add a new task when an existing ID covers the work. Update
 `contracts/planning/v3-execution-sequence.json` when dependencies, status, or

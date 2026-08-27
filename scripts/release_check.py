@@ -498,7 +498,7 @@ def check_planning_contract(root: Path) -> ReleaseCheck:
         return fail("planning_contract", f"{len(errors)} issue(s): " + "; ".join(errors[:3]))
     return ok(
         "planning_contract",
-        "schema, DAG lifecycle, frontier, roadmap parity, ledger, and typed evidence valid",
+        "schema, DAG lifecycle, frontier, roadmap parity, ledger envelope, and typed evidence valid",
     )
 
 

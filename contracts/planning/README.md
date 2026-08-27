@@ -22,8 +22,17 @@ and non-portable Windows names are not evidence. A task with external readback
 defines exactly one versioned `external_readback_contract` descriptor; a task
 without the readback flag cannot define one. A task-bound external receipt lives at
 `contracts/planning/evidence/<task-id>/<name>.json`, identifies the source,
-consumer, server profile, allowlist, schema, environment, fixture, lifecycle,
-redaction manifest, and sanitized readback by stable hashes, and records a
-passing secret scan. Its contract id, kind, session count, and fixture identity
-must satisfy the owning task descriptor. Optional task-specific `details` are
-bounded name/hash identities, never raw transcripts or arbitrary payloads.
+consumer, server profile, allowlist, schema, environment, fixture, and sanitized
+readback by stable hashes, and records a passing secret scan. Its contract id,
+kind, distinct per-session records, fixture identity, and every required detail
+name must satisfy the owning task descriptor. Task-specific `details` reference
+bounded, sanitized files under the same task's `artifacts/` directory; the
+validator recomputes their byte sizes and raw-byte SHA-256 identities. They are
+never raw transcripts or arbitrary inline payloads.
+
+This validation establishes schema, task binding, containment, and hash
+consistency. A checked-in receipt remains owner-attested evidence: it does not
+cryptographically authenticate an external provider, reviewer, or causal claim.
+Independent review and the owning task's external readback remain mandatory;
+task-specific payload schemas and harnesses must be added before that future task
+can complete when its acceptance criteria require semantic or numeric proof.

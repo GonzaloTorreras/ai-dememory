@@ -49,9 +49,10 @@ separate because `ai-dememory roadmap status` reports current v2 implementation
 evidence, not future work.
 
 The normative future retrieval sequence is `RET-001` -> `GATE-B` -> `GRF-001`
--> `RET-002`. `RET-001` must first separate passing regressions from reviewed
-held-out challenges; only `RET-002` may later compare bounded retrieval
-candidates after the compatibility and graph-contract gates.
+-> shadow-only `RET-002` -> production-design gate `RET-003`. `RET-001` must
+first separate passing regressions from reviewed held-out challenges;
+`RET-002` may only compare bounded retrieval candidates after the compatibility
+and graph-contract gates, and cannot authorize production ranking changes.
 
 The command does not replace release gates. `release-check`,
 `release-evidence`, manual acceptance, recall fixture freshness, and CI remain

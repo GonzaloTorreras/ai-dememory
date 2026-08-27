@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import sys
@@ -66,6 +68,7 @@ def single_task_sequence(
             "kind": "test_readback_v1",
             "minimum_sessions": 1,
             "fixture_required": False,
+            "required_detail_names": ["task-contract"],
         }
     elif external_readback_contract is not None:
         task["external_readback_contract"] = external_readback_contract
@@ -89,6 +92,33 @@ def valid_external_receipt(
     session_count: int = 1,
     fixture_identity: str | None = None,
 ) -> dict[str, Any]:
+    artifact_root = f"contracts/planning/evidence/{task_id}/artifacts"
+
+    def artifact_claim(filename: str) -> dict[str, Any]:
+        path = f"{artifact_root}/{filename}"
+        payload = json.dumps(
+            {"artifact": path}, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return {
+            "path": path,
+            "artifact_sha256": hashlib.sha256(payload).hexdigest(),
+            "byte_size": len(payload),
+        }
+
+    sessions = []
+    for index in range(session_count):
+        session_id = f"session-{index + 1}"
+        sessions.append(
+            {
+                "session_id": session_id,
+                "lifecycle": artifact_claim(f"{session_id}-lifecycle.json"),
+                "redaction_manifest": artifact_claim(
+                    f"{session_id}-redaction.json"
+                ),
+                "result": artifact_claim(f"{session_id}-result.json"),
+                "passed": True,
+            }
+        )
     return {
         "$schema": "../../external-readback-receipt.schema.json",
         "receipt_type": "external-readback",
@@ -112,20 +142,86 @@ def valid_external_receipt(
         },
         "fixture_identity": fixture_identity or "sha256:" + "f" * 64,
         "readback": {
-            "session_count": session_count,
-            "lifecycle_sha256": "1" * 64,
-            "redaction_manifest_sha256": "4" * 64,
-            "result_sha256": "2" * 64,
+            "sessions": sessions,
             "sanitized": True,
             "passed": True,
         },
         "secret_scan": {
             "scanner": "ai-dememory secret-scan",
-            "result_sha256": "3" * 64,
+            "result": artifact_claim("secret-scan.json"),
             "passed": True,
         },
-        "details": [{"name": "task-contract", "artifact_sha256": "5" * 64}],
+        "details": [
+            {
+                "name": "task-contract",
+                **artifact_claim("task-contract.json"),
+            }
+        ],
     }
+
+
+def iter_receipt_artifact_claims(receipt: dict[str, Any]) -> list[dict[str, Any]]:
+    claims: list[dict[str, Any]] = []
+    readback = receipt.get("readback")
+    if isinstance(readback, dict):
+        sessions = readback.get("sessions")
+        if isinstance(sessions, list):
+            for session in sessions:
+                if not isinstance(session, dict):
+                    continue
+                for name in ("lifecycle", "redaction_manifest", "result"):
+                    claim = session.get(name)
+                    if isinstance(claim, dict):
+                        claims.append(claim)
+    secret_scan = receipt.get("secret_scan")
+    if isinstance(secret_scan, dict) and isinstance(secret_scan.get("result"), dict):
+        claims.append(secret_scan["result"])
+    details = receipt.get("details")
+    if isinstance(details, list):
+        claims.extend(detail for detail in details if isinstance(detail, dict))
+    return claims
+
+
+def write_receipt_artifacts(root: Path, receipt: dict[str, Any]) -> None:
+    for claim in iter_receipt_artifact_claims(receipt):
+        path = claim.get("path")
+        if not isinstance(path, str):
+            continue
+        artifact = root / Path(*PurePosixPath(path).parts)
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"artifact": path}, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        artifact.write_bytes(payload)
+
+
+def write_external_receipt(
+    root: Path, evidence: str, receipt: dict[str, Any]
+) -> Path:
+    write_receipt_artifacts(root, receipt)
+    receipt_path = root / Path(*PurePosixPath(evidence).parts)
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    return receipt_path
+
+
+def validate_external_receipt_fixture(
+    root: Path,
+    receipt: dict[str, Any],
+    *,
+    contract: dict[str, Any] | None = None,
+) -> list[str]:
+    evidence = "contracts/planning/evidence/EXT-001/readback.json"
+    write_external_receipt(root, evidence, receipt)
+    return validate_sequence_semantics(
+        single_task_sequence(
+            [evidence],
+            external_readback_required=True,
+            external_readback_contract=contract,
+        ),
+        root,
+        receipt_schema=load_receipt_schema(),
+    )
 
 
 class PlanningContractTests(unittest.TestCase):
@@ -252,6 +348,7 @@ class PlanningContractTests(unittest.TestCase):
                         "kind",
                         "minimum_sessions",
                         "fixture_required",
+                        "required_detail_names",
                     },
                 )
             else:
@@ -470,6 +567,41 @@ class PlanningContractTests(unittest.TestCase):
             errors,
         )
 
+    def test_semantic_guard_rejects_casefold_collision_with_exact_spelling(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Proof.md").write_text("first", encoding="utf-8")
+            (root / "proof.md").write_text("second", encoding="utf-8")
+            spellings = {
+                entry.name
+                for entry in root.iterdir()
+                if entry.name.casefold() == "proof.md"
+            }
+            if len(spellings) < 2:
+                self.skipTest("filesystem is case-insensitive")
+
+            errors = validate_sequence_semantics(
+                single_task_sequence(["Proof.md"]), root
+            )
+
+        self.assertIn(
+            "task EXT-001 evidence path component 'Proof.md' has ambiguous "
+            "case-fold spellings ['Proof.md', 'proof.md']",
+            errors,
+        )
+
+    def test_semantic_guard_rejects_superscript_windows_device_name(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            errors = validate_sequence_semantics(
+                single_task_sequence(["evidence/COM¹.json"]), Path(directory)
+            )
+
+        self.assertIn(
+            "task EXT-001 evidence path is not portable on Windows: "
+            "'evidence/COM¹.json'",
+            errors,
+        )
+
     def test_semantic_guard_rejects_directory_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -503,7 +635,49 @@ class PlanningContractTests(unittest.TestCase):
             )
 
         self.assertIn(
-            f"task EXT-001 evidence path escapes repository root: {evidence!r}",
+            "task EXT-001 evidence path component 'receipt.json' must not be a "
+            "symlink, junction, or reparse point",
+            errors,
+        )
+
+    def test_semantic_guard_rejects_contained_symlink_alias_when_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.json"
+            target.write_text("{}", encoding="utf-8")
+            alias = root / "alias.json"
+            try:
+                alias.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"file symlinks are unavailable: {exc}")
+
+            errors = validate_sequence_semantics(
+                single_task_sequence(["alias.json"]), root
+            )
+
+        self.assertIn(
+            "task EXT-001 evidence path component 'alias.json' must not be a "
+            "symlink, junction, or reparse point",
+            errors,
+        )
+
+    def test_semantic_guard_rejects_hardlink_evidence_when_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.json"
+            target.write_text("{}", encoding="utf-8")
+            alias = root / "alias.json"
+            try:
+                os.link(target, alias)
+            except OSError as exc:
+                self.skipTest(f"hard links are unavailable: {exc}")
+
+            errors = validate_sequence_semantics(
+                single_task_sequence(["alias.json"]), root
+            )
+
+        self.assertIn(
+            "task EXT-001 evidence path must not be a hard link: alias.json",
             errors,
         )
 
@@ -540,6 +714,7 @@ class PlanningContractTests(unittest.TestCase):
                         "kind": "unexpected_v1",
                         "minimum_sessions": 1,
                         "fixture_required": False,
+                        "required_detail_names": ["unexpected"],
                     },
                 ),
                 root,
@@ -559,10 +734,8 @@ class PlanningContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(
-                json.dumps(valid_external_receipt("OTHER-001")), encoding="utf-8"
+            write_external_receipt(
+                root, evidence, valid_external_receipt("OTHER-001")
             )
 
             errors = validate_sequence_semantics(
@@ -582,15 +755,12 @@ class PlanningContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(
-                json.dumps(
-                    valid_external_receipt(
-                        contract_id="other-contract-v1", kind="other_kind_v1"
-                    )
+            write_external_receipt(
+                root,
+                evidence,
+                valid_external_receipt(
+                    contract_id="other-contract-v1", kind="other_kind_v1"
                 ),
-                encoding="utf-8",
             )
 
             errors = validate_sequence_semantics(
@@ -616,21 +786,19 @@ class PlanningContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(
-                json.dumps(
-                    valid_external_receipt(
-                        session_count=1, fixture_identity="not-applicable"
-                    )
+            write_external_receipt(
+                root,
+                evidence,
+                valid_external_receipt(
+                    session_count=1, fixture_identity="not-applicable"
                 ),
-                encoding="utf-8",
             )
             contract = {
                 "contract_id": "ext-001-test-v1",
                 "kind": "test_readback_v1",
                 "minimum_sessions": 2,
                 "fixture_required": True,
+                "required_detail_names": ["task-contract"],
             }
 
             errors = validate_sequence_semantics(
@@ -647,7 +815,9 @@ class PlanningContractTests(unittest.TestCase):
             "task EXT-001 external receipt "
             "contracts/planning/evidence/EXT-001/readback.json: "
         )
-        self.assertIn(prefix + "session_count 1 is below required minimum 2", errors)
+        self.assertIn(
+            prefix + "session record count 1 is below required minimum 2", errors
+        )
         self.assertIn(
             prefix + "fixture_identity must be a SHA-256 digest", errors
         )
@@ -656,11 +826,7 @@ class PlanningContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
-            receipt_path.write_text(
-                json.dumps(valid_external_receipt()), encoding="utf-8"
-            )
+            write_external_receipt(root, evidence, valid_external_receipt())
 
             errors = validate_sequence_semantics(
                 single_task_sequence([evidence], external_readback_required=True),
@@ -670,15 +836,149 @@ class PlanningContractTests(unittest.TestCase):
 
         self.assertEqual(errors, [])
 
+    def test_external_readback_rejects_duplicate_session_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            receipt = valid_external_receipt(session_count=2)
+            receipt["readback"]["sessions"][1]["session_id"] = "session-1"
+
+            errors = validate_external_receipt_fixture(
+                root,
+                receipt,
+                contract={
+                    "contract_id": "ext-001-test-v1",
+                    "kind": "test_readback_v1",
+                    "minimum_sessions": 2,
+                    "fixture_required": False,
+                    "required_detail_names": ["task-contract"],
+                },
+            )
+
+        self.assertTrue(
+            any("duplicate session_id 'session-1'" in error for error in errors),
+            errors,
+        )
+
+    def test_external_readback_requires_exact_unique_detail_names(self) -> None:
+        mutations = {
+            "missing": lambda receipt: receipt.__setitem__("details", []),
+            "substituted": lambda receipt: receipt["details"][0].__setitem__(
+                "name", "other-detail"
+            ),
+            "duplicate": lambda receipt: receipt["details"].append(
+                deepcopy(receipt["details"][0])
+            ),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                receipt = valid_external_receipt()
+                mutate(receipt)
+
+                errors = validate_external_receipt_fixture(root, receipt)
+
+            self.assertTrue(
+                any(
+                    "detail names must exactly match descriptor" in error
+                    or "duplicate detail name 'task-contract'" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_external_readback_recomputes_detail_digest_and_size(self) -> None:
+        mutations = {
+            "digest": ("artifact_sha256", "0" * 64, "artifact_sha256"),
+            "size": ("byte_size", 1, "byte_size"),
+        }
+        for label, (field, value, diagnostic) in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                receipt = valid_external_receipt()
+                receipt["details"][0][field] = value
+
+                errors = validate_external_receipt_fixture(root, receipt)
+
+            self.assertTrue(
+                any(diagnostic in error and "details[0]" in error for error in errors),
+                errors,
+            )
+
+    def test_external_readback_rejects_substituted_and_self_referencing_paths(self) -> None:
+        mutations = {
+            "substituted": "contracts/planning/evidence/EXT-001/artifacts/other.json",
+            "self": "contracts/planning/evidence/EXT-001/readback.json",
+        }
+        for label, path in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                receipt = valid_external_receipt()
+                receipt["details"][0]["path"] = path
+
+                errors = validate_external_receipt_fixture(root, receipt)
+
+            expected = (
+                "artifact must not reference its receipt"
+                if label == "self"
+                else "must be 'contracts/planning/evidence/EXT-001/artifacts/"
+                "task-contract.json'"
+            )
+            self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_external_readback_rejects_oversized_detail_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = "contracts/planning/evidence/EXT-001/readback.json"
+            receipt = valid_external_receipt()
+            receipt_path = write_external_receipt(root, evidence, receipt)
+            detail_path = root / Path(
+                *PurePosixPath(receipt["details"][0]["path"]).parts
+            )
+            detail_path.write_bytes(b"{" + b" " * (64 * 1024) + b"}")
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            errors = validate_sequence_semantics(
+                single_task_sequence([evidence], external_readback_required=True),
+                root,
+                receipt_schema=load_receipt_schema(),
+            )
+
+        self.assertTrue(
+            any("exceeds 65536 bytes" in error for error in errors), errors
+        )
+
+    def test_external_readback_artifacts_must_be_unambiguous_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = "contracts/planning/evidence/EXT-001/readback.json"
+            receipt = valid_external_receipt()
+            receipt_path = write_external_receipt(root, evidence, receipt)
+            detail = receipt["details"][0]
+            detail_path = root / Path(*PurePosixPath(detail["path"]).parts)
+            payload = b'{"proof":1,"proof":2}'
+            detail_path.write_bytes(payload)
+            detail["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
+            detail["byte_size"] = len(payload)
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+            errors = validate_sequence_semantics(
+                single_task_sequence([evidence], external_readback_required=True),
+                root,
+                receipt_schema=load_receipt_schema(),
+            )
+
+        self.assertTrue(
+            any("artifact has duplicate JSON key 'proof'" in error for error in errors),
+            errors,
+        )
+
     def test_external_readback_requires_passing_secret_scan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
             receipt = valid_external_receipt()
             receipt["secret_scan"]["passed"] = False
-            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            write_external_receipt(root, evidence, receipt)
 
             errors = validate_sequence_semantics(
                 single_task_sequence([evidence], external_readback_required=True),
@@ -699,7 +999,9 @@ class PlanningContractTests(unittest.TestCase):
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
             receipt_path = root / Path(*PurePosixPath(evidence).parts)
             receipt_path.parent.mkdir(parents=True)
-            encoded = json.dumps(valid_external_receipt())
+            receipt = valid_external_receipt()
+            write_receipt_artifacts(root, receipt)
+            encoded = json.dumps(receipt)
             encoded = encoded.replace(
                 '"task_id": "EXT-001"',
                 '"task_id": "EXT-001", "task_id": "EXT-001"',
@@ -727,7 +1029,9 @@ class PlanningContractTests(unittest.TestCase):
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
             receipt_path = root / Path(*PurePosixPath(evidence).parts)
             receipt_path.parent.mkdir(parents=True)
-            encoded = json.dumps(valid_external_receipt()).replace(
+            receipt = valid_external_receipt()
+            write_receipt_artifacts(root, receipt)
+            encoded = json.dumps(receipt).replace(
                 '"receipt_version": 1', '"receipt_version": ' + "9" * 5000, 1
             )
             receipt_path.write_text(encoded, encoding="utf-8")
@@ -773,10 +1077,11 @@ class PlanningContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             evidence = "contracts/planning/evidence/EXT-001/readback.json"
-            receipt_path = root / Path(*PurePosixPath(evidence).parts)
-            receipt_path.parent.mkdir(parents=True)
             receipt = valid_external_receipt()
+            write_receipt_artifacts(root, receipt)
             receipt["details"] = {"raw_transcript": "not allowed"}
+            receipt_path = root / Path(*PurePosixPath(evidence).parts)
+            receipt_path.parent.mkdir(parents=True, exist_ok=True)
             receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
             errors = validate_sequence_semantics(
@@ -855,6 +1160,218 @@ class PlanningContractTests(unittest.TestCase):
 
         self.assertTrue(
             any("invalid JSON value" in error for error in errors), errors
+        )
+
+    def test_unsupported_schema_assertion_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            planning = root / "contracts" / "planning"
+            planning.mkdir(parents=True)
+            for name in (
+                "v3-execution-sequence.json",
+                "v3-execution-sequence.schema.json",
+                "v3-execution-ledger.json",
+                "external-readback-receipt.schema.json",
+            ):
+                shutil.copy2(PLANNING / name, planning / name)
+            schema_path = planning / "v3-execution-sequence.schema.json"
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            schema["unevaluatedProperties"] = False
+            schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+            errors = validate_planning_contract(root)
+
+        self.assertIn(
+            "v3-execution-sequence.schema.json: unsupported schema keyword "
+            "'unevaluatedProperties'",
+            errors,
+        )
+
+    def test_supported_schema_keywords_reject_invalid_meta_types(self) -> None:
+        mutations = {
+            "silent-bound": (
+                lambda schema: schema["properties"]["tasks"].__setitem__(
+                    "maxItems", "1"
+                ),
+                "v3-execution-sequence.schema.json.properties.tasks.maxItems: "
+                "expected non-negative integer",
+            ),
+            "type-array": (
+                lambda schema: schema["properties"]["tasks"].__setitem__(
+                    "type", []
+                ),
+                "v3-execution-sequence.schema.json.properties.tasks.type: "
+                "expected string",
+            ),
+        }
+        for label, (mutate, expected) in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                planning = root / "contracts" / "planning"
+                planning.mkdir(parents=True)
+                for name in (
+                    "v3-execution-sequence.json",
+                    "v3-execution-sequence.schema.json",
+                    "v3-execution-ledger.json",
+                    "external-readback-receipt.schema.json",
+                ):
+                    shutil.copy2(PLANNING / name, planning / name)
+                schema_path = planning / "v3-execution-sequence.schema.json"
+                schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                mutate(schema)
+                schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+                errors = validate_planning_contract(root)
+
+            self.assertIn(expected, errors)
+
+    def test_planning_json_rejects_non_finite_constants(self) -> None:
+        for constant in ("NaN", "Infinity", "1e9999", "-1e9999"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                planning = root / "contracts" / "planning"
+                planning.mkdir(parents=True)
+                for name in (
+                    "v3-execution-sequence.json",
+                    "v3-execution-sequence.schema.json",
+                    "v3-execution-ledger.json",
+                    "external-readback-receipt.schema.json",
+                ):
+                    shutil.copy2(PLANNING / name, planning / name)
+                sequence_path = planning / "v3-execution-sequence.json"
+                encoded = sequence_path.read_text(encoding="utf-8").replace(
+                    '"contract_version": 1',
+                    f'"contract_version": {constant}',
+                    1,
+                )
+                sequence_path.write_text(encoded, encoding="utf-8")
+
+                errors = validate_planning_contract(root)
+
+            self.assertTrue(
+                any(
+                    f"non-finite JSON value '{constant}'" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_artifact_json_rejects_non_finite_constants(self) -> None:
+        for constant in ("NaN", "Infinity", "1e9999", "-1e9999"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                evidence = "contracts/planning/evidence/EXT-001/readback.json"
+                receipt = valid_external_receipt()
+                receipt_path = write_external_receipt(root, evidence, receipt)
+                detail = receipt["details"][0]
+                detail_path = root / Path(*PurePosixPath(detail["path"]).parts)
+                payload = f'{{"value":{constant}}}'.encode("utf-8")
+                detail_path.write_bytes(payload)
+                detail["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
+                detail["byte_size"] = len(payload)
+                receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+                errors = validate_sequence_semantics(
+                    single_task_sequence(
+                        [evidence], external_readback_required=True
+                    ),
+                    root,
+                    receipt_schema=load_receipt_schema(),
+                )
+
+            self.assertTrue(
+                any(
+                    f"artifact has non-finite JSON value '{constant}'" in error
+                    for error in errors
+                ),
+                errors,
+            )
+
+    def test_long_dependency_chain_returns_controlled_schema_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            planning = root / "contracts" / "planning"
+            planning.mkdir(parents=True)
+            for name in (
+                "v3-execution-sequence.schema.json",
+                "v3-execution-ledger.json",
+                "external-readback-receipt.schema.json",
+            ):
+                shutil.copy2(PLANNING / name, planning / name)
+            task_ids = [f"T-{index:04d}" for index in range(1100)]
+            tasks = [
+                {
+                    "id": task_id,
+                    "batch": "B01",
+                    "title": task_id,
+                    "status": "future",
+                    "depends_on": [] if index == 0 else [task_ids[index - 1]],
+                    "evidence": [],
+                    "external_readback_required": False,
+                }
+                for index, task_id in enumerate(task_ids)
+            ]
+            sequence = {
+                "contract_version": 1,
+                "planning_status": "test",
+                "updated_at": "2026-08-27",
+                "current_frontier": [],
+                "batches": [
+                    {
+                        "id": "B01",
+                        "title": "Long chain",
+                        "depends_on": [],
+                        "tasks": task_ids,
+                    }
+                ],
+                "tasks": tasks,
+            }
+            (planning / "v3-execution-sequence.json").write_text(
+                json.dumps(sequence), encoding="utf-8"
+            )
+
+            errors = validate_planning_contract(root)
+
+        self.assertTrue(
+            any("array has more than 512 items" in error for error in errors),
+            errors,
+        )
+        self.assertLessEqual(len(errors), 256)
+
+    def test_roadmap_is_rejected_before_unbounded_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            planning = root / "contracts" / "planning"
+            planning.mkdir(parents=True)
+            shutil.copy2(
+                PLANNING / "v3-execution-sequence.schema.json",
+                planning / "v3-execution-sequence.schema.json",
+            )
+            shutil.copy2(
+                PLANNING / "v3-execution-ledger.json",
+                planning / "v3-execution-ledger.json",
+            )
+            shutil.copy2(
+                PLANNING / "external-readback-receipt.schema.json",
+                planning / "external-readback-receipt.schema.json",
+            )
+            sequence = single_task_sequence([])
+            sequence["tasks"][0]["status"] = "in_progress"
+            sequence["current_frontier"] = ["EXT-001"]
+            (planning / "v3-execution-sequence.json").write_text(
+                json.dumps(sequence), encoding="utf-8"
+            )
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "v3-hybrid-visual-multiplatform-roadmap.md").write_bytes(
+                b"x" * (256 * 1024 + 1)
+            )
+
+            errors = validate_planning_contract(root)
+
+        self.assertIn(
+            "docs/v3-hybrid-visual-multiplatform-roadmap.md: exceeds 262144 bytes",
+            errors,
         )
 
 

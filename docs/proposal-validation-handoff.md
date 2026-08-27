@@ -93,7 +93,10 @@ contracts rather than requiring hand-maintained numbers.
 | Index concurrency | `rebuild_index()` uses one fixed `memory.sqlite.tmp` path and has no shared rebuild-writer boundary. | Concurrent rebuild attempts can contend on or remove the same temporary file, especially on Windows. | `MIG-001` |
 | Generated state | Rebuild snapshots lifecycle/feedback state before replacing the database. Concurrent generated-state writes after that snapshot can be lost. | SQLite is disposable, but user-visible feedback needs an explicit ownership/fencing contract. | `MIG-001` |
 | MCP budget drift | The generator measures profile counts and schema bytes, but its docs check does not enforce the human profile table and the current admin byte count has drifted from that table. | Documentation can misstate the actual context cost even when tool names are current. | `BRG-019` |
+| MCP least privilege | `memory.graph` is read-only but currently appears only in the writer-bearing `review` profile. | A graph consumer would inherit unrelated proposal, configuration, and conflict writers unless the inventory drives an exact allowlist or narrower profile decision. | `BRG-019`, then `GRF-001` |
+| Graph id grammar | Canonical ids need not start with `mem_` and may end in `-` or `/`, while the graph matcher requires `mem_` and a trailing word boundary. | Valid references can disappear or be truncated into a different existing id. | `GRF-001` |
 | Proposal pressure | `memory.write_proposal` and review recommendations do not share one normalized fingerprint, deduplication policy, or queue cap; some readers scan every matching Markdown file. | Repeated agents can create avoidable review work and unbounded administrative scans. | `MIG-001`, then `CON-001` for deterministic candidate grouping |
+| Review-pressure evidence | Pending counts and the newest timestamp do not show whether review debt is aging or growing. | A one-candidate-per-run cap can still leave an expanding stale queue. | `CON-001` |
 
 ### Overstated or stale claims
 
@@ -211,12 +214,18 @@ client/version. The stronger receipt records the client artifact, selected
 server profile/effective allowlist, package, graph schema, and fixture-vault
 identities; the full `initialize` through `notifications/initialized`,
 `tools/list`, `memory.graph`, and clean-exit lifecycle; and deterministic result
-bytes. It also separates permitted, manifested transcript redaction from the
-public fixture result: if that result itself needs redaction, the run is
+bytes. It also separates permitted, manifested lifecycle-field redaction from
+the public fixture result: if that result itself needs redaction, the run is
 invalid. The exact ordered lifecycle-array format, replacement-only JSON-pointer
-redaction, manifest, transcript/result hashes, canonical-byte rules, and replay
-requirements live in the roadmap. An in-process import or direct function call never counts. The task
-changes a disposable inspection projection only.
+redaction, manifest, sanitized lifecycle/result hashes, canonical-byte rules,
+and replay requirements live in the roadmap. An in-process import or direct
+function call never counts. The task changes a disposable inspection projection
+only.
+
+The generic planning validator can prove the receipt's schema, task binding,
+contained artifact references, and recomputed hashes. It cannot authenticate an
+external actor merely from checked-in data; fresh independent review must inspect
+the task-specific artifacts and real readback before the task can complete.
 
 ### `RET-002` — bounded retrieval comparison
 
@@ -294,8 +303,9 @@ production approval boundary.
 4. Index concurrency is a writer-ownership problem. Storage pragmas cannot
    replace fencing, unique temporaries, and recovery tests.
 5. Review throughput should improve without weakening truth governance. Exact
-   deduplication, bounded queues, deterministic grouping, and at most one
-   candidate per maintenance run are safer levers than auto-promotion.
+   deduplication, bounded queues, deterministic grouping, at most one candidate
+   per maintenance run, and oldest-age/admission/resolution metrics are safer
+   levers than auto-promotion.
 6. A retrieval experiment must be evaluated through final context hydration.
    Candidate recall alone can hide a downstream filter that discards the win.
 7. Multilingual correctness is a baseline contract, not evidence for vectors.

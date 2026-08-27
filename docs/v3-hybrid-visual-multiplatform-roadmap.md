@@ -103,8 +103,17 @@ and cannot complete or retroactively replace `GATE-B`.
 
 Every externally gated task declares a versioned `external_readback_contract`
 in the execution-sequence JSON. A receipt must match that task's exact contract
-id, kind, minimum session count, and fixture requirement; a valid receipt for a
-different task or readback class cannot be substituted.
+id, kind, minimum number of distinct per-session records, fixture requirement,
+and complete set of required named detail artifacts; a valid receipt for a
+different task or readback class cannot be substituted. A scalar count or one
+aggregate hash cannot stand in for multiple required sessions.
+
+The planning validator proves receipt structure, task-local artifact
+containment, and byte/hash consistency only. Receipts remain owner-attested and
+do not cryptographically authenticate an external provider or reviewer.
+Independent review and the real external readback are still required, and each
+owning task must add any task-specific payload schema or threshold verifier it
+needs before completion.
 
 ### Acceptance boundaries added by proposal validation
 
@@ -118,7 +127,10 @@ batch identity, state, dependencies, frontier, and evidence paths.
   fingerprints, writers and side effects, plus MCP tool families, compatibility
   aliases, deprecation state, profile exposure, tool counts, schema bytes,
   estimated tokens, and named budgets. Drift must fail an exact-artifact check.
-  This task does not add an event ledger, learning loop, or MCP tool.
+  The inventory must also flag every read-only capability exposed only through
+  a writer-bearing profile and record the exact allowlist or narrower profile
+  decision required before a downstream consumer may use it. This task does not
+  add an event ledger, learning loop, or MCP tool.
 - `MIG-001` must cover every canonical, proposal, receipt, archive, report, and
   generated-index writer; each accepted frontmatter/input format; deduplication
   and queue limits; lock/fencing ownership; temporary paths; crash recovery;
@@ -184,7 +196,10 @@ batch identity, state, dependencies, frontier, and evidence paths.
 - `GRF-001` must fail closed on normalized-node collisions, add
   `schema_version`, state `reference_scope=within_page` and
   `reference_detection=body_mention_v1`, provide strict graph output schemas,
-  and test reference, collision, and page-closure semantics. It must also prove
+  and test reference, collision, and page-closure semantics. Reference parsing
+  must share the canonical memory-id grammar instead of a narrower `mem_`
+  pattern, including exact cases for ids ending in `-` or `/`, ids without that
+  prefix, and truncation collisions. It must also prove
   two-run readback from a fresh out-of-process local MCP consumer selected from
   the `BRG-019` supported-client inventory against one deterministic public
   fixture vault and package artifact; this local consumer receipt is not the
@@ -193,7 +208,8 @@ batch identity, state, dependencies, frontier, and evidence paths.
 - The secret-scanned `GRF-001` receipt records selected client name/version and
   lowercase raw-byte client-artifact SHA-256; selected server profile and
   effective allowlist (the profile must expose `memory.graph`, currently a
-  review-class surface); package source commit and lowercase raw-byte artifact
+  review-class surface, but the consumer must not receive the profile's writer
+  capabilities); package source commit and lowercase raw-byte artifact
   SHA-256; OS, Python, and MCP protocol; lowercase raw-byte SHA-256 of the
   graph/output-schema artifact; and a fixture-vault digest. The
   fixture digest is the lowercase SHA-256 of canonical JSON bytes for an array
@@ -214,13 +230,13 @@ batch identity, state, dependencies, frontier, and evidence paths.
   point; each present value is replaced with the exact JSON string
   `"<redacted:v1>"`, and missing, extra, removed, or wildcarded fields invalidate
   the run. The redaction manifest is a canonical JSON array of exact
-  `pointer`/`reason` objects sorted by pointer. `transcript_sha256` is the
+  `pointer`/`reason` objects sorted by pointer. `lifecycle_sha256` is the
   lowercase SHA-256 of the post-replacement canonical lifecycle-array bytes.
   The graph result hash is separately calculated over parsed result JSON
   re-encoded with the same canonical JSON byte rules. The public fixture graph
   result itself must need no redaction, otherwise the run is invalid. Both
   sessions must reproduce the contract fields, fixture/schema/artifact
-  identities, redaction manifest, transcript hash, and result hash. An
+  identities, redaction manifest, sanitized lifecycle hash, and result hash. An
   in-process import or direct function call does not count. The task changes a
   disposable inspection projection only and does not authorize graph-aware
   recall.
@@ -249,6 +265,10 @@ batch identity, state, dependencies, frontier, and evidence paths.
   tested fail-safe; prove external readback; and require a separate explicit
   production approval. A passing `RET-002` is evidence for this design review,
   never production authorization by itself.
+- `CON-001` must report review pressure as well as candidate quality: oldest
+  pending age, admitted and resolved counts per bounded window, queue growth,
+  and candidates discarded by the admission cap. A one-candidate-per-run cap
+  is a safety bound, not evidence that reviewer load is improving.
 
 ## Delivery Phases
 

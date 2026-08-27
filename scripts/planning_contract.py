@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import hashlib
 from itertools import islice
 import json
+import math
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
 from typing import Any
 
 from memorylib import repo_root
@@ -29,18 +32,54 @@ ROADMAP_TABLE_SEPARATOR = ["---", "---", "---", "---", "---"]
 ROADMAP_TABLE_MAX_CHARS = 64 * 1024
 ROADMAP_TABLE_MAX_ROWS = 512
 ROADMAP_TABLE_MAX_LINE_CHARS = 8 * 1024
+SEQUENCE_MAX_BYTES = 512 * 1024
+SEQUENCE_SCHEMA_MAX_BYTES = 64 * 1024
+LEDGER_MAX_BYTES = 256 * 1024
+EXTERNAL_RECEIPT_SCHEMA_MAX_BYTES = 64 * 1024
 EXTERNAL_RECEIPT_MAX_BYTES = 64 * 1024
+DETAIL_ARTIFACT_MAX_BYTES = 64 * 1024
+ROADMAP_MAX_BYTES = 256 * 1024
+VALIDATION_ERROR_LIMIT = 256
 EVIDENCE_DIRECTORY_MAX_ENTRIES = 4096
 WINDOWS_FORBIDDEN_PATH_CHARS = frozenset('<>"|?*')
 WINDOWS_RESERVED_PATH_NAMES = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"COM{index}" for index in range(1, 10)}
     | {f"LPT{index}" for index in range(1, 10)}
+    | {f"{prefix}{suffix}" for prefix in ("COM", "LPT") for suffix in ("¹", "²", "³")}
+)
+WINDOWS_REPARSE_POINT_ATTRIBUTE = 0x400
+SUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "$schema",
+        "$id",
+        "title",
+        "description",
+        "type",
+        "additionalProperties",
+        "required",
+        "properties",
+        "enum",
+        "minItems",
+        "maxItems",
+        "uniqueItems",
+        "items",
+        "minLength",
+        "maxLength",
+        "pattern",
+        "format",
+        "minimum",
+        "maximum",
+    }
 )
 
 
 class DuplicateJsonKeyError(ValueError):
     """Raised when a planning JSON object contains an ambiguous duplicate key."""
+
+
+class NonFiniteJsonValueError(ValueError):
+    """Raised when Python's permissive JSON decoder sees NaN or infinity."""
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -52,23 +91,95 @@ def reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def load_json_object(
-    path: Path, errors: list[str], *, label: str | None = None
-) -> dict[str, Any] | None:
+def reject_non_finite_json_value(value: str) -> Any:
+    raise NonFiniteJsonValueError(value)
+
+
+def parse_finite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise NonFiniteJsonValueError(value)
+    return parsed
+
+
+def cap_validation_errors(errors: list[str]) -> list[str]:
+    """Return a deterministic bounded diagnostic list."""
+    if len(errors) <= VALIDATION_ERROR_LIMIT:
+        return errors
+    omitted = len(errors) - VALIDATION_ERROR_LIMIT + 1
+    return [
+        *errors[: VALIDATION_ERROR_LIMIT - 1],
+        f"validation error limit reached; omitted {omitted} additional errors",
+    ]
+
+
+def read_bounded_bytes(
+    path: Path,
+    errors: list[str],
+    *,
+    max_bytes: int,
+    label: str | None = None,
+) -> bytes | None:
+    """Read at most max_bytes without trusting a preceding mutable stat result."""
     display = label or path.as_posix()
     try:
-        value = json.loads(
-            path.read_text(encoding="utf-8"),
-            object_pairs_hook=reject_duplicate_json_keys,
-        )
+        with path.open("rb") as handle:
+            payload = handle.read(max_bytes + 1)
     except FileNotFoundError:
         errors.append(f"{display}: missing")
         return None
+    except OSError as exc:
+        errors.append(f"{display}: cannot be read: {exc}")
+        return None
+    if len(payload) > max_bytes:
+        errors.append(f"{display}: exceeds {max_bytes} bytes")
+        return None
+    return payload
+
+
+def read_bounded_utf8(
+    path: Path,
+    errors: list[str],
+    *,
+    max_bytes: int,
+    label: str | None = None,
+) -> str | None:
+    display = label or path.as_posix()
+    payload = read_bounded_bytes(path, errors, max_bytes=max_bytes, label=display)
+    if payload is None:
+        return None
+    try:
+        return payload.decode("utf-8")
     except UnicodeDecodeError:
         errors.append(f"{display}: invalid UTF-8")
         return None
+
+
+def load_json_object(
+    path: Path,
+    errors: list[str],
+    *,
+    max_bytes: int,
+    label: str | None = None,
+) -> dict[str, Any] | None:
+    display = label or path.as_posix()
+    encoded = read_bounded_utf8(
+        path, errors, max_bytes=max_bytes, label=display
+    )
+    if encoded is None:
+        return None
+    try:
+        value = json.loads(
+            encoded,
+            object_pairs_hook=reject_duplicate_json_keys,
+            parse_constant=reject_non_finite_json_value,
+            parse_float=parse_finite_json_float,
+        )
     except DuplicateJsonKeyError as exc:
         errors.append(f"{display}: duplicate JSON key {str(exc)!r}")
+        return None
+    except NonFiniteJsonValueError as exc:
+        errors.append(f"{display}: non-finite JSON value {str(exc)!r}")
         return None
     except RecursionError:
         errors.append(f"{display}: invalid JSON nesting")
@@ -79,18 +190,23 @@ def load_json_object(
     except ValueError:
         errors.append(f"{display}: invalid JSON value")
         return None
-    except OSError as exc:
-        errors.append(f"{display}: cannot be read: {exc}")
-        return None
     if not isinstance(value, dict):
         errors.append(f"{display}: root must be an object")
         return None
     return value
 
 
-def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+def validate_json_schema(
+    value: Any,
+    schema: dict[str, Any],
+    path: str = "$",
+    *,
+    max_errors: int = VALIDATION_ERROR_LIMIT,
+) -> list[str]:
     """Validate the strict JSON-Schema subset used by the checked-in contract."""
     errors: list[str] = []
+    if max_errors <= 0:
+        return errors
     expected_type = schema.get("type")
     type_checks = {
         "object": lambda item: isinstance(item, dict),
@@ -120,10 +236,21 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
         if schema.get("additionalProperties") is False and isinstance(properties, dict):
             for name in sorted(set(value) - set(properties)):
                 errors.append(f"{path}: unexpected property {name!r}")
+                if len(errors) >= max_errors:
+                    return errors
         if isinstance(properties, dict):
             for name, child_schema in properties.items():
                 if name in value and isinstance(child_schema, dict):
-                    errors.extend(validate_json_schema(value[name], child_schema, f"{path}.{name}"))
+                    errors.extend(
+                        validate_json_schema(
+                            value[name],
+                            child_schema,
+                            f"{path}.{name}",
+                            max_errors=max_errors - len(errors),
+                        )
+                    )
+                    if len(errors) >= max_errors:
+                        return errors
 
     if isinstance(value, list):
         minimum_items = schema.get("minItems")
@@ -139,7 +266,16 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
-                errors.extend(validate_json_schema(item, item_schema, f"{path}[{index}]"))
+                errors.extend(
+                    validate_json_schema(
+                        item,
+                        item_schema,
+                        f"{path}[{index}]",
+                        max_errors=max_errors - len(errors),
+                    )
+                )
+                if len(errors) >= max_errors:
+                    return errors
 
     if isinstance(value, str):
         minimum_length = schema.get("minLength")
@@ -164,7 +300,128 @@ def validate_json_schema(value: Any, schema: dict[str, Any], path: str = "$") ->
         minimum = schema.get("minimum")
         if isinstance(minimum, int) and value < minimum:
             errors.append(f"{path}: integer is below {minimum}")
+        maximum = schema.get("maximum")
+        if isinstance(maximum, int) and value > maximum:
+            errors.append(f"{path}: integer is above {maximum}")
     return errors
+
+
+def validate_schema_subset(schema: dict[str, Any], label: str) -> list[str]:
+    """Fail closed on unsupported assertions or malformed supported keywords."""
+    errors: list[str] = []
+    pending: list[tuple[str, Any]] = [(label, schema)]
+    while pending and len(errors) < VALIDATION_ERROR_LIMIT:
+        path, node = pending.pop()
+        if not isinstance(node, dict):
+            errors.append(f"{path}: schema node must be an object")
+            continue
+        for keyword in sorted(set(node) - SUPPORTED_SCHEMA_KEYWORDS):
+            errors.append(f"{path}: unsupported schema keyword {keyword!r}")
+            if len(errors) >= VALIDATION_ERROR_LIMIT:
+                break
+        properties = node.get("properties")
+        if properties is not None:
+            if not isinstance(properties, dict):
+                errors.append(f"{path}.properties: expected object")
+            else:
+                for name in reversed(list(properties)):
+                    pending.append((f"{path}.properties.{name}", properties[name]))
+        items = node.get("items")
+        if items is not None:
+            if not isinstance(items, dict):
+                errors.append(f"{path}.items: expected object")
+            else:
+                pending.append((f"{path}.items", items))
+
+        for keyword in ("$schema", "$id", "title", "description"):
+            if keyword in node and not isinstance(node[keyword], str):
+                errors.append(f"{path}.{keyword}: expected string")
+
+        if "type" in node:
+            schema_type = node["type"]
+            if not isinstance(schema_type, str):
+                errors.append(f"{path}.type: expected string")
+            elif schema_type not in {
+                "object",
+                "array",
+                "string",
+                "integer",
+                "boolean",
+            }:
+                errors.append(
+                    f"{path}.type: unsupported schema type {schema_type!r}"
+                )
+
+        for keyword in ("additionalProperties", "uniqueItems"):
+            if keyword in node and not isinstance(node[keyword], bool):
+                errors.append(f"{path}.{keyword}: expected boolean")
+
+        required = node.get("required")
+        if required is not None:
+            if not isinstance(required, list) or not all(
+                isinstance(item, str) and item for item in required
+            ):
+                errors.append(f"{path}.required: expected non-empty string array")
+            elif len(required) != len(set(required)):
+                errors.append(f"{path}.required: array items must be unique")
+
+        enum = node.get("enum")
+        if enum is not None and (not isinstance(enum, list) or not enum):
+            errors.append(f"{path}.enum: expected non-empty array")
+
+        for keyword in ("minItems", "maxItems", "minLength", "maxLength"):
+            if keyword not in node:
+                continue
+            bound = node[keyword]
+            if (
+                not isinstance(bound, int)
+                or isinstance(bound, bool)
+                or bound < 0
+            ):
+                errors.append(f"{path}.{keyword}: expected non-negative integer")
+
+        for keyword in ("minimum", "maximum"):
+            if keyword in node and (
+                not isinstance(node[keyword], int)
+                or isinstance(node[keyword], bool)
+            ):
+                errors.append(f"{path}.{keyword}: expected integer")
+
+        for minimum_keyword, maximum_keyword in (
+            ("minItems", "maxItems"),
+            ("minLength", "maxLength"),
+            ("minimum", "maximum"),
+        ):
+            minimum = node.get(minimum_keyword)
+            maximum = node.get(maximum_keyword)
+            if (
+                isinstance(minimum, int)
+                and not isinstance(minimum, bool)
+                and isinstance(maximum, int)
+                and not isinstance(maximum, bool)
+                and minimum > maximum
+            ):
+                errors.append(
+                    f"{path}: {minimum_keyword} must not exceed {maximum_keyword}"
+                )
+
+        schema_format = node.get("format")
+        if schema_format is not None:
+            if not isinstance(schema_format, str):
+                errors.append(f"{path}.format: expected string")
+            elif schema_format != "date":
+                errors.append(f"{path}.format: unsupported format {schema_format!r}")
+
+        pattern = node.get("pattern")
+        if pattern is not None:
+            if not isinstance(pattern, str):
+                errors.append(f"{path}.pattern: expected string")
+                continue
+            try:
+                re.compile(pattern)
+            except re.error:
+                errors.append(f"{path}.pattern: invalid regular expression")
+    return cap_validation_errors(errors)
 
 
 def duplicate_values(values: list[str]) -> set[str]:
@@ -178,28 +435,35 @@ def duplicate_values(values: list[str]) -> set[str]:
 
 
 def dependency_cycle(graph: dict[str, list[str]]) -> list[str] | None:
-    visited: set[str] = set()
-    active: list[str] = []
-
-    def visit(node: str) -> list[str] | None:
-        if node in active:
-            start = active.index(node)
-            return [*active[start:], node]
-        if node in visited:
-            return None
-        active.append(node)
-        for dependency in graph.get(node, []):
-            cycle = visit(dependency)
-            if cycle:
-                return cycle
-        active.pop()
-        visited.add(node)
-        return None
-
-    for node in graph:
-        cycle = visit(node)
-        if cycle:
-            return cycle
+    """Find one deterministic dependency cycle without Python recursion."""
+    state: dict[str, int] = {}
+    for root in graph:
+        if state.get(root, 0) != 0:
+            continue
+        active_path = [root]
+        active_index = {root: 0}
+        state[root] = 1
+        stack: list[tuple[str, Any]] = [(root, iter(graph.get(root, [])))]
+        while stack:
+            node, dependencies = stack[-1]
+            try:
+                dependency = next(dependencies)
+            except StopIteration:
+                stack.pop()
+                active_index.pop(node, None)
+                active_path.pop()
+                state[node] = 2
+                continue
+            dependency_state = state.get(dependency, 0)
+            if dependency_state == 1:
+                start = active_index[dependency]
+                return [*active_path[start:], dependency]
+            if dependency_state == 2:
+                continue
+            state[dependency] = 1
+            active_index[dependency] = len(active_path)
+            active_path.append(dependency)
+            stack.append((dependency, iter(graph.get(dependency, []))))
     return None
 
 
@@ -244,6 +508,10 @@ def validate_evidence_path(
     if "\\" in value:
         return None, [
             f"task {task_id} evidence path must use forward slashes: {value!r}"
+        ]
+    if len(value) > 512:
+        return None, [
+            f"task {task_id} evidence path exceeds 512 characters: {value!r}"
         ]
     path = PurePosixPath(value)
     windows_path = PureWindowsPath(value)
@@ -290,17 +558,37 @@ def validate_evidence_path(
                 f"task {task_id} evidence directory exceeds "
                 f"{EVIDENCE_DIRECTORY_MAX_ENTRIES} entries before component {part!r}"
             ]
+        case_aliases = sorted(
+            (entry.name for entry in entries if entry.name.casefold() == part.casefold()),
+            key=lambda name: (name.casefold(), name),
+        )
+        if len(case_aliases) > 1:
+            return None, [
+                f"task {task_id} evidence path component {part!r} has ambiguous "
+                f"case-fold spellings {case_aliases!r}"
+            ]
         exact_entry = next((entry for entry in entries if entry.name == part), None)
         if exact_entry is None:
-            case_aliases = sorted(
-                entry.name for entry in entries if entry.name.casefold() == part.casefold()
-            )
             if case_aliases:
                 return None, [
                     f"task {task_id} evidence path component {part!r} does not match "
                     f"filesystem spelling {case_aliases[0]!r}"
                 ]
             return None, [f"task {task_id} evidence path does not exist: {value}"]
+        try:
+            component_stat = exact_entry.lstat()
+        except OSError as exc:
+            return None, [
+                f"task {task_id} evidence path cannot inspect component {part!r}: {exc}"
+            ]
+        if stat.S_ISLNK(component_stat.st_mode) or (
+            getattr(component_stat, "st_file_attributes", 0)
+            & WINDOWS_REPARSE_POINT_ATTRIBUTE
+        ):
+            return None, [
+                f"task {task_id} evidence path component {part!r} must not be a "
+                "symlink, junction, or reparse point"
+            ]
         try:
             resolved = exact_entry.resolve(strict=True)
         except OSError as exc:
@@ -321,6 +609,16 @@ def validate_evidence_path(
         ]
     if not is_file:
         return None, [f"task {task_id} evidence path is not a regular file: {value}"]
+    try:
+        final_stat = resolved.stat()
+    except OSError as exc:
+        return None, [
+            f"task {task_id} evidence path cannot be inspected {value!r}: {exc}"
+        ]
+    if getattr(final_stat, "st_nlink", 1) != 1:
+        return None, [
+            f"task {task_id} evidence path must not be a hard link: {value}"
+        ]
     return resolved, []
 
 
@@ -330,11 +628,91 @@ def is_external_receipt_path(task_id: str, value: str) -> bool:
     return path.parent == expected_parent and path.suffix == ".json"
 
 
+def validate_hashed_artifact(
+    *,
+    task_id: str,
+    purpose: str,
+    value: Any,
+    expected_path: PurePosixPath,
+    receipt_path: Path,
+    root: Path,
+    seen_paths: set[str],
+) -> list[str]:
+    """Bind one receipt claim to the exact bytes of a task-local artifact."""
+    if not isinstance(value, dict):
+        return [f"{purpose}: artifact descriptor is unavailable"]
+    artifact_path = value.get("path")
+    if not isinstance(artifact_path, str):
+        return [f"{purpose}: artifact path is unavailable"]
+    errors: list[str] = []
+    expected_value = expected_path.as_posix()
+    if artifact_path != expected_value:
+        errors.append(
+            f"{purpose}: path {artifact_path!r} must be {expected_value!r}"
+        )
+    if artifact_path in seen_paths:
+        errors.append(f"{purpose}: artifact path {artifact_path!r} is reused")
+    else:
+        seen_paths.add(artifact_path)
+    resolved, path_errors = validate_evidence_path(task_id, artifact_path, root)
+    errors.extend(f"{purpose}: {error}" for error in path_errors)
+    if resolved is None:
+        return errors
+    if resolved == receipt_path:
+        errors.append(f"{purpose}: artifact must not reference its receipt")
+        return errors
+    artifact_errors: list[str] = []
+    payload = read_bounded_bytes(
+        resolved,
+        artifact_errors,
+        max_bytes=DETAIL_ARTIFACT_MAX_BYTES,
+        label=artifact_path,
+    )
+    errors.extend(f"{purpose}: {error}" for error in artifact_errors)
+    if payload is None:
+        return errors
+    declared_size = value.get("byte_size")
+    if declared_size != len(payload):
+        errors.append(
+            f"{purpose}: byte_size {declared_size!r} does not match {len(payload)}"
+        )
+    actual_digest = hashlib.sha256(payload).hexdigest()
+    if value.get("artifact_sha256") != actual_digest:
+        errors.append(f"{purpose}: artifact_sha256 does not match artifact bytes")
+    try:
+        encoded = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        errors.append(f"{purpose}: artifact is not valid UTF-8")
+        return errors
+    try:
+        artifact = json.loads(
+            encoded,
+            object_pairs_hook=reject_duplicate_json_keys,
+            parse_constant=reject_non_finite_json_value,
+            parse_float=parse_finite_json_float,
+        )
+    except DuplicateJsonKeyError as exc:
+        errors.append(f"{purpose}: artifact has duplicate JSON key {str(exc)!r}")
+    except NonFiniteJsonValueError as exc:
+        errors.append(
+            f"{purpose}: artifact has non-finite JSON value {str(exc)!r}"
+        )
+    except RecursionError:
+        errors.append(f"{purpose}: artifact has invalid JSON nesting")
+    except (json.JSONDecodeError, ValueError):
+        errors.append(f"{purpose}: artifact is not valid JSON")
+    else:
+        if not isinstance(artifact, (dict, list)):
+            errors.append(f"{purpose}: artifact JSON root must be an object or array")
+    return errors
+
+
 def validate_external_receipt(
     *,
     task_id: str,
     evidence_value: str,
     resolved_path: Path,
+    root: Path,
     receipt_schema: dict[str, Any] | None,
     readback_contract: dict[str, Any],
 ) -> list[str]:
@@ -342,16 +720,13 @@ def validate_external_receipt(
     prefix = f"task {task_id} external receipt {evidence_value}"
     if receipt_schema is None:
         return [f"{prefix}: receipt schema is unavailable"]
-    try:
-        receipt_size = resolved_path.stat().st_size
-    except OSError as exc:
-        return [f"{prefix}: receipt cannot be inspected: {exc}"]
-    if receipt_size > EXTERNAL_RECEIPT_MAX_BYTES:
-        return [
-            f"{prefix}: receipt exceeds {EXTERNAL_RECEIPT_MAX_BYTES} bytes"
-        ]
     receipt_errors: list[str] = []
-    receipt = load_json_object(resolved_path, receipt_errors, label=evidence_value)
+    receipt = load_json_object(
+        resolved_path,
+        receipt_errors,
+        max_bytes=EXTERNAL_RECEIPT_MAX_BYTES,
+        label=evidence_value,
+    )
     if receipt is None:
         return [f"{prefix}: {error}" for error in receipt_errors]
     errors = [
@@ -377,27 +752,109 @@ def validate_external_receipt(
             f"{readback_contract.get('kind')!r}"
         )
     readback = receipt.get("readback")
-    sessions = readback.get("session_count") if isinstance(readback, dict) else None
+    sessions = readback.get("sessions") if isinstance(readback, dict) else None
     minimum_sessions = readback_contract.get("minimum_sessions")
     if (
         isinstance(minimum_sessions, int)
         and not isinstance(minimum_sessions, bool)
         and (
-            not isinstance(sessions, int)
-            or isinstance(sessions, bool)
-            or sessions < minimum_sessions
+            not isinstance(sessions, list)
+            or len(sessions) < minimum_sessions
         )
     ):
         errors.append(
-            f"{prefix}: session_count {sessions!r} is below required minimum "
-            f"{minimum_sessions}"
+            f"{prefix}: session record count "
+            f"{len(sessions) if isinstance(sessions, list) else None!r} is below "
+            f"required minimum {minimum_sessions}"
         )
+    artifact_namespace = EVIDENCE_NAMESPACE / task_id / "artifacts"
+    seen_artifact_paths: set[str] = set()
+    if isinstance(sessions, list):
+        session_ids = [
+            session.get("session_id")
+            for session in sessions
+            if isinstance(session, dict) and isinstance(session.get("session_id"), str)
+        ]
+        for duplicate in sorted(duplicate_values(session_ids)):
+            errors.append(f"{prefix}: duplicate session_id {duplicate!r}")
+        for index, session in enumerate(sessions):
+            if not isinstance(session, dict):
+                continue
+            session_id = session.get("session_id")
+            if not isinstance(session_id, str):
+                continue
+            for field, suffix in (
+                ("lifecycle", "lifecycle"),
+                ("redaction_manifest", "redaction"),
+                ("result", "result"),
+            ):
+                errors.extend(
+                    validate_hashed_artifact(
+                        task_id=task_id,
+                        purpose=f"{prefix} session[{index}].{field}",
+                        value=session.get(field),
+                        expected_path=artifact_namespace
+                        / f"{session_id}-{suffix}.json",
+                        receipt_path=resolved_path,
+                        root=root,
+                        seen_paths=seen_artifact_paths,
+                    )
+                )
     if (
         readback_contract.get("fixture_required") is True
         and receipt.get("fixture_identity") == "not-applicable"
     ):
         errors.append(f"{prefix}: fixture_identity must be a SHA-256 digest")
-    return errors
+
+    secret_scan = receipt.get("secret_scan")
+    if isinstance(secret_scan, dict):
+        errors.extend(
+            validate_hashed_artifact(
+                task_id=task_id,
+                purpose=f"{prefix} secret_scan.result",
+                value=secret_scan.get("result"),
+                expected_path=artifact_namespace / "secret-scan.json",
+                receipt_path=resolved_path,
+                root=root,
+                seen_paths=seen_artifact_paths,
+            )
+        )
+
+    required_names = readback_contract.get("required_detail_names")
+    details = receipt.get("details")
+    if isinstance(required_names, list) and isinstance(details, list):
+        detail_names = [
+            detail.get("name")
+            for detail in details
+            if isinstance(detail, dict) and isinstance(detail.get("name"), str)
+        ]
+        for duplicate in sorted(duplicate_values(detail_names)):
+            errors.append(f"{prefix}: duplicate detail name {duplicate!r}")
+        missing = sorted(set(required_names) - set(detail_names))
+        unexpected = sorted(set(detail_names) - set(required_names))
+        if missing or unexpected or len(detail_names) != len(required_names):
+            errors.append(
+                f"{prefix}: detail names must exactly match descriptor: "
+                f"missing {missing!r}, unexpected {unexpected!r}"
+            )
+        for index, detail in enumerate(details):
+            if not isinstance(detail, dict):
+                continue
+            name = detail.get("name")
+            if not isinstance(name, str):
+                continue
+            errors.extend(
+                validate_hashed_artifact(
+                    task_id=task_id,
+                    purpose=f"{prefix} details[{index}] {name!r}",
+                    value=detail,
+                    expected_path=artifact_namespace / f"{name}.json",
+                    receipt_path=resolved_path,
+                    root=root,
+                    seen_paths=seen_artifact_paths,
+                )
+            )
+    return cap_validation_errors(errors)
 
 
 def split_markdown_table_row(line: str) -> list[str] | None:
@@ -703,6 +1160,7 @@ def validate_sequence_semantics(
                     task_id=task_id,
                     evidence_value=value,
                     resolved_path=resolved_evidence[value],
+                    root=root,
                     receipt_schema=receipt_schema,
                     readback_contract=readback_contract,
                 )
@@ -772,37 +1230,61 @@ def validate_sequence_semantics(
         for dependency in task_graph.get(task_id, []):
             if dependency in task_map and task_map[dependency].get("status") != "complete":
                 errors.append(f"frontier task {task_id} has incomplete dependency {dependency}")
-    return errors
+    return cap_validation_errors(errors)
 
 
 def validate_planning_contract(root: Path) -> list[str]:
     planning = root / PLANNING_DIR
     errors: list[str] = []
-    sequence = load_json_object(planning / SEQUENCE_NAME, errors)
-    schema = load_json_object(planning / SCHEMA_NAME, errors)
-    receipt_schema = load_json_object(
-        planning / EXTERNAL_RECEIPT_SCHEMA_NAME, errors
+    sequence = load_json_object(
+        planning / SEQUENCE_NAME, errors, max_bytes=SEQUENCE_MAX_BYTES
     )
-    ledger = load_json_object(planning / LEDGER_NAME, errors)
+    schema = load_json_object(
+        planning / SCHEMA_NAME, errors, max_bytes=SEQUENCE_SCHEMA_MAX_BYTES
+    )
+    receipt_schema = load_json_object(
+        planning / EXTERNAL_RECEIPT_SCHEMA_NAME,
+        errors,
+        max_bytes=EXTERNAL_RECEIPT_SCHEMA_MAX_BYTES,
+    )
+    ledger = load_json_object(
+        planning / LEDGER_NAME, errors, max_bytes=LEDGER_MAX_BYTES
+    )
     if sequence is not None and schema is not None:
-        sequence_schema_errors = validate_json_schema(sequence, schema)
+        schema_subset_errors = validate_schema_subset(schema, SCHEMA_NAME)
+        errors.extend(schema_subset_errors)
+        sequence_schema_errors = (
+            [] if schema_subset_errors else validate_json_schema(sequence, schema)
+        )
         errors.extend(sequence_schema_errors)
-        if not sequence_schema_errors:
+        if not schema_subset_errors and not sequence_schema_errors:
+            receipt_schema_subset_errors = (
+                validate_schema_subset(
+                    receipt_schema, EXTERNAL_RECEIPT_SCHEMA_NAME
+                )
+                if receipt_schema is not None
+                else []
+            )
+            errors.extend(receipt_schema_subset_errors)
             errors.extend(
                 validate_sequence_semantics(
-                    sequence, root, receipt_schema=receipt_schema
+                    sequence,
+                    root,
+                    receipt_schema=(
+                        receipt_schema
+                        if not receipt_schema_subset_errors
+                        else None
+                    ),
                 )
             )
             roadmap_path = root / ROADMAP_PATH
-            try:
-                roadmap = roadmap_path.read_text(encoding="utf-8")
-            except FileNotFoundError:
-                errors.append(f"{ROADMAP_PATH.as_posix()}: missing")
-            except UnicodeDecodeError:
-                errors.append(f"{ROADMAP_PATH.as_posix()}: invalid UTF-8")
-            except OSError as exc:
-                errors.append(f"{ROADMAP_PATH.as_posix()}: cannot be read: {exc}")
-            else:
+            roadmap = read_bounded_utf8(
+                roadmap_path,
+                errors,
+                max_bytes=ROADMAP_MAX_BYTES,
+                label=ROADMAP_PATH.as_posix(),
+            )
+            if roadmap is not None:
                 errors.extend(validate_roadmap_parity(sequence, roadmap))
     if ledger is not None:
         expected_keys = {"contract_version", "updated_at", "entries"}
@@ -812,17 +1294,27 @@ def validate_planning_contract(root: Path) -> list[str]:
             errors.append("planning ledger contract_version must be an integer")
         if sequence is not None and ledger.get("contract_version") != sequence.get("contract_version"):
             errors.append("planning ledger and sequence contract versions must match")
-        if not isinstance(ledger.get("entries"), list):
+        entries = ledger.get("entries")
+        if not isinstance(entries, list):
             errors.append("planning ledger entries must be an array")
+        elif len(entries) > 512:
+            errors.append("planning ledger entries must contain at most 512 items")
         updated_at = ledger.get("updated_at")
         if not isinstance(updated_at, str):
             errors.append("planning ledger updated_at must be a date string")
         else:
+            if len(updated_at) > 10:
+                errors.append("planning ledger updated_at exceeds 10 characters")
             try:
-                date.fromisoformat(updated_at)
+                parsed = date.fromisoformat(updated_at)
             except ValueError:
                 errors.append("planning ledger updated_at must be an ISO date")
-    return errors
+            else:
+                if parsed.isoformat() != updated_at:
+                    errors.append(
+                        "planning ledger updated_at must use canonical YYYY-MM-DD"
+                    )
+    return cap_validation_errors(errors)
 
 
 def main(argv: list[str] | None = None) -> int:
