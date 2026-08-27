@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,8 +17,21 @@ if str(SCRIPTS) not in sys.path:
 from planning_contract import (  # noqa: E402
     validate_json_schema,
     validate_planning_contract,
+    validate_roadmap_parity,
     validate_sequence_semantics,
 )
+
+
+def load_sequence() -> dict[str, Any]:
+    return json.loads(
+        (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
+    )
+
+
+def load_roadmap() -> str:
+    return (ROOT / "docs" / "v3-hybrid-visual-multiplatform-roadmap.md").read_text(
+        encoding="utf-8"
+    )
 
 
 class PlanningContractTests(unittest.TestCase):
@@ -25,9 +39,7 @@ class PlanningContractTests(unittest.TestCase):
         self.assertEqual(validate_planning_contract(ROOT), [])
 
     def test_execution_sequence_has_one_consistent_public_frontier(self) -> None:
-        sequence = json.loads(
-            (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
-        )
+        sequence = load_sequence()
         tasks = {item["id"]: item for item in sequence["tasks"]}
         batches = {item["id"]: item for item in sequence["batches"]}
 
@@ -139,61 +151,26 @@ class PlanningContractTests(unittest.TestCase):
         self.assertTrue(tasks["ONB-001"]["external_readback_required"])
 
     def test_normative_roadmap_task_state_table_matches_sequence(self) -> None:
-        sequence = json.loads(
-            (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
-        )
-        roadmap = (ROOT / "docs" / "v3-hybrid-visual-multiplatform-roadmap.md").read_text(
-            encoding="utf-8"
-        )
-        begin = "<!-- BEGIN NORMATIVE TASK STATE TABLE -->"
-        end = "<!-- END NORMATIVE TASK STATE TABLE -->"
-        self.assertEqual(roadmap.count(begin), 1)
-        self.assertEqual(roadmap.count(end), 1)
-        table = roadmap.split(begin, 1)[1].split(end, 1)[0]
-        lines = [line.strip() for line in table.splitlines() if line.strip()]
-        self.assertEqual(
-            lines[:2],
-            [
-                "| Task ID | Objective | Batch | State | Notes |",
-                "| --- | --- | --- | --- | --- |",
-            ],
-        )
+        self.assertEqual(validate_roadmap_parity(load_sequence(), load_roadmap()), [])
 
-        # Only the explicitly delimited ID, Batch, and State cells are normative.
-        # Objective and Notes remain human prose and are deliberately not parsed.
-        roadmap_tasks: dict[str, dict[str, str]] = {}
-        for line in lines[2:]:
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            self.assertEqual(len(cells), 5, line)
-            task_cell, _, batch_cell, state_cell, _ = cells
-            self.assertTrue(task_cell.startswith("`") and task_cell.endswith("`"), line)
-            self.assertTrue(batch_cell.startswith("`") and batch_cell.endswith("`"), line)
-            self.assertTrue(state_cell.startswith("`") and state_cell.endswith("`"), line)
-            task_id = task_cell[1:-1]
-            self.assertNotIn(task_id, roadmap_tasks)
-            roadmap_tasks[task_id] = {
-                "batch": batch_cell[1:-1],
-                "status": state_cell[1:-1],
-            }
-
-        contract_tasks = {
-            item["id"]: {"batch": item["batch"], "status": item["status"]}
-            for item in sequence["tasks"]
-        }
-        self.assertEqual(roadmap_tasks, contract_tasks)
-
-        frontier_lines = [
-            line for line in roadmap.splitlines() if line.startswith("Current frontier: ")
-        ]
-        self.assertEqual(len(frontier_lines), 1)
-        frontier_text = frontier_lines[0].removeprefix("Current frontier: ")
-        self.assertTrue(frontier_text.endswith("."))
-        frontier_cells = [cell.strip() for cell in frontier_text[:-1].split(",")]
-        self.assertTrue(
-            all(cell.startswith("`") and cell.endswith("`") for cell in frontier_cells)
+    def test_roadmap_parity_accepts_escaped_pipe_in_prose(self) -> None:
+        roadmap = load_roadmap().replace(
+            "Sole current frontier.", "Sole current \\| frontier."
         )
-        self.assertEqual(
-            [cell[1:-1] for cell in frontier_cells], sequence["current_frontier"]
+        self.assertIn("\\|", roadmap)
+
+        self.assertEqual(validate_roadmap_parity(load_sequence(), roadmap), [])
+
+    def test_roadmap_parity_rejects_sequence_state_drift(self) -> None:
+        sequence = load_sequence()
+        tasks = {item["id"]: item for item in sequence["tasks"]}
+        tasks["RET-001"]["status"] = "future"
+
+        errors = validate_roadmap_parity(sequence, load_roadmap())
+
+        self.assertIn(
+            "roadmap task RET-001 status mismatch: roadmap 'pending', sequence 'future'",
+            errors,
         )
 
     def test_public_execution_ledger_starts_empty(self) -> None:
@@ -217,9 +194,7 @@ class PlanningContractTests(unittest.TestCase):
         self.assertTrue(any("unexpected property 'unreviewed_override'" in error for error in errors))
 
     def test_semantic_guard_rejects_dependency_cycles(self) -> None:
-        sequence = json.loads(
-            (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
-        )
+        sequence = load_sequence()
         cyclic = deepcopy(sequence)
         tasks = {item["id"]: item for item in cyclic["tasks"]}
         tasks["BRG-014"]["depends_on"] = ["BRG-019"]
@@ -229,9 +204,7 @@ class PlanningContractTests(unittest.TestCase):
         self.assertTrue(any("task dependency cycle" in error for error in errors))
 
     def test_semantic_guard_rejects_task_dependency_from_unreachable_batch(self) -> None:
-        sequence = json.loads(
-            (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
-        )
+        sequence = load_sequence()
         incompatible = deepcopy(sequence)
         tasks = {item["id"]: item for item in incompatible["tasks"]}
         tasks["RET-002"]["depends_on"].append("OBS-001")
@@ -245,14 +218,57 @@ class PlanningContractTests(unittest.TestCase):
         )
 
     def test_semantic_guard_allows_task_dependency_within_same_batch(self) -> None:
-        sequence = json.loads(
-            (PLANNING / "v3-execution-sequence.json").read_text(encoding="utf-8")
-        )
+        sequence = load_sequence()
         compatible = deepcopy(sequence)
         tasks = {item["id"]: item for item in compatible["tasks"]}
         tasks["BRG-003"]["depends_on"].append("BRG-017")
 
         self.assertEqual(validate_sequence_semantics(compatible, ROOT), [])
+
+    def test_semantic_guard_rejects_in_progress_task_outside_frontier(self) -> None:
+        sequence = load_sequence()
+        tasks = {item["id"]: item for item in sequence["tasks"]}
+        tasks["BRG-019"]["status"] = "in_progress"
+
+        errors = validate_sequence_semantics(sequence, ROOT)
+
+        self.assertIn(
+            "current_frontier must exactly match all in_progress tasks: "
+            "missing ['BRG-019'], non-in_progress []",
+            errors,
+        )
+
+    def test_semantic_guard_rejects_complete_task_without_evidence(self) -> None:
+        sequence = load_sequence()
+        tasks = {item["id"]: item for item in sequence["tasks"]}
+        tasks["BRG-003"]["status"] = "complete"
+        tasks["BRG-003"]["evidence"] = []
+        sequence["current_frontier"] = []
+
+        errors = validate_sequence_semantics(sequence, ROOT)
+
+        self.assertIn("complete task BRG-003 must have non-empty evidence", errors)
+
+    def test_semantic_guard_rejects_complete_task_with_incomplete_dependency(self) -> None:
+        sequence = load_sequence()
+        tasks = {item["id"]: item for item in sequence["tasks"]}
+        tasks["BRG-019"]["status"] = "complete"
+        tasks["BRG-019"]["evidence"] = ["PLAN.md"]
+
+        errors = validate_sequence_semantics(sequence, ROOT)
+
+        self.assertIn(
+            "complete task BRG-019 has incomplete dependency BRG-003", errors
+        )
+
+    def test_semantic_guard_rejects_future_task_with_evidence(self) -> None:
+        sequence = load_sequence()
+        tasks = {item["id"]: item for item in sequence["tasks"]}
+        tasks["GRF-001"]["evidence"] = ["PLAN.md"]
+
+        errors = validate_sequence_semantics(sequence, ROOT)
+
+        self.assertIn("future task GRF-001 must have empty evidence", errors)
 
 
 if __name__ == "__main__":

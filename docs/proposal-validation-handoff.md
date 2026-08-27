@@ -165,6 +165,47 @@ the current ASCII baseline honestly. `vector status` may describe evidence only
 after it consumes this separation correctly. The task must not change search,
 context ranking, dependencies, or default runtime behavior.
 
+Before `GATE-B`, `RET-001` must also own, version, and freeze the machine-readable
+`retrieval-benchmark-v1` measurement/result contract that `RET-002` will later
+populate. Freezing an evaluator contract does not authorize a candidate or
+change runtime behavior. The contract requires `contract_name=retrieval-benchmark`
+and `schema_version=1`, plus:
+
+- deterministic case ids and a SHA-256 corpus digest. The id payload is compact
+  UTF-8 JSON with sorted keys containing the exact query code points, sorted
+  expected ids, scope, and immutable provenance id, but no `case_id` or mutable
+  review timestamps; its id is `ret_` plus the first 20 hex characters of the
+  payload SHA-256. The corpus digest covers the full case records sorted by case
+  id and joined with LF, plus the exact policy/configuration digest and source
+  commit;
+- one paired FTS-control and candidate result for every case, using the same
+  query, reviewed expected ids, corpus, host, policy, configuration, and final
+  context-hydration path;
+- case recall equal to the fraction of reviewed expected ids present in the
+  first ten final hydrated context items; primary macro `Recall@10` is the
+  unweighted mean of that value across held-out cases;
+- secondary `MRR@10`, the unweighted case mean of the reciprocal rank of the
+  first expected id in the first ten final hydrated items, with zero when none
+  is present;
+- one complete warm-up repetition per arm, excluded from results, followed by
+  five measured paired repetitions. Odd repetitions run FTS then candidate;
+  even repetitions reverse that order. A failed attempt scores zero for recall
+  and MRR and also contributes to the error rate;
+- a 95% paired percentile-bootstrap interval over the per-case mean candidate
+  minus FTS `Recall@10` deltas, using 10,000 resamples and seed `20260827`.
+  Cases use case-id order; sampling indices are derived as
+  `uint64_be(SHA-256(seed || ":" || replicate || ":" || draw)[0:8]) mod N`,
+  and the interval endpoints are the nearest-rank 2.5th and 97.5th percentiles,
+  so results do not depend on a runtime-specific PRNG;
+- per-arm nearest-rank p50/p95 end-to-end latency over all measured attempts,
+  and peak aggregate RSS for the harness process tree sampled every 50 ms with
+  boundary samples. The report records the OS, architecture, CPU, physical RAM,
+  Python/dependency identity, candidate/model identity, sampler, case count,
+  errors, lock failures, index bytes, and rebuild duration; and
+- explicit counts for policy, provenance, and sensitive-data violations. Missing
+  fields, mismatched digests/case ids, leaked child processes, or a non-reproducible
+  protocol make a result invalid rather than partially comparable.
+
 ### `GATE-B` — compatibility readback
 
 `GATE-B` now depends directly on `RET-001` as well as `MIG-001`. It still requires
@@ -176,20 +217,49 @@ documents.
 After `GATE-B`, add collision rejection or collision-safe ids, `schema_version`,
 `reference_scope=within_page`, `reference_detection=body_mention_v1`, strict
 output schemas, deterministic ordering, and tests for wikilink-embedded ids,
-non-link mentions, missing neighbors, collisions, pagination, and closure. A
-real MCP consumer must read back the versioned output before the task can
-complete. The task changes a disposable inspection projection only.
+non-link mentions, missing neighbors, collisions, pagination, and closure.
+
+Completion also requires two fresh out-of-process MCP sessions against the same
+deterministic public fixture vault and package artifact. The consumer must be
+selected from the supported-client inventory frozen by `BRG-019`; this plan does
+not preselect or claim a client/version. A secret-scanned receipt records the
+selected client name/version, package source commit and artifact identity,
+OS/Python/MCP protocol, sanitized exact `initialize`, `tools/list`, and
+`memory.graph` request parameters, returned schema version/reference
+scope/reference detection, schema-validation result, and the SHA-256 of compact
+UTF-8 sorted-key canonical `memory.graph` result JSON. Both sessions must
+reproduce those contract fields and the response hash. An in-process import or
+direct function call never counts as external readback. The task changes a
+disposable inspection projection only.
 
 ### `RET-002` — bounded retrieval comparison
 
 Only after `GRF-001`, compare production FTS against one shared deterministic
 Unicode normalization/tokenization candidate, fuzzy/query variants, bounded
 one-hop graph candidates, and optionally one local multilingual vector
-candidate. Use opt-in shadow reports, a frozen set of at least 100 reviewed
-held-out cases, end-to-end context hydration, and external consumer readback.
-Require at least a five-point measured gain, no policy or provenance regression,
-and acceptable p50/p95, RSS, index growth, and rebuild cost before proposing any
-production dependency or ranking change.
+candidate. Use opt-in shadow reports and the frozen `retrieval-benchmark-v1`
+contract. A candidate passes the v1 quantitative gate only when all of these are
+true on the same valid run:
+
+- at least 100 reviewed held-out cases are present with no train/test leakage;
+- macro `Recall@10` after final context hydration improves by at least `0.05`
+  (five absolute percentage points) over FTS;
+- the lower bound of the 95% paired bootstrap interval for that improvement is
+  greater than zero;
+- candidate p95 end-to-end latency is at most `1.20` times FTS p95, and candidate
+  peak process-tree RSS is at most `1.25` times FTS peak RSS;
+- measured candidate attempts ending in an error or lock failure are at most 1%
+  of candidate attempts, while an FTS control rate above 1% invalidates the
+  benchmark; and
+- candidate `MRR@10` is no more than `0.01` (one absolute point on the `[0,1]`
+  scale) below FTS, with zero policy, provenance, or sensitive-data violations.
+
+The report must also receive external consumer readback. These thresholds are
+the `retrieval-benchmark-v1` experiment gate, not runtime defaults and not
+authorization to implement, promote, package, or enable a candidate before its
+owning tasks and review gates. Passing permits a production-design review only;
+index size, rebuild duration, packaging, and maintenance measurements remain
+reported decision inputs rather than hidden quantitative gates.
 
 ## Test and rollback gates
 
@@ -200,13 +270,16 @@ production dependency or ranking change.
   authoritative, lost generated-state write, temp collision, leaked process, or
   uncontrolled lock failure.
 - `RET-001` fails if an invalid target counts as a miss, an unresolved challenge
-  disappears, a regression corpus is silently rewritten, or hashes/provenance
-  do not reproduce.
+  disappears, a regression corpus is silently rewritten, hashes/provenance do
+  not reproduce, or `retrieval-benchmark-v1` is not frozen and replayable before
+  `GATE-B`.
 - `GRF-001` fails on silent node collision, ambiguous closure, schema drift, or
-  sensitive-data widening.
-- `RET-002` rolls back to the unchanged FTS baseline on leakage, unexplained
-  ranking, less than a five-point held-out gain, fewer than 100 reviewed cases,
-  or unacceptable p95/RSS/resource regression.
+  sensitive-data widening, or when its two out-of-process receipts do not
+  reproduce the versioned contract fields and canonical response hash.
+- `RET-002` rejects the shadow candidate and removes its generated experimental
+  state while leaving FTS unchanged if the benchmark is invalid or any v1
+  threshold above fails. Because the experiment is shadow-only, this is a
+  candidate rollback, not a production ranking rollback.
 
 ## Additional learnings
 

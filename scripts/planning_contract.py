@@ -17,6 +17,14 @@ PLANNING_DIR = Path("contracts/planning")
 SEQUENCE_NAME = "v3-execution-sequence.json"
 SCHEMA_NAME = "v3-execution-sequence.schema.json"
 LEDGER_NAME = "v3-execution-ledger.json"
+ROADMAP_PATH = Path("docs/v3-hybrid-visual-multiplatform-roadmap.md")
+ROADMAP_TABLE_BEGIN = "<!-- BEGIN NORMATIVE TASK STATE TABLE -->"
+ROADMAP_TABLE_END = "<!-- END NORMATIVE TASK STATE TABLE -->"
+ROADMAP_TABLE_HEADER = ["Task ID", "Objective", "Batch", "State", "Notes"]
+ROADMAP_TABLE_SEPARATOR = ["---", "---", "---", "---", "---"]
+ROADMAP_TABLE_MAX_CHARS = 64 * 1024
+ROADMAP_TABLE_MAX_ROWS = 512
+ROADMAP_TABLE_MAX_LINE_CHARS = 8 * 1024
 
 
 def load_json_object(path: Path, errors: list[str]) -> dict[str, Any] | None:
@@ -157,6 +165,189 @@ def dependency_reachable(graph: dict[str, list[str]], start: str, target: str) -
     return False
 
 
+def split_markdown_table_row(line: str) -> list[str] | None:
+    """Split one pipe-delimited row without treating escaped pipes as separators."""
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    cells: list[str] = []
+    current: list[str] = []
+    inner = stripped[1:-1]
+    index = 0
+    while index < len(inner):
+        character = inner[index]
+        if character == "\\" and index + 1 < len(inner):
+            current.extend((character, inner[index + 1]))
+            index += 2
+            continue
+        if character == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(character)
+        index += 1
+    cells.append("".join(current).strip())
+    return cells
+
+
+def _inline_code_value(
+    cell: str, *, field: str, row_number: int
+) -> tuple[str | None, str | None]:
+    if len(cell) < 3 or not cell.startswith("`") or not cell.endswith("`"):
+        return None, f"roadmap table row {row_number} {field} must be one inline-code value"
+    value = cell[1:-1]
+    if not value or "`" in value:
+        return None, f"roadmap table row {row_number} {field} must be one inline-code value"
+    return value, None
+
+
+def validate_roadmap_parity(sequence: dict[str, Any], roadmap: str) -> list[str]:
+    """Validate the bounded normative roadmap projection against the sequence."""
+    errors: list[str] = []
+    begin_count = roadmap.count(ROADMAP_TABLE_BEGIN)
+    end_count = roadmap.count(ROADMAP_TABLE_END)
+    if begin_count != 1:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: expected exactly one normative table begin marker, "
+            f"found {begin_count}"
+        )
+    if end_count != 1:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: expected exactly one normative table end marker, "
+            f"found {end_count}"
+        )
+    if begin_count != 1 or end_count != 1:
+        return errors
+
+    begin_index = roadmap.index(ROADMAP_TABLE_BEGIN) + len(ROADMAP_TABLE_BEGIN)
+    end_index = roadmap.index(ROADMAP_TABLE_END)
+    if end_index <= begin_index:
+        return [f"{ROADMAP_PATH.as_posix()}: normative table end marker precedes begin marker"]
+    table = roadmap[begin_index:end_index]
+    if len(table) > ROADMAP_TABLE_MAX_CHARS:
+        return [
+            f"{ROADMAP_PATH.as_posix()}: normative table exceeds "
+            f"{ROADMAP_TABLE_MAX_CHARS} characters"
+        ]
+    lines = [line.strip() for line in table.splitlines() if line.strip()]
+    if len(lines) > ROADMAP_TABLE_MAX_ROWS + 2:
+        return [
+            f"{ROADMAP_PATH.as_posix()}: normative table exceeds "
+            f"{ROADMAP_TABLE_MAX_ROWS} task rows"
+        ]
+    for row_number, line in enumerate(lines, start=1):
+        if len(line) > ROADMAP_TABLE_MAX_LINE_CHARS:
+            errors.append(
+                f"roadmap table row {row_number} exceeds "
+                f"{ROADMAP_TABLE_MAX_LINE_CHARS} characters"
+            )
+
+    if len(lines) < 2:
+        return [*errors, f"{ROADMAP_PATH.as_posix()}: normative table header is missing"]
+    header = split_markdown_table_row(lines[0])
+    separator = split_markdown_table_row(lines[1])
+    if header != ROADMAP_TABLE_HEADER:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: normative table header must be "
+            f"{' | '.join(ROADMAP_TABLE_HEADER)}"
+        )
+    if separator != ROADMAP_TABLE_SEPARATOR:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: normative table separator must contain five '---' cells"
+        )
+
+    roadmap_tasks: dict[str, dict[str, str]] = {}
+    for row_number, line in enumerate(lines[2:], start=3):
+        cells = split_markdown_table_row(line)
+        if cells is None or len(cells) != 5:
+            errors.append(f"roadmap table row {row_number} must contain exactly five cells")
+            continue
+        task_id, task_error = _inline_code_value(
+            cells[0], field="Task ID", row_number=row_number
+        )
+        batch_id, batch_error = _inline_code_value(
+            cells[2], field="Batch", row_number=row_number
+        )
+        status, status_error = _inline_code_value(
+            cells[3], field="State", row_number=row_number
+        )
+        errors.extend(
+            error for error in (task_error, batch_error, status_error) if error is not None
+        )
+        if task_id is None or batch_id is None or status is None:
+            continue
+        if task_id in roadmap_tasks:
+            errors.append(f"roadmap table contains duplicate task {task_id}")
+            continue
+        roadmap_tasks[task_id] = {"batch": batch_id, "status": status}
+
+    raw_tasks = sequence.get("tasks")
+    if not isinstance(raw_tasks, list):
+        errors.append("planning sequence tasks are unavailable for roadmap parity")
+        return errors
+    contract_tasks = {
+        str(task["id"]): {"batch": str(task.get("batch")), "status": str(task.get("status"))}
+        for task in raw_tasks
+        if isinstance(task, dict) and isinstance(task.get("id"), str)
+    }
+    missing = sorted(set(contract_tasks) - set(roadmap_tasks))
+    extra = sorted(set(roadmap_tasks) - set(contract_tasks))
+    if missing:
+        errors.append("roadmap table is missing contract tasks: " + ", ".join(missing))
+    if extra:
+        errors.append("roadmap table contains unknown tasks: " + ", ".join(extra))
+    for task_id in sorted(set(contract_tasks) & set(roadmap_tasks)):
+        for field in ("batch", "status"):
+            roadmap_value = roadmap_tasks[task_id][field]
+            contract_value = contract_tasks[task_id][field]
+            if roadmap_value != contract_value:
+                errors.append(
+                    f"roadmap task {task_id} {field} mismatch: "
+                    f"roadmap {roadmap_value!r}, sequence {contract_value!r}"
+                )
+
+    frontier_lines = [
+        line.strip()
+        for line in roadmap.splitlines()
+        if line.strip().startswith("Current frontier:")
+    ]
+    if len(frontier_lines) != 1:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: expected exactly one explicit Current frontier line, "
+            f"found {len(frontier_lines)}"
+        )
+        return errors
+    frontier_line = frontier_lines[0]
+    match = re.fullmatch(r"Current frontier:\s*(.*?)\.", frontier_line)
+    if match is None:
+        errors.append(
+            f"{ROADMAP_PATH.as_posix()}: Current frontier must end with a period"
+        )
+        return errors
+    frontier_text = match.group(1)
+    frontier: list[str] = []
+    if frontier_text:
+        for cell in frontier_text.split(","):
+            value, error = _inline_code_value(
+                cell.strip(), field="Current frontier", row_number=0
+            )
+            if error is not None:
+                errors.append(
+                    f"{ROADMAP_PATH.as_posix()}: Current frontier entries must be inline-code values"
+                )
+                frontier = []
+                break
+            if value is not None:
+                frontier.append(value)
+    expected_frontier = sequence.get("current_frontier")
+    if isinstance(expected_frontier, list) and frontier != expected_frontier:
+        errors.append(
+            f"roadmap current frontier mismatch: roadmap {frontier!r}, "
+            f"sequence {expected_frontier!r}"
+        )
+    return errors
+
+
 def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[str]:
     errors: list[str] = []
     raw_tasks = sequence.get("tasks")
@@ -220,6 +411,18 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
                     f"in unreachable batch {dependency_batch}"
                 )
         evidence = task.get("evidence", [])
+        status = task.get("status")
+        if status == "complete":
+            if not isinstance(evidence, list) or not evidence:
+                errors.append(f"complete task {task_id} must have non-empty evidence")
+            for dependency in dependencies:
+                dependency_task = task_map.get(dependency)
+                if dependency_task is not None and dependency_task.get("status") != "complete":
+                    errors.append(
+                        f"complete task {task_id} has incomplete dependency {dependency}"
+                    )
+        if status == "future" and evidence != []:
+            errors.append(f"future task {task_id} must have empty evidence")
         if isinstance(evidence, list):
             for value in evidence:
                 if not isinstance(value, str):
@@ -236,6 +439,18 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
     batch_cycle = dependency_cycle(batch_graph)
     if batch_cycle:
         errors.append("batch dependency cycle: " + " -> ".join(batch_cycle))
+
+    in_progress_tasks = [
+        task_id for task_id in task_ids if task_map[task_id].get("status") == "in_progress"
+    ]
+    frontier_ids = [task_id for task_id in frontier if isinstance(task_id, str)]
+    missing_frontier = sorted(set(in_progress_tasks) - set(frontier_ids))
+    stray_frontier = sorted(set(frontier_ids) - set(in_progress_tasks))
+    if missing_frontier or stray_frontier:
+        errors.append(
+            "current_frontier must exactly match all in_progress tasks: "
+            f"missing {missing_frontier!r}, non-in_progress {stray_frontier!r}"
+        )
 
     for task_id in frontier:
         task = task_map.get(task_id)
@@ -259,6 +474,15 @@ def validate_planning_contract(root: Path) -> list[str]:
     if sequence is not None and schema is not None:
         errors.extend(validate_json_schema(sequence, schema))
         errors.extend(validate_sequence_semantics(sequence, root))
+        roadmap_path = root / ROADMAP_PATH
+        try:
+            roadmap = roadmap_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            errors.append(f"{ROADMAP_PATH.as_posix()}: missing")
+        except UnicodeDecodeError:
+            errors.append(f"{ROADMAP_PATH.as_posix()}: invalid UTF-8")
+        else:
+            errors.extend(validate_roadmap_parity(sequence, roadmap))
     if ledger is not None:
         expected_keys = {"contract_version", "updated_at", "entries"}
         if set(ledger) != expected_keys:

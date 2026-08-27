@@ -520,22 +520,36 @@ local-API onboarding hint and documentation follow-up.
   normalization boundary before an optional local embedding candidate. Graph
   output must separately declare page-local closure and body-mention reference
   detection rather than imply semantic links.
+- `RET-001` must freeze the machine-readable `retrieval-benchmark-v1` contract
+  before `GATE-B`: paired end-to-end FTS/candidate `Recall@10`, secondary
+  `MRR@10`, deterministic corpus/config identity and bootstrap, repeated
+  same-host measurements, and explicit latency, RSS, error, lock, and policy
+  fields. `RET-002` remains shadow-only and requires the versioned gain and
+  resource thresholds before a production-design review. `GRF-001` now has an
+  exact external-readback receipt: two reproducible fresh out-of-process MCP
+  sessions from a client frozen by `BRG-019`, with sanitized request/contract,
+  artifact, environment, schema-validation, and canonical response-hash proof.
 - Active quality, operations, MCP, release-checklist, vector, and roadmap docs
   now distinguish passing regression fixtures from unresolved held-out
   challenges. `vector status` is descriptive only. The current source snapshot
   reports the admin MCP profile at 74 tools, 81,234 schema bytes, and about
   20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement.
-- Planning validation now rejects task dependencies whose batches are not
-  transitively compatible, requires empty evidence for every `future` task, and
-  checks exact task-id/batch/state/frontier parity between the delimited
-  normative roadmap table and the JSON contract. The current frontier remains
-  exactly `BRG-003`; contract version 1 and the empty public execution ledger
-  are unchanged.
+- Reusable planning validation now rejects task dependencies whose batches are
+  not transitively compatible; requires the frontier to equal every and only
+  `in_progress` task; requires non-empty evidence and complete dependencies for
+  every `complete` task; and requires empty evidence for every `future` task.
+  Its bounded escaped-pipe-aware roadmap parser enforces exact task-id/batch/
+  state/frontier parity from `release-check`, not only from unit tests. The
+  current frontier remains exactly `BRG-003`; contract version 1 and the empty
+  public execution ledger are unchanged.
 - Local pre-rebase evidence passed 181 focused planning, documentation-site,
-  MCP-profile, and Pages tests. The planning validator, documentation-site
-  guard, MCP docs inventory check, secret scan, artifact guard, and diff check
-  also passed. No Python test process remained after completion. Exact rebased
-  head, CI, Pages, and fresh independent review remain PR delivery evidence.
+  MCP-profile, and Pages tests. The clean rebased predecessor head passed full
+  discovery with 1,149 tests and 63 expected skips. The lifecycle/parity and
+  benchmark corrections then passed 14 focused planning tests, direct planning
+  validation, non-strict release check, documentation-site guard, secret scan,
+  artifact guard, MCP docs inventory check, and diff validation. No Python test
+  process remained after completed owned runs. Exact final-head full suite, CI,
+  Pages, and fresh independent review remain PR delivery evidence.
 
 ## Completed BRG-017 Strict Configuration Boundary
 

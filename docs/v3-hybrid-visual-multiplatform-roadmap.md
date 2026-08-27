@@ -119,20 +119,40 @@ above and in the JSON contract is authoritative.
   prevent train/test leakage, and let failures remain represented without
   weakening release regression checks. Spanish/Unicode cases must expose the
   current ASCII-tokenization baseline rather than disappearing from it. It
-  changes neither ranking nor runtime dependencies.
+  also owns and freezes `retrieval-benchmark-v1` before `GATE-B`: deterministic
+  content-derived case ids and corpus/config digests; paired FTS/candidate
+  results on the same host, configuration, corpus, and final hydration path;
+  macro `Recall@10` as the
+  primary metric; `MRR@10` as secondary; one excluded warm-up plus five measured
+  repetitions; and a deterministic 10,000-resample paired percentile bootstrap
+  with seed `20260827`. It changes neither ranking nor runtime dependencies.
 - `GRF-001` must fail closed on normalized-node collisions, add
   `schema_version`, state `reference_scope=within_page` and
   `reference_detection=body_mention_v1`, provide strict graph output schemas,
-  and test reference, collision, and page-closure semantics. A real MCP consumer
-  must read back that contract. It remains a disposable projection and does not
-  authorize graph-aware recall.
+  and test reference, collision, and page-closure semantics. It must also prove
+  two-run readback from a fresh out-of-process MCP consumer selected from the
+  `BRG-019` supported-client inventory against deterministic public fixtures;
+  no client/version is selected before that inventory freezes. Its secret-scanned
+  receipt records client name/version, package source commit/artifact identity,
+  OS/Python/MCP protocol, sanitized exact `initialize`, `tools/list`, and
+  `memory.graph` request parameters, returned schema version/reference
+  scope/reference detection, schema-validation result, and canonical response
+  SHA-256. Both runs must reproduce the contract fields and output hash; an
+  in-process import does not count. It remains a disposable projection and does
+  not authorize graph-aware recall.
 - `RET-002` may compare FTS, a shared deterministic Unicode
   normalization/tokenization candidate, fuzzy/query variants, bounded one-hop
   graph candidates, and an optional local multilingual vector candidate only in
-  opt-in shadow reports. No path becomes a production dependency or default
-  ranking signal without at least a five-point gain across at least 100 reviewed
-  held-out cases, no policy/provenance regression, acceptable p95/RSS, and
-  external consumer readback.
+  opt-in shadow reports. Under `retrieval-benchmark-v1`, a candidate must use at
+  least 100 reviewed held-out cases and improve macro `Recall@10` after final
+  hydration by at least `0.05`, with the lower 95% paired-bootstrap bound above
+  zero. Its p95 latency must be at most 120% of FTS, peak process-tree RSS at
+  most 125% of FTS, and error-or-lock-failure rate at most 1%; `MRR@10` may
+  fall by no more than `0.01`, and policy, provenance, and sensitive-data
+  violations must all be zero. External consumer readback is still required.
+  These are v1 experiment gates, not runtime defaults or authorization before
+  the owning tasks. Any invalid run or failed threshold rejects the generated
+  shadow candidate and leaves production FTS unchanged.
 
 ## Delivery Phases
 

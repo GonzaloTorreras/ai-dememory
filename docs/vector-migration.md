@@ -41,6 +41,33 @@ first proving that each id/path exists in canonical memory.
 - both corpora have stable case ids, provenance, hashes, and leakage checks;
 - invalid, unknown, and unresolved cases remain distinguishable.
 
+It must also freeze the machine-readable `retrieval-benchmark-v1` contract
+(`contract_name=retrieval-benchmark`, `schema_version=1`) before `GATE-B`. The
+id payload is compact UTF-8 JSON with sorted keys containing the exact query
+code points, sorted expected ids, scope, and immutable provenance id, but no
+`case_id` or mutable review timestamps. Its id is `ret_` plus the first 20 hex
+characters of the payload SHA-256; the corpus digest hashes the full case
+records in case-id order joined by LF. The contract pairs every candidate result
+with an FTS result for the same case id, reviewed
+expected ids, corpus SHA-256, policy/config digest, host, and final
+context-hydration path. Case recall is the fraction of expected ids in the first
+ten final hydrated items; primary macro `Recall@10` is its unweighted case mean.
+`MRR@10` is the secondary unweighted mean reciprocal rank and uses zero when no
+expected id appears in the first ten items.
+
+Each arm receives one full-corpus warm-up, excluded from results, and five
+measured paired repetitions with alternating arm order. The 95% confidence
+interval is a 10,000-resample paired percentile bootstrap over per-case mean
+candidate-minus-FTS recall deltas with seed `20260827`; cases use case-id order,
+portable sample indices come from the first eight bytes of
+`SHA-256(seed || ":" || replicate || ":" || draw)` modulo the case count. The
+nearest-rank 2.5th and 97.5th bootstrap values are the interval endpoints. The
+result records exact source/dependency/candidate identity, nearest-rank p50/p95
+end-to-end latency, 50 ms process-tree RSS samples and peak, errors, lock
+failures, index bytes, rebuild duration, and policy/provenance/sensitive-data
+violation counts. Failed attempts score zero quality and remain counted as
+errors; a missing field or mismatched digest invalidates the run.
+
 No vector readiness conclusion is trustworthy until that evidence boundary is
 implemented and reproducible.
 
@@ -56,9 +83,24 @@ After `GATE-B` and `GRF-001`, `RET-002` may open an opt-in experiment only when:
   latency, peak RSS, disk growth, and maintenance cost are measured;
 - a real external consumer reads back the experimental behavior.
 
-The minimum improvement proposal is five recall points over the frozen FTS
-control with no sensitive-data, precision, provenance, p95, or RSS regression.
-Meeting that threshold permits a design review, not default activation.
+On one valid `retrieval-benchmark-v1` run, every candidate gate must pass:
+
+- macro `Recall@10` gains at least `0.05` (five absolute percentage points) over
+  FTS and the lower bound of its 95% paired bootstrap interval is greater than
+  zero;
+- candidate p95 end-to-end latency is at most 120% of FTS p95 and peak aggregate
+  process-tree RSS is at most 125% of FTS;
+- candidate attempts ending in an error or lock failure are at most 1% of its
+  measured attempts; an FTS control rate above 1% invalidates the comparison;
+- candidate `MRR@10` loses no more than `0.01` (one absolute point on `[0,1]`);
+  and
+- policy, provenance, and sensitive-data violations are all zero.
+
+These thresholds are the version-one experiment gate, not runtime defaults or
+permission to implement or enable a candidate before `RET-001`, `GATE-B`,
+`GRF-001`, and `RET-002` reach their own review boundaries. Passing permits a
+production-design review only. Index size, rebuild duration, packaging, and
+maintenance cost remain mandatory report fields, not unstated numeric gates.
 
 ## Candidate comparison, not backend selection
 
@@ -96,11 +138,17 @@ run the comparison.
 Do not proceed, or return to unchanged FTS, when any of these is true:
 
 - fewer than 100 reviewed held-out cases;
-- less than a five-point gain over the frozen control;
+- macro `Recall@10` gain below `0.05`, or its lower 95% paired-bootstrap bound
+  is not greater than zero;
 - train/test leakage, missing expected targets, or disappearing unresolved
   challenges;
-- any sensitive-data, policy, provenance, or explainability regression;
-- an unacceptable p95, RSS, disk, rebuild, packaging, or maintenance cost;
+- any policy, provenance, or sensitive-data violation;
+- candidate p95 latency above 120% of FTS, peak RSS above 125%, error-or-lock
+  rate above 1%, invalid FTS control, or `MRR@10` loss greater than `0.01`;
 - a vector-only candidate is discarded by final context hydration;
 - the experiment requires a background daemon or makes Node/model downloads a
   headless installation dependency.
+
+Failure rejects and removes the generated shadow candidate state; production
+FTS remains unchanged. This is not a production rollback because no v1
+experiment is allowed to alter production ranking.
