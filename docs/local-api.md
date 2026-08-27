@@ -137,7 +137,11 @@ public-repository recall surface. For bounded public context, use the CLI or MCP
 
 `api-smoke` creates a temporary vault and validates loopback health/search/
 graph, proposal inbox writes, reindexing, API-key handling, and non-loopback
-refusal. It is a development/support check, not a first-run step:
+refusal. It is package-rootless: it does not resolve a caller-owned vault from
+an argument, saved selector, or working directory. Direct source-script
+execution uses the checkout containing that script; it never selects one from
+CWD. The legacy `--root` option is accepted only as an ignored compatibility
+value. It is a development/support check, not a first-run step:
 
 ```bash
 ai-dememory dev api-smoke

@@ -70,6 +70,12 @@ ai-dememory dev publish-plan --repository testpypi --json
 ai-dememory dev release-evidence --json
 ```
 
+`verify-mcp` validates the contract exported by the active package and
+`api-smoke` owns a disposable temporary vault. Those two diagnostics require no
+vault binding and ignore the legacy nonempty `--root` compatibility option.
+They do not inspect a saved selector or select a vault/source checkout from
+CWD. Direct source-script execution uses the checkout containing that script.
+
 These commands can read source fixtures, create temporary test vaults, or
 validate a draft PR/release contract. They are not normal private-vault startup
 or maintenance commands. Use `ai-dememory dev --help` for the complete list,

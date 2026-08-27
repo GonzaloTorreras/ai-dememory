@@ -114,9 +114,9 @@ COMMANDS = {
 class CommandRootPolicy(str, Enum):
     """Describe the target root contract for valid non-help execution.
 
-    The legacy generic dispatcher does not enforce this inventory yet. Command
-    grammar and ``--help`` remain orthogonal and must be handled before a later
-    slice applies any root policy.
+    The generic dispatcher enforces this inventory only for policies migrated
+    in completed slices. Command grammar and ``--help`` remain orthogonal and
+    must be handled before each remaining policy is applied.
     """
 
     SOURCE_BOUND = "source-bound"
@@ -473,6 +473,20 @@ def run_packaged_command(
         module = importlib.import_module(f"{prefix}.{module_name}")
         if command == "onboard":
             return int(module.main(argv, mode=onboarding_mode or "onboard"))
+        return int(module.main(argv))
+    if COMMAND_ROOT_POLICIES[command] is CommandRootPolicy.ROOTLESS:
+        # Rootless package diagnostics must not consult a vault binding, the
+        # saved selector, CWD, or an ambient source checkout. Keep a legacy
+        # post-command --root option syntactically compatible, but never
+        # resolve or inject it. The selected modules own the stronger invariant
+        # that ambient vault authority is ignored; do not mutate process-global
+        # environment state while a diagnostic runs.
+        raw_legacy_root = root_arg_value(argv)
+        if raw_legacy_root is not None and not raw_legacy_root.strip():
+            cli_argument_error("--root requires a non-empty compatibility value")
+        configure_imports()
+        _, module_name = COMMANDS[command]
+        module = importlib.import_module(f"ai_dememory_tool.admin.{module_name}")
         return int(module.main(argv))
     raw_explicit_root = root_arg_value(argv)
     if raw_explicit_root is not None and not raw_explicit_root.strip():
@@ -975,10 +989,6 @@ def main(argv: list[str] | None = None) -> int:
     if raw_root_override is not None and not raw_root_override.strip():
         cli_argument_error("--root requires a non-empty vault path")
     root_override = root_binding_value(raw_root_override)
-    if root_override:
-        # Preserve the textual binding until the selected subcommand has
-        # validated its arguments. Resolving a UNC path can perform I/O.
-        os.environ["AI_DEMEMORY_ROOT"] = root_override
     if not argv or argv[0] in {"-h", "--help", "help"}:
         print(usage())
         return 0
@@ -1006,6 +1016,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Unknown maintainer command: {command}", file=sys.stderr)
             print(dev_usage(), file=sys.stderr)
             return 2
+    if root_override and COMMAND_ROOT_POLICIES.get(command) is not CommandRootPolicy.ROOTLESS:
+        # Preserve legacy global-root behavior only after policy selection.
+        # The textual value remains unresolved until the owning parser accepts
+        # its grammar; unconditional rootless commands never expose it through
+        # process-global environment state.
+        os.environ["AI_DEMEMORY_ROOT"] = root_override
     if command == "init":
         return init_vault(argv)
     if command == "vault":

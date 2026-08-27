@@ -38,6 +38,15 @@ accepted by the release identity guard.
   request, pipe-write, response-line, cumulative-output, and pagination
   ceilings. Notifications, unrelated response ids, and blocked writes can no
   longer restart or escape the wait indefinitely.
+- Make the package-derived `verify-mcp` and self-contained `api-smoke`
+  diagnostics genuinely rootless. They no longer consult a caller-supplied
+  vault argument, environment binding, saved selector, or working-directory
+  checkout; direct source-script execution deliberately uses the checkout
+  containing that script, even when a stale package precedes the same checkout
+  in `PYTHONPATH`. Fresh-package smoke removes Python import overrides and
+  verifies that the imported package lives inside the newly created virtual
+  environment. The legacy `--root` spelling remains accepted as an ignored
+  compatibility value.
 
 ### Changed
 

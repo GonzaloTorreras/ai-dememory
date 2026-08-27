@@ -19,6 +19,13 @@ cannot launch MCP stdio but can call localhost.
 
 Add `ai-dememory api-smoke`, backed by `scripts/api_smoke.py`.
 
+The command is package-rootless. Its fixtures and writes live only in its own
+temporary vault, so dispatcher and direct-script execution do not resolve a
+caller-supplied argument or environment vault, saved selector, or CWD. The
+smoke intentionally validates its own disposable vault; direct source execution
+loads the checkout containing the script rather than selecting one from CWD. A
+legacy nonempty `--root` remains an ignored compatibility value.
+
 The smoke uses a temporary vault, starts the API on an ephemeral loopback port,
 and verifies:
 

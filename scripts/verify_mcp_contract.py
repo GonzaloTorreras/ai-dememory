@@ -11,7 +11,20 @@ import re
 import sys
 from typing import Any
 
-from memorylib import repo_root
+# A direct source-script invocation starts with ``scripts/`` on sys.path. Put
+# this script's own checkout ahead of an older installed ai_dememory_tool before
+# the first package import; retrying after a failed import would leave that old
+# package cached in sys.modules. Installed namespaced execution already has the
+# authoritative package path and must not select a checkout this way.
+if not __package__:
+    source_root = Path(__file__).resolve().parents[1]
+    if (source_root / "ai_dememory_tool").is_dir():
+        # Insert unconditionally. A caller-controlled PYTHONPATH may already
+        # contain this checkout after a stale or shadow package; membership is
+        # not proof of import precedence.
+        sys.path.insert(0, str(source_root))
+
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 
 
 TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -25,7 +38,8 @@ class ContractIssue:
     message: str
 
 
-def load_server(root: Path) -> Any:
+def load_server(_legacy_root: Path | None = None) -> Any:
+    """Load the contract from the active package, independent of a repository."""
     from ai_dememory_tool.mcp_server import memory_mcp
 
     return memory_mcp
@@ -117,8 +131,9 @@ def validate_capabilities(capabilities: Any) -> list[ContractIssue]:
     return []
 
 
-def validate_contract(root: Path) -> list[ContractIssue]:
-    server = load_server(root)
+def validate_contract(_legacy_root: Path | None = None) -> list[ContractIssue]:
+    """Validate the active package; the optional root remains a compatibility no-op."""
+    server = load_server()
     issues: list[ContractIssue] = []
     issues.extend(validate_capabilities(getattr(server, "SERVER_CAPABILITIES", None)))
     issues.extend(validate_tools(getattr(server, "TOOLS", None)))
@@ -127,13 +142,20 @@ def validate_contract(root: Path) -> list[ContractIssue]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Repository root. Defaults to this repo.")
+    arguments = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Legacy compatibility value; ignored because the contract comes from the active package.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
-    args = parser.parse_args(argv)
+    reject_duplicate_options(parser, arguments, ("--root",))
+    args = parser.parse_args(arguments)
 
-    root = repo_root(args.root)
-    issues = validate_contract(root)
+    if args.root is not None and not args.root.strip():
+        parser.error("--root requires a non-empty compatibility value")
+    issues = validate_contract()
     if args.json:
         print(json.dumps([asdict(issue) for issue in issues], indent=2))
     elif issues:

@@ -113,10 +113,17 @@ def run_step(
     allowed_returncodes: set[int] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     ok_returncodes = allowed_returncodes or {0}
+    child_env = dict(os.environ if env is None else env)
+    # Package smoke evidence must come from the fresh virtual environment,
+    # never from a caller-controlled Python import override. Keep ordinary
+    # proxy/index variables while removing only package-identity authority.
+    child_env.pop("PYTHONHOME", None)
+    child_env.pop("PYTHONPATH", None)
+    child_env["PYTHONNOUSERSITE"] = "1"
     completed = run_owned_capture(
         command,
         cwd=cwd,
-        env=env,
+        env=child_env,
         input_text=input_text,
         timeout_seconds=timeout,
     )
@@ -256,6 +263,18 @@ def installed_cli_version(stdout: str) -> str:
     if not match:
         raise InstallSmokeError("installed ai-dememory --version output was invalid")
     return match.group(1)
+
+
+def assert_installed_package_origin(stdout: str, venv: Path) -> None:
+    origin_text = stdout.strip()
+    if not origin_text:
+        raise InstallSmokeError("installed package origin was empty")
+    try:
+        Path(origin_text).resolve().relative_to(venv.resolve())
+    except ValueError as exc:
+        raise InstallSmokeError(
+            f"installed package resolved outside the fresh virtual environment: {origin_text}"
+        ) from exc
 
 
 def release_evidence_unavailable_payload(stdout: str) -> dict[str, object]:
@@ -1550,6 +1569,7 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         foreign_vault = temp_path / "foreign-vault"
         environment_vault = temp_path / "environment-vault"
         config_home = temp_path / "config-home"
+        rootless_cwd = temp_path / "rootless-cwd"
         provider_home = temp_path / "provider-home"
         provider_appdata = temp_path / "provider-appdata"
         template_export = temp_path / "vault-template-export"
@@ -1559,6 +1579,17 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         run_step(steps, "upgrade pip", [str(python), "-m", "pip", "install", "--upgrade", "pip"])
         install_env = {**os.environ, "PIP_NO_CACHE_DIR": "1"}
         run_step(steps, "install package", [str(pip), "install", package], cwd=root, env=install_env)
+        installed_origin = run_step(
+            steps,
+            "installed package origin",
+            [
+                str(python),
+                "-c",
+                "import ai_dememory_tool; print(ai_dememory_tool.__file__)",
+            ],
+            cwd=temp_path,
+        )
+        assert_installed_package_origin(installed_origin.stdout, venv)
         version_result = run_step(steps, "installed version", [str(ai_dememory), "--version"])
         expected_installed_version = installed_cli_version(version_result.stdout)
         if expected_installed_version != PACKAGE_VERSION:
@@ -1580,6 +1611,34 @@ def run_package_smoke(root: Path, package: str, keep_temp: bool = False) -> list
         expected_mismatch = f"expected 0.0.0, found {expected_installed_version}"
         if expected_mismatch not in mismatch.stderr:
             raise InstallSmokeError("installed version-check mismatch did not report exact versions")
+        rootless_cwd.mkdir()
+        rootless_env = {
+            **os.environ,
+            "AI_DEMEMORY_CONFIG_HOME": str(rootless_cwd / "missing-config-home"),
+            "AI_DEMEMORY_ROOT": "",
+        }
+        rootless_before = snapshot_test_tree(rootless_cwd)
+        rootless_contract = run_step(
+            steps,
+            "installed verify MCP is rootless outside a vault",
+            [str(ai_dememory), "verify-mcp", "--json"],
+            cwd=rootless_cwd,
+            env=rootless_env,
+        )
+        if json.loads(rootless_contract.stdout) != []:
+            raise InstallSmokeError("installed rootless MCP verification reported issues")
+        rootless_api = run_step(
+            steps,
+            "installed API smoke is rootless outside a vault",
+            [str(ai_dememory), "api-smoke", "--json"],
+            cwd=rootless_cwd,
+            env=rootless_env,
+        )
+        api_steps = json.loads(rootless_api.stdout)
+        if not api_steps or any(step.get("status") != "ok" for step in api_steps):
+            raise InstallSmokeError("installed rootless API smoke did not complete cleanly")
+        if snapshot_test_tree(rootless_cwd) != rootless_before:
+            raise InstallSmokeError("rootless installed diagnostics mutated their working directory")
         run_step(steps, "init vault", [str(ai_dememory), "init", str(vault)])
         run_step(steps, "init foreign vault", [str(ai_dememory), "init", str(foreign_vault)])
         selector_env = {
