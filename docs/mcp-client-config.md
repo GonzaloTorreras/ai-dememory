@@ -96,33 +96,55 @@ ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 
 It is optional—not a first-run requirement. It matches JSON-RPC responses by
 id and, when an `enabled_tools` list is present, verifies paginated
-`tools/list` coverage.
+`tools/list` coverage. That interactive verification has one 30-second total
+deadline, a 1,048,576-character response-line limit, a 4,194,304-character
+cumulative output limit, a 65,536-character serialized-request limit with
+deadline-bound pipe writes, and the existing 20-page pagination ceiling.
 
 ## Maintainer-Only Checkout And PR Checks
 
 The source-checkout forms below are for development, CI, or support debugging.
 They intentionally exercise code in a checkout and are not user configuration
-recipes. Keep the actual vault separate.
+recipes. Keep the initialized smoke vault separate, and use an absolute path to
+the source script because the launched child runs from that vault.
 
 ```powershell
-py -3 scripts\ai_dememory.py --root D:\memory-vault mcp-client-smoke --command py --command-arg -3 --command-arg scripts\ai_dememory.py
+py -3 scripts/ai_dememory.py init D:/Temp/ai-dememory-mcp-smoke --no-wizard
+py -3 scripts/ai_dememory.py --root D:/Temp/ai-dememory-mcp-smoke mcp-client-smoke --command py --command-arg=-3 --command-arg D:/code/ai-dememory/scripts/ai_dememory.py
 ```
 
 ```bash
-python3 scripts/ai_dememory.py --root /home/user/memory-vault mcp-client-smoke \
+python3 scripts/ai_dememory.py init /tmp/ai-dememory-mcp-smoke --no-wizard
+python3 scripts/ai_dememory.py --root /tmp/ai-dememory-mcp-smoke mcp-client-smoke \
   --command python3 \
-  --command-arg scripts/ai_dememory.py
+  --command-arg /home/user/code/ai-dememory/scripts/ai_dememory.py
 ```
 
-The repository plugin smoke is also maintainer-only because it uses checked-in
-public fixtures, not a private vault:
+The repository plugin smoke is also maintainer-only. It reads the checked-in
+public client config, while the launched server remains bound to the separate
+initialized smoke vault; no private path is written into the config:
 
 ```bash
-python3 scripts/ai_dememory.py mcp-client-smoke \
-  --config plugins/ai-dememory/.mcp.json \
+python3 scripts/ai_dememory.py --root /tmp/ai-dememory-mcp-smoke mcp-client-smoke \
+  --config /home/user/code/ai-dememory/plugins/ai-dememory/.mcp.json \
   --command python3 \
-  --command-arg scripts/ai_dememory.py
+  --command-arg /home/user/code/ai-dememory/scripts/ai_dememory.py
 ```
+
+A config loaded with `--config` is trusted launch input: inspect its command,
+arguments, working directory, and environment first, and use a secret-free
+fixture. Failure diagnostics can include bounded child stdout or stderr. The
+supported direct config must be non-Docker and must not contain its own
+`--root`; configs whose command directly names Docker are rejected. The smoke
+command removes environment aliases for the vault root, injects the selected
+vault, and rejects argument ambiguity. Arbitrary wrapper commands remain trusted
+input and are not classified by parsing their implementation. To test Docker,
+omit `--config` and use `--mode docker`; the generated mount is then derived from
+the selected `--root`.
+
+Replace the example absolute checkout path if needed, then delete the
+disposable vault after these diagnostics. Never add a vault marker to the
+public checkout.
 
 After a draft PR exists, run the runtime smoke from that checkout—not from a
 user vault:

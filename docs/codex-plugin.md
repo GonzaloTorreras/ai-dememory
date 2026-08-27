@@ -84,20 +84,29 @@ maintainer verifying the checked-in template from a trusted source checkout;
 neither command is an installation route, a user runtime fallback, or a command
 to copy into Codex configuration.
 
-Smoke test the checked-in template with the installed CLI:
+The checked-in config contains no vault path, but the server it launches still
+requires an initialized vault. From the checkout, create a disposable one and
+smoke test the template with the installed CLI:
 
 ```bash
-python3 scripts/ai_dememory.py mcp-client-smoke \
-  --config plugins/ai-dememory/.mcp.json \
+python3 scripts/ai_dememory.py init /tmp/ai-dememory-mcp-smoke --no-wizard
+python3 scripts/ai_dememory.py --root /tmp/ai-dememory-mcp-smoke mcp-client-smoke \
+  --config /home/user/code/ai-dememory/plugins/ai-dememory/.mcp.json \
   --command ai-dememory
 ```
 
 Only when checking the source checkout itself before package installation, a
-maintainer may override the plugin launch command to the local script:
+maintainer may override the plugin launch command to the absolute local script.
+The absolute path matters because the child process runs from the bound vault:
 
 ```powershell
-py -3 scripts\ai_dememory.py mcp-client-smoke --config plugins\ai-dememory\.mcp.json --command py --command-arg -3 --command-arg scripts\ai_dememory.py
+py -3 scripts/ai_dememory.py init D:/Temp/ai-dememory-mcp-smoke --no-wizard
+py -3 scripts/ai_dememory.py --root D:/Temp/ai-dememory-mcp-smoke mcp-client-smoke --config D:/code/ai-dememory/plugins/ai-dememory/.mcp.json --command py --command-arg=-3 --command-arg D:/code/ai-dememory/scripts/ai_dememory.py
 ```
+
+Replace the example absolute checkout path if needed, then delete the
+disposable vault after the diagnostic. Never initialize the public checkout
+itself as a runtime vault.
 
 The checked-in public plugin defaults to the three-tool `public` profile:
 

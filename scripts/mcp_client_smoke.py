@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import queue
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 import tomllib
 from typing import Any, Iterator
 
@@ -20,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ai_dememory_tool.cli import build_mcp_config
+from ai_dememory_tool.argument_safety import reject_duplicate_options
 from install_smoke import MCP_INIT, MCP_PING
 from memorylib import repo_root
 from process_control import (
@@ -29,11 +31,18 @@ from process_control import (
     join_bounded_stderr_drain,
     run_owned_capture,
     start_owned_process,
+    terminate_process_tree,
 )
 
 MCP_TOOLS_LIST_ID = 3
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 MAX_TOOLS_LIST_PAGES = 20
+ROOT_ENVIRONMENT_KEY = "AI_DEMEMORY_ROOT"
+MCP_INTERACTIVE_TIMEOUT_SECONDS = 30.0
+MAX_MCP_RESPONSE_LINE_CHARS = 1024 * 1024
+MAX_MCP_INTERACTIVE_OUTPUT_CHARS = 4 * 1024 * 1024
+MAX_MCP_REQUEST_CHARS = 64 * 1024
+MCP_WRITER_SHUTDOWN_GRACE_SECONDS = 2.0
 
 
 class ClientSmokeError(RuntimeError):
@@ -50,6 +59,36 @@ class ClientSmokeResult:
     pinged: bool
     enabled_tools_verified: bool
     enabled_tool_count: int
+
+
+@dataclass
+class _InteractiveMcpBudget:
+    """One wall-clock and retained-output budget for an interactive session."""
+
+    deadline: float
+    output_chars: int = 0
+
+    def remaining_seconds(self) -> float:
+        return self.deadline - time.monotonic()
+
+    def record_line(self, line: str) -> None:
+        self.output_chars += len(line)
+        if self.output_chars > MAX_MCP_INTERACTIVE_OUTPUT_CHARS:
+            raise ClientSmokeError(
+                "MCP client config interactive output exceeded its resource limit"
+            )
+
+
+@dataclass
+class _StdinWriterState:
+    """Coordinate a timed-out writer without closing its stream cross-thread."""
+
+    stream: Any
+    detach_requested: threading.Event = field(default_factory=threading.Event)
+    finished: threading.Event = field(default_factory=threading.Event)
+    close_lock: threading.Lock = field(default_factory=threading.Lock)
+    thread: threading.Thread | None = None
+    closed: bool = False
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -90,6 +129,83 @@ def override_launch(
     return data
 
 
+def bind_config_runtime_root(
+    config: dict[str, Any],
+    root: Path,
+    server_name: str = "ai-dememory",
+) -> dict[str, Any]:
+    """Bind a supported loaded client fixture to the selected smoke vault."""
+    data = json.loads(json.dumps(config))
+    server, _ = select_server_config(data, server_name)
+    command = server.get("command")
+    if not isinstance(command, str) or not command:
+        raise ClientSmokeError("MCP client config command must be a non-empty string")
+    launcher = command.replace("\\", "/").rsplit("/", 1)[-1].casefold().rstrip(" .")
+    if launcher in {"docker", "docker.exe"}:
+        raise ClientSmokeError(
+            "Loaded Docker MCP configs cannot be rebound safely; omit --config and "
+            "use --mode docker so the selected --root generates the /memory mount"
+        )
+    args = server.get("args")
+    if args is None:
+        args = []
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise ClientSmokeError("MCP client config args must be an array of strings")
+    if any(
+        argument.casefold() == "--root" or argument.casefold().startswith("--root=")
+        for argument in args
+    ):
+        raise ClientSmokeError(
+            "Loaded MCP client config must not contain --root; select the smoke vault "
+            "with mcp-client-smoke --root"
+        )
+    env = server.get("env")
+    if env is None:
+        env = {}
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str) and isinstance(value, str)
+        for key, value in env.items()
+    ):
+        raise ClientSmokeError("MCP client config env must be an object of strings")
+    normalized_env = _without_root_environment_aliases(env)
+    server["env"] = {**normalized_env, ROOT_ENVIRONMENT_KEY: str(root)}
+    return data
+
+
+def _without_root_environment_aliases(env: dict[str, str]) -> dict[str, str]:
+    """Remove spellings that Windows aliases to the canonical root key."""
+
+    return {
+        key: value
+        for key, value in env.items()
+        # Windows folds the dotless-i spelling ``aı_dememory_root`` onto
+        # the canonical variable when it builds a child environment. Unicode
+        # uppercasing matches that boundary; casefolding does not.
+        if key.upper() != ROOT_ENVIRONMENT_KEY
+    }
+
+
+def merge_launch_environment(configured_env: dict[str, str]) -> dict[str, str]:
+    """Merge host/config environments without reintroducing a root alias."""
+
+    configured_roots = {
+        value
+        for key, value in configured_env.items()
+        if key.upper() == ROOT_ENVIRONMENT_KEY
+    }
+    if len(configured_roots) > 1:
+        raise ClientSmokeError(
+            "MCP client config contains conflicting AI_DEMEMORY_ROOT environment aliases"
+        )
+    selected_root = next(iter(configured_roots), None)
+    merged = {**dict_env(), **configured_env}
+    if selected_root is None:
+        return merged
+    launch_env = _without_root_environment_aliases(merged)
+    launch_env[ROOT_ENVIRONMENT_KEY] = selected_root
+    return launch_env
+
+
 def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name: str = "ai-dememory") -> ClientSmokeResult:
     server, selected_name = select_server_config(config, server_name)
     command = server.get("command")
@@ -111,7 +227,7 @@ def run_client_config_smoke(config: dict[str, Any] | str, cwd: Path, server_name
         raise ClientSmokeError("MCP client config enabled_tools must be an array of strings when present")
     launch_cwd = Path(configured_cwd) if configured_cwd else cwd
 
-    launch_env = {**dict_env(), **env}
+    launch_env = merge_launch_environment(env)
     stdout = run_mcp_batch(command, args, launch_cwd, launch_env, [MCP_INIT, MCP_INITIALIZED, MCP_PING])
     assert_mcp_initialize_and_ping(stdout)
     enabled_tools_verified = False
@@ -225,6 +341,10 @@ def start_mcp_process(
 
 
 def stop_mcp_process(process: subprocess.Popen[str]) -> None:
+    # A writer that outlived its bounded termination attempt may still own the
+    # TextIOWrapper lock. Detach it before the generic cleanup tries stdin.close;
+    # the writer closes its captured stream itself if it ever returns.
+    _detach_live_stdin_writer(process)
     cleanup_complete = False
     drain_complete = False
     try:
@@ -246,37 +366,166 @@ def stop_mcp_process(process: subprocess.Popen[str]) -> None:
                 pass
 
 
-def read_response_line(process: subprocess.Popen[str], timeout: int = 30) -> str:
+def _close_detached_writer_stream(state: _StdinWriterState) -> None:
+    """Close a detached stream exactly once, but only after its writer exits."""
+
+    if not state.detach_requested.is_set() or not state.finished.is_set():
+        return
+    with state.close_lock:
+        if state.closed:
+            return
+        state.closed = True
+        try:
+            state.stream.close()
+        except (OSError, ValueError):
+            pass
+
+
+def _detach_live_stdin_writer(process: subprocess.Popen[str]) -> bool:
+    """Make generic cleanup skip stdin while a bounded writer still owns it."""
+
+    state = getattr(process, "_ai_dememory_stdin_writer_state", None)
+    if not isinstance(state, _StdinWriterState):
+        return False
+    writer = state.thread
+    if writer is None or not writer.is_alive():
+        return False
+    state.detach_requested.set()
+    if process.stdin is state.stream:
+        process.stdin = None
+    # Covers the race where the writer finished between is_alive() and detach.
+    _close_detached_writer_stream(state)
+    return True
+
+
+def read_response_line(
+    process: subprocess.Popen[str],
+    timeout_seconds: float,
+    *,
+    max_chars: int = MAX_MCP_RESPONSE_LINE_CHARS,
+) -> str:
     if process.stdout is None:
         raise ClientSmokeError("MCP client config command did not expose stdout")
-    lines: queue.Queue[str] = queue.Queue(maxsize=1)
+    if timeout_seconds <= 0:
+        raise ClientSmokeError("MCP client config interactive session timed out")
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    lines: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
 
     def read_line() -> None:
-        lines.put(process.stdout.readline())
+        try:
+            lines.put(("line", process.stdout.readline(max_chars + 1)))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            lines.put(("error", exc))
 
-    thread = threading.Thread(target=read_line, daemon=True)
+    thread = threading.Thread(
+        target=read_line,
+        name="ai-dememory-mcp-client-smoke-stdout",
+        daemon=True,
+    )
     thread.start()
     try:
-        line = lines.get(timeout=timeout)
+        kind, value = lines.get(timeout=timeout_seconds)
     except queue.Empty as exc:
-        stop_mcp_process(process)
-        raise ClientSmokeError("MCP client config command timed out waiting for response") from exc
+        raise ClientSmokeError(
+            "MCP client config interactive session timed out waiting for response"
+        ) from exc
+    if kind == "error":
+        raise ClientSmokeError("MCP client config stdout reader failed") from value
+    line = str(value)
     if not line:
         stderr = bounded_stderr_tail(process)
         raise ClientSmokeError(f"MCP client config command returned no response. stderr={stderr}")
+    if len(line) > max_chars:
+        raise ClientSmokeError(
+            "MCP client config response line exceeded its resource limit"
+        )
     return line
 
 
-def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _write_mcp_message(
+    process: subprocess.Popen[str],
+    message: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> None:
+    """Write one bounded message without letting a full pipe defeat the deadline."""
+
     if process.stdin is None:
         raise ClientSmokeError("MCP client config command did not expose stdin")
+    stdin = process.stdin
+    payload = json.dumps(message) + "\n"
+    if len(payload) > MAX_MCP_REQUEST_CHARS:
+        raise ClientSmokeError("MCP client config request exceeded its resource limit")
+    remaining = budget.remaining_seconds()
+    if remaining <= 0:
+        raise ClientSmokeError(
+            "MCP client config interactive session exceeded its total deadline"
+        )
+    result: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+    state = _StdinWriterState(stream=stdin)
+
+    def write_message() -> None:
+        try:
+            stdin.write(payload)
+            stdin.flush()
+            result.put(("ok", None))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            result.put(("error", exc))
+        finally:
+            state.finished.set()
+            _close_detached_writer_stream(state)
+
+    writer = threading.Thread(
+        target=write_message,
+        name="ai-dememory-mcp-client-smoke-stdin",
+        daemon=True,
+    )
+    state.thread = writer
+    setattr(process, "_ai_dememory_stdin_writer_state", state)
+    writer.start()
+    try:
+        kind, value = result.get(timeout=remaining)
+    except queue.Empty as exc:
+        reaped = terminate_process_tree(
+            process,
+            grace_seconds=MCP_WRITER_SHUTDOWN_GRACE_SECONDS,
+        )
+        writer.join(timeout=MCP_WRITER_SHUTDOWN_GRACE_SECONDS)
+        writer_alive = writer.is_alive()
+        if writer_alive:
+            _detach_live_stdin_writer(process)
+        if not reaped or writer_alive:
+            raise ClientSmokeError(
+                "MCP client config timed-out writer could not be reclaimed"
+            ) from exc
+        raise ClientSmokeError(
+            "MCP client config interactive session timed out writing a request"
+        ) from exc
+    if kind == "error":
+        raise ClientSmokeError("MCP client config stdin writer failed") from value
+    if budget.remaining_seconds() <= 0:
+        raise ClientSmokeError(
+            "MCP client config interactive session exceeded its total deadline"
+        )
+
+
+def rpc_response(
+    process: subprocess.Popen[str],
+    request: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> tuple[dict[str, Any], str]:
     request_id = request.get("id")
     if not isinstance(request_id, int):
         raise ClientSmokeError("MCP client smoke requests must use integer ids")
-    process.stdin.write(json.dumps(request) + "\n")
-    process.stdin.flush()
+    _write_mcp_message(process, request, budget)
     while True:
-        line = read_response_line(process)
+        remaining = budget.remaining_seconds()
+        if remaining <= 0:
+            raise ClientSmokeError(
+                "MCP client config interactive session exceeded its total deadline"
+            )
+        line = read_response_line(process, remaining)
+        budget.record_line(line)
         response = json.loads(line)
         if not isinstance(response, dict):
             raise ClientSmokeError("MCP client config command returned a non-object JSON-RPC message")
@@ -290,15 +539,20 @@ def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> tup
         return response, line
 
 
-def send_notification(process: subprocess.Popen[str], notification: dict[str, Any]) -> None:
-    if process.stdin is None:
-        raise ClientSmokeError("MCP client config command did not expose stdin")
-    process.stdin.write(json.dumps(notification) + "\n")
-    process.stdin.flush()
+def send_notification(
+    process: subprocess.Popen[str],
+    notification: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> None:
+    _write_mcp_message(process, notification, budget)
 
 
-def rpc_result(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    response, line = rpc_response(process, request)
+def rpc_result(
+    process: subprocess.Popen[str],
+    request: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> tuple[dict[str, Any], str]:
+    response, line = rpc_response(process, request, budget)
     result = response.get("result")
     if not isinstance(result, dict):
         raise ClientSmokeError(f"{request.get('method')} returned a non-object result")
@@ -308,15 +562,18 @@ def rpc_result(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple
 def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: dict[str, str]) -> str:
     stdout_parts: list[str] = []
     cursor: str | None = None
+    budget = _InteractiveMcpBudget(
+        deadline=time.monotonic() + MCP_INTERACTIVE_TIMEOUT_SECONDS
+    )
 
     def exercise_process(process: subprocess.Popen[str]) -> str:
         nonlocal cursor
-        init, init_line = rpc_result(process, MCP_INIT)
+        init, init_line = rpc_result(process, MCP_INIT, budget)
         if init.get("protocolVersion") != "2025-11-25":
             raise ClientSmokeError("MCP client config initialize negotiated the wrong protocol")
         stdout_parts.append(init_line)
-        send_notification(process, MCP_INITIALIZED)
-        ping, ping_line = rpc_result(process, MCP_PING)
+        send_notification(process, MCP_INITIALIZED, budget)
+        ping, ping_line = rpc_result(process, MCP_PING, budget)
         if ping != {}:
             raise ClientSmokeError("MCP client config ping did not return an empty result")
         stdout_parts.append(ping_line)
@@ -325,7 +582,7 @@ def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: d
             if page >= MAX_TOOLS_LIST_PAGES:
                 raise ClientSmokeError("MCP tools/list pagination exceeded safety limit")
             request = tools_list_request(MCP_TOOLS_LIST_ID + page, cursor)
-            result, line = rpc_result(process, request)
+            result, line = rpc_result(process, request, budget)
             stdout_parts.append(line)
             cursor = result.get("nextCursor")
             if cursor is None:
@@ -392,9 +649,16 @@ def dict_env() -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Vault or checkout root. Defaults to this repo.")
-    parser.add_argument("--config", default=None, help="Existing MCP client config JSON to launch.")
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument("--root", default=None, help="Initialized vault root used by the launched MCP server.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Existing reviewed non-Docker MCP client config JSON to launch. It must not "
+            "contain --root; this command binds the selected smoke vault."
+        ),
+    )
     parser.add_argument("--server-name", default="ai-dememory", help="Server name inside mcpServers.")
     parser.add_argument("--client", choices=("generic", "codex", "claude"), default="codex")
     parser.add_argument("--mode", choices=("installed", "docker"), default="installed")
@@ -402,15 +666,25 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--command-arg", action="append", default=[], help="Extra argument before `mcp --stdio`; repeatable.")
     parser.add_argument("--image", default="ai-dememory:local", help="Docker image for generated Docker config.")
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
-    args = parser.parse_args(argv)
+    raw_argv = list(argv if argv is not None else sys.argv[1:])
+    reject_duplicate_options(
+        parser,
+        raw_argv,
+        ("--root", "--config", "--server-name", "--client", "--mode", "--command", "--image", "--json"),
+    )
+    args = parser.parse_args(raw_argv)
 
     root = repo_root(args.root)
     try:
         if args.config:
-            config = override_launch(
-                load_config(Path(args.config)),
-                command=args.command,
-                command_args=args.command_arg,
+            config = bind_config_runtime_root(
+                override_launch(
+                    load_config(Path(args.config)),
+                    command=args.command,
+                    command_args=args.command_arg,
+                    server_name=args.server_name,
+                ),
+                root,
                 server_name=args.server_name,
             )
         else:

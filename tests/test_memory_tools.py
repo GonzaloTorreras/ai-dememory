@@ -21,6 +21,18 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
+from tests.mcp_smoke_guard_cases import (
+    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT,
+    STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS,
+    STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS,
+    STRICT_MCP_SMOKE_REGION_POCS,
+    STRICT_MCP_SMOKE_TRANSPORTS,
+    strict_allow_markdown,
+    strict_transport_markdown,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -162,8 +174,9 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
-from mcp_client_smoke import override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
-from mcp_inventory import build_inventory, validate_inventory_docs, validate_inventory_texts  # noqa: E402
+import mcp_client_smoke as mcp_client_smoke_module  # noqa: E402
+from mcp_client_smoke import ClientSmokeError, bind_config_runtime_root, main as mcp_client_smoke_main, merge_launch_environment, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
+from mcp_inventory import INVENTORY_DOCS, build_inventory, main as mcp_inventory_main, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
 from memorylib import (  # noqa: E402
     MemoryError,
@@ -192,7 +205,11 @@ from publish_plan import (  # noqa: E402
     render_text as render_publish_plan_text,
 )
 from pr_draft_guard import validate_pr_draft, validate_pr_draft_text  # noqa: E402
-from pr_template_guard import validate_pr_template, validate_template_text  # noqa: E402
+from pr_template_guard import (  # noqa: E402
+    MCP_CLIENT_SMOKE_SOURCE_SEQUENCE,
+    validate_pr_template,
+    validate_template_text,
+)
 from recall_fixtures import (  # noqa: E402
     DEFAULT_REVIEW_PACKET_ARCHIVE_DIR,
     annotate_recall_review_packet_plan,
@@ -214,6 +231,7 @@ from recall_fixtures import (  # noqa: E402
 )
 from release_checklist_guard import (  # noqa: E402
     GENERATED_ARTIFACTS_VAULT_PRECONDITION,
+    MCP_CLIENT_SMOKE_SEQUENCES,
     validate_release_checklist,
     validate_release_checklist_text,
 )
@@ -269,6 +287,7 @@ from onboarding import main as onboarding_main  # noqa: E402
 from sleep_consolidation import SleepError, apply_review_packets, build_sleep_plan, main as sleep_main, write_sleep_report  # noqa: E402
 from vector_gate import VectorReadiness, evaluate_vector_readiness, write_vector_report  # noqa: E402
 from validate_memory import main as validate_main, validate_repo, validate_repo_result  # noqa: E402
+from verify_mcp_contract import validate_contract  # noqa: E402
 from working_memory import handoff, show_current, snapshot, working_status  # noqa: E402
 from review_memory import (  # noqa: E402
     REVIEW_MODE_ALIASES,
@@ -301,10 +320,12 @@ from review_memory import (  # noqa: E402
     write_stale_false_positive_report,
 )
 from ai_dememory_tool.cli import (  # noqa: E402
-    ambient_root_requires_explicit_binding,
+    COMMAND_CONTEXTUAL_ROOT_CONTRACTS,
+    COMMAND_ROOT_POLICIES,
+    COMMANDS,
+    PARSER_OWNED_COMMANDS,
+    CommandRootPolicy,
     build_mcp_config,
-    command_requires_explicit_vault_binding,
-    command_mutates_vault,
     copy_template_tree,
     export_vault_template,
     find_memory_root,
@@ -349,6 +370,179 @@ class MemoryToolTests(unittest.TestCase):
         self._default_selector_patch.start()
         self.addCleanup(self._default_selector_home.cleanup)
         self.addCleanup(self._default_selector_patch.stop)
+
+    def test_command_root_policy_covers_every_generic_command_exactly(self) -> None:
+        expected_parser_owned = {
+            "mcp",
+            "api",
+            "hook-event",
+            "hooks",
+            "setup",
+            "onboard",
+            "providers",
+            "import-chats",
+            "capture",
+            "maintenance",
+            "schedule",
+        }
+
+        self.assertEqual(PARSER_OWNED_COMMANDS, expected_parser_owned)
+        self.assertEqual(
+            set(COMMAND_ROOT_POLICIES),
+            set(COMMANDS) - expected_parser_owned,
+        )
+        self.assertFalse(set(COMMAND_ROOT_POLICIES) & expected_parser_owned)
+        self.assertEqual(len(COMMANDS), 56)
+        self.assertEqual(len(COMMAND_ROOT_POLICIES), 45)
+
+    def test_command_root_policy_groups_are_exhaustive_and_disjoint(self) -> None:
+        expected_by_policy = {
+            CommandRootPolicy.SOURCE_BOUND: {
+                "release-check",
+                "install-smoke",
+                "package-build-smoke",
+                "publish-guard",
+                "ci-guard",
+                "artifact-guard",
+                "vault-setup-guard",
+                "pr-template-guard",
+                "pr-draft-guard",
+                "acceptance-guard",
+                "adr-guard",
+                "release-checklist-guard",
+                "release-evidence",
+                "mcp-smoke",
+            },
+            CommandRootPolicy.VAULT_BOUND: {
+                "context",
+                "graph",
+                "recall-fixtures",
+                "vector",
+                "capture-miss",
+                "provenance",
+                "export-context",
+                "consolidate",
+                "sleep",
+                "learn",
+                "turn-context",
+                "working",
+                "lifecycle",
+                "mark-seen",
+                "outcome",
+                "review",
+                "false-positive",
+                "conflict",
+                "mcp-client-smoke",
+            },
+            CommandRootPolicy.CONTEXTUAL: {
+                "doctor",
+                "validate",
+                "secret-scan",
+                "index",
+                "search",
+                "eval-recall",
+                "roadmap",
+                "acceptance",
+                "publish-plan",
+                "mcp-inventory",
+            },
+            CommandRootPolicy.ROOTLESS: {"api-smoke", "verify-mcp"},
+        }
+
+        actual_by_policy = {
+            policy: {
+                command
+                for command, command_policy in COMMAND_ROOT_POLICIES.items()
+                if command_policy is policy
+            }
+            for policy in CommandRootPolicy
+        }
+        self.assertEqual(actual_by_policy, expected_by_policy)
+        flattened = set().union(*actual_by_policy.values())
+        self.assertEqual(flattened, set(COMMAND_ROOT_POLICIES))
+        self.assertEqual(
+            sum(len(commands) for commands in actual_by_policy.values()),
+            len(flattened),
+        )
+
+    def test_contextual_root_contracts_define_terminal_branches(self) -> None:
+        contextual_commands = {
+            command
+            for command, policy in COMMAND_ROOT_POLICIES.items()
+            if policy is CommandRootPolicy.CONTEXTUAL
+        }
+
+        self.assertEqual(set(COMMAND_CONTEXTUAL_ROOT_CONTRACTS), contextual_commands)
+        for command, contract in COMMAND_CONTEXTUAL_ROOT_CONTRACTS.items():
+            with self.subTest(command=command):
+                self.assertTrue(contract.selector.strip())
+                self.assertGreaterEqual(len(contract.branches), 2)
+                labels = [label for label, _ in contract.branches]
+                self.assertEqual(len(labels), len(set(labels)))
+                self.assertTrue(all(label.strip() for label in labels))
+                self.assertTrue(
+                    all(
+                        policy in {
+                            CommandRootPolicy.SOURCE_BOUND,
+                            CommandRootPolicy.VAULT_BOUND,
+                            CommandRootPolicy.ROOTLESS,
+                        }
+                        for _, policy in contract.branches
+                    )
+                )
+
+    def test_command_aliases_share_root_policy_and_dispatch_module(self) -> None:
+        alias_groups = (
+            ("lifecycle", "mark-seen", "outcome"),
+            ("review", "false-positive", "conflict"),
+        )
+        for aliases in alias_groups:
+            with self.subTest(aliases=aliases):
+                self.assertEqual(
+                    {COMMAND_ROOT_POLICIES[command] for command in aliases},
+                    {CommandRootPolicy.VAULT_BOUND},
+                )
+                self.assertEqual(
+                    len({COMMANDS[command][1] for command in aliases}),
+                    1,
+                )
+
+    def test_verify_mcp_contract_is_package_bound_not_source_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_root = Path(tmp) / "not-a-checkout-or-vault"
+
+            self.assertFalse(missing_root.exists())
+            self.assertEqual(validate_contract(missing_root), [])
+
+    def test_mcp_inventory_reads_source_only_for_check_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_root = Path(tmp) / "not-a-checkout-or-vault"
+
+            inventory_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(inventory_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--json"]), 0)
+            self.assertEqual(json.loads(inventory_output.getvalue())["tool_count"], len(TOOLS))
+
+            profile_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(profile_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--profile", "core", "--json"]), 0)
+            self.assertEqual(json.loads(profile_output.getvalue())["profile"], "core")
+
+            documentation_output = io.StringIO()
+            with (
+                patch("mcp_inventory.repo_root", return_value=missing_root),
+                redirect_stdout(documentation_output),
+            ):
+                self.assertEqual(mcp_inventory_main(["--check-docs", "--json"]), 1)
+            issues = json.loads(documentation_output.getvalue())
+            self.assertEqual({issue["target"] for issue in issues}, set(INVENTORY_DOCS))
+            self.assertFalse(missing_root.exists())
 
     def test_repo_vault_template_matches_packaged_template(self) -> None:
         packaged = ROOT / "ai_dememory_tool" / "templates" / "vault"
@@ -475,30 +669,8 @@ class MemoryToolTests(unittest.TestCase):
         root_resolver.assert_not_called()
         self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_nested_vault_in_sparse_checkout_requires_an_explicit_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            checkout = base / "sparse-checkout"
-            nested = checkout / "selected-vault"
-            (nested / "memories").mkdir(parents=True)
-            (checkout / ".git").write_text(
-                "gitdir: //untrusted.invalid/share/metadata\n",
-                encoding="utf-8",
-            )
-            (nested / ".ai-dememory.toml").write_text(
-                "[memory]\ncanonical = \"markdown\"\n",
-                encoding="utf-8",
-            )
-
-            self.assertFalse((checkout / "docs" / "schema.md").exists())
-            self.assertFalse((checkout / "scripts").exists())
-            self.assertFalse(is_tool_checkout(checkout))
-            self.assertFalse(is_within_tool_checkout(nested))
-            self.assertTrue(ambient_root_requires_explicit_binding(nested))
-
     def test_tool_checkout_recognizes_the_source_that_loaded_the_cli(self) -> None:
         self.assertTrue(is_tool_checkout(ROOT))
-        self.assertTrue(ambient_root_requires_explicit_binding(ROOT))
 
     def test_source_archive_is_detected_without_git_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -515,7 +687,6 @@ class MemoryToolTests(unittest.TestCase):
             )
 
             self.assertTrue(is_tool_checkout(source))
-            self.assertTrue(ambient_root_requires_explicit_binding(source))
 
     def test_installed_site_packages_is_not_a_source_checkout_or_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -536,14 +707,6 @@ class MemoryToolTests(unittest.TestCase):
             ):
                 find_memory_root(start=unrelated)
 
-    def test_non_file_vault_manifest_does_not_authorize_ambient_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp) / "vault"
-            (vault / "memories").mkdir(parents=True)
-            (vault / ".ai-dememory.toml").mkdir()
-
-            self.assertTrue(ambient_root_requires_explicit_binding(vault))
-
     def test_unrelated_git_vault_is_not_a_tool_checkout_even_with_mutable_markers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault"
@@ -562,14 +725,6 @@ class MemoryToolTests(unittest.TestCase):
 
             self.assertFalse(is_tool_checkout(vault))
             self.assertFalse(is_within_tool_checkout(nested))
-            self.assertFalse(ambient_root_requires_explicit_binding(vault))
-
-    def test_unconfigured_legacy_vault_requires_deliberate_binding(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp) / "legacy-vault"
-            (vault / "memories").mkdir(parents=True)
-
-            self.assertTrue(ambient_root_requires_explicit_binding(vault))
 
     def test_mcp_config_requires_a_bound_vault_without_ambient_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -647,39 +802,35 @@ class MemoryToolTests(unittest.TestCase):
                 root_resolver.assert_not_called()
                 self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_rootless_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
+    def test_parser_owned_mutating_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
             (
                 "providers configure",
                 ["providers", "configure", "codex", "--path", str(ROOT)],
-                True,
             ),
             (
                 "providers import",
                 ["providers", "import", "codex", "--path", str(ROOT)],
-                True,
             ),
             (
                 "providers capture",
                 ["providers", "capture", "text", "--text", "Review candidate."],
-                True,
             ),
-            ("import chats", ["import-chats", "codex", "--path", str(ROOT)], True),
-            ("capture", ["capture", "text", "--text", "Review candidate."], True),
-            ("schedule", ["schedule", "setup"], True),
+            ("import chats", ["import-chats", "codex", "--path", str(ROOT)]),
+            ("capture", ["capture", "text", "--text", "Review candidate."]),
+            ("schedule", ["schedule", "setup"]),
             (
                 "schedule with a global command option",
                 ["schedule", "--command", "ai-dememory", "setup"],
-                True,
             ),
-            ("schedule status", ["schedule", "status"], True),
+            ("schedule status", ["schedule", "status"]),
         )
         roots = (
             ROOT,
             ROOT / "vault-template",
             ROOT / "ai_dememory_tool" / "templates" / "vault",
         )
-        for label, argv, requires_strict_binding in invocations:
+        for label, argv in invocations:
             for root in roots:
                 with self.subTest(command=label, root=root):
                     error = io.StringIO()
@@ -692,14 +843,8 @@ class MemoryToolTests(unittest.TestCase):
                         cli_main(argv)
 
                     self.assertEqual(raised.exception.code, 2)
-                    if requires_strict_binding:
-                        root_resolver.assert_not_called()
-                        self.assertIn("runtime vault binding requires", error.getvalue())
-                    else:
-                        self.assertIn(
-                            "refuses an unconfigured or nested ambient root",
-                            error.getvalue(),
-                        )
+                    root_resolver.assert_not_called()
+                    self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_maintenance_commands_require_bound_roots_without_discovery(self) -> None:
         invocations = (
@@ -726,20 +871,19 @@ class MemoryToolTests(unittest.TestCase):
                 root_resolver.assert_not_called()
                 self.assertIn("runtime vault binding requires", error.getvalue())
 
-    def test_root_bound_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
+    def test_parser_owned_preview_commands_reject_ambient_tool_checkout_roots(self) -> None:
         invocations = (
-            ("providers plan", ["providers", "plan", "--json"], True),
+            ("providers plan", ["providers", "plan", "--json"]),
             (
                 "providers configure preview",
                 ["providers", "configure", "codex", "--path", str(ROOT), "--dry-run"],
-                True,
             ),
-            ("schedule plan", ["schedule", "plan", "--json"], True),
-            ("schedule cron", ["schedule", "cron", "--json"], True),
-            ("schedule setup preview", ["schedule", "setup", "--dry-run"], True),
-            ("schedule install preview", ["schedule", "install", "--dry-run"], True),
+            ("schedule plan", ["schedule", "plan", "--json"]),
+            ("schedule cron", ["schedule", "cron", "--json"]),
+            ("schedule setup preview", ["schedule", "setup", "--dry-run"]),
+            ("schedule install preview", ["schedule", "install", "--dry-run"]),
         )
-        for label, argv, requires_strict_binding in invocations:
+        for label, argv in invocations:
             with self.subTest(command=label):
                 error = io.StringIO()
                 with (
@@ -751,43 +895,8 @@ class MemoryToolTests(unittest.TestCase):
                     cli_main(argv)
 
                 self.assertEqual(raised.exception.code, 2)
-                if requires_strict_binding:
-                    root_resolver.assert_not_called()
-                    self.assertIn("runtime vault binding requires", error.getvalue())
-                else:
-                    self.assertIn(
-                        "refuses an unconfigured or nested ambient root",
-                        error.getvalue(),
-                    )
-
-    def test_root_guard_classifies_mutating_and_root_bound_commands(self) -> None:
-        for command, argv in (("providers", ["detect"]),):
-            with self.subTest(command=command, argv=argv):
-                self.assertFalse(command_mutates_vault(command, argv))
-                self.assertFalse(command_requires_explicit_vault_binding(command, argv))
-
-        for command, argv in (
-            ("maintenance", ["status"]),
-            ("maintenance", ["run", "--dry-run"]),
-            ("providers", ["plan", "--json"]),
-            ("providers", ["configure", "codex", "--dry-run"]),
-            ("import-chats", ["codex", "--dry-run"]),
-        ):
-            with self.subTest(command=command, argv=argv):
-                self.assertFalse(command_mutates_vault(command, argv))
-                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
-
-        for command, argv in (
-            ("providers", ["configure", "codex"]),
-            ("providers", ["import", "codex"]),
-            ("providers", ["capture", "text", "--text", "Review candidate."]),
-            ("import-chats", ["codex"]),
-            ("capture", ["text", "--text", "Review candidate."]),
-            ("maintenance", ["run"]),
-        ):
-            with self.subTest(command=command, argv=argv):
-                self.assertTrue(command_mutates_vault(command, argv))
-                self.assertTrue(command_requires_explicit_vault_binding(command, argv))
+                root_resolver.assert_not_called()
+                self.assertIn("runtime vault binding requires", error.getvalue())
 
     def test_setup_and_onboarding_accept_deliberate_bindings(self) -> None:
         checkout_root = ROOT / "vault-template"
@@ -2999,7 +3108,7 @@ class MemoryToolTests(unittest.TestCase):
             ],
         )
 
-    def test_mcp_client_smoke_launches_generated_checkout_config(self) -> None:
+    def test_mcp_client_smoke_launches_source_code_against_separate_vault(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp) / "vault"
             copy_template_tree(vault)
@@ -3008,17 +3117,70 @@ class MemoryToolTests(unittest.TestCase):
                 "installed",
                 vault,
                 command=sys.executable,
-                command_args=["scripts/ai_dememory.py"],
+                command_args=[str(ROOT / "scripts" / "ai_dememory.py")],
             )
-            config["cwd"] = str(ROOT)
+            server, _ = select_server_config(config)
 
-            result = run_client_config_smoke(config, ROOT.parent)
+            self.assertIs(
+                COMMAND_ROOT_POLICIES["mcp-client-smoke"],
+                CommandRootPolicy.VAULT_BOUND,
+            )
+            self.assertEqual(server["env"]["AI_DEMEMORY_ROOT"], str(vault))
+            result = run_client_config_smoke(config, vault)
 
-        self.assertEqual(Path(result.cwd), ROOT)
+        self.assertEqual(Path(result.cwd), vault)
         self.assertTrue(result.initialized)
         self.assertTrue(result.pinged)
         self.assertFalse(result.enabled_tools_verified)
         self.assertEqual(result.enabled_tool_count, 0)
+
+    def test_mcp_client_smoke_binds_checked_in_config_to_explicit_vault(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp) / "vault"
+            copy_template_tree(vault)
+            output = io.StringIO()
+            with (
+                patch.dict(os.environ, {"AI_DEMEMORY_ROOT": ""}),
+                patch("mcp_client_smoke.repo_root", return_value=vault),
+                redirect_stdout(output),
+            ):
+                exit_code = mcp_client_smoke_main(
+                    [
+                        "--root",
+                        str(vault),
+                        "--config",
+                        str(ROOT / "plugins" / "ai-dememory" / ".mcp.json"),
+                        "--command",
+                        sys.executable,
+                        "--command-arg",
+                        str(ROOT / "scripts" / "ai_dememory.py"),
+                        "--json",
+                    ]
+                )
+            result = json.loads(output.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(Path(result["cwd"]), vault)
+        self.assertTrue(result["initialized"])
+        self.assertTrue(result["pinged"])
+        self.assertTrue(result["enabled_tools_verified"])
+        self.assertEqual(result["enabled_tool_count"], 3)
+
+    def test_mcp_client_smoke_rejects_abbreviated_and_duplicate_options(self) -> None:
+        for argv, message in (
+            (["--root", "C:/vault", "--serve", "alternate"], "unrecognized arguments"),
+            (["--root", "C:/vault", "--client", "codex", "--client", "generic"], "at most once"),
+        ):
+            with (
+                self.subTest(argv=argv),
+                patch("mcp_client_smoke.repo_root") as resolve_root,
+                redirect_stderr(io.StringIO()) as error,
+                self.assertRaises(SystemExit) as raised,
+            ):
+                mcp_client_smoke_main(argv)
+            self.assertEqual(raised.exception.code, 2)
+            resolve_root.assert_not_called()
+            self.assertIn(message, error.getvalue())
 
     def test_mcp_runtime_fixture_smoke_exercises_v2_tools(self) -> None:
         checks = run_fixture_smoke(ROOT)
@@ -16059,6 +16221,149 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(server["args"], ["scripts/ai_dememory.py", "mcp", "--stdio"])
         self.assertEqual(server["enabled_tools"], ["memory.search"])
 
+    def test_mcp_client_smoke_binds_loaded_config_to_selected_vault(self) -> None:
+        config = {
+            "mcpServers": {
+                "ai-dememory": {
+                    "command": "ai-dememory",
+                    "args": ["mcp", "--stdio"],
+                    "env": {},
+                }
+            }
+        }
+        vault = Path("C:/private/smoke-vault")
+
+        bound = bind_config_runtime_root(config, vault)
+
+        self.assertEqual(config["mcpServers"]["ai-dememory"]["env"], {})
+        self.assertEqual(
+            bound["mcpServers"]["ai-dememory"]["env"],
+            {"AI_DEMEMORY_ROOT": str(vault)},
+        )
+
+    def test_mcp_client_smoke_normalizes_conflicting_root_env_case_insensitively(self) -> None:
+        config = {
+            "mcpServers": {
+                "ai-dememory": {
+                    "command": "ai-dememory",
+                    "args": ["mcp", "--stdio"],
+                    "env": {
+                        "AI_DEMEMORY_ROOT": "C:/private/stale-vault",
+                        "ai_dememory_root": "C:/private/attacker-vault",
+                        "a\u0131_dememory_root": "C:/private/windows-collision",
+                        "a\u0131_dememory_other": "preserve-me",
+                        "KEEP_ME": "yes",
+                    },
+                }
+            }
+        }
+        vault = Path("C:/private/selected-vault")
+
+        bound = bind_config_runtime_root(config, vault)
+
+        self.assertEqual(
+            bound["mcpServers"]["ai-dememory"]["env"],
+            {
+                "a\u0131_dememory_other": "preserve-me",
+                "KEEP_ME": "yes",
+                "AI_DEMEMORY_ROOT": str(vault),
+            },
+        )
+        self.assertEqual(
+            config["mcpServers"]["ai-dememory"]["env"]["ai_dememory_root"],
+            "C:/private/attacker-vault",
+        )
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows environment canary")
+    def test_mcp_client_smoke_bound_root_survives_windows_subprocess_environment(self) -> None:
+        vault = Path("C:/private/selected-vault")
+        bound = bind_config_runtime_root(
+            {
+                "command": sys.executable,
+                "args": [],
+                "env": {
+                    "a\u0131_dememory_root": "C:/private/windows-collision",
+                    "KEEP_ME": "yes",
+                },
+            },
+            vault,
+        )
+        with patch(
+            "mcp_client_smoke.dict_env",
+            return_value={
+                "a\u0131_dememory_root": "C:/private/ambient-collision",
+                "AMBIENT_KEEP": "yes",
+            },
+        ):
+            server_env = merge_launch_environment(bound["env"])
+
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    "print(os.environ['AI_DEMEMORY_ROOT']); "
+                    "print(os.environ['KEEP_ME']); "
+                    "print(os.environ['AMBIENT_KEEP'])"
+                ),
+            ],
+            env=server_env,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        self.assertEqual(completed.stdout.splitlines(), [str(vault), "yes", "yes"])
+
+    def test_mcp_client_smoke_rejects_conflicting_config_root_env_aliases(self) -> None:
+        with self.assertRaisesRegex(ClientSmokeError, "conflicting AI_DEMEMORY_ROOT"):
+            merge_launch_environment(
+                {
+                    "AI_DEMEMORY_ROOT": "C:/private/selected-vault",
+                    "a\u0131_dememory_root": "C:/private/conflicting-vault",
+                }
+            )
+
+    def test_mcp_client_smoke_rejects_loaded_config_root_arguments(self) -> None:
+        for args in (
+            ["--root", "C:/private/old-vault", "mcp", "--stdio"],
+            ["--root=C:/private/old-vault", "mcp", "--stdio"],
+        ):
+            with self.subTest(args=args), self.assertRaisesRegex(
+                ClientSmokeError,
+                "must not contain --root",
+            ):
+                bind_config_runtime_root(
+                    {"command": "ai-dememory", "args": args, "env": {}},
+                    Path("C:/private/selected-vault"),
+                )
+
+    def test_mcp_client_smoke_rejects_loaded_docker_config(self) -> None:
+        config = build_mcp_config(
+            "generic",
+            "docker",
+            Path("C:/private/old-vault"),
+        )
+
+        for command in (
+            "docker",
+            "Docker.EXE",
+            "docker.exe.",
+            "C:/Program Files/Docker/docker.exe. ",
+            r"C:\Program Files\Docker\DOCKER. ",
+        ):
+            with self.subTest(command=command), self.assertRaisesRegex(
+                ClientSmokeError, "use --mode docker"
+            ):
+                aliased = json.loads(json.dumps(config))
+                aliased["command"] = command
+                bind_config_runtime_root(
+                    aliased,
+                    Path("C:/private/selected-vault"),
+                )
+
     def test_mcp_client_smoke_verifies_enabled_tools_from_tools_list(self) -> None:
         stdout = "\n".join(
             [
@@ -16127,6 +16432,235 @@ for line in sys.stdin:
 
         self.assertTrue(result.initialized)
         self.assertTrue(result.pinged)
+
+    def test_mcp_client_smoke_bounds_each_interactive_response_line(self) -> None:
+        process = type(
+            "ResponseProcess",
+            (),
+            {
+                "stdout": io.StringIO("x" * 33),
+                "stderr": io.StringIO(),
+            },
+        )()
+
+        with self.assertRaisesRegex(ClientSmokeError, "response line exceeded"):
+            mcp_client_smoke_module.read_response_line(
+                process,  # type: ignore[arg-type]
+                1,
+                max_chars=32,
+            )
+
+    def test_mcp_client_smoke_uses_one_deadline_across_ignored_messages(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(deadline=10.0)
+        notification = json.dumps(
+            {"jsonrpc": "2.0", "method": "notifications/message"}
+        ) + "\n"
+
+        with (
+            patch(
+                "mcp_client_smoke.time.monotonic",
+                side_effect=(9.0, 9.0, 9.0, 10.0),
+            ),
+            patch(
+                "mcp_client_smoke.read_response_line",
+                return_value=notification,
+            ) as read_line,
+            self.assertRaisesRegex(ClientSmokeError, "total deadline"),
+        ):
+            mcp_client_smoke_module.rpc_response(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+        read_line.assert_called_once_with(process, 1.0)
+
+    def test_mcp_client_smoke_bounds_total_interactive_output(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(deadline=10.0)
+        notification = json.dumps(
+            {"jsonrpc": "2.0", "method": "notifications/message"}
+        ) + "\n"
+
+        with (
+            patch("mcp_client_smoke.time.monotonic", return_value=9.0),
+            patch(
+                "mcp_client_smoke.read_response_line",
+                return_value=notification,
+            ),
+            patch("mcp_client_smoke.MAX_MCP_INTERACTIVE_OUTPUT_CHARS", 8),
+            self.assertRaisesRegex(ClientSmokeError, "output exceeded"),
+        ):
+            mcp_client_smoke_module.rpc_response(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+    def test_mcp_client_smoke_reclaims_a_deadline_blocked_writer(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        class BlockingInput:
+            def write(self, value: str) -> int:
+                entered.set()
+                release.wait()
+                return len(value)
+
+            def flush(self) -> None:
+                return None
+
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": BlockingInput(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 0.02
+        )
+
+        def terminate(_process: object, *, grace_seconds: float) -> bool:
+            self.assertIs(_process, process)
+            self.assertGreater(grace_seconds, 0)
+            release.set()
+            return True
+
+        with (
+            patch(
+                "mcp_client_smoke.terminate_process_tree",
+                side_effect=terminate,
+            ) as terminate_tree,
+            patch("mcp_client_smoke.MCP_WRITER_SHUTDOWN_GRACE_SECONDS", 0.2),
+            self.assertRaisesRegex(ClientSmokeError, "timed out writing"),
+        ):
+            mcp_client_smoke_module._write_mcp_message(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+        self.assertTrue(entered.is_set())
+        terminate_tree.assert_called_once()
+
+    def test_mcp_client_smoke_detaches_an_unreclaimed_deadline_writer(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        class BlockingInput:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def write(self, value: str) -> int:
+                entered.set()
+                release.wait()
+                return len(value)
+
+            def flush(self) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        blocked_stdin = BlockingInput()
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": blocked_stdin,
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 0.02
+        )
+
+        try:
+            with (
+                patch(
+                    "mcp_client_smoke.terminate_process_tree",
+                    return_value=False,
+                ) as terminate_tree,
+                patch("mcp_client_smoke.MCP_WRITER_SHUTDOWN_GRACE_SECONDS", 0.02),
+                self.assertRaisesRegex(ClientSmokeError, "could not be reclaimed"),
+            ):
+                mcp_client_smoke_module._write_mcp_message(
+                    process,  # type: ignore[arg-type]
+                    {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                    budget,
+                )
+
+            self.assertTrue(entered.is_set())
+            self.assertIsNone(process.stdin)
+            self.assertFalse(blocked_stdin.closed)
+            terminate_tree.assert_called_once()
+
+            with (
+                patch(
+                    "mcp_client_smoke.close_stdin_and_reap",
+                    return_value=True,
+                ) as close_and_reap,
+                patch(
+                    "mcp_client_smoke.join_bounded_stderr_drain",
+                    return_value=True,
+                ),
+            ):
+                mcp_client_smoke_module.stop_mcp_process(process)  # type: ignore[arg-type]
+            close_and_reap.assert_called_once_with(process, grace_seconds=2)
+        finally:
+            release.set()
+            state = getattr(process, "_ai_dememory_stdin_writer_state", None)
+            writer = getattr(state, "thread", None)
+            if writer is not None:
+                writer.join(timeout=0.5)
+
+        self.assertFalse(writer is not None and writer.is_alive())
+        self.assertTrue(blocked_stdin.closed)
+
+    def test_mcp_client_smoke_bounds_serialized_requests(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 1
+        )
+
+        with (
+            patch("mcp_client_smoke.MAX_MCP_REQUEST_CHARS", 8),
+            self.assertRaisesRegex(ClientSmokeError, "request exceeded"),
+        ):
+            mcp_client_smoke_module._write_mcp_message(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
 
     def test_mcp_client_smoke_follows_tools_pagination_in_one_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -17481,6 +18015,331 @@ jobs:
         self.assertIn("python3 scripts/ai_dememory.py roadmap status --json", messages)
         self.assertIn("AI_DEMEMORY_PR_URL", messages)
 
+    def test_pr_template_guard_rejects_relative_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "<absolute-checkout>/scripts/ai_dememory.py",
+            "scripts/ai_dememory.py",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("must use an absolute" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_pr_template_guard_requires_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("requires exactly one absolute" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_pr_template_guard_rejects_shadowed_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            " --command-arg /tmp/other.py"
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("first program argument" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_pr_template_guard_requires_source_mcp_client_smoke(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "--command python3"
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "--command ai-dememory",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_pr_template_guard_rejects_echoed_source_mcp_client_smoke(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            "mcp-client-smoke",
+            "echo python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            "mcp-client-smoke",
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_pr_template_guard_rejects_case_tampered_mcp_client_smoke_grammar(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace("--command python3", "--COMMAND python3")
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any("exact supported option grammar" in issue.message for issue in issues),
+            issues,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_pr_template_guard_rejects_extra_dynamic_smoke_transports(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current + "".join(
+            strict_transport_markdown(transport)
+            for transport in STRICT_MCP_SMOKE_TRANSPORTS
+        )
+
+        issues = validate_template_text(weakened)
+
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        placeholder_transport = (
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            'mcp-"client-smoke" --command python3 --command-arg '
+            "<absolute-checkout>/scripts/ai_dememory.py "
+            "# ai-dememory mcp-client-smoke"
+        )
+        placeholder_issues = validate_template_text(
+            current + strict_transport_markdown(placeholder_transport)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in placeholder_issues
+            ),
+            placeholder_issues,
+        )
+
+        strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)[
+            "fenced-cross-line-aliases"
+        ]
+        strict_only_issues = validate_template_text(
+            current + strict_transport_markdown(strict_only)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in strict_only_issues
+            ),
+            strict_only_issues,
+        )
+        for name, markdown in STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS:
+            with self.subTest(cross_line_alias_region=name):
+                region_issues = validate_template_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS:
+            with self.subTest(followup_rejected_region=name):
+                region_issues = validate_template_text(
+                    current + strict_transport_markdown(command)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS:
+            with self.subTest(followup_rejected_document=name):
+                document_issues = validate_template_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_contract"
+                        for issue in document_issues
+                    ),
+                    document_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS:
+            with self.subTest(followup_allowed_region=name):
+                self.assertEqual(
+                    [],
+                    validate_template_text(
+                        current + strict_transport_markdown(command)
+                    ),
+                )
+        for name, markdown in STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS:
+            with self.subTest(comment_allowed_document=name):
+                self.assertEqual(
+                    [],
+                    validate_template_text(current + markdown),
+                )
+        self.assertEqual(
+            [],
+            validate_template_text(
+                current
+                + strict_transport_markdown(
+                    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT
+                )
+            ),
+        )
+        self.assertEqual(
+            [],
+            validate_template_text(current + strict_allow_markdown()),
+        )
+
+    def test_pr_template_smoke_proof_requires_exact_cardinality_and_sequence(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        canonical = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke" in line
+        )
+        tampered_lines = (
+            canonical.replace("- [ ]", "- [x]", 1),
+            "  " + canonical,
+            "> " + canonical,
+            canonical[:-1] + " --json`",
+            canonical + "\n" + canonical,
+            canonical.replace("<absolute-checkout>", "<Absolute-Checkout>"),
+            canonical.replace("<absolute-checkout>", "/__ai_dememory_absolute_checkout__"),
+            "- [ ] Unrelated inserted evidence.\n" + canonical,
+        )
+        for tampered in tampered_lines:
+            with self.subTest(tampered=tampered):
+                issues = validate_template_text(current.replace(canonical, tampered, 1))
+                self.assertTrue(
+                    any(
+                        issue.target
+                        in {
+                            "pull_request_template:mcp_client_smoke_exact_proof",
+                            "pull_request_template:mcp_client_smoke_contract",
+                        }
+                        for issue in issues
+                    ),
+                    issues,
+                )
+
+        explanatory_markdown = (
+            "\n> Note: keep release evidence local.\n\n"
+            "Target p95 < 20 ms. The mcp-client-smoke command is optional.\n\n"
+            "- [ ] (Optional) mcp-client-smoke is a local diagnostic.\n\n"
+            "$PATH may be discussed next to mcp-client-smoke prose.\n\n"
+            "```text\nThis unrelated example is not executable.\n```\n"
+        )
+        self.assertEqual([], validate_template_text(current + explanatory_markdown))
+
+        smoke_output = "- [ ] Smoke output includes `OK ping`."
+        moved = current.replace(canonical + "\n" + smoke_output, smoke_output, 1)
+        moved = moved.replace(smoke_output, smoke_output + "\n" + canonical, 1)
+        issues = validate_template_text(moved)
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_exact_proof"
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_pr_template_exact_smoke_proof_must_render_as_a_checklist(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        sequence = "\n".join(MCP_CLIENT_SMOKE_SOURCE_SEQUENCE)
+        source_command = MCP_CLIENT_SMOKE_SOURCE_SEQUENCE[1].split("`", 2)[1]
+        self.assertIn(sequence, current)
+
+        for name, hidden in (
+            ("html-comment", f"<!--\n{sequence}\n-->"),
+            ("fenced-example", f"```markdown\n{sequence}\n```"),
+            ("preformatted-html", f"<pre>\n{sequence}\n</pre>"),
+            ("hidden-html", f"<div hidden>\n{sequence}\n</div>"),
+            ("template-html", f"<template>\n{sequence}\n</template>"),
+            ("collapsed-html", f"<details>\n{sequence}\n</details>"),
+            ("script-data-html", f"<script type=text/plain>\n{sequence}\n</script>"),
+            ("style-html", f"<style>\n{sequence}\n</style>"),
+            ("search-html", f"<search>\n{sequence}\n</search>"),
+            ("basefont-html", f"<basefont>\n{sequence}\n"),
+            ("menuitem-html", f"<menuitem>\n{sequence}\n</menuitem>"),
+            ("horizontal-rule-html", f"<hr>\n{sequence}\n"),
+            ("svg-html", f"<svg>\n{sequence}\n</svg>"),
+            ("math-html", f"<math>\n{sequence}\n</math>"),
+            ("custom-element-html", f"<custom-element>\n{sequence}\n</custom-element>"),
+            ("split-div-html", f"<div\n class=hidden>\n{sequence}\n</div>"),
+            ("split-table-html", f"<table\n class=x>\n{sequence}\n</table>"),
+            ("split-script-html", f"<script\n type=text/plain>\n{sequence}\n</script>"),
+            ("processing-instruction-html", f"<?probe\n{sequence}\n?>"),
+            ("declaration-html", f"<!DOCTYPE html\n{sequence}\n>"),
+            ("cdata-html", f"<![CDATA[\n{sequence}\n]]>"),
+        ):
+            with self.subTest(hidden_proof=name):
+                weakened = current.replace(
+                    sequence,
+                    hidden + f"\n- Proof: `{source_command}`",
+                    1,
+                )
+                issues = validate_template_text(weakened)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_exact_proof"
+                        for issue in issues
+                    ),
+                    issues,
+                )
+
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
 
@@ -17790,6 +18649,342 @@ This records future risks.
         self.assertIn("python3 scripts/ai_dememory.py release-checklist-guard", messages)
         self.assertIn("docker build -t ai-dememory:local .", messages)
         self.assertIn("AI_DEMEMORY_PR_URL", messages)
+
+    def test_release_checklist_guard_rejects_relative_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "<absolute-checkout>/scripts/ai_dememory.py",
+            "scripts/ai_dememory.py",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("must use an absolute" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_release_checklist_guard_requires_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("requires exactly one absolute" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_release_checklist_guard_rejects_shadowed_python_mcp_client_smoke_child(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            " --command-arg /tmp/other.py"
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("first program argument" in issue.message for issue in issues),
+            issues,
+        )
+
+    def test_release_checklist_guard_requires_source_mcp_client_smoke(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "--command python3"
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            "--command ai-dememory",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_release_checklist_guard_rejects_echoed_source_mcp_client_smoke(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            "mcp-client-smoke",
+            "echo python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            "mcp-client-smoke",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_release_checklist_guard_rejects_unconsumed_mcp_client_smoke_tail(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current.replace(
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py",
+            " --command-arg <absolute-checkout>/scripts/ai_dememory.py --bogus",
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any("exact supported option grammar" in issue.message for issue in issues),
+            issues,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in issue.message
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_release_checklist_guard_rejects_extra_dynamic_smoke_transports(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        weakened = current + "".join(
+            strict_transport_markdown(transport)
+            for transport in STRICT_MCP_SMOKE_TRANSPORTS
+        )
+
+        issues = validate_release_checklist_text(weakened)
+
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        placeholder_transport = (
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            'mcp-"client-smoke" --command python3 --command-arg '
+            "<absolute-checkout>/scripts/ai_dememory.py "
+            "# ai-dememory mcp-client-smoke"
+        )
+        placeholder_issues = validate_release_checklist_text(
+            current + strict_transport_markdown(placeholder_transport)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in placeholder_issues
+            ),
+            placeholder_issues,
+        )
+
+        strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)["powershell-splat"]
+        strict_only_issues = validate_release_checklist_text(
+            current + strict_transport_markdown(strict_only)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in strict_only_issues
+            ),
+            strict_only_issues,
+        )
+        for name, markdown in STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS:
+            with self.subTest(cross_line_alias_region=name):
+                region_issues = validate_release_checklist_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS:
+            with self.subTest(followup_rejected_region=name):
+                region_issues = validate_release_checklist_text(
+                    current + strict_transport_markdown(command)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in region_issues
+                    ),
+                    region_issues,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS:
+            with self.subTest(followup_rejected_document=name):
+                document_issues = validate_release_checklist_text(current + markdown)
+                self.assertTrue(
+                    any(
+                        issue.target == "release_checklist:mcp_client_smoke_contract"
+                        for issue in document_issues
+                    ),
+                    document_issues,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS:
+            with self.subTest(followup_allowed_region=name):
+                self.assertEqual(
+                    [],
+                    validate_release_checklist_text(
+                        current + strict_transport_markdown(command)
+                    ),
+                )
+        for name, markdown in STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS:
+            with self.subTest(comment_allowed_document=name):
+                self.assertEqual(
+                    [],
+                    validate_release_checklist_text(current + markdown),
+                )
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(
+                current
+                + strict_transport_markdown(
+                    STRICT_MCP_SMOKE_COMMENT_ALLOWED_TEXT
+                )
+            ),
+        )
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(current + strict_allow_markdown()),
+        )
+
+    def test_release_checklist_requires_exact_smoke_proof_cardinality_and_sequences(
+        self,
+    ) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        source_line = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke --command" in line
+        )
+        config_line = next(
+            line
+            for line in current.splitlines()
+            if line.startswith("- [ ] `python3 scripts/ai_dememory.py --root ")
+            and "mcp-client-smoke --config" in line
+        )
+        for weakened in (
+            current + "\n" + config_line + "\n",
+            current.replace(
+                config_line,
+                config_line.replace("<absolute-checkout>", "<Absolute-Checkout>", 1),
+                1,
+            ),
+        ):
+            with self.subTest():
+                issues = validate_release_checklist_text(weakened)
+                self.assertTrue(
+                    any("exact_config_proof" in issue.target for issue in issues),
+                    issues,
+                )
+
+        acceptance_start = (
+            "- [ ] `python3 scripts/ai_dememory.py acceptance verify --json`\n"
+            + source_line
+        )
+        displaced = current.replace(
+            acceptance_start,
+            acceptance_start.replace(
+                "\n" + source_line,
+                "\n- [ ] Unrelated inserted evidence.\n" + source_line,
+            ),
+            1,
+        )
+        issues = validate_release_checklist_text(displaced)
+        self.assertTrue(
+            any(
+                issue.target
+                == "release_checklist:mcp_client_smoke_exact_acceptance_sequence"
+                for issue in issues
+            ),
+            issues,
+        )
+
+        prefixed = current.replace(source_line, "> " + source_line, 1)
+        issues = validate_release_checklist_text(prefixed)
+        self.assertTrue(
+            any("exact_source_proof" in issue.target for issue in issues),
+            issues,
+        )
+
+        self.assertEqual(
+            [],
+            validate_release_checklist_text(
+                current
+                + "\n> Note: preserve local evidence.\n\n"
+                + "Target p95 < 20 ms.\n\n"
+                + "```text\nUnrelated non-executable example.\n```\n"
+            ),
+        )
+
+    def test_release_checklist_exact_smoke_proof_must_render_as_checkboxes(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        sequence = "\n".join(MCP_CLIENT_SMOKE_SEQUENCES["acceptance"])
+        self.assertIn(sequence, current)
+
+        for name, hidden in (
+            ("html-comment", f"<!--\n{sequence}\n-->"),
+            ("fenced-example", f"```markdown\n{sequence}\n```"),
+            ("preformatted-html", f"<pre>\n{sequence}\n</pre>"),
+            ("hidden-html", f"<div hidden>\n{sequence}\n</div>"),
+            ("template-html", f"<template>\n{sequence}\n</template>"),
+            ("collapsed-html", f"<details>\n{sequence}\n</details>"),
+            ("script-data-html", f"<script type=text/plain>\n{sequence}\n</script>"),
+            ("style-html", f"<style>\n{sequence}\n</style>"),
+            ("search-html", f"<search>\n{sequence}\n</search>"),
+            ("basefont-html", f"<basefont>\n{sequence}\n"),
+            ("menuitem-html", f"<menuitem>\n{sequence}\n</menuitem>"),
+            ("horizontal-rule-html", f"<hr>\n{sequence}\n"),
+            ("svg-html", f"<svg>\n{sequence}\n</svg>"),
+            ("math-html", f"<math>\n{sequence}\n</math>"),
+            ("custom-element-html", f"<custom-element>\n{sequence}\n</custom-element>"),
+            ("split-div-html", f"<div\n class=hidden>\n{sequence}\n</div>"),
+            ("split-table-html", f"<table\n class=x>\n{sequence}\n</table>"),
+            ("split-script-html", f"<script\n type=text/plain>\n{sequence}\n</script>"),
+            ("processing-instruction-html", f"<?probe\n{sequence}\n?>"),
+            ("declaration-html", f"<!DOCTYPE html\n{sequence}\n>"),
+            ("cdata-html", f"<![CDATA[\n{sequence}\n]]>"),
+        ):
+            with self.subTest(hidden_proof=name):
+                issues = validate_release_checklist_text(
+                    current.replace(sequence, hidden, 1)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target.startswith(
+                            "release_checklist:mcp_client_smoke_exact_"
+                        )
+                        for issue in issues
+                    ),
+                    issues,
+                )
 
     def test_acceptance_guard_rejects_missing_registry_items(self) -> None:
         incomplete = """

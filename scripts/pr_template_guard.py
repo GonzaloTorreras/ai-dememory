@@ -11,9 +11,21 @@ import re
 import sys
 
 from memorylib import repo_root
+from docs_site_guard import (
+    MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+    _mcp_client_smoke_command_errors,
+    markdown_visible_checklist_lines,
+)
 
 
 TEMPLATE_PATH = Path(".github/pull_request_template.md")
+MCP_CLIENT_SMOKE_SOURCE_SEQUENCE = (
+    "- [ ] A separate disposable smoke vault was initialized with "
+    "`python3 scripts/ai_dememory.py init <initialized-smoke-vault> --no-wizard`; "
+    "the public checkout has no vault marker.",
+    MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
+    "- [ ] Smoke output includes `OK ping`.",
+)
 
 REQUIRED_SNIPPETS = {
     "doctor": "python3 scripts/ai_dememory.py doctor",
@@ -39,7 +51,8 @@ REQUIRED_SNIPPETS = {
     "compileall": "python3 -m compileall -q scripts mcp/server ai_dememory_tool",
     "pr_gate": "AI_DEMEMORY_PR_URL",
     "mcp_smoke": "python3 scripts/ai_dememory.py mcp-smoke",
-    "mcp_client_smoke": "python3 scripts/ai_dememory.py mcp-client-smoke",
+    "mcp_client_smoke_vault": "init <initialized-smoke-vault> --no-wizard",
+    "mcp_client_smoke": "--root <initialized-smoke-vault> mcp-client-smoke",
     "generated_artifacts": "No generated SQLite, reports, caches, or distilled context outputs are staged",
 }
 
@@ -61,9 +74,36 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _sequence_count(lines: tuple[str, ...], sequence: tuple[str, ...]) -> int:
+    return sum(
+        tuple(lines[index : index + len(sequence)]) == sequence
+        for index in range(len(lines) - len(sequence) + 1)
+    )
+
+
 def validate_template_text(text: str) -> list[TemplateGuardIssue]:
     issues: list[TemplateGuardIssue] = []
     normalized = normalize(text)
+    lines = markdown_visible_checklist_lines(text)
+    canonical_source_count = lines.count(
+        MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM
+    )
+    if canonical_source_count != 1:
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_exact_proof",
+                "expected exactly one canonical, unchecked, column-zero "
+                "mcp-client-smoke source checklist item",
+            )
+        )
+    if _sequence_count(lines, MCP_CLIENT_SMOKE_SOURCE_SEQUENCE) != 1:
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_exact_proof",
+                "canonical mcp-client-smoke source evidence must remain in the "
+                "reviewed MCP Runtime source sequence",
+            )
+        )
     for name, heading in REQUIRED_HEADINGS.items():
         if heading not in text:
             issues.append(TemplateGuardIssue(f"pull_request_template:{name}", f"missing heading: {heading}"))
@@ -75,6 +115,19 @@ def validate_template_text(text: str) -> list[TemplateGuardIssue]:
                     f"missing required validation snippet: {snippet}",
                 )
             )
+    for error in _mcp_client_smoke_command_errors(
+        text,
+        TEMPLATE_PATH.as_posix(),
+        require_python_source_launch=True,
+        require_template_placeholders=True,
+        strict_transport=True,
+    ):
+        issues.append(
+            TemplateGuardIssue(
+                "pull_request_template:mcp_client_smoke_contract",
+                error,
+            )
+        )
     return issues
 
 

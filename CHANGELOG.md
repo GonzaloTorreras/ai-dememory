@@ -26,12 +26,40 @@ accepted by the release identity guard.
   stable root and `.ai-dememory.toml`. A selected explicit, environment, or
   saved-default root that is missing, linked, uninitialized, or replaced during
   validation now fails without falling through to another source.
+- Bind a supported existing MCP client-config smoke fixture explicitly to its
+  selected initialized vault instead of depending on ambient process state.
+  Root environment aliases that Windows treats as the canonical variable are
+  removed before one selected value is injected, while embedded `--root`
+  arguments and configs whose direct executable is Docker fail closed. Direct
+  Docker aliases are matched by basename, case, and Windows trailing-dot/space
+  rules; Docker smoke regenerates its mount from the selected vault with
+  `--mode docker`.
+- Bound interactive MCP client-config smoke with one session-wide deadline plus
+  request, pipe-write, response-line, cumulative-output, and pagination
+  ceilings. Notifications, unrelated response ids, and blocked writes can no
+  longer restart or escape the wait indefinitely.
 
 ### Changed
 
 - Explain the operational wizard before prompting, including intensity ceilings,
   schedule state, host-AI policy, model-cost boundary and Stop proposals.
   Keep optional personal-baseline questions in the distinct `onboard` flow.
+- Classify every generic CLI command by its target root contract before the
+  remaining legacy dispatcher is migrated away from ambient CWD discovery,
+  including explicit selectors and terminal branches for context-dependent
+  commands.
+
+### Documentation
+
+- Require PR and release-checklist MCP evidence to include a separate
+  initialized vault and one direct installed-mode Python launch that executes
+  the absolute source-script path as its program argument (after the optional
+  Windows `py -3[.N]` selector). Evidence commands use the exact case-sensitive
+  CLI grammar and a closed literal argv contract. Canonical checklist evidence
+  must retain exact cardinality and its reviewed neighboring sequences without
+  restricting unrelated prose, block quotes or fenced examples. General
+  operations guidance may still test the installed `ai-dememory` command; the
+  public checkout is never a runtime vault.
 
 ## [2.1.1] - 2026-08-23
 

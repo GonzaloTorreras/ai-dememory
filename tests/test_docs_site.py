@@ -8,6 +8,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.mcp_smoke_guard_cases import (
+    LATEST_STRICT_MCP_SMOKE_POCS,
+    MCP_SMOKE_CANDIDATE_LIMIT_POCS,
+    STRICT_MCP_SMOKE_ALLOWED_TEXTS,
+    STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS,
+    STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS,
+    STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS,
+    STRICT_MCP_SMOKE_REGION_POCS,
+    STRICT_MCP_SMOKE_TRANSPORTS,
+    strict_transport_markdown,
+)
 from scripts.docs_site_guard import (
     REPO_ROOT,
     SITE_ROOT,
@@ -17,6 +30,7 @@ from scripts.docs_site_guard import (
     PUBLIC_SKILL_FIRST_RUN_GUIDES,
     PUBLIC_SKILL_GUIDE_ROOTS,
     PUBLIC_SOURCE_ROUTE_DOCS,
+    MCP_CLIENT_SMOKE_GUIDES,
     RELEASE_PENDING_CONTRACTS,
     RELEASE_SCOPE_DOCS,
     STABLE_DOC_REQUIRED_COMMANDS,
@@ -25,6 +39,7 @@ from scripts.docs_site_guard import (
     ACTIVE_PRERELEASE_REQUIRED_COMMANDS,
     _release_contract_errors,
     _pending_source_execution_errors,
+    _mcp_client_smoke_command_errors,
     _stable_command_errors,
     audit_public_skill_guides,
     audit_site,
@@ -651,6 +666,584 @@ class DocumentationSiteGuardTests(unittest.TestCase):
                         "2.1.1",
                         relative,
                         allow_explicit_maintainer_sections=True,
+                    ),
+                )
+
+    def test_mcp_client_smoke_guides_bind_a_separate_vault_and_absolute_source(self) -> None:
+        for relative in MCP_CLIENT_SMOKE_GUIDES:
+            with self.subTest(path=relative):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(
+                        (REPO_ROOT / relative).read_text(encoding="utf-8"),
+                        relative,
+                    ),
+                )
+
+        unbound = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py mcp-client-smoke --command ai-dememory\n",
+            "docs/example.md",
+        )
+        relative_root = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root . mcp-client-smoke "
+            "--command ai-dememory\n",
+            "docs/example.md",
+        )
+        relative_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        unprovable_variable_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg $CHECKOUT/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        missing_python_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3\n",
+            "docs/example.md",
+        )
+        shadowed_python_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /tmp/other.py "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        python_code_before_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg=-c --command-arg pass "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        literal_tilde_source = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg ~/code/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        valid_py_launcher = _mcp_client_smoke_command_errors(
+            "py -3 scripts/ai_dememory.py --root C:/Temp/vault mcp-client-smoke "
+            "--command py --command-arg=-3.13 "
+            "--command-arg C:/code/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+        )
+        installed_launcher = (
+            "ai-dememory --root /tmp/vault mcp-client-smoke --command ai-dememory\n"
+        )
+        installed_general = _mcp_client_smoke_command_errors(
+            installed_launcher,
+            "docs/example.md",
+        )
+        installed_when_source_required = _mcp_client_smoke_command_errors(
+            installed_launcher,
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        docker_when_source_required = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--mode docker --command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        echoed_when_source_required = _mcp_client_smoke_command_errors(
+            "echo ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        displaced_when_source_required = _mcp_client_smoke_command_errors(
+            "ai-dememory --root /tmp/vault doctor mcp-client-smoke "
+            "--command python3 "
+            "--command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "docs/example.md",
+            require_python_source_launch=True,
+        )
+        tampered_grammar_commands = (
+            "python3 scripts/ai_dememory.py --ROOT /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault MCP-CLIENT-SMOKE "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--COMMAND python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --COMMAND-ARG /opt/ai-dememory/scripts/ai_dememory.py\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--MODE INSTALLED\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--mode INSTALLED\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--bogus\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--client nope\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py "
+            "--server-name\n",
+            "ai-dememory --root /tmp/vault DEV mcp-client-smoke "
+            "--command python3 --command-arg /opt/ai-dememory/scripts/ai_dememory.py\n",
+        )
+        tampered_grammar_errors = [
+            _mcp_client_smoke_command_errors(
+                command,
+                "docs/example.md",
+                require_python_source_launch=True,
+            )
+            for command in tampered_grammar_commands
+        ]
+
+        self.assertTrue(any("requires exactly one" in error for error in unbound), unbound)
+        self.assertTrue(any("requires exactly one" in error for error in relative_root), relative_root)
+        self.assertTrue(any("must use an absolute" in error for error in relative_source), relative_source)
+        self.assertTrue(
+            any("must use an absolute" in error for error in unprovable_variable_source),
+            unprovable_variable_source,
+        )
+        self.assertTrue(
+            any("requires exactly one absolute" in error for error in missing_python_source),
+            missing_python_source,
+        )
+        self.assertTrue(
+            any("first program argument" in error for error in shadowed_python_source),
+            shadowed_python_source,
+        )
+        self.assertTrue(
+            any("first program argument" in error for error in python_code_before_source),
+            python_code_before_source,
+        )
+        self.assertTrue(
+            any("must use an absolute" in error for error in literal_tilde_source),
+            literal_tilde_source,
+        )
+        self.assertEqual([], valid_py_launcher)
+        self.assertEqual([], installed_general)
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in installed_when_source_required
+            ),
+            installed_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in docker_when_source_required
+            ),
+            docker_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in echoed_when_source_required
+            ),
+            echoed_when_source_required,
+        )
+        self.assertTrue(
+            any(
+                "requires at least one complete Python source launch" in error
+                for error in displaced_when_source_required
+            ),
+            displaced_when_source_required,
+        )
+        for command_errors in tampered_grammar_errors:
+            with self.subTest(errors=command_errors):
+                self.assertTrue(command_errors)
+                self.assertTrue(
+                    any(
+                        "requires at least one complete Python source launch" in error
+                        for error in command_errors
+                    ),
+                    command_errors,
+                )
+
+    def test_mcp_client_smoke_evidence_uses_a_closed_literal_argv_contract(self) -> None:
+        harmless_over_depth = "echo harmless"
+        for _ in range(5):
+            harmless_over_depth = shlex.join(("eval", harmless_over_depth))
+        unrelated_brace_output = (
+            "$CLI --output {"
+            + ",".join(f"out{index}" for index in range(40))
+            + "}"
+        )
+        unrelated_group_output = (
+            "$CLI --command $("
+            + " ".join(f"A{index}=x" for index in range(20))
+            + " printf %s harmless)"
+        )
+        valid_commands = (
+            "ai-dememory --root /tmp/vault mcp-client-smoke\n",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --mode docker "
+            "--image ai-dememory:test\n",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --config /tmp/mcp.json "
+            "--command ai-dememory\n",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --client generic "
+            "--server-name alternate\n",
+            "$PYTHON scripts/ai_dememory.py doctor\n",
+        )
+        for command in valid_commands:
+            with self.subTest(valid=command):
+                self.assertEqual(
+                    [], _mcp_client_smoke_command_errors(command, "docs/example.md")
+                )
+
+        invalid_argv_commands = (
+            "python3 scripts/ai_dememory.py --root ~evil mcp-client-smoke",
+            "python3 scripts/ai_dememory.py --root /tmp/a --root /tmp/b mcp-client-smoke",
+            "python3 scripts/ai_dememory.py --root /tmp/vault "
+            "mcp-client-sm${EMPTY}oke --command python3",
+            "python3 scripts/ai_dememory.py --root /tmp/vault "
+            "mcp-client-sm?ke --command python3",
+            "python3 scripts/ai_dememory.py --root /tmp/vault "
+            "mcp-client-s$!moke --command python3",
+            "$PYTHON scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke",
+            '"$PYTHON" scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke',
+            '& "$env:PYTHON" scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke',
+            "$PYTHON.exe scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke",
+            "pyth?n scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke",
+            "py^thon scripts/ai_dememory.py --root C:/vault mcp-client-smoke",
+            "$CLI --root /tmp/vault mcp-client-smoke --command $EVIL",
+            "$CLI mcp-client-smoke --command $EVIL",
+            "$CLI --root mcp-client-smoke --command $EVIL",
+            "$CLI --bogus value mcp-client-smoke --command $EVIL",
+            "%CLI% --root C:/vault mcp-client-smoke --command %EVIL%",
+            "$PYTHON scripts/ai_dememory.py mcp-client-smoke",
+            "$CLI --root /tmp/vault dev mcp-client-smoke --command $EVIL",
+            "$PYTHON scripts/ai_dememory.py --root /tmp/vault dev mcp-client-smoke",
+            "$PYTHON \\\n  scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke",
+            "$CLI \\\n  --root /tmp/vault mcp-client-smoke --command $EVIL",
+            "python3 scripts/ai_dememory.py --root . mcp-client-\\\n"
+            "smoke \\\n"
+            "--command python3 --command-arg scripts/ai_dememory.py",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command python3",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --json --json",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --command $PYTHON",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --command evil:python3",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--command ai-dememory --command-arg /tmp/extra",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --config relative.json",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--config /tmp/a.json --client generic",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --server-name alternate",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--client generic --server-name -c",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--mode docker --image=-evil",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--mode docker --command ai-dememory",
+            "ai-dememory --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg=--root",
+            "ai-dememory --root /tmp/vault mcp-client-smoke --command python3 "
+            "--command-arg /tmp/notscripts/ai_dememory.py",
+            "$PYTHON scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke",
+            'ai-dememory --root /tmp/vault mcp-client-smoke --command "python3',
+            'ai-dememory --root /tmp/vault "$SUBCOMMAND --command python3',
+            "ai-dememory --root /tmp/vault mcp-client-smoke \\",
+            "<code>ai-dememory --root /tmp/vault\n"
+            "$SUBCOMMAND --command python3</code>",
+        )
+        invalid_commands = (
+            *STRICT_MCP_SMOKE_TRANSPORTS,
+            *invalid_argv_commands,
+        )
+        document_limit_errors = _mcp_client_smoke_command_errors(
+            "x" * ((512 * 1024) + 1),
+            "docs/document-overflow.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any(
+                "document exceeds the inspection limit" in error
+                for error in document_limit_errors
+            ),
+            document_limit_errors,
+        )
+        multibyte_document_errors = _mcp_client_smoke_command_errors(
+            "é" * (((512 * 1024) // 2) + 1),
+            "docs/multibyte-document-overflow.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any(
+                "document exceeds the inspection limit" in error
+                for error in multibyte_document_errors
+            ),
+            multibyte_document_errors,
+        )
+        multibyte_region_errors = _mcp_client_smoke_command_errors(
+            "ai-dememory --root /tmp/vault $SUBCOMMAND --command python3 # "
+            + ("é" * ((16 * 1024) // 2)),
+            "docs/multibyte-region-overflow.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any(
+                "candidate region exceeds the inspection limit" in error
+                for error in multibyte_region_errors
+            ),
+            multibyte_region_errors,
+        )
+        for name, command, expected_reason in MCP_SMOKE_CANDIDATE_LIMIT_POCS:
+            with self.subTest(candidate_limit=name):
+                errors = _mcp_client_smoke_command_errors(
+                    command + "\n",
+                    "docs/overflow.md",
+                    strict_transport=True,
+                )
+                self.assertTrue(
+                    any(expected_reason in error for error in errors),
+                    errors,
+                )
+                if name == "document-over-64-candidates":
+                    self.assertTrue(
+                        any("docs/overflow.md:65:" in error for error in errors),
+                        errors,
+                    )
+        for name, command in STRICT_MCP_SMOKE_REGION_POCS:
+            with self.subTest(strict_region=name):
+                errors = _mcp_client_smoke_command_errors(
+                    strict_transport_markdown(command),
+                    "docs/proof-region.md",
+                    strict_transport=True,
+                )
+                self.assertTrue(
+                    any("dynamic transport is not auditable" in error for error in errors),
+                    errors,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_CROSS_LINE_ALIAS_DOCUMENTS:
+            with self.subTest(cross_line_alias_region=name):
+                errors = _mcp_client_smoke_command_errors(
+                    markdown,
+                    "docs/cross-line-alias.md",
+                    strict_transport=True,
+                )
+                self.assertTrue(
+                    any("dynamic transport is not auditable" in error for error in errors),
+                    errors,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS:
+            with self.subTest(followup_rejected_region=name):
+                errors = _mcp_client_smoke_command_errors(
+                    strict_transport_markdown(command),
+                    "docs/followup-rejected.md",
+                    strict_transport=True,
+                )
+                self.assertTrue(
+                    any("dynamic transport is not auditable" in error for error in errors),
+                    errors,
+                )
+        for name, markdown in STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_DOCUMENTS:
+            with self.subTest(followup_rejected_document=name):
+                errors = _mcp_client_smoke_command_errors(
+                    markdown,
+                    "docs/followup-rejected-document.md",
+                    strict_transport=True,
+                )
+                self.assertTrue(
+                    any("dynamic transport is not auditable" in error for error in errors),
+                    errors,
+                )
+        for name, command in STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS:
+            with self.subTest(followup_allowed_region=name):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(
+                        strict_transport_markdown(command),
+                        "docs/followup-allowed.md",
+                        strict_transport=True,
+                    ),
+                )
+        for name, markdown in STRICT_MCP_SMOKE_COMMENT_ALLOWED_DOCUMENTS:
+            with self.subTest(comment_allowed_document=name):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(
+                        markdown,
+                        "docs/comment-allowed.md",
+                        strict_transport=True,
+                    ),
+                )
+        for command in invalid_commands:
+            with self.subTest(invalid=command):
+                candidate = command if command.endswith("\\") else command + "\n"
+                self.assertTrue(
+                    _mcp_client_smoke_command_errors(
+                        candidate,
+                        "docs/example.md",
+                        strict_transport=True,
+                    )
+                )
+
+        valid_source = (
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--command python3 --command-arg /tmp/co/scripts/ai_dememory.py"
+        )
+        self.assertEqual(
+            [],
+            _mcp_client_smoke_command_errors(
+                valid_source + ' # mcp-"client-smoke"\n',
+                "docs/literal-with-comment.md",
+                require_python_source_launch=True,
+                strict_transport=True,
+            ),
+        )
+        windows_source = (
+            r"python3 scripts/ai_dememory.py --root C:\vault "
+            r"mcp-client-smoke --command python3 --command-arg "
+            r"C:\checkout\scripts\ai_dememory.py"
+        )
+        self.assertEqual(
+            [],
+            _mcp_client_smoke_command_errors(
+                windows_source + "\n",
+                "docs/literal-windows-source.md",
+                require_python_source_launch=True,
+                strict_transport=True,
+            ),
+        )
+        mixed_errors = _mcp_client_smoke_command_errors(
+            valid_source
+            + "\nai-dememory --root . mcp-client-smoke"
+            + "\nai-dememory --root /tmp/vault mcp-client-smoke --command $PYTHON\n",
+            "docs/mixed.md",
+            require_python_source_launch=True,
+        )
+        self.assertTrue(any("docs/mixed.md:2" in error for error in mixed_errors))
+        self.assertTrue(any("docs/mixed.md:3" in error for error in mixed_errors))
+        self.assertFalse(
+            any("requires at least one complete" in error for error in mixed_errors),
+            mixed_errors,
+        )
+        config_only_errors = _mcp_client_smoke_command_errors(
+            "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
+            "--config /tmp/mcp.json --command python3 "
+            "--command-arg /tmp/co/scripts/ai_dememory.py\n",
+            "docs/config-only.md",
+            require_python_source_launch=True,
+        )
+        self.assertTrue(
+            any("requires at least one complete" in error for error in config_only_errors),
+            config_only_errors,
+        )
+        for prose in (
+            "The mcp-client-smoke command is an optional local diagnostic.\n",
+            "- [ ] (Optional) mcp-client-smoke is a local diagnostic.\n",
+            "$PATH may be discussed next to mcp-client-smoke prose.\n",
+            "%PATH% may be discussed next to mcp-client-smoke prose.\n",
+            "!PATH! may be discussed next to mcp-client-smoke prose.\n",
+            "$PYTHON scripts/ai_dememory.py is mentioned as an example.\n",
+            "ai-dememory --root /tmp/vault doctor $PATH\n",
+            "python3 scripts/ai_dememory.py --root /tmp/vault doctor "
+            "$(printf ok)\n",
+            "X=1 ai-dememory --root /tmp/vault doctor $PATH\n",
+            "env X=1 ai-dememory --root /tmp/vault doctor $PATH\n",
+            "sudo env X=1 command ai-dememory --root /tmp/vault doctor $PATH\n",
+            "command -v ai-dememory\n",
+            "python3 -c \"print('ok')\" $PATH\n",
+            "python3 -m pytest tests/test_docs_site.py\n",
+            "$CLI --output $PATH\n",
+            "$CLI --command $PATH\n",
+            "$PYTHON -m pytest $TEST\n",
+            "env $CLI --output $PATH\n",
+            "env $CLI --root /tmp/vault $SUBCOMMAND --command python3\n",
+            "$CLI --root /tmp/vault $SUBCOMMAND --command $EVIL\n",
+            "python3 $SCRIPT --root /tmp/vault $SUBCOMMAND --command python3\n",
+            "ai-dememory --root $VAULT doctor\n",
+            "ai-dememory --root $VAULT doctor --command $PATH\n",
+            "Use `ai-dememory --root /tmp/vault mcp-client-smoke` after review.\n",
+            "**Optional:** mcp-client-smoke is a local diagnostic.\n",
+            "*Optional:* mcp-client-smoke is a local diagnostic.\n",
+            "[Optional](details.md) mcp-client-smoke is a local diagnostic.\n",
+            "`Optional:` mcp-client-smoke is a local diagnostic.\n",
+            unrelated_brace_output + "\n",
+            unrelated_group_output + "\n",
+            harmless_over_depth + "\n",
+        ):
+            with self.subTest(prose=prose):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(prose, "docs/prose.md"),
+                )
+
+        for text in STRICT_MCP_SMOKE_ALLOWED_TEXTS:
+            with self.subTest(strict_allow=text):
+                self.assertEqual(
+                    [],
+                    _mcp_client_smoke_command_errors(
+                        text + "\n",
+                        "docs/strict-allow.md",
+                        strict_transport=True,
+                    ),
+                )
+
+    def test_mcp_client_smoke_preserves_source_lines_across_markdown_and_html(self) -> None:
+        self.assertEqual(
+            [],
+            _mcp_client_smoke_command_errors(
+                "**intro**\nai-dememory --root /tmp/vault mcp-client-smoke\n",
+                "docs/intro.md",
+            ),
+        )
+
+        entity_after_comment = (
+            "<!--\nstandalone comment\n-->\n\n"
+            "ai&#45;dememory --root /tmp/vault mcp&#45;client&#45;smoke\n"
+        )
+        entity_errors = _mcp_client_smoke_command_errors(
+            entity_after_comment,
+            "docs/entity.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any("docs/entity.md:5:" in error for error in entity_errors),
+            entity_errors,
+        )
+        self.assertFalse(
+            any("docs/entity.md:3:" in error for error in entity_errors),
+            entity_errors,
+        )
+
+        split_comment_errors = _mcp_client_smoke_command_errors(
+            "ai-<!--\nsplit\n-->dememory --root /tmp/vault "
+            "mcp-client-<!--\nsplit\n-->smoke\n",
+            "docs/split-comment.md",
+            strict_transport=True,
+        )
+        self.assertTrue(split_comment_errors)
+
+    def test_stable_command_guard_leaves_strict_mcp_smoke_policy_to_owned_guards(
+        self,
+    ) -> None:
+        for name, command in LATEST_STRICT_MCP_SMOKE_POCS:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(
+                        command + "\n",
+                        "2.1.1",
+                        "docs/example.md",
+                        source_version="2.1.2",
+                    ),
+                )
+
+        for command in (
+            "$CLI --output $PATH",
+            "$CLI --command $PATH",
+            "$PYTHON -m pytest $TEST",
+            "ai-dememory --root $VAULT doctor --command $PATH",
+        ):
+            with self.subTest(relaxed_general_command=command):
+                self.assertEqual(
+                    [],
+                    _stable_command_errors(
+                        command + "\n",
+                        "2.1.1",
+                        "docs/example.md",
+                        source_version="2.1.2",
                     ),
                 )
 
