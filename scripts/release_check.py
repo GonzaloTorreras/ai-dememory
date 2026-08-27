@@ -496,7 +496,10 @@ def check_planning_contract(root: Path) -> ReleaseCheck:
     errors = validate_planning_contract(root)
     if errors:
         return fail("planning_contract", f"{len(errors)} issue(s): " + "; ".join(errors[:3]))
-    return ok("planning_contract", "schema, DAG, frontier, ledger, and evidence paths valid")
+    return ok(
+        "planning_contract",
+        "schema, DAG lifecycle, frontier, roadmap parity, ledger envelope, and typed evidence valid",
+    )
 
 
 def check_license(root: Path) -> ReleaseCheck:

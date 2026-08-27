@@ -30,7 +30,8 @@ local stdio server.
 | --- | --- | --- |
 | Lifecycle | Implemented | `initialize` negotiates `2025-11-25` or `2024-11-05`; `notifications/initialized` is accepted and exercised by client and runtime smoke. |
 | Ping | Implemented | `ping` returns an empty result for connection health checks. |
-| Tools | Implemented | 74 MCP tools expose schemas, annotations, structured output, and bounded writes. `ai-dememory mcp-inventory --check-docs` guards the documented inventory. |
+| Tools | Implemented | The explicit `admin` profile retains 74 MCP tools for compatibility. Server-enforced `public`, `core`, `working`, and `review` profiles expose smaller allowlists in both `tools/list` and `tools/call`; ordinary clients do not all pay the admin schema cost. `ai-dememory mcp-inventory --check-docs` guards documented tool names. |
+| Profile schema measurement | Implemented with a planning gap | `mcp-inventory --json` reports per-profile tool count, compact schema bytes, and estimated tokens. It does not yet make the human profile table or named growth budgets exact artifacts; `BRG-019` owns that gap. |
 | Resources | Implemented | Public/internal memory resources can be listed/read by id or path. |
 | Resource templates | Implemented | `memory://id/{id}` and `memory://path/{path}` are advertised. |
 | Prompts | Implemented | Recall, capture proposal, and inbox review prompts are listed/read. |
@@ -50,10 +51,10 @@ local stdio server.
 | Durable provenance over MCP | Implemented | MCP `memory.provenance_status` reports the same durable provenance audit without writing reports. |
 | Working memory over MCP | Implemented | MCP `memory.working_current`, `memory.working_status`, `memory.working_snapshot`, and `memory.working_handoff` inspect/read/write generated working state without mutating canonical memory. |
 | Manual acceptance evidence | Implemented | `ai-dememory acceptance` records reviewed proof for human-only release checks and can generate read-only plan reports and reviewer packets; `release-evidence` reports completed, blocked, remaining, readiness summary state, top-level next actions, setup health summary, maintenance summary, and release blockers. MCP exposes read-only status, verification, next-action planning, single-item evidence templates, packet rendering, distribution-checkout release evidence, and release evidence report rendering. |
-| Recall quality fixtures | Implemented | `eval-recall` checks curated search expectations before vector migration. |
-| Recall fixture promotion | Implemented | `ai-dememory recall-fixtures promote-miss` turns reviewed recall misses into curated fixtures with reviewer provenance, pass validation, and source-miss closure; `ai-dememory recall-fixtures check-miss` and MCP `memory.recall_miss_candidate` check current rank evidence before capture; `ai-dememory recall-fixtures review-miss` and MCP `memory.recall_miss_review` close rejected or dismissed misses without writing fixtures; `recall-fixtures status`, `recall-fixtures review-plan`, `recall-fixtures packet`, MCP `memory.recall_fixture_status`, MCP `memory.recall_review_plan`, and MCP `memory.recall_review_packet` report seed-only, stale, pending, invalid, bounded recent resolved weekly review state, and reviewer handoff guidance. |
-| Recall freshness release evidence | Implemented | `ai-dememory release-evidence` includes `recall_fixture_freshness`, `recall_fixture_review_plan`, and `vector_readiness`, and adds quality blockers when current recall eval is unavailable or failing, pending/invalid recall miss files exist, or measured recall failures make a vector experiment eligible for review. |
-| Vector readiness | Implemented | `ai-dememory vector status` and MCP `memory.vector_status` report whether measured recall failures justify a future vector experiment without enabling embeddings. |
+| Recall regression fixtures | Implemented | `eval-recall` checks curated passing search expectations. This protects solved behavior but is not a held-out corpus of unresolved misses. |
+| Recall fixture promotion | Implemented | `ai-dememory recall-fixtures promote-miss` records a reviewed miss as a regression fixture only when that fixture now passes; otherwise it rolls back. The remaining status/review/packet surfaces triage or close misses, but they do not preserve unresolved challenges in a separate evaluation corpus. |
+| Recall freshness release evidence | Implemented with a planning gap | `ai-dememory release-evidence` includes regression freshness, review planning, and current vector readiness. `RET-001` must separate passing regressions from held-out challenges and validate canonical targets before these signals can justify retrieval redesign. |
+| Vector readiness | Implemented as a descriptive legacy gate | `ai-dememory vector status` and MCP `memory.vector_status` enable no embeddings. Their current regression-set result is not authorization for an experiment; normative tasks `RET-001`, `GATE-B`, `GRF-001`, and `RET-002` own that decision sequence. |
 | Roadmap status | Implemented | `ai-dememory roadmap status` and MCP `memory.roadmap_status` report read-only v2 operational roadmap phase status, including implemented and gated phases. |
 | Release readiness planning | Implemented | `ai-dememory publish-plan` and MCP `memory.publish_plan` report local TestPyPI/PyPI readiness, legacy read-only-preflight inputs, inspection commands, canonical-release readiness blockers, and false publish side-effect flags without uploading packages. The package workflow does not consume private-vault readiness receipts. |
 | Runtime smoke | Implemented | PR-gated stdio smoke covers lifecycle negotiation, initialized notification, response-id matching, ping, paginated inventory/resources/prompts/graph, sensitive filters, recall misses, lifecycle feedback, first-run setup plans, setup health with validation status, context config status, manual acceptance readiness, recall review, vector readiness, roadmap status, generated artifact freshness, generated packet archive status, and maintenance preflight, provider import/status/setup plans, maintenance status with generated artifact freshness and generated packet archive cleanup status, installed and Docker scheduler plans, hook config, sleep consolidation, review workflows, advisory review recommendation capture/status/archive status/archive restore preview/outcome links/outcome status, and proposal boundaries. Owned process trees, frame queues and captured output are bounded. |
@@ -71,6 +72,7 @@ local stdio server.
 | Draft `2026-07-28` modern/stateless support | Defer | Future baseline; requires request metadata and compatibility design beyond local v2.0. |
 | MCP Registry publish | Defer | The v2 distribution path is PyPI/TestPyPI plus local Docker and plugin templates; registry publishing needs separate package metadata and moderation review. |
 | MCP Tasks extension | Defer | Current local operations finish synchronously or write review packets; task state would add new persistence and cancellation semantics. |
+| Exact profile/schema budgets | Plan under `BRG-019` | Generated measurements exist, but families, aliases, effects, profile exposure, byte/token budgets, and docs drift are not yet one exact checked artifact. No new tool or rename is needed to close this gap. |
 
 ## Deferred Work And Continuous Assurance
 
@@ -80,12 +82,14 @@ not unfinished requirements for the already released v2.0 baseline.
 1. Run one GUI MCP client manually with the generated config and record proof
    with `ai-dememory acceptance record`; automated `mcp-client-smoke` now
    verifies generated installed and Docker command/args/env launch behavior.
-2. Add weekly recall quality fixtures from real retrieval misses using
+2. Add weekly regression fixtures only after a reviewed miss has been fixed,
+   using
    `ai-dememory recall-fixtures status --strict --max-age-days 14`,
    `ai-dememory recall-fixtures review-plan`, `ai-dememory recall-fixtures
    packet --write-report`, and `ai-dememory recall-fixtures promote-miss`;
    close invalid reviewed misses with
-   `ai-dememory recall-fixtures review-miss`.
+   `ai-dememory recall-fixtures review-miss`. Do not describe unresolved misses
+   as promoted fixtures; `RET-001` owns their future held-out representation.
 3. Revisit the official SDK after v2.0 if client compatibility issues appear.
 4. Reassess MCP Registry publishing only after PyPI/TestPyPI installation and
    real-client local MCP acceptance are complete.

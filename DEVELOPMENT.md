@@ -62,15 +62,23 @@ The legal product implementation frontier remains batch `B04b`:
 1. `BRG-003`: explicit, deterministic vault/root resolution.
 2. `BRG-017`: strict configuration parsing and unknown-key diagnostics is
    complete; its evidence remains part of the current batch.
-3. After `BRG-003` completes, `BRG-019`: bridge inventories and exact-artifact tooling.
-4. Then `MIG-001`: generated canonical-writer inventory and freeze.
-5. Then `GATE-B`: compatibility evidence; no declaration without external
+3. After `BRG-003` completes, `BRG-019`: exact bridge/MCP capability,
+   side-effect, profile, and schema-budget inventories.
+4. Then `MIG-001`: complete writer, accepted-format, locking, and recovery
+   inventory and freeze.
+5. Then `RET-001`: separate passing regressions from reviewed held-out recall
+   challenges and validate their canonical targets.
+6. Then `GATE-B`: compatibility evidence; no declaration without external
    readback.
 
-Only after `GATE-B` may the future governed-learning sequence begin:
-`OBS-001`, `OUT-001`, `CON-001`, then `MEM-001`. Its technical handoff is
-`docs/governed-learning-loop-handoff.md`; adding that plan does not change the
-current frontier or authorize runtime work.
+Only after `GATE-B` may the future graph/retrieval branch begin with `GRF-001`,
+continue with shadow-only `RET-002`, and reach the separate production-design
+and explicit-approval gate `RET-003`. The independent governed-learning
+sequence may also begin: `OBS-001`, `OUT-001`, `CON-001`, then `MEM-001`. Its
+technical handoff is `docs/governed-learning-loop-handoff.md`; adding that plan
+does not change the current frontier or authorize runtime work. The audit
+disposition and precise quality/graph boundaries are in
+`docs/proposal-validation-handoff.md`, which is also non-executable.
 
 Do not add a new task when an existing ID covers the work. Update
 `contracts/planning/v3-execution-sequence.json` when dependencies, status, or

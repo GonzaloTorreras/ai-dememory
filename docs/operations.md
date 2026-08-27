@@ -154,7 +154,9 @@ The response intentionally separates `core_ready`, `retrieval_evaluated`,
 `manual_maintenance_ready`, `automation_ready`, `maintenance_ready`,
 `integrations_ready`, `autonomy_ready`, and `release_ready`. A seed-only
 fixture set is not retrieval evidence: `retrieval_evaluated` requires at least
-one valid, fresh reviewed promotion. Manual maintenance readiness does not imply
+one valid, fresh reviewed promotion. That field confirms passing regression
+coverage, not representation of unresolved held-out misses. Manual maintenance
+readiness does not imply
 automation readiness: the latter requires a valid, fresh, host-verified
 scheduler receipt. The deprecated `ready` field is scoped to `core_ready` and is
 retained only for compatibility.
@@ -246,7 +248,9 @@ context exports are disposable.
    packet-archive-retention-plan --json` to preview cleanup candidates without
    deleting files.
 7. Promote reviewed recall misses with `ai-dememory recall-fixtures
-   promote-miss --miss <path> --reviewed-by <name>`.
+   promote-miss --miss <path> --reviewed-by <name>` only after the case passes
+   against the current index. An unresolved reviewed miss remains pending;
+   future `RET-001` owns its held-out representation.
 8. Reject or dismiss invalid misses with `ai-dememory recall-fixtures
    review-miss --miss <path> --status rejected --reviewed-by <name> --reason
    <reason>`.
@@ -399,8 +403,9 @@ reports whether it exists without reading provider files.
 2. Check low-confidence or stale memories from the consolidation dry-run report.
 3. Review retrieval misses from usage notes, `retrieval_log`, or
    `inbox/recall-feedback/`.
-4. Decide whether FTS recall is good enough; do not add vector search until
-   measured misses justify it.
+4. Treat `vector status` as descriptive only. It does not authorize vector work
+   from the current passing regression set. The normative evaluation sequence
+   is `RET-001` -> `GATE-B` -> `GRF-001` -> `RET-002`.
 
 ## Maintainer: Source Checkout Release Validation
 
@@ -458,8 +463,9 @@ candidates without deleting files.
 It also includes `release_blockers`, which is the machine-readable list of
 dirty worktree, automated check, recall fixture, vector readiness, and manual
 acceptance issues that currently prevent `release_ready`. The embedded
-`vector_readiness` object reuses the measured recall gate, remains read-only,
-and reports `creates_embeddings=false`.
+`vector_readiness` object reuses the current regression-based signal, remains
+read-only, reports `creates_embeddings=false`, and does not authorize vector
+work or advance the normative retrieval sequence.
 The embedded `setup_health_summary` mirrors the passive setup-health surface in
 a compact form so the same handoff shows scheduler readiness, hook capture
 review due counts, provider import readiness, recall review, vector readiness,

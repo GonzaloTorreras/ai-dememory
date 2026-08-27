@@ -30,10 +30,34 @@
       "tasks": ["MIG-001"]
     },
     {
+      "id": "B05b",
+      "title": "Truth-preserving recall evaluation",
+      "depends_on": ["B05a"],
+      "tasks": ["RET-001"]
+    },
+    {
       "id": "B06",
       "title": "Compatibility gate",
-      "depends_on": ["B05a"],
+      "depends_on": ["B05b"],
       "tasks": ["GATE-B"]
+    },
+    {
+      "id": "B06a",
+      "title": "Versioned graph projection contract",
+      "depends_on": ["B06"],
+      "tasks": ["GRF-001"]
+    },
+    {
+      "id": "B06b",
+      "title": "Bounded retrieval experiments",
+      "depends_on": ["B06a"],
+      "tasks": ["RET-002"]
+    },
+    {
+      "id": "B06c",
+      "title": "Production retrieval design gate",
+      "depends_on": ["B06b"],
+      "tasks": ["RET-003"]
     },
     {
       "id": "B07a",
@@ -83,7 +107,7 @@
     {
       "id": "BRG-019",
       "batch": "B04c",
-      "title": "Generate bridge inventories and exact-artifact checks",
+      "title": "Generate bridge and MCP capability-budget inventories",
       "status": "pending",
       "depends_on": ["BRG-003", "BRG-017"],
       "evidence": [],
@@ -171,9 +195,18 @@
     {
       "id": "MIG-001",
       "batch": "B05a",
-      "title": "Freeze and generate the canonical writer inventory",
+      "title": "Freeze writer, accepted-format, and recovery inventories",
       "status": "pending",
       "depends_on": ["BRG-003", "BRG-017", "BRG-019"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "RET-001",
+      "batch": "B05b",
+      "title": "Make recall evaluation truth-preserving and held-out",
+      "status": "pending",
+      "depends_on": ["MIG-001"],
       "evidence": [],
       "external_readback_required": false
     },
@@ -182,9 +215,78 @@
       "batch": "B06",
       "title": "Demonstrate V2 compatibility before migration",
       "status": "blocked",
-      "depends_on": ["MIG-001"],
+      "depends_on": ["MIG-001", "RET-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "gate-b-authenticated-provider-v1",
+        "kind": "authenticated_provider_v1",
+        "minimum_sessions": 1,
+        "fixture_required": false,
+        "required_detail_names": ["provider_readback"]
+      }
+    },
+    {
+      "id": "GRF-001",
+      "batch": "B06a",
+      "title": "Version the collision-safe graph projection contract",
+      "status": "future",
+      "depends_on": ["GATE-B"],
+      "evidence": [],
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "grf-001-local-mcp-graph-v1",
+        "kind": "local_mcp_graph_v1",
+        "minimum_sessions": 2,
+        "fixture_required": true,
+        "required_detail_names": [
+          "fixture_manifest",
+          "mcp_lifecycle_contract",
+          "schema_validation"
+        ]
+      }
+    },
+    {
+      "id": "RET-002",
+      "batch": "B06b",
+      "title": "Compare bounded retrieval candidates in shadow mode",
+      "status": "future",
+      "depends_on": ["GRF-001"],
+      "evidence": [],
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "ret-002-retrieval-shadow-v1",
+        "kind": "retrieval_shadow_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "external_shadow_readback",
+          "independent_review",
+          "retrieval_benchmark_result"
+        ]
+      }
+    },
+    {
+      "id": "RET-003",
+      "batch": "B06c",
+      "title": "Design and gate any production retrieval change",
+      "status": "future",
+      "depends_on": ["RET-002"],
+      "evidence": [],
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "ret-003-production-retrieval-v1",
+        "kind": "production_retrieval_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "explicit_production_approval",
+          "external_readback",
+          "independent_review",
+          "production_design",
+          "rollback_plan"
+        ]
+      }
     },
     {
       "id": "OBS-001",
@@ -193,7 +295,18 @@
       "status": "future",
       "depends_on": ["GATE-B"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "obs-001-provider-observation-shadow-v1",
+        "kind": "provider_observation_shadow_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "external_readback",
+          "observation_shadow_report",
+          "privacy_review"
+        ]
+      }
     },
     {
       "id": "OUT-001",
@@ -202,7 +315,18 @@
       "status": "future",
       "depends_on": ["OBS-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "out-001-explicit-outcome-attribution-v1",
+        "kind": "explicit_outcome_attribution_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "ambiguity_report",
+          "external_readback",
+          "outcome_attribution_report"
+        ]
+      }
     },
     {
       "id": "CON-001",
@@ -220,7 +344,18 @@
       "status": "future",
       "depends_on": ["CON-001"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "mem-001-reviewed-memory-form-v1",
+        "kind": "reviewed_memory_form_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "external_readback",
+          "independent_review",
+          "memory_form_report"
+        ]
+      }
     },
     {
       "id": "ONB-001",
@@ -229,7 +364,17 @@
       "status": "future",
       "depends_on": ["GATE-B"],
       "evidence": [],
-      "external_readback_required": true
+      "external_readback_required": true,
+      "external_readback_contract": {
+        "contract_id": "onb-001-guided-onboarding-v1",
+        "kind": "guided_onboarding_v1",
+        "minimum_sessions": 1,
+        "fixture_required": true,
+        "required_detail_names": [
+          "external_readback",
+          "onboarding_acceptance"
+        ]
+      }
     }
   ]
 }

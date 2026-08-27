@@ -70,23 +70,205 @@ Reject or defer:
 The machine-readable order is
 `contracts/planning/v3-execution-sequence.json`. Current public tasks are:
 
-| Task | Purpose | Batch | State |
-| --- | --- | --- | --- |
-| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | complete; stable verified |
-| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | current frontier |
-| `BRG-017` | Strict config parsing and diagnostics | `B04b` | complete |
-| `BRG-019` | Bridge inventories and exact-artifact tooling | `B04c` | pending |
-| `MIG-001` | Freeze and generate the canonical writer inventory | `B05a` | pending |
-| `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | blocked on evidence |
-| `OBS-001` | Bounded provider-neutral observation shadow | `B07a` | future; after `GATE-B` |
-| `OUT-001` | Exact outcome attribution without exposure rewards | `B07b` | future; after `OBS-001` |
-| `CON-001` | Deterministic governed candidate materialization | `B08a` | future; after `OUT-001` |
-| `MEM-001` | Reviewed semantic and advisory procedural forms | `B08b` | future; after `CON-001` |
-| `ONB-001` | V3 guided onboarding experience | `B20` | future; not BRG-014 |
+<!-- BEGIN NORMATIVE TASK STATE TABLE -->
+
+| Task ID | Objective | Batch | State | Notes |
+| --- | --- | --- | --- | --- |
+| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | `complete` | Stable verified baseline. |
+| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | `in_progress` | Sole current frontier. |
+| `BRG-017` | Strict config parsing and diagnostics | `B04b` | `complete` | Completed within the current batch. |
+| `BRG-019` | Bridge/MCP capability, effect, profile, and schema-budget inventories | `B04c` | `pending` | Starts after `BRG-003`. |
+| `MIG-001` | Freeze writer, accepted-format, locking, and recovery inventories | `B05a` | `pending` | Starts after `BRG-019`. |
+| `RET-001` | Truth-preserving regression and held-out recall evaluation | `B05b` | `pending` | Starts after `MIG-001`. |
+| `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | `blocked` | Requires external evidence. |
+| `GRF-001` | Version a collision-safe graph projection contract | `B06a` | `future` | Starts after `GATE-B`. |
+| `RET-002` | Compare bounded retrieval candidates in shadow mode | `B06b` | `future` | Starts after `GRF-001`. |
+| `RET-003` | Design and gate any production retrieval change | `B06c` | `future` | Starts only after a passing, reviewed `RET-002`. |
+| `OBS-001` | Bounded provider-neutral observation shadow | `B07a` | `future` | Starts after `GATE-B`. |
+| `OUT-001` | Exact outcome attribution without exposure rewards | `B07b` | `future` | Starts after `OBS-001`. |
+| `CON-001` | Deterministic governed candidate materialization | `B08a` | `future` | Starts after `OUT-001`. |
+| `MEM-001` | Reviewed semantic and advisory procedural forms | `B08b` | `future` | Starts after `CON-001`. |
+| `ONB-001` | V3 guided onboarding experience | `B20` | `future` | Distinct from `BRG-014`; starts after `GATE-B`. |
+
+<!-- END NORMATIVE TASK STATE TABLE -->
+
+Current frontier: `BRG-003`.
 
 No task may be marked complete from documentation alone. Evidence paths must
-refer to current public commits and reproducible tests; external gates remain
-blocked until authenticated providers return exact readback.
+refer to current public commits and reproducible tests. `GATE-B` is the generic
+authenticated-provider compatibility gate and remains blocked until its
+selected provider returns exact readback. A task-specific local MCP
+consumer receipt, such as the one required by `GRF-001`, is separate evidence
+and cannot complete or retroactively replace `GATE-B`.
+
+Every externally gated task declares a versioned `external_readback_contract`
+in the execution-sequence JSON. A receipt must match that task's exact contract
+id, kind, minimum number of distinct per-session records, fixture requirement,
+and complete set of required named detail artifacts; a valid receipt for a
+different task or readback class cannot be substituted. A scalar count or one
+aggregate hash cannot stand in for multiple required sessions.
+
+The planning validator proves receipt structure, task-local artifact
+containment, and byte/hash consistency only. Receipts remain owner-attested and
+do not cryptographically authenticate an external provider or reviewer.
+Independent review and the real external readback are still required, and each
+owning task must add any task-specific payload schema or threshold verifier it
+needs before completion.
+
+### Acceptance boundaries added by proposal validation
+
+The [proposal validation handoff](proposal-validation-handoff.md) records the
+evidence and rationale behind these refinements. It is explanatory and cannot
+add or alter acceptance. This roadmap is authoritative for the detailed
+acceptance boundaries below; the JSON contract is authoritative for task and
+batch identity, state, dependencies, frontier, and evidence paths.
+
+- `BRG-019` must generate exact inventories for provider events, aliases,
+  fingerprints, writers and side effects, plus MCP tool families, compatibility
+  aliases, deprecation state, profile exposure, tool counts, schema bytes,
+  estimated tokens, and named budgets. Drift must fail an exact-artifact check.
+  The inventory must also flag every read-only capability exposed only through
+  a writer-bearing profile and record the exact allowlist or narrower profile
+  decision required before a downstream consumer may use it. This task does not
+  add an event ledger, learning loop, or MCP tool.
+- `MIG-001` must cover every canonical, proposal, receipt, archive, report, and
+  generated-index writer; each accepted frontmatter/input format; deduplication
+  and queue limits; lock/fencing ownership; temporary paths; crash recovery;
+  retention; and secret scanning. In particular, index rebuilds need a bounded
+  shared writer boundary and unique per-attempt temporary files before their
+  concurrency can be claimed safe.
+- `RET-001` must separate passing regression fixtures from reviewed unresolved
+  challenges, verify that every expected id/path exists, prevent train/test
+  leakage, and let failures remain represented without weakening release
+  regression checks. Spanish/Unicode cases must expose the current
+  ASCII-tokenization baseline rather than disappearing from it. No
+  `retrieval-benchmark-v1` schema or artifact is frozen by this planning change:
+  `RET-001` must implement, version, test, and freeze it before `GATE-B`, without
+  changing ranking or runtime dependencies.
+- The future `retrieval-benchmark-v1` contract must declare
+  `contract_name=retrieval-benchmark` and `schema_version=1`. Its canonical JSON
+  encoding is UTF-8 without BOM or trailing LF, with object keys sorted by
+  Unicode code point, no insignificant whitespace (`","` and `":"`
+  separators), `ensure_ascii=false`, duplicate keys and non-finite numbers
+  rejected, and strings preserved without Unicode normalization. Expected ids
+  are unique and sorted by Unicode code point. The case-id payload is exactly
+  `expected_ids`, `provenance_id`, `query`, and `scope`; it excludes `case_id`
+  and mutable review timestamps. `case_id` is `ret_` plus the first 20 lowercase
+  hexadecimal characters of the payload SHA-256.
+- A held-out full-case record is exactly the canonical object with keys
+  `case_id`, `corpus_role` (the literal `held_out`), `expected_ids`,
+  `provenance_id`, `query`, `schema_version` (integer `1`), and `scope`. The
+  corpus bytes are one canonical JSON array of those records sorted by
+  `case_id`, with no BOM or trailing LF; `corpus_sha256` is the lowercase SHA-256
+  of those exact bytes. A report also records `source_commit` as the full 40-hex
+  commit and `source_artifact_sha256` as the lowercase raw-byte SHA-256 of the
+  executed source/package artifact, plus
+  `configuration_sha256`: the same canonical-byte digest over one schema-checked,
+  fully materialized benchmark object containing control settings, candidate
+  settings, hydration, policy, scope, lifecycle, sensitivity, profile, and
+  harness settings. Both arms reference this one object; unknown, missing,
+  path-dependent, or secret-bearing fields invalidate the run.
+- Every candidate attempt is paired with an FTS control for the same case,
+  reviewed expected ids, corpus, source artifact, host, effective configuration,
+  and final hydration path. Case `Recall@10` is the fraction of expected ids in
+  the first ten final hydrated ids; macro `Recall@10` is its unweighted case
+  mean. `MRR@10` is the unweighted case mean reciprocal rank of the first
+  expected id in those ten, or zero when absent. The excluded warm-up runs the
+  full corpus once with FTS first and once with the candidate second. It is
+  followed by five measured paired repetitions; zero-based even repetitions run
+  FTS then candidate and odd repetitions reverse the order. Failed attempts
+  score zero for both quality metrics and count as errors.
+- The 95% interval is a deterministic paired percentile bootstrap over each
+  case's mean candidate-minus-FTS `Recall@10` delta. It uses seed `20260827`,
+  exactly 10,000 replicate indices `0..9999`, and exactly `N` draw indices
+  `0..N-1` per replicate for `N` cases sorted by `case_id`. Each sampled index is
+  `uint64_be(SHA-256(UTF8(decimal(seed) + ":" + decimal(replicate) + ":" +
+  decimal(draw)))[0:8]) mod N`; decimal values have no sign, leading zero,
+  whitespace, BOM, or newline. Sort the 10,000 replicate means and use the
+  one-based nearest-rank observations `ceil(0.025 * 10000)` and
+  `ceil(0.975 * 10000)` as endpoints.
+- The benchmark report must additionally record nearest-rank p50/p95
+  end-to-end latency, process-tree RSS sampled every 50 ms plus attempt-boundary
+  samples, peak RSS, environment and dependency/model identity, errors, lock
+  failures, index bytes, rebuild duration, and policy, provenance, and
+  sensitive-data violations. Any missing field, digest/case mismatch, leaked
+  child process, or non-reproducible replay invalidates the result.
+- `GRF-001` must fail closed on normalized-node collisions, add
+  `schema_version`, state `reference_scope=within_page` and
+  `reference_detection=body_mention_v1`, provide strict graph output schemas,
+  and test reference, collision, and page-closure semantics. Reference parsing
+  must share the canonical memory-id grammar instead of a narrower `mem_`
+  pattern, including exact cases for ids ending in `-` or `/`, ids without that
+  prefix, and truncation collisions. It must also prove
+  two-run readback from a fresh out-of-process local MCP consumer selected from
+  the `BRG-019` supported-client inventory against one deterministic public
+  fixture vault and package artifact; this local consumer receipt is not the
+  authenticated-provider evidence owned by `GATE-B`. No client/version is
+  selected before `BRG-019` freezes the inventory.
+- The secret-scanned `GRF-001` receipt records selected client name/version and
+  lowercase raw-byte client-artifact SHA-256; selected server profile and
+  effective allowlist (the profile must expose `memory.graph`, currently a
+  review-class surface, but the consumer must not receive the profile's writer
+  capabilities); package source commit and lowercase raw-byte artifact
+  SHA-256; OS, Python, and MCP protocol; lowercase raw-byte SHA-256 of the
+  graph/output-schema artifact; and a fixture-vault digest. The
+  fixture digest is the lowercase SHA-256 of canonical JSON bytes for an array
+  sorted by POSIX relative path, with one object per admitted fixture file:
+  `path`, raw-byte `sha256`, and byte `size`. Generated, ignored, or unadmitted
+  files make the receipt invalid rather than silently changing the manifest.
+- Each of the two fresh sessions records the full ordered MCP lifecycle:
+  `initialize` request/response, `notifications/initialized`, `tools/list`
+  request/response, `tools/call` for `memory.graph` including exact parameters
+  and response, then normal EOF and zero exit. The parsed lifecycle artifact is
+  one canonical JSON array whose entries have exactly `ordinal` (zero-based),
+  `direction` (`client_to_server`, `server_to_client`, or `control`), and
+  `message`; fixed request ids are part of `message`, while EOF and exit are
+  separate control messages. The receipt records returned schema version,
+  reference scope/detection, and schema-validation result.
+- Lifecycle redaction is replacement-only. Under `redaction_version=1`, a
+  schema-bounded allowlist of RFC 6901 JSON pointers is sorted by Unicode code
+  point; each present value is replaced with the exact JSON string
+  `"<redacted:v1>"`, and missing, extra, removed, or wildcarded fields invalidate
+  the run. The redaction manifest is a canonical JSON array of exact
+  `pointer`/`reason` objects sorted by pointer. `lifecycle_sha256` is the
+  lowercase SHA-256 of the post-replacement canonical lifecycle-array bytes.
+  The graph result hash is separately calculated over parsed result JSON
+  re-encoded with the same canonical JSON byte rules. The public fixture graph
+  result itself must need no redaction, otherwise the run is invalid. Both
+  sessions must reproduce the contract fields, fixture/schema/artifact
+  identities, redaction manifest, sanitized lifecycle hash, and result hash. An
+  in-process import or direct function call does not count. The task changes a
+  disposable inspection projection only and does not authorize graph-aware
+  recall.
+- `RET-002` may compare FTS, a shared deterministic Unicode
+  normalization/tokenization candidate, fuzzy/query variants, bounded one-hop
+  graph candidates, and an optional local multilingual vector candidate only in
+  opt-in shadow reports. Under `retrieval-benchmark-v1`, a candidate must use at
+  least 100 reviewed held-out cases and improve macro `Recall@10` after final
+  hydration by at least `0.05`, with the lower 95% paired-bootstrap bound above
+  zero. Its p95 latency must be at most 120% of FTS, peak process-tree RSS at
+  most 125% of FTS, and error-or-lock-failure rate at most 1%; `MRR@10` may
+  fall by no more than `0.01`, and policy, provenance, and sensitive-data
+  violations must all be zero. Out-of-process consumer readback of the shadow
+  result is still required. These are v1 experiment gates, not runtime defaults.
+  Any invalid run or failed threshold rejects the generated shadow candidate and
+  leaves production FTS unchanged. A passing run permits only a reviewed
+  production-design proposal under `RET-003`; `RET-002` cannot package, enable,
+  promote, or change default ranking.
+- `RET-003` is the sole future owner of any production retrieval design,
+  implementation, package/dependency change, enablement, promotion, or default
+  ranking change. It may start only after `RET-002` is complete with one valid,
+  passing, independently reviewed benchmark and readback receipt. Its acceptance
+  must select the smallest justified candidate; bind privacy, provenance,
+  lifecycle, resource, license, platform, install/upgrade/uninstall, generated
+  artifact, fallback, and rollback contracts; preserve deterministic FTS as a
+  tested fail-safe; prove external readback; and require a separate explicit
+  production approval. A passing `RET-002` is evidence for this design review,
+  never production authorization by itself.
+- `CON-001` must report review pressure as well as candidate quality: oldest
+  pending age, admitted and resolved counts per bounded window, queue growth,
+  and candidates discarded by the admission cap. A one-candidate-per-run cap
+  is a safety bound, not evidence that reviewer load is improving.
 
 ## Delivery Phases
 
@@ -102,13 +284,20 @@ blocked until authenticated providers return exact readback.
 
 - Complete the remaining `BRG-003` frontier first, then `BRG-019` and
   `MIG-001`, as small PRs. Preserve the completed `BRG-017` strict-config
-  boundary while those integrations are inventoried.
-- Generate CLI, MCP, and canonical-writer inventories.
+  boundary while those integrations are inventoried. Repair the recall evidence
+  contract under `RET-001` before attempting `GATE-B`.
+- Generate CLI, bridge, MCP profile/schema-budget, accepted-format, and complete
+  writer inventories.
 - Add exact-artifact, concurrent binding, crash recovery, and config strictness
   coverage without importing archive runtime wholesale.
 
 ### Phase 2: Measured retrieval and maintenance
 
+- After `GATE-B`, stabilize the graph as a versioned disposable projection in
+  `GRF-001`; only then may `RET-002` compare retrieval candidates in shadow
+  mode. A passing comparison may open `RET-003` for production design, but does
+  not itself change the package or default ranking. This is an independent
+  branch from governed learning and does not block `OBS-001`.
 - Treat the
   [governed learning loop handoff](governed-learning-loop-handoff.md) as the
   approved design for `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001`. These
@@ -125,8 +314,9 @@ blocked until authenticated providers return exact readback.
   not create acceptance evidence or executable work. Keep query-time synthesis
   read-only and durable consolidation proposal-first.
 - Add incremental checkpoints, no-op maintenance, and stale-lock fencing.
-- Keep FTS baseline until a held-out corpus proves a vector experiment improves
-  recall enough to justify its cost and migration burden.
+- Keep FTS as the production baseline through `RET-002`. Only `RET-003`, after a
+  valid comparison and separate approval, may own a production change justified
+  against latency, memory, privacy, and migration burden.
 - Do not add model-assisted synthesis to the executable DAG until a reviewed
   replay proves deterministic consolidation has a material gap.
 

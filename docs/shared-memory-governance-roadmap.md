@@ -10,6 +10,10 @@ specializes the local observation, outcome-attribution, and review-first
 consolidation slice. It remains subordinate to the same normative planning
 contract and does not activate P3 or any runtime writer.
 
+The [proposal validation handoff](proposal-validation-handoff.md) corrects the
+recall-corpus, graph-contract, writer-concurrency, and MCP-budget assumptions
+that affect P1, P4, and P6. It is likewise non-executable.
+
 The goal is to move from a reviewed personal vault to governed shared memory
 that can be used safely by multiple LLM tools, agents, projects, and review
 workflows.
@@ -180,9 +184,13 @@ Tasks:
    - Add MCP read-only status once the CLI output is stable.
 
 5. Seed realistic fixtures.
-   - Convert current seed recall fixtures into simple shared-memory fixtures.
+   - Keep passing regression fixtures separate from reviewed unresolved
+     challenges; `RET-001` owns that simple-recall evidence boundary.
+   - Convert appropriate reviewed cases into shared-memory scenarios without
+     erasing their regression/challenge role.
    - Add at least one fixture for each failure category.
-   - Add reviewed promotions from real misses before making the gate strict.
+   - Freeze corpus hashes and prevent train/test leakage before making a gate
+     strict.
 
 Exit criteria:
 
@@ -291,6 +299,9 @@ Exit criteria:
 Outcome: graph and optional vector retrieval can be tested without replacing
 the FTS baseline or weakening privacy.
 
+Normative ownership is `RET-001` before `GATE-B`, then `GRF-001` followed by
+`RET-002`. P4 does not authorize implementation or alter that order.
+
 Tasks:
 
 1. Preserve FTS as the baseline.
@@ -299,14 +310,16 @@ Tasks:
    - Report whether improvements are due to policy, graph, vector, or better
      fixtures.
 
-2. Add graph-aware retrieval candidates.
+2. Research graph-aware retrieval candidates.
    - Use generated graph edges for project, actor, tag, alias, supersession,
      source, and trust relationships.
-   - Keep graph edges derived from Markdown/index data.
+   - First require `GRF-001` collision, schema-version, and page-closure
+     contracts; keep graph edges derived from Markdown/index data.
    - Add explainable graph ranking components.
 
 3. Define vector experiment criteria.
-   - Require reviewed recall failures.
+   - Require at least 100 reviewed held-out recall cases under `RET-002`, after
+     `RET-001` separates them from passing regressions.
    - Require a privacy model for embedding provider, model, retention, and
      local/remote execution.
    - Require rollback and index rebuild instructions.
@@ -321,6 +334,8 @@ Tasks:
    - Hybrid retrieval must not increase sensitive leakage.
    - Hybrid retrieval must not reduce required recall on existing fixtures.
    - Hybrid retrieval must not hide provenance.
+   - Require at least a five-point held-out gain plus acceptable p95 and RSS
+     before proposing any production dependency or ranking change.
 
 Exit criteria:
 
@@ -380,7 +395,7 @@ without exposing unsafe write or broad-read capabilities by default.
 
 Tasks:
 
-1. Add read-only MCP tools first.
+1. Consider read-only MCP tools only after a normative owner exists.
    - `memory.policy_check`: explain whether an actor/action can read or write a
      target memory.
    - `memory.shared_eval_status`: summarize shared-memory fixture status.
@@ -393,6 +408,10 @@ Tasks:
    - `memory.quarantine_review`: record reviewed quarantine outcomes.
    - `memory.trace_review`: record reviewed trace retention or dismissal
      outcomes.
+
+The names above are research sketches, not reserved APIs. `BRG-019` must first
+inventory existing families, aliases, effects, profiles, and schema budgets.
+No P6 label authorizes a new tool, rename, or mega-tool consolidation.
 
 3. Update plugin allowlists.
    - Keep broad mutation tools server-only by default.
@@ -431,6 +450,12 @@ The durable research constraints are that policy and evaluation precede
 retrieval optimization, quarantine precedes broader untrusted imports, and CLI
 contracts stabilize before new MCP or plugin projections. These constraints do
 not place any `P*` label on the live frontier by themselves.
+
+The current task mapping is: simple truth-preserving recall evidence under
+`RET-001`; versioned graph projection under `GRF-001`; bounded retrieval
+comparison under `RET-002`; and existing MCP capability/schema budgets under
+`BRG-019`. Writer formats, deduplication, queue caps, and index fencing belong to
+`MIG-001`. Any broader P0-P6 capability still needs a later normative owner.
 
 The historical super-search and retrieval-review direction is described in
 `../PLAN.md` R7. Any implementation must first appear on the normative planning

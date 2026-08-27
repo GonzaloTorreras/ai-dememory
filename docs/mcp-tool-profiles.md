@@ -18,11 +18,13 @@ Profiles are additive:
 | `core` | 4 | 3,904 | 976 | Private-vault recall, bounded context, and basic health. |
 | `working` | 11 | 9,062 | 2,266 | `core` plus snapshots, handoffs, retrieval telemetry, misses, and usefulness feedback. |
 | `review` | 44 | 49,798 | 12,450 | `working` plus graph and review-first proposal, provenance, hook, import, conflict, and recommendation workflows. |
-| `admin` | 74 | 81,084 | 20,271 | Explicit unfiltered server surface, including maintenance, imports, indexing, release, and acceptance tooling. |
+| `admin` | 74 | 81,234 | 20,309 | Explicit unfiltered server surface, including maintenance, imports, indexing, release, and acceptance tooling. |
 
-These measurements come from the current 2.1.1 definitions and are guarded by
-the reproducible inventory command below. Rerun the command before claiming the
-same numbers for a later release revision.
+These measurements are a snapshot of the current source definitions, not the
+immutable 2.1.1 artifact. They are reproducible with the inventory commands
+below. The current docs guard validates profile/tool consistency and the public
+plugin allowlist, but does not enforce the numeric table. `BRG-019` owns a
+generated profile-budget contract and exact numeric documentation-drift check.
 
 `admin` intentionally omits `enabled_tools` from generated Codex TOML. It is
 still passed to the server explicitly as the backwards-compatible escape hatch.
@@ -52,7 +54,8 @@ The reported `schema_bytes` is compact UTF-8 JSON for the selected MCP tool
 definitions. `estimated_schema_tokens` is a transparent bytes/4 estimate, not
 a tokenizer-specific promise. Inventory and release guards fail if a named
 profile references a tool the server no longer exposes or if the public plugin
-allowlist drifts from `public`.
+allowlist drifts from `public`. They do not yet fail when the hand-maintained
+byte/token values above drift; that enforcement remains `BRG-019` work.
 
 The profile definitions live in `ai_dememory_tool/mcp_profiles.py`. The server
 enforces them by filtering `tools/list`, rejecting out-of-profile `tools/call`,

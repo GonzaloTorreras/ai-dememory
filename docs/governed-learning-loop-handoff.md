@@ -113,7 +113,9 @@ generic adapter. Each provider event records:
 - allowed input aliases and fields that must be dropped;
 - available correlation identifiers and their sensitivity;
 - output shape, timeout/reliability limitations, and fail-open behavior;
-- side effects, writer class, fingerprint semantics, and retention class.
+- side effects, writer class, fingerprint semantics, and retention class;
+- read-only capabilities trapped in writer-bearing MCP profiles, plus the exact
+  allowlist or narrower-profile decision required before consumer use.
 
 The inventory must be checked against the official
 [Codex hooks](https://developers.openai.com/codex/hooks) and
@@ -210,6 +212,11 @@ A proposal-only candidate contains:
 Legacy explicit Stop signals map to `knowledge_kind: unknown`; their form is
 not inferred from transcript text. Candidate generation is capped at one new
 candidate per maintenance run initially.
+
+`CON-001` must expose whether that cap actually controls reviewer load: oldest
+pending age, admitted and resolved counts per bounded reporting window, net
+queue growth, and candidates discarded by the cap. A bounded writer is safer,
+but does not by itself prove that review debt is shrinking.
 
 `origin_trace_id` refers to a new opaque id assigned by the observation
 contract. It must not reuse the current turn-context fingerprint, which derives
@@ -366,7 +373,8 @@ Contract and privacy coverage must prove:
 - only an authorized, evidence-bound, replay-safe explicit credit updates the
   intended memory; host self-reports and ambiguous issuers remain neutral;
 - deterministic candidate round trips, legacy compatibility, evidence
-  preservation and expiry, bounded queues, and zero canonical writes;
+  preservation and expiry, bounded queues, oldest-pending age, bounded-window
+  admission/resolution rates, cap discards, and zero canonical writes;
 - logical reset and privacy behavior for SQLite, WAL/SHM, rebuild temporaries,
   backups, and diagnostics without claiming secure erasure;
 - p50/p95 latency, peak RSS, SQLite growth, lock errors, and owned-process

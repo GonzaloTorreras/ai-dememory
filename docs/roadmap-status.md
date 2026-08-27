@@ -35,9 +35,10 @@ Output includes:
 - next actions
 
 The vector-search phase is intentionally reported as `gated` when its evidence
-exists. That means the measured vector gate is implemented, not that embeddings
-are enabled. Embeddings remain disabled until reviewed recall failures justify a
-separate experiment.
+exists. That means the descriptive v2 status calculation is implemented, not
+that embeddings are enabled or vector work is authorized. Its current input is
+a passing regression set: only solved misses can be promoted, while unresolved
+reviewed misses have no held-out representation yet.
 
 The normative future order is
 `docs/v3-hybrid-visual-multiplatform-roadmap.md` plus
@@ -46,6 +47,12 @@ The normative future order is
 but are non-executable appendices and cannot advance a task or gate. They remain
 separate because `ai-dememory roadmap status` reports current v2 implementation
 evidence, not future work.
+
+The normative future retrieval sequence is `RET-001` -> `GATE-B` -> `GRF-001`
+-> shadow-only `RET-002` -> production-design gate `RET-003`. `RET-001` must
+first separate passing regressions from reviewed held-out challenges;
+`RET-002` may only compare bounded retrieval candidates after the compatibility
+and graph-contract gates, and cannot authorize production ranking changes.
 
 The command does not replace release gates. `release-check`,
 `release-evidence`, manual acceptance, recall fixture freshness, and CI remain
