@@ -95,6 +95,11 @@ The following properties must hold:
   in-process handoff/cleanup and requires an external supervisor.
   Generated MCP configurations retain a bounded idle lease unless a user
   deliberately opts into a supervised persistent server.
+  Interactive MCP client smoke has one 30-second total deadline, a
+  1,048,576-character response-line ceiling, a 4,194,304-character cumulative
+  output ceiling, a 65,536-character serialized-request ceiling with
+  deadline-bound pipe writes, and a 20-page pagination ceiling; unrelated
+  JSON-RPC traffic cannot restart those budgets.
 - Python owns canonical memory and security policy. Optional Node/browser tooling
   may provide validation or presentation, but cannot become an alternate memory,
   writer, secret, or release authority.

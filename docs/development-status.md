@@ -1,6 +1,6 @@
 # Development Status
 
-Updated: 2026-08-26
+Updated: 2026-08-27
 
 This is a concise public-repository handoff, not release evidence by itself.
 The lead integrator updates it when a verified checkout, frontier, blocker, or
@@ -404,10 +404,12 @@ local-API onboarding hint and documentation follow-up.
   singleton options, ignored config/Docker controls, and unconsumed tail tokens
   are rejected by an exact argv contract. A bounded lexical projection classifies
   proof candidates as literal, derived, opaque, or overflow without expanding
-  assignments, substitutions, or shell semantics. Its conservative transport
-  mode is enabled only by the owned PR and release-checklist guards; general
-  operations guidance remains relaxed.
-- Local validation for the branch implementation passes 650 memory-tool tests
+  assignments, substitutions, or shell semantics. A non-smoke exemption must
+  be one standalone, operator-free segment with an explicit literal command;
+  nested substitutions and a second dynamic segment cannot hide a strict smoke
+  candidate. Its conservative transport mode is enabled only by the owned PR
+  and release-checklist guards; general operations guidance remains relaxed.
+- Local validation for the branch implementation passes 656 memory-tool tests
   with 45 expected platform skips, 159 documentation/profile tests, the
   documentation, PR-template and release-checklist guards, secret scan,
   targeted Python compilation, and diff checks. Focal canaries additionally
@@ -425,7 +427,18 @@ local-API onboarding hint and documentation follow-up.
   candidates over 256 tokens, documents over 512 KiB, or more than 64 projected
   candidates or correlated assignments fail visibly; generic dynamic CLI
   examples remain outside strict proof surfaces rather than being guessed as
-  smoke runs.
+  smoke runs. Document and candidate-region ceilings are enforced on UTF-8
+  bytes rather than Python character counts.
+- The interactive MCP client smoke now shares one 30-second wall-clock budget
+  across initialize, notification, ping, pagination, ignored traffic, reads,
+  and writes. It bounds serialized requests, individual response lines,
+  cumulative retained output, and page count. A pipe writer that survives a
+  failed bounded tree-termination attempt is detached before generic cleanup;
+  it alone closes its captured stream if it later returns, so cleanup cannot
+  block on the writer's `TextIOWrapper` lock. This fail-open host boundary is
+  explicit: an unrecoverable OS-level writer may remain daemonized until the
+  host exits, but it cannot stall the validation path or be mistaken for clean
+  reclamation.
 - Commit-bound MCP client/runtime smokes, strict release checks, independent
   review, CI, and Pages evidence are recorded only after execution in the durable
   [PR #54](https://github.com/GonzaloTorreras/ai-dememory/pull/54) handoff rather

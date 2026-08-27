@@ -3509,7 +3509,9 @@ def _mcp_smoke_has_literal_route(value: str) -> bool:
 def _mcp_smoke_is_strict_opaque(value: str) -> bool:
     """Reject protected dynamic transports only on strict proof surfaces."""
 
-    normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    normalized = _normalized_shell_whitespace(
+        MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
+    )
     folded = normalized.casefold()
     if not _has_dynamic_mcp_client_smoke_value(normalized):
         return False
@@ -3524,28 +3526,8 @@ def _mcp_smoke_is_strict_opaque(value: str) -> bool:
     if has_target and (has_dispatcher or has_root or has_command_option):
         return True
 
-    exact_route = re.search(
-        r"(?:^|[ \t])(?:ai-dememory(?:\.exe)?|"
-        r"(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?|"
-        r"\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
-        r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)[ \t]+"
-        r"(?:-3(?:\.\d+)?[ \t]+)?(?:[^ \t]+/)?scripts/ai_dememory\.py)"
-        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
-        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
-        normalized.replace("\\", "/"),
-        re.IGNORECASE,
-    )
-    dynamic_route = re.search(
-        r"^(?:&[ \t]*)?(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
-        r"\$\{[^}\r\n]+\}|%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)"
-        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
-        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
-        normalized,
-        re.IGNORECASE,
-    )
-    for route in (exact_route, dynamic_route):
-        if route is not None and route.group("command").casefold() != "mcp-client-smoke":
-            return False
+    if _mcp_smoke_has_explicit_non_smoke_route(normalized):
+        return False
     if not has_root:
         return False
     dynamic_launcher = re.match(
@@ -3986,20 +3968,39 @@ def _mcp_smoke_contains_executable_substitution(value: str) -> bool:
 
 
 def _mcp_smoke_has_explicit_non_smoke_route(value: str) -> bool:
-    """Recognize a literal dispatcher followed by a literal non-smoke command."""
+    """Recognize one standalone dispatcher and one literal non-smoke command."""
 
     normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
     if _mcp_smoke_contains_executable_substitution(normalized):
         return False
+    segmentation_probe = re.sub(
+        r"<[A-Za-z0-9][A-Za-z0-9_.-]*>",
+        "__ai_dememory_placeholder__",
+        normalized,
+    )
     try:
-        segments, operators = _shell_segments(_preferred_shell_tokens(normalized))
+        segments, operators = _shell_segments(
+            _preferred_shell_tokens(segmentation_probe)
+        )
     except ValueError:
         return False
     if operators or len(segments) != 1:
         return False
+    dynamic_route = re.match(
+        r"^(?:&[ \t]*)?(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
+        r"\$\{[^}\r\n]+\}|%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)"
+        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
+        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
+        normalized,
+        re.IGNORECASE,
+    )
+    if dynamic_route is not None:
+        return dynamic_route.group("command").casefold() != "mcp-client-smoke"
     route = re.match(
         r"^(?:&[ \t]*)?(?:ai-dememory(?:\.exe)?|"
-        r"(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?[ \t]+"
+        r"(?:(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?|"
+        r"\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
+        r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)[ \t]+"
         r"(?:-3(?:\.\d+)?[ \t]+)?(?:[^ \t]+/)?scripts/ai_dememory\.py))"
         r"[ \t]+(?P<tail>.+)$",
         normalized.replace("\\", "/"),
@@ -4134,7 +4135,7 @@ def _mcp_smoke_candidates(
 ) -> tuple[_McpSmokeCandidate, ...]:
     """Project bounded literal, derived, opaque, or overflow candidates once."""
 
-    if len(text) > MCP_SMOKE_DOCUMENT_LIMIT:
+    if len(text.encode("utf-8")) > MCP_SMOKE_DOCUMENT_LIMIT:
         return (
             _McpSmokeCandidate(
                 1,
@@ -4158,7 +4159,7 @@ def _mcp_smoke_candidates(
         nonlocal candidate_count_overflowed
         if candidate_count_overflowed:
             return
-        if len(value) > MCP_SMOKE_REGION_LIMIT:
+        if len(value.encode("utf-8")) > MCP_SMOKE_REGION_LIMIT:
             if len(candidates) >= MCP_SMOKE_CANDIDATE_LIMIT:
                 candidates.append(
                     _McpSmokeCandidate(

@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import queue
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 import tomllib
 from typing import Any, Iterator
 
@@ -30,12 +31,18 @@ from process_control import (
     join_bounded_stderr_drain,
     run_owned_capture,
     start_owned_process,
+    terminate_process_tree,
 )
 
 MCP_TOOLS_LIST_ID = 3
 MCP_INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 MAX_TOOLS_LIST_PAGES = 20
 ROOT_ENVIRONMENT_KEY = "AI_DEMEMORY_ROOT"
+MCP_INTERACTIVE_TIMEOUT_SECONDS = 30.0
+MAX_MCP_RESPONSE_LINE_CHARS = 1024 * 1024
+MAX_MCP_INTERACTIVE_OUTPUT_CHARS = 4 * 1024 * 1024
+MAX_MCP_REQUEST_CHARS = 64 * 1024
+MCP_WRITER_SHUTDOWN_GRACE_SECONDS = 2.0
 
 
 class ClientSmokeError(RuntimeError):
@@ -52,6 +59,36 @@ class ClientSmokeResult:
     pinged: bool
     enabled_tools_verified: bool
     enabled_tool_count: int
+
+
+@dataclass
+class _InteractiveMcpBudget:
+    """One wall-clock and retained-output budget for an interactive session."""
+
+    deadline: float
+    output_chars: int = 0
+
+    def remaining_seconds(self) -> float:
+        return self.deadline - time.monotonic()
+
+    def record_line(self, line: str) -> None:
+        self.output_chars += len(line)
+        if self.output_chars > MAX_MCP_INTERACTIVE_OUTPUT_CHARS:
+            raise ClientSmokeError(
+                "MCP client config interactive output exceeded its resource limit"
+            )
+
+
+@dataclass
+class _StdinWriterState:
+    """Coordinate a timed-out writer without closing its stream cross-thread."""
+
+    stream: Any
+    detach_requested: threading.Event = field(default_factory=threading.Event)
+    finished: threading.Event = field(default_factory=threading.Event)
+    close_lock: threading.Lock = field(default_factory=threading.Lock)
+    thread: threading.Thread | None = None
+    closed: bool = False
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -304,6 +341,10 @@ def start_mcp_process(
 
 
 def stop_mcp_process(process: subprocess.Popen[str]) -> None:
+    # A writer that outlived its bounded termination attempt may still own the
+    # TextIOWrapper lock. Detach it before the generic cleanup tries stdin.close;
+    # the writer closes its captured stream itself if it ever returns.
+    _detach_live_stdin_writer(process)
     cleanup_complete = False
     drain_complete = False
     try:
@@ -325,37 +366,166 @@ def stop_mcp_process(process: subprocess.Popen[str]) -> None:
                 pass
 
 
-def read_response_line(process: subprocess.Popen[str], timeout: int = 30) -> str:
+def _close_detached_writer_stream(state: _StdinWriterState) -> None:
+    """Close a detached stream exactly once, but only after its writer exits."""
+
+    if not state.detach_requested.is_set() or not state.finished.is_set():
+        return
+    with state.close_lock:
+        if state.closed:
+            return
+        state.closed = True
+        try:
+            state.stream.close()
+        except (OSError, ValueError):
+            pass
+
+
+def _detach_live_stdin_writer(process: subprocess.Popen[str]) -> bool:
+    """Make generic cleanup skip stdin while a bounded writer still owns it."""
+
+    state = getattr(process, "_ai_dememory_stdin_writer_state", None)
+    if not isinstance(state, _StdinWriterState):
+        return False
+    writer = state.thread
+    if writer is None or not writer.is_alive():
+        return False
+    state.detach_requested.set()
+    if process.stdin is state.stream:
+        process.stdin = None
+    # Covers the race where the writer finished between is_alive() and detach.
+    _close_detached_writer_stream(state)
+    return True
+
+
+def read_response_line(
+    process: subprocess.Popen[str],
+    timeout_seconds: float,
+    *,
+    max_chars: int = MAX_MCP_RESPONSE_LINE_CHARS,
+) -> str:
     if process.stdout is None:
         raise ClientSmokeError("MCP client config command did not expose stdout")
-    lines: queue.Queue[str] = queue.Queue(maxsize=1)
+    if timeout_seconds <= 0:
+        raise ClientSmokeError("MCP client config interactive session timed out")
+    if max_chars < 1:
+        raise ValueError("max_chars must be positive")
+    lines: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
 
     def read_line() -> None:
-        lines.put(process.stdout.readline())
+        try:
+            lines.put(("line", process.stdout.readline(max_chars + 1)))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            lines.put(("error", exc))
 
-    thread = threading.Thread(target=read_line, daemon=True)
+    thread = threading.Thread(
+        target=read_line,
+        name="ai-dememory-mcp-client-smoke-stdout",
+        daemon=True,
+    )
     thread.start()
     try:
-        line = lines.get(timeout=timeout)
+        kind, value = lines.get(timeout=timeout_seconds)
     except queue.Empty as exc:
-        stop_mcp_process(process)
-        raise ClientSmokeError("MCP client config command timed out waiting for response") from exc
+        raise ClientSmokeError(
+            "MCP client config interactive session timed out waiting for response"
+        ) from exc
+    if kind == "error":
+        raise ClientSmokeError("MCP client config stdout reader failed") from value
+    line = str(value)
     if not line:
         stderr = bounded_stderr_tail(process)
         raise ClientSmokeError(f"MCP client config command returned no response. stderr={stderr}")
+    if len(line) > max_chars:
+        raise ClientSmokeError(
+            "MCP client config response line exceeded its resource limit"
+        )
     return line
 
 
-def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _write_mcp_message(
+    process: subprocess.Popen[str],
+    message: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> None:
+    """Write one bounded message without letting a full pipe defeat the deadline."""
+
     if process.stdin is None:
         raise ClientSmokeError("MCP client config command did not expose stdin")
+    stdin = process.stdin
+    payload = json.dumps(message) + "\n"
+    if len(payload) > MAX_MCP_REQUEST_CHARS:
+        raise ClientSmokeError("MCP client config request exceeded its resource limit")
+    remaining = budget.remaining_seconds()
+    if remaining <= 0:
+        raise ClientSmokeError(
+            "MCP client config interactive session exceeded its total deadline"
+        )
+    result: queue.Queue[tuple[str, object]] = queue.Queue(maxsize=1)
+    state = _StdinWriterState(stream=stdin)
+
+    def write_message() -> None:
+        try:
+            stdin.write(payload)
+            stdin.flush()
+            result.put(("ok", None))
+        except BaseException as exc:  # pragma: no cover - platform pipe failure
+            result.put(("error", exc))
+        finally:
+            state.finished.set()
+            _close_detached_writer_stream(state)
+
+    writer = threading.Thread(
+        target=write_message,
+        name="ai-dememory-mcp-client-smoke-stdin",
+        daemon=True,
+    )
+    state.thread = writer
+    setattr(process, "_ai_dememory_stdin_writer_state", state)
+    writer.start()
+    try:
+        kind, value = result.get(timeout=remaining)
+    except queue.Empty as exc:
+        reaped = terminate_process_tree(
+            process,
+            grace_seconds=MCP_WRITER_SHUTDOWN_GRACE_SECONDS,
+        )
+        writer.join(timeout=MCP_WRITER_SHUTDOWN_GRACE_SECONDS)
+        writer_alive = writer.is_alive()
+        if writer_alive:
+            _detach_live_stdin_writer(process)
+        if not reaped or writer_alive:
+            raise ClientSmokeError(
+                "MCP client config timed-out writer could not be reclaimed"
+            ) from exc
+        raise ClientSmokeError(
+            "MCP client config interactive session timed out writing a request"
+        ) from exc
+    if kind == "error":
+        raise ClientSmokeError("MCP client config stdin writer failed") from value
+    if budget.remaining_seconds() <= 0:
+        raise ClientSmokeError(
+            "MCP client config interactive session exceeded its total deadline"
+        )
+
+
+def rpc_response(
+    process: subprocess.Popen[str],
+    request: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> tuple[dict[str, Any], str]:
     request_id = request.get("id")
     if not isinstance(request_id, int):
         raise ClientSmokeError("MCP client smoke requests must use integer ids")
-    process.stdin.write(json.dumps(request) + "\n")
-    process.stdin.flush()
+    _write_mcp_message(process, request, budget)
     while True:
-        line = read_response_line(process)
+        remaining = budget.remaining_seconds()
+        if remaining <= 0:
+            raise ClientSmokeError(
+                "MCP client config interactive session exceeded its total deadline"
+            )
+        line = read_response_line(process, remaining)
+        budget.record_line(line)
         response = json.loads(line)
         if not isinstance(response, dict):
             raise ClientSmokeError("MCP client config command returned a non-object JSON-RPC message")
@@ -369,15 +539,20 @@ def rpc_response(process: subprocess.Popen[str], request: dict[str, Any]) -> tup
         return response, line
 
 
-def send_notification(process: subprocess.Popen[str], notification: dict[str, Any]) -> None:
-    if process.stdin is None:
-        raise ClientSmokeError("MCP client config command did not expose stdin")
-    process.stdin.write(json.dumps(notification) + "\n")
-    process.stdin.flush()
+def send_notification(
+    process: subprocess.Popen[str],
+    notification: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> None:
+    _write_mcp_message(process, notification, budget)
 
 
-def rpc_result(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple[dict[str, Any], str]:
-    response, line = rpc_response(process, request)
+def rpc_result(
+    process: subprocess.Popen[str],
+    request: dict[str, Any],
+    budget: _InteractiveMcpBudget,
+) -> tuple[dict[str, Any], str]:
+    response, line = rpc_response(process, request, budget)
     result = response.get("result")
     if not isinstance(result, dict):
         raise ClientSmokeError(f"{request.get('method')} returned a non-object result")
@@ -387,15 +562,18 @@ def rpc_result(process: subprocess.Popen[str], request: dict[str, Any]) -> tuple
 def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: dict[str, str]) -> str:
     stdout_parts: list[str] = []
     cursor: str | None = None
+    budget = _InteractiveMcpBudget(
+        deadline=time.monotonic() + MCP_INTERACTIVE_TIMEOUT_SECONDS
+    )
 
     def exercise_process(process: subprocess.Popen[str]) -> str:
         nonlocal cursor
-        init, init_line = rpc_result(process, MCP_INIT)
+        init, init_line = rpc_result(process, MCP_INIT, budget)
         if init.get("protocolVersion") != "2025-11-25":
             raise ClientSmokeError("MCP client config initialize negotiated the wrong protocol")
         stdout_parts.append(init_line)
-        send_notification(process, MCP_INITIALIZED)
-        ping, ping_line = rpc_result(process, MCP_PING)
+        send_notification(process, MCP_INITIALIZED, budget)
+        ping, ping_line = rpc_result(process, MCP_PING, budget)
         if ping != {}:
             raise ClientSmokeError("MCP client config ping did not return an empty result")
         stdout_parts.append(ping_line)
@@ -404,7 +582,7 @@ def run_tools_list_pages(command: str, args: list[str], launch_cwd: Path, env: d
             if page >= MAX_TOOLS_LIST_PAGES:
                 raise ClientSmokeError("MCP tools/list pagination exceeded safety limit")
             request = tools_list_request(MCP_TOOLS_LIST_ID + page, cursor)
-            result, line = rpc_result(process, request)
+            result, line = rpc_result(process, request, budget)
             stdout_parts.append(line)
             cursor = result.get("nextCursor")
             if cursor is None:

@@ -34,6 +34,10 @@ accepted by the release identity guard.
   Docker aliases are matched by basename, case, and Windows trailing-dot/space
   rules; Docker smoke regenerates its mount from the selected vault with
   `--mode docker`.
+- Bound interactive MCP client-config smoke with one session-wide deadline plus
+  request, pipe-write, response-line, cumulative-output, and pagination
+  ceilings. Notifications, unrelated response ids, and blocked writes can no
+  longer restart or escape the wait indefinitely.
 
 ### Changed
 

@@ -96,7 +96,10 @@ ai-dememory --root ~/code/my-memory dev mcp-client-smoke
 
 It is optional—not a first-run requirement. It matches JSON-RPC responses by
 id and, when an `enabled_tools` list is present, verifies paginated
-`tools/list` coverage.
+`tools/list` coverage. That interactive verification has one 30-second total
+deadline, a 1,048,576-character response-line limit, a 4,194,304-character
+cumulative output limit, a 65,536-character serialized-request limit with
+deadline-bound pipe writes, and the existing 20-page pagination ceiling.
 
 ## Maintainer-Only Checkout And PR Checks
 

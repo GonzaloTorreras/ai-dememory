@@ -184,8 +184,13 @@ termination path that bypasses Python unwind, including default `SIGTERM`,
 `SIGKILL`, `os._exit`, or host power loss, cannot execute cleanup. A deployment
 that needs that stronger guarantee must run under an external service
 supervisor.
-MCP smoke reads also have a per-response deadline, so a blocked Git or protocol
-child cannot hold the validation process indefinitely.
+Interactive MCP client smoke uses one 30-second wall-clock deadline for the
+complete initialize, ping, and paginated tools/list session. Each response line
+is capped at 1,048,576 characters and the complete retained session output at
+4,194,304 characters. Requests are capped at 65,536 serialized characters and
+their pipe writes share the same deadline, so notifications, unrelated response
+ids, oversized cursors, a blocked writer, or an unterminated line cannot reset
+or exhaust the validation process indefinitely.
 
 If a Codex session still shows rising Node/Python process counts after all
 subagents finish, stop spawning agents. Confirm parent/child ownership before

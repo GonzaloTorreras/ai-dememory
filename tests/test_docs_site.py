@@ -962,6 +962,31 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             ),
             document_limit_errors,
         )
+        multibyte_document_errors = _mcp_client_smoke_command_errors(
+            "é" * (((512 * 1024) // 2) + 1),
+            "docs/multibyte-document-overflow.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any(
+                "document exceeds the inspection limit" in error
+                for error in multibyte_document_errors
+            ),
+            multibyte_document_errors,
+        )
+        multibyte_region_errors = _mcp_client_smoke_command_errors(
+            "ai-dememory --root /tmp/vault $SUBCOMMAND --command python3 # "
+            + ("é" * ((16 * 1024) // 2)),
+            "docs/multibyte-region-overflow.md",
+            strict_transport=True,
+        )
+        self.assertTrue(
+            any(
+                "candidate region exceeds the inspection limit" in error
+                for error in multibyte_region_errors
+            ),
+            multibyte_region_errors,
+        )
         for name, command, expected_reason in MCP_SMOKE_CANDIDATE_LIMIT_POCS:
             with self.subTest(candidate_limit=name):
                 errors = _mcp_client_smoke_command_errors(

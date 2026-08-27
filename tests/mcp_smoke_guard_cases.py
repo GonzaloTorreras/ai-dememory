@@ -153,6 +153,43 @@ STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS = (
         "$ARGS=@('--root','C:/vault','mcp-client-smoke','--command','python3')\n"
         "ai-dememory doctor $(ai-dememory @ARGS)",
     ),
+    (
+        "dynamic-subcommand-in-nested-dollar-substitution",
+        "ai-dememory --root /tmp/vault doctor "
+        "$(ai-dememory --root /tmp/vault $SUBCOMMAND --command python3)",
+    ),
+    (
+        "dynamic-subcommand-in-nested-backtick-substitution",
+        "ai-dememory --root /tmp/vault doctor "
+        "`ai-dememory --root /tmp/vault $SUBCOMMAND --command python3`",
+    ),
+    (
+        "defaulted-subcommand-in-nested-dollar-substitution",
+        "ai-dememory --root /tmp/vault doctor "
+        "$(ai-dememory --root /tmp/vault "
+        "${SUBCOMMAND:-mcp-client-smoke} --command python3)",
+    ),
+    (
+        "dynamic-subcommand-after-literal-doctor-semicolon",
+        "ai-dememory --root /tmp/vault doctor ; "
+        "$CLI --root /tmp/vault $SUBCOMMAND --command python3",
+    ),
+    (
+        "dynamic-subcommand-after-literal-doctor-and",
+        "ai-dememory --root /tmp/vault doctor && "
+        "$CLI --root /tmp/vault $SUBCOMMAND --command python3",
+    ),
+    (
+        "dynamic-subcommand-after-literal-doctor-pipe",
+        "ai-dememory --root /tmp/vault doctor | "
+        "$CLI --root /tmp/vault $SUBCOMMAND --command python3",
+    ),
+    (
+        "dynamic-fragment-after-literal-doctor",
+        "ai-dememory --root /tmp/vault doctor ; "
+        "ai-dememory --root /tmp/vault "
+        "mcp-${PART:-client-}smoke --command python3",
+    ),
 )
 
 

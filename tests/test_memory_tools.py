@@ -174,6 +174,7 @@ from manual_acceptance import (  # noqa: E402
     write_acceptance_packet_report,
 )
 from memory_mcp import TOOLS, call_tool, handle_rpc, main as memory_mcp_main  # noqa: E402
+import mcp_client_smoke as mcp_client_smoke_module  # noqa: E402
 from mcp_client_smoke import ClientSmokeError, bind_config_runtime_root, main as mcp_client_smoke_main, merge_launch_environment, override_launch, run_client_config_smoke, run_tools_list_pages, select_server_config, verify_enabled_tools  # noqa: E402
 from mcp_inventory import INVENTORY_DOCS, build_inventory, main as mcp_inventory_main, validate_inventory_docs, validate_inventory_texts  # noqa: E402
 from mcp_runtime_smoke import MCP_INITIALIZED, assert_unique_field, collect_paginated_items, rpc_response, run_fixture_smoke, send_notification  # noqa: E402
@@ -16426,6 +16427,235 @@ for line in sys.stdin:
 
         self.assertTrue(result.initialized)
         self.assertTrue(result.pinged)
+
+    def test_mcp_client_smoke_bounds_each_interactive_response_line(self) -> None:
+        process = type(
+            "ResponseProcess",
+            (),
+            {
+                "stdout": io.StringIO("x" * 33),
+                "stderr": io.StringIO(),
+            },
+        )()
+
+        with self.assertRaisesRegex(ClientSmokeError, "response line exceeded"):
+            mcp_client_smoke_module.read_response_line(
+                process,  # type: ignore[arg-type]
+                1,
+                max_chars=32,
+            )
+
+    def test_mcp_client_smoke_uses_one_deadline_across_ignored_messages(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(deadline=10.0)
+        notification = json.dumps(
+            {"jsonrpc": "2.0", "method": "notifications/message"}
+        ) + "\n"
+
+        with (
+            patch(
+                "mcp_client_smoke.time.monotonic",
+                side_effect=(9.0, 9.0, 9.0, 10.0),
+            ),
+            patch(
+                "mcp_client_smoke.read_response_line",
+                return_value=notification,
+            ) as read_line,
+            self.assertRaisesRegex(ClientSmokeError, "total deadline"),
+        ):
+            mcp_client_smoke_module.rpc_response(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+        read_line.assert_called_once_with(process, 1.0)
+
+    def test_mcp_client_smoke_bounds_total_interactive_output(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(deadline=10.0)
+        notification = json.dumps(
+            {"jsonrpc": "2.0", "method": "notifications/message"}
+        ) + "\n"
+
+        with (
+            patch("mcp_client_smoke.time.monotonic", return_value=9.0),
+            patch(
+                "mcp_client_smoke.read_response_line",
+                return_value=notification,
+            ),
+            patch("mcp_client_smoke.MAX_MCP_INTERACTIVE_OUTPUT_CHARS", 8),
+            self.assertRaisesRegex(ClientSmokeError, "output exceeded"),
+        ):
+            mcp_client_smoke_module.rpc_response(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+    def test_mcp_client_smoke_reclaims_a_deadline_blocked_writer(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        class BlockingInput:
+            def write(self, value: str) -> int:
+                entered.set()
+                release.wait()
+                return len(value)
+
+            def flush(self) -> None:
+                return None
+
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": BlockingInput(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 0.02
+        )
+
+        def terminate(_process: object, *, grace_seconds: float) -> bool:
+            self.assertIs(_process, process)
+            self.assertGreater(grace_seconds, 0)
+            release.set()
+            return True
+
+        with (
+            patch(
+                "mcp_client_smoke.terminate_process_tree",
+                side_effect=terminate,
+            ) as terminate_tree,
+            patch("mcp_client_smoke.MCP_WRITER_SHUTDOWN_GRACE_SECONDS", 0.2),
+            self.assertRaisesRegex(ClientSmokeError, "timed out writing"),
+        ):
+            mcp_client_smoke_module._write_mcp_message(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
+
+        self.assertTrue(entered.is_set())
+        terminate_tree.assert_called_once()
+
+    def test_mcp_client_smoke_detaches_an_unreclaimed_deadline_writer(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        class BlockingInput:
+            def __init__(self) -> None:
+                self.closed = False
+
+            def write(self, value: str) -> int:
+                entered.set()
+                release.wait()
+                return len(value)
+
+            def flush(self) -> None:
+                return None
+
+            def close(self) -> None:
+                self.closed = True
+
+        blocked_stdin = BlockingInput()
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": blocked_stdin,
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 0.02
+        )
+
+        try:
+            with (
+                patch(
+                    "mcp_client_smoke.terminate_process_tree",
+                    return_value=False,
+                ) as terminate_tree,
+                patch("mcp_client_smoke.MCP_WRITER_SHUTDOWN_GRACE_SECONDS", 0.02),
+                self.assertRaisesRegex(ClientSmokeError, "could not be reclaimed"),
+            ):
+                mcp_client_smoke_module._write_mcp_message(
+                    process,  # type: ignore[arg-type]
+                    {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                    budget,
+                )
+
+            self.assertTrue(entered.is_set())
+            self.assertIsNone(process.stdin)
+            self.assertFalse(blocked_stdin.closed)
+            terminate_tree.assert_called_once()
+
+            with (
+                patch(
+                    "mcp_client_smoke.close_stdin_and_reap",
+                    return_value=True,
+                ) as close_and_reap,
+                patch(
+                    "mcp_client_smoke.join_bounded_stderr_drain",
+                    return_value=True,
+                ),
+            ):
+                mcp_client_smoke_module.stop_mcp_process(process)  # type: ignore[arg-type]
+            close_and_reap.assert_called_once_with(process, grace_seconds=2)
+        finally:
+            release.set()
+            state = getattr(process, "_ai_dememory_stdin_writer_state", None)
+            writer = getattr(state, "thread", None)
+            if writer is not None:
+                writer.join(timeout=0.5)
+
+        self.assertFalse(writer is not None and writer.is_alive())
+        self.assertTrue(blocked_stdin.closed)
+
+    def test_mcp_client_smoke_bounds_serialized_requests(self) -> None:
+        process = type(
+            "InteractiveProcess",
+            (),
+            {
+                "stdin": io.StringIO(),
+                "stdout": io.StringIO(),
+                "stderr": io.StringIO(),
+            },
+        )()
+        budget = mcp_client_smoke_module._InteractiveMcpBudget(
+            deadline=time.monotonic() + 1
+        )
+
+        with (
+            patch("mcp_client_smoke.MAX_MCP_REQUEST_CHARS", 8),
+            self.assertRaisesRegex(ClientSmokeError, "request exceeded"),
+        ):
+            mcp_client_smoke_module._write_mcp_message(
+                process,  # type: ignore[arg-type]
+                {"jsonrpc": "2.0", "id": 7, "method": "ping"},
+                budget,
+            )
 
     def test_mcp_client_smoke_follows_tools_pagination_in_one_session(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
