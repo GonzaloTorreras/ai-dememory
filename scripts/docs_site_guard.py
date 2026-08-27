@@ -3506,6 +3506,270 @@ def _mcp_smoke_has_literal_route(value: str) -> bool:
     )
 
 
+MCP_SMOKE_ADJACENT_QUOTED_TOKEN_RE = re.compile(
+    r"(?:[A-Za-z0-9_.:/\\-]+(?:'[^'\r\n]*'|\"[^\"\r\n]*\")|"
+    r"(?:'[^'\r\n]*'|\"[^\"\r\n]*\")[A-Za-z0-9_.:/\\-]+)"
+)
+MCP_SMOKE_DYNAMIC_DISPATCHER_TOKEN_RE = re.compile(
+    r"(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|\$\{[^}\r\n]+\}|"
+    r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)",
+    re.IGNORECASE,
+)
+MCP_SMOKE_TRANSPARENT_PREFIX_WORDS = frozenset(
+    {"command", "env", "exec", "nohup", "sudo"}
+)
+MCP_SMOKE_PYTHON_FLAG_WITHOUT_VALUE_RE = re.compile(
+    r"-(?:b|B|d|E|i|I|O{1,2}|P|q|R|s|S|u|v|x)"
+)
+MCP_SMOKE_PYTHON_ATTACHED_VALUE_RE = re.compile(r"-(?:W|X).+")
+MCP_SMOKE_PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X"})
+MCP_SMOKE_PYTHON_HASH_PYC_VALUES = frozenset({"always", "default", "never"})
+MCP_SMOKE_PYTHON_CONSERVATIVE_OPTION_RE = re.compile(
+    r"(?:-(?![cm](?:$|.))[^\s;&|<>]+|--[A-Za-z0-9][^\s;&|<>]*)"
+)
+MCP_SMOKE_DOCUMENT_PLACEHOLDER_RE = re.compile(
+    r"<[A-Za-z0-9][A-Za-z0-9_.-]*>"
+)
+
+
+def _mcp_smoke_prefix_tokens_are_transparent(tokens: tuple[str, ...]) -> bool:
+    """Allow only literal assignments and reviewed non-re-evaluating wrappers."""
+
+    cursor = 0
+    while cursor < len(tokens):
+        argument = tokens[cursor]
+        if _has_dynamic_mcp_client_smoke_value(argument):
+            return False
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=[^\s;&|<>]*", argument):
+            cursor += 1
+            continue
+        if argument.casefold() not in MCP_SMOKE_TRANSPARENT_PREFIX_WORDS:
+            return False
+        cursor += 1
+        if cursor < len(tokens) and tokens[cursor] == "--":
+            cursor += 1
+    return True
+
+
+def _mcp_smoke_python_prefix_start(
+    tokens: tuple[str, ...],
+    terminal_index: int,
+    *,
+    allow_double_dash: bool,
+) -> int | None:
+    """Return the launcher that reaches a bounded Python execution terminal.
+
+    Interpreter switches are parsed, never evaluated.  Options that replace
+    the requested terminal (notably ``-c`` and ``-m`` before a source file) are
+    intentionally absent.  Unknown option-shaped switches remain inside the
+    dispatcher span so protected routes fail closed rather than disappearing.
+    """
+
+    for launcher_index in range(terminal_index - 1, -1, -1):
+        launcher = _launcher_name(tokens[launcher_index])
+        is_python_launcher = PYTHON_COMMAND_TOKEN_RE.fullmatch(launcher) is not None
+        is_dynamic_launcher = (
+            MCP_SMOKE_DYNAMIC_DISPATCHER_TOKEN_RE.fullmatch(tokens[launcher_index])
+            is not None
+        )
+        if not is_python_launcher and not is_dynamic_launcher:
+            continue
+        if not _mcp_smoke_prefix_tokens_are_transparent(tokens[:launcher_index]):
+            continue
+
+        cursor = launcher_index + 1
+        if (
+            launcher == "py"
+            and cursor < terminal_index
+            and re.fullmatch(r"-3(?:\.\d+)?", tokens[cursor]) is not None
+        ):
+            cursor += 1
+        while cursor < terminal_index:
+            option = tokens[cursor]
+            if option == "--":
+                if allow_double_dash:
+                    cursor += 1
+                break
+            if MCP_SMOKE_PYTHON_FLAG_WITHOUT_VALUE_RE.fullmatch(option) is not None:
+                cursor += 1
+                continue
+            if MCP_SMOKE_PYTHON_ATTACHED_VALUE_RE.fullmatch(option) is not None:
+                cursor += 1
+                continue
+            if option in MCP_SMOKE_PYTHON_VALUE_OPTIONS:
+                if cursor + 1 >= terminal_index:
+                    break
+                cursor += 2
+                continue
+            if option == "--check-hash-based-pycs":
+                if (
+                    cursor + 1 >= terminal_index
+                    or tokens[cursor + 1].casefold()
+                    not in MCP_SMOKE_PYTHON_HASH_PYC_VALUES
+                ):
+                    break
+                cursor += 2
+                continue
+            if option.casefold().startswith("--check-hash-based-pycs="):
+                if (
+                    option.partition("=")[2].casefold()
+                    not in MCP_SMOKE_PYTHON_HASH_PYC_VALUES
+                ):
+                    break
+                cursor += 1
+                continue
+            if MCP_SMOKE_PYTHON_CONSERVATIVE_OPTION_RE.fullmatch(option) is not None:
+                cursor += 1
+                continue
+            break
+        if cursor == terminal_index:
+            return launcher_index
+    return None
+
+
+def _mcp_smoke_python_source_span(
+    tokens: tuple[str, ...],
+    script_index: int,
+) -> tuple[int, int] | None:
+    """Return a Python launcher span for the checked-in CLI source script."""
+
+    script = tokens[script_index].casefold().replace("\\", "/")
+    if not (
+        script == "scripts/ai_dememory.py"
+        or script.endswith("/scripts/ai_dememory.py")
+    ):
+        return None
+    launcher_index = _mcp_smoke_python_prefix_start(
+        tokens,
+        script_index,
+        allow_double_dash=True,
+    )
+    if launcher_index is None:
+        return None
+    return launcher_index, script_index + 1
+
+
+def _mcp_smoke_dispatcher_spans(
+    tokens: tuple[str, ...],
+) -> tuple[tuple[int, int], ...]:
+    """Return possible dispatcher spans without expanding dynamic tokens."""
+
+    spans: list[tuple[int, int]] = []
+    folded = tuple(token.casefold().replace("\\", "/") for token in tokens)
+    for index, token in enumerate(folded):
+        if token in {"ai-dememory", "ai-dememory.exe"} or (
+            MCP_SMOKE_DYNAMIC_DISPATCHER_TOKEN_RE.fullmatch(tokens[index]) is not None
+        ):
+            spans.append((index, index + 1))
+        if token.endswith("/scripts/ai_dememory.py") or token == "scripts/ai_dememory.py":
+            python_span = _mcp_smoke_python_source_span(tokens, index)
+            spans.append(python_span or (index, index + 1))
+        if token == "ai_dememory_tool.cli" and index >= 1 and tokens[index - 1] == "-m":
+            launcher_index = _mcp_smoke_python_prefix_start(
+                tokens,
+                index - 1,
+                allow_double_dash=False,
+            )
+            if launcher_index is not None:
+                spans.append((launcher_index, index + 1))
+    return tuple(dict.fromkeys(spans))
+
+
+def _mcp_smoke_route_commands(tokens: tuple[str, ...]) -> tuple[str, ...]:
+    """Return literal command-slot values from structurally bounded routes."""
+
+    commands: list[str] = []
+    for dispatcher_start, cursor in _mcp_smoke_dispatcher_spans(tokens):
+        if not _mcp_smoke_prefix_tokens_are_transparent(tokens[:dispatcher_start]):
+            continue
+        if cursor >= len(tokens):
+            continue
+        root_argument = tokens[cursor]
+        if root_argument.casefold() == "--root":
+            if cursor + 1 >= len(tokens):
+                continue
+            cursor += 2
+        elif root_argument.casefold().startswith("--root=") and root_argument.partition("=")[2]:
+            cursor += 1
+        if cursor < len(tokens) and tokens[cursor].casefold() == "dev":
+            cursor += 1
+        if cursor >= len(tokens):
+            continue
+        command = tokens[cursor]
+        if any(
+            nested_start == 0
+            for nested_start, _ in _mcp_smoke_dispatcher_spans(tokens[cursor:])
+        ):
+            continue
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*", command) is not None:
+            commands.append(command.casefold())
+    return tuple(commands)
+
+
+def _mcp_smoke_without_line_comment(value: str) -> str:
+    """Remove an unquoted shell line comment without expanding the command."""
+
+    quote = ""
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if quote:
+            if character == quote:
+                quote = ""
+            elif character == "\\" and quote == '"':
+                escaped = True
+            continue
+        if character in {"'", '"'}:
+            quote = character
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == "#":
+            return value[:index]
+    return value
+
+
+def _mcp_smoke_has_obfuscated_protected_route(value: str) -> bool:
+    """Detect tokenized protected argv hidden by POSIX quoting or escaping."""
+
+    executable = _mcp_smoke_without_line_comment(value)
+    has_adjacent_quote = MCP_SMOKE_ADJACENT_QUOTED_TOKEN_RE.search(executable) is not None
+    if (
+        not has_adjacent_quote
+        and "\\" not in executable
+    ):
+        return False
+    segmentation_probe = MCP_SMOKE_DOCUMENT_PLACEHOLDER_RE.sub(
+        "__ai_dememory_placeholder__",
+        executable,
+    )
+    try:
+        variants = _shell_token_variants(segmentation_probe)
+    except ValueError:
+        return True
+    if not has_adjacent_quote:
+        windows_argv = _shell_tokens(
+            segmentation_probe,
+            preserve_windows_backslashes=True,
+        )
+        windows_segments = _shell_segments(windows_argv)[0]
+        if any(
+            command == "mcp-client-smoke"
+            for segment in windows_segments
+            for command in _mcp_smoke_route_commands(segment)
+        ):
+            return False
+    return any(
+        command == "mcp-client-smoke"
+        for tokens in variants
+        for segment in _shell_segments(tokens)[0]
+        for command in _mcp_smoke_route_commands(segment)
+    )
+
+
 def _mcp_smoke_is_strict_opaque(value: str) -> bool:
     """Reject protected dynamic transports only on strict proof surfaces."""
 
@@ -3513,13 +3777,16 @@ def _mcp_smoke_is_strict_opaque(value: str) -> bool:
         MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
     )
     folded = normalized.casefold()
+    if _mcp_smoke_has_obfuscated_protected_route(normalized):
+        return True
     if not _has_dynamic_mcp_client_smoke_value(normalized):
         return False
     has_target = MCP_CLIENT_SMOKE_LITERAL_EVIDENCE_RE.search(folded) is not None
     has_dispatcher = (
         MCP_CLIENT_SMOKE_DISPATCHER_EVIDENCE_RE.search(folded) is not None
     )
-    has_root = re.search(r"(?:^|[ \t])--root(?:=|[ \t])", folded) is not None
+    root_match = re.search(r"(?:^|[ \t])--root(?:=|[ \t])", folded)
+    has_root = root_match is not None
     has_command_option = (
         re.search(r"(?:^|[ \t])--command(?:=|[ \t])", folded) is not None
     )
@@ -3536,10 +3803,17 @@ def _mcp_smoke_is_strict_opaque(value: str) -> bool:
         re.IGNORECASE,
     )
     first_token = normalized.split(maxsplit=1)[0] if normalized else ""
+    dynamic_before_root = bool(
+        root_match
+        and _has_dynamic_mcp_client_smoke_value(
+            normalized[: root_match.start()]
+        )
+    )
     return (
         has_dispatcher
         or dynamic_launcher is not None
         or _has_dynamic_mcp_client_smoke_value(first_token)
+        or dynamic_before_root
     )
 
 
@@ -3804,6 +4078,166 @@ def _mcp_smoke_assignment_evidence(
     return (has_root, has_target, has_dispatcher, scalar_bundle)
 
 
+CHECKLIST_RAW_HTML_CONTAINER_TAGS = frozenset(
+    """
+    address article aside base basefont blockquote body caption center col
+    colgroup dd details dialog dir div dl dt fieldset figcaption figure footer
+    form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li
+    link main menu menuitem nav noframes ol optgroup option p param search
+    section summary table tbody td tfoot th thead title tr track ul
+    """.split()
+)
+CHECKLIST_RAW_HTML_TAG_RE = re.compile(
+    r"<\s*(?P<closing>/)?\s*(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b[^>]*>",
+    re.IGNORECASE,
+)
+CHECKLIST_RAW_HTML_TYPE_ONE_START_RE = re.compile(
+    r"^<(?:pre|script|style|textarea)(?:[ \t]|>|$)",
+    re.IGNORECASE,
+)
+CHECKLIST_RAW_HTML_TYPE_ONE_END_RE = re.compile(
+    r"</(?:pre|script|style|textarea)>",
+    re.IGNORECASE,
+)
+CHECKLIST_RAW_HTML_TYPE_SIX_START_RE = re.compile(
+    r"^</?(?:"
+    + "|".join(sorted(CHECKLIST_RAW_HTML_CONTAINER_TAGS, key=len, reverse=True))
+    + r")(?:[ \t]|/?>|$)",
+    re.IGNORECASE,
+)
+
+
+def _checklist_html_block_start(line: str) -> str | None:
+    """Return the CommonMark HTML-block end condition for one source line."""
+
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return None
+    folded = stripped.casefold()
+    if CHECKLIST_RAW_HTML_TYPE_ONE_START_RE.match(stripped) is not None:
+        return "type-one"
+    if stripped.startswith("<!--"):
+        return "-->"
+    if stripped.startswith("<?"):
+        return "?>"
+    if folded.startswith("<![cdata["):
+        return "]]>"
+    if re.match(r"^<![A-Za-z]", stripped) is not None:
+        return ">"
+    if CHECKLIST_RAW_HTML_TYPE_SIX_START_RE.match(stripped) is not None:
+        return "blank"
+    if CHECKLIST_RAW_HTML_TAG_RE.fullmatch(stripped.rstrip(" \t")) is not None:
+        return "blank"
+    return None
+
+
+def _checklist_html_block_ends(end_condition: str, line: str) -> bool:
+    if end_condition == "type-one":
+        return CHECKLIST_RAW_HTML_TYPE_ONE_END_RE.search(line) is not None
+    return end_condition in line
+
+
+def markdown_visible_checklist_lines(text: str) -> tuple[str, ...]:
+    """Return checklist lines that CommonMark can render as Markdown.
+
+    The state machine implements the seven raw-HTML block start/end classes.
+    It is intentionally conservative for type 7 (complete arbitrary tags): a
+    possible paragraph interruption withholds evidence instead of granting it.
+    """
+
+    visible_lines: list[str] = []
+    fence_character = ""
+    fence_length = 0
+    inline_html_comment_open = False
+    html_block_end = ""
+
+    def comment_probe(value: str) -> str:
+        def blank(match: re.Match[str]) -> str:
+            return " " * len(match.group(0))
+
+        return INLINE_HTML_CODE_RE.sub(
+            blank,
+            INLINE_MARKDOWN_CODE_RE.sub(blank, value),
+        )
+
+    for raw_line in text.splitlines():
+        line = raw_line.removesuffix("\r")
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if fence_character:
+            closing = (
+                re.fullmatch(
+                    rf"{re.escape(fence_character)}{{{fence_length},}}[ \t]*",
+                    stripped,
+                )
+                if indent <= 3
+                else None
+            )
+            if closing is not None:
+                fence_character = ""
+                fence_length = 0
+            visible_lines.append("")
+            continue
+
+        if html_block_end:
+            if html_block_end == "blank":
+                if not line.strip():
+                    html_block_end = ""
+            elif _checklist_html_block_ends(html_block_end, line):
+                html_block_end = ""
+            visible_lines.append("")
+            continue
+
+        probe = comment_probe(line)
+        parts: list[str] = []
+        cursor = 0
+        while cursor < len(line):
+            if inline_html_comment_open:
+                comment_end = line.find("-->", cursor)
+                if comment_end < 0:
+                    cursor = len(line)
+                    break
+                inline_html_comment_open = False
+                cursor = comment_end + 3
+                continue
+            comment_start = probe.find("<!--", cursor)
+            if comment_start < 0:
+                parts.append(line[cursor:])
+                break
+            parts.append(line[cursor:comment_start])
+            inline_html_comment_open = True
+            cursor = comment_start + 4
+
+        visible_line = "".join(parts)
+        stripped = visible_line.lstrip(" ")
+        indent = len(visible_line) - len(stripped)
+        opening = (
+            re.match(r"^(`{3,}|~{3,})(?P<info>.*)$", stripped)
+            if indent <= 3
+            else None
+        )
+        if opening is not None:
+            marker = opening.group(1)
+            info = opening.group("info")
+            if marker[0] == "~" or "`" not in info:
+                fence_character = marker[0]
+                fence_length = len(marker)
+                visible_lines.append("")
+                continue
+        html_block_end = _checklist_html_block_start(visible_line) or ""
+        if html_block_end:
+            if html_block_end != "blank" and _checklist_html_block_ends(
+                html_block_end,
+                visible_line,
+            ):
+                html_block_end = ""
+            visible_lines.append("")
+            continue
+        visible_lines.append(visible_line)
+
+    return tuple(visible_lines)
+
+
 def _mcp_smoke_proof_regions(text: str) -> tuple[tuple[int, str], ...]:
     """Return bounded fenced and plain regions with stable source lines."""
 
@@ -3973,8 +4407,7 @@ def _mcp_smoke_has_explicit_non_smoke_route(value: str) -> bool:
     normalized = MCP_CLIENT_SMOKE_MARKDOWN_PREFIX_RE.sub("", value).strip()
     if _mcp_smoke_contains_executable_substitution(normalized):
         return False
-    segmentation_probe = re.sub(
-        r"<[A-Za-z0-9][A-Za-z0-9_.-]*>",
+    segmentation_probe = MCP_SMOKE_DOCUMENT_PLACEHOLDER_RE.sub(
         "__ai_dememory_placeholder__",
         normalized,
     )
@@ -3986,43 +4419,9 @@ def _mcp_smoke_has_explicit_non_smoke_route(value: str) -> bool:
         return False
     if operators or len(segments) != 1:
         return False
-    dynamic_route = re.match(
-        r"^(?:&[ \t]*)?(?:\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
-        r"\$\{[^}\r\n]+\}|%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)"
-        r"[ \t]+--root(?:=[^ \t]+|[ \t]+[^ \t]+)[ \t]+"
-        r"(?:dev[ \t]+)?(?P<command>[A-Za-z][A-Za-z0-9-]*)(?=[ \t]|$)",
-        normalized,
-        re.IGNORECASE,
-    )
-    if dynamic_route is not None:
-        return dynamic_route.group("command").casefold() != "mcp-client-smoke"
-    route = re.match(
-        r"^(?:&[ \t]*)?(?:ai-dememory(?:\.exe)?|"
-        r"(?:(?:(?:py|python(?:3(?:\.\d+)?)?)(?:\.exe)?|"
-        r"\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*|"
-        r"%[A-Za-z_][^%\r\n]*%|![A-Za-z_][^!\r\n]*!)[ \t]+"
-        r"(?:-3(?:\.\d+)?[ \t]+)?(?:[^ \t]+/)?scripts/ai_dememory\.py))"
-        r"[ \t]+(?P<tail>.+)$",
-        normalized.replace("\\", "/"),
-        re.IGNORECASE,
-    )
-    if route is None:
-        return False
-    tokens = route.group("tail").split()
-    cursor = 0
-    if cursor < len(tokens) and tokens[cursor].casefold() == "--root":
-        cursor += 2
-    elif cursor < len(tokens) and tokens[cursor].casefold().startswith("--root="):
-        cursor += 1
-    if cursor < len(tokens) and tokens[cursor].casefold() == "dev":
-        cursor += 1
-    if cursor >= len(tokens):
-        return False
-    command = tokens[cursor]
-    return (
-        re.fullmatch(r"[A-Za-z][A-Za-z0-9-]*", command) is not None
-        and command.casefold() != "mcp-client-smoke"
-    )
+
+    commands = _mcp_smoke_route_commands(segments[0])
+    return bool(commands) and all(command != "mcp-client-smoke" for command in commands)
 
 
 def _mcp_smoke_distributed_region_line(value: str) -> tuple[int, bool] | None:

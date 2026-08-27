@@ -14,6 +14,7 @@ from memorylib import repo_root
 from docs_site_guard import (
     MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
     _mcp_client_smoke_command_errors,
+    markdown_visible_checklist_lines,
 )
 
 
@@ -83,7 +84,7 @@ def _sequence_count(lines: tuple[str, ...], sequence: tuple[str, ...]) -> int:
 def validate_template_text(text: str) -> list[TemplateGuardIssue]:
     issues: list[TemplateGuardIssue] = []
     normalized = normalize(text)
-    lines = tuple(text.splitlines())
+    lines = markdown_visible_checklist_lines(text)
     canonical_source_count = lines.count(
         MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM
     )

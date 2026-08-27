@@ -190,6 +190,18 @@ STRICT_MCP_SMOKE_FOLLOWUP_REJECTED_REGIONS = (
         "ai-dememory --root /tmp/vault "
         "mcp-${PART:-client-}smoke --command python3",
     ),
+    (
+        "eval-wrapper-doctor-with-dynamic-payload",
+        "eval $CLI --root /tmp/vault doctor --command $PAYLOAD",
+    ),
+    (
+        "dynamic-prefix-before-literal-doctor",
+        "$EMPTY ai-dememory --root /tmp/vault doctor",
+    ),
+    (
+        "dynamic-prefix-before-dynamic-doctor",
+        "$WRAPPER $CLI --root /tmp/vault doctor",
+    ),
 )
 
 
@@ -228,6 +240,57 @@ STRICT_MCP_SMOKE_FOLLOWUP_ALLOWED_REGIONS = (
         "powershell-collection-on-explicit-doctor-route",
         "$ARGS=@('--root','C:/vault','mcp-client-smoke','--command','python3')\n"
         "ai-dememory doctor --output @ARGS",
+    ),
+    (
+        "env-wrapper-on-explicit-doctor-route",
+        "env X=1 ai-dememory --root /tmp/vault doctor --command $PATH",
+    ),
+    (
+        "env-dynamic-launcher-on-explicit-doctor-route",
+        "env X=1 $CLI --root /tmp/vault doctor --command $PATH",
+    ),
+    (
+        "sudo-env-dynamic-launcher-on-explicit-doctor-route",
+        "sudo env X=1 command $CLI --root /tmp/vault doctor --command $PATH",
+    ),
+    (
+        "nohup-dynamic-launcher-on-explicit-doctor-route",
+        "nohup $CLI --root /tmp/vault doctor --command $PATH",
+    ),
+    (
+        "python-flags-on-explicit-doctor-route",
+        "python3 -u scripts/ai_dememory.py --root /tmp/vault "
+        "doctor --command $PATH",
+    ),
+    (
+        "py-selector-and-flags-on-explicit-doctor-route",
+        "py -3.13 -I scripts/ai_dememory.py --root C:/vault "
+        "doctor --command $PATH",
+    ),
+    (
+        "python-module-flags-on-explicit-doctor-route",
+        "python3 -I -m ai_dememory_tool.cli --root /tmp/vault "
+        "doctor --command $PATH",
+    ),
+    (
+        "adjacent-quoted-target-used-as-search-query",
+        'ai-"dememory" --root /tmp/vault search mcp-"client-smoke"',
+    ),
+    (
+        "echoed-adjacent-quoted-route",
+        'echo ai-"dememory" --root /tmp/vault mcp-"client-smoke"',
+    ),
+    (
+        "escaped-target-used-as-search-query",
+        "ai-dememory --root /tmp/vault search mcp-client-\\smoke",
+    ),
+    (
+        "echoed-escaped-route",
+        "echo ai-\\dememory --root /tmp/vault mcp-client-\\smoke",
+    ),
+    (
+        "literal-doctor-with-obfuscated-comment",
+        'ai-dememory --root /tmp/vault doctor # mcp-"client-smoke"',
     ),
     (
         "cmd-scalar-argv-bundle-quoted",
@@ -378,10 +441,44 @@ STRICT_MCP_SMOKE_TRANSPORTS = (
     "env X=1 ai-dememory --root /tmp/vault $SUBCOMMAND --command python3",
     "sudo env X=1 command ai-dememory --root /tmp/vault "
     "mcp-${PART:-client-}smoke --command python3",
+    "env X=1 $CLI --root /tmp/vault $SUBCOMMAND --command python3",
+    "sudo env X=1 command $CLI --root /tmp/vault "
+    "$SUBCOMMAND --command python3",
+    "nohup $CLI --root /tmp/vault $SUBCOMMAND --command python3",
+    "env X=1 ai-'dememory' --root /tmp/vault "
+    "mcp-'client-smoke' --command python3",
+    'nohup ai-"dememory" --root /tmp/vault '
+    'mcp-"client-smoke" --command python3',
     "python3 -u scripts/ai_dememory.py --root /tmp/vault "
     "$SUBCOMMAND --command python3",
     "py -3.13 -I scripts/ai_dememory.py --root C:/vault "
     "%SUBCOMMAND% --command python3",
+    "python3 -u scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "py -3.13 -I scripts/ai_dememory.py --root C:/vault "
+    "mcp-'client-smoke' --command python3",
+    "python3 -B -E -I -O -P -q -s -S -u scripts/ai_dememory.py "
+    '--root /tmp/vault mcp-"client-smoke" --command python3',
+    "python3 -Z scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "python3 -bb scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "python3 -I -m ai_dememory_tool.cli --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "python3 -X python scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "python3 -W python scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3',
+    "ai-dememory --root /tmp/vault mcp-client-\\smoke --command python3",
+    "ai-\\dememory --root /tmp/vault mcp-client-smoke --command python3",
+    "ai-\\dememory --root /tmp/vault mcp-client-\\smoke --command python3",
+    "ai-\\dememory --root /tmp/vault mcp-client-\\smoke "
+    '--config "/tmp/ai-dememory/mcp-client-smoke/config.json" '
+    "--command ai-dememory",
+    "python3 scripts/ai_dememory.py --root /tmp/vault "
+    'mcp-"client-smoke" --command python3 '
+    "--command-arg /tmp/checkout/scripts/ai_dememory.py "
+    "# ai-dememory mcp-client-smoke",
     'bash -c "ai-dememory --root /tmp/vault $SUBCOMMAND --command python3"',
     "eval ai-dememory --root /tmp/vault $SUBCOMMAND --command python3",
     "`ai-dememory --root C:/vault $SUBCOMMAND --command python3",

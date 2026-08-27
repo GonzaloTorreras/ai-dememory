@@ -205,7 +205,11 @@ from publish_plan import (  # noqa: E402
     render_text as render_publish_plan_text,
 )
 from pr_draft_guard import validate_pr_draft, validate_pr_draft_text  # noqa: E402
-from pr_template_guard import validate_pr_template, validate_template_text  # noqa: E402
+from pr_template_guard import (  # noqa: E402
+    MCP_CLIENT_SMOKE_SOURCE_SEQUENCE,
+    validate_pr_template,
+    validate_template_text,
+)
 from recall_fixtures import (  # noqa: E402
     DEFAULT_REVIEW_PACKET_ARCHIVE_DIR,
     annotate_recall_review_packet_plan,
@@ -227,6 +231,7 @@ from recall_fixtures import (  # noqa: E402
 )
 from release_checklist_guard import (  # noqa: E402
     GENERATED_ARTIFACTS_VAULT_PRECONDITION,
+    MCP_CLIENT_SMOKE_SEQUENCES,
     validate_release_checklist,
     validate_release_checklist_text,
 )
@@ -18139,6 +18144,23 @@ jobs:
             issues,
         )
 
+        placeholder_transport = (
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            'mcp-"client-smoke" --command python3 --command-arg '
+            "<absolute-checkout>/scripts/ai_dememory.py "
+            "# ai-dememory mcp-client-smoke"
+        )
+        placeholder_issues = validate_template_text(
+            current + strict_transport_markdown(placeholder_transport)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "pull_request_template:mcp_client_smoke_contract"
+                for issue in placeholder_issues
+            ),
+            placeholder_issues,
+        )
+
         strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)[
             "fenced-cross-line-aliases"
         ]
@@ -18270,6 +18292,53 @@ jobs:
             ),
             issues,
         )
+
+    def test_pr_template_exact_smoke_proof_must_render_as_a_checklist(self) -> None:
+        current = (ROOT / ".github" / "pull_request_template.md").read_text(
+            encoding="utf-8"
+        )
+        sequence = "\n".join(MCP_CLIENT_SMOKE_SOURCE_SEQUENCE)
+        source_command = MCP_CLIENT_SMOKE_SOURCE_SEQUENCE[1].split("`", 2)[1]
+        self.assertIn(sequence, current)
+
+        for name, hidden in (
+            ("html-comment", f"<!--\n{sequence}\n-->"),
+            ("fenced-example", f"```markdown\n{sequence}\n```"),
+            ("preformatted-html", f"<pre>\n{sequence}\n</pre>"),
+            ("hidden-html", f"<div hidden>\n{sequence}\n</div>"),
+            ("template-html", f"<template>\n{sequence}\n</template>"),
+            ("collapsed-html", f"<details>\n{sequence}\n</details>"),
+            ("script-data-html", f"<script type=text/plain>\n{sequence}\n</script>"),
+            ("style-html", f"<style>\n{sequence}\n</style>"),
+            ("search-html", f"<search>\n{sequence}\n</search>"),
+            ("basefont-html", f"<basefont>\n{sequence}\n"),
+            ("menuitem-html", f"<menuitem>\n{sequence}\n</menuitem>"),
+            ("horizontal-rule-html", f"<hr>\n{sequence}\n"),
+            ("svg-html", f"<svg>\n{sequence}\n</svg>"),
+            ("math-html", f"<math>\n{sequence}\n</math>"),
+            ("custom-element-html", f"<custom-element>\n{sequence}\n</custom-element>"),
+            ("split-div-html", f"<div\n class=hidden>\n{sequence}\n</div>"),
+            ("split-table-html", f"<table\n class=x>\n{sequence}\n</table>"),
+            ("split-script-html", f"<script\n type=text/plain>\n{sequence}\n</script>"),
+            ("processing-instruction-html", f"<?probe\n{sequence}\n?>"),
+            ("declaration-html", f"<!DOCTYPE html\n{sequence}\n>"),
+            ("cdata-html", f"<![CDATA[\n{sequence}\n]]>"),
+        ):
+            with self.subTest(hidden_proof=name):
+                weakened = current.replace(
+                    sequence,
+                    hidden + f"\n- Proof: `{source_command}`",
+                    1,
+                )
+                issues = validate_template_text(weakened)
+                self.assertTrue(
+                    any(
+                        issue.target
+                        == "pull_request_template:mcp_client_smoke_exact_proof"
+                        for issue in issues
+                    ),
+                    issues,
+                )
 
     def test_pr_draft_guard_accepts_current_handoff_doc(self) -> None:
         issues = validate_pr_draft(ROOT)
@@ -18713,6 +18782,23 @@ This records future risks.
             issues,
         )
 
+        placeholder_transport = (
+            "python3 scripts/ai_dememory.py --root <initialized-smoke-vault> "
+            'mcp-"client-smoke" --command python3 --command-arg '
+            "<absolute-checkout>/scripts/ai_dememory.py "
+            "# ai-dememory mcp-client-smoke"
+        )
+        placeholder_issues = validate_release_checklist_text(
+            current + strict_transport_markdown(placeholder_transport)
+        )
+        self.assertTrue(
+            any(
+                issue.target == "release_checklist:mcp_client_smoke_contract"
+                for issue in placeholder_issues
+            ),
+            placeholder_issues,
+        )
+
         strict_only = dict(STRICT_MCP_SMOKE_REGION_POCS)["powershell-splat"]
         strict_only_issues = validate_release_checklist_text(
             current + strict_transport_markdown(strict_only)
@@ -18855,6 +18941,50 @@ This records future risks.
                 + "```text\nUnrelated non-executable example.\n```\n"
             ),
         )
+
+    def test_release_checklist_exact_smoke_proof_must_render_as_checkboxes(self) -> None:
+        current = (ROOT / "docs" / "release-v2-checklist.md").read_text(
+            encoding="utf-8"
+        )
+        sequence = "\n".join(MCP_CLIENT_SMOKE_SEQUENCES["acceptance"])
+        self.assertIn(sequence, current)
+
+        for name, hidden in (
+            ("html-comment", f"<!--\n{sequence}\n-->"),
+            ("fenced-example", f"```markdown\n{sequence}\n```"),
+            ("preformatted-html", f"<pre>\n{sequence}\n</pre>"),
+            ("hidden-html", f"<div hidden>\n{sequence}\n</div>"),
+            ("template-html", f"<template>\n{sequence}\n</template>"),
+            ("collapsed-html", f"<details>\n{sequence}\n</details>"),
+            ("script-data-html", f"<script type=text/plain>\n{sequence}\n</script>"),
+            ("style-html", f"<style>\n{sequence}\n</style>"),
+            ("search-html", f"<search>\n{sequence}\n</search>"),
+            ("basefont-html", f"<basefont>\n{sequence}\n"),
+            ("menuitem-html", f"<menuitem>\n{sequence}\n</menuitem>"),
+            ("horizontal-rule-html", f"<hr>\n{sequence}\n"),
+            ("svg-html", f"<svg>\n{sequence}\n</svg>"),
+            ("math-html", f"<math>\n{sequence}\n</math>"),
+            ("custom-element-html", f"<custom-element>\n{sequence}\n</custom-element>"),
+            ("split-div-html", f"<div\n class=hidden>\n{sequence}\n</div>"),
+            ("split-table-html", f"<table\n class=x>\n{sequence}\n</table>"),
+            ("split-script-html", f"<script\n type=text/plain>\n{sequence}\n</script>"),
+            ("processing-instruction-html", f"<?probe\n{sequence}\n?>"),
+            ("declaration-html", f"<!DOCTYPE html\n{sequence}\n>"),
+            ("cdata-html", f"<![CDATA[\n{sequence}\n]]>"),
+        ):
+            with self.subTest(hidden_proof=name):
+                issues = validate_release_checklist_text(
+                    current.replace(sequence, hidden, 1)
+                )
+                self.assertTrue(
+                    any(
+                        issue.target.startswith(
+                            "release_checklist:mcp_client_smoke_exact_"
+                        )
+                        for issue in issues
+                    ),
+                    issues,
+                )
 
     def test_acceptance_guard_rejects_missing_registry_items(self) -> None:
         incomplete = """

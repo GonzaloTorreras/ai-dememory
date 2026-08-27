@@ -1082,6 +1082,29 @@ class DocumentationSiteGuardTests(unittest.TestCase):
             "python3 scripts/ai_dememory.py --root /tmp/vault mcp-client-smoke "
             "--command python3 --command-arg /tmp/co/scripts/ai_dememory.py"
         )
+        self.assertEqual(
+            [],
+            _mcp_client_smoke_command_errors(
+                valid_source + ' # mcp-"client-smoke"\n',
+                "docs/literal-with-comment.md",
+                require_python_source_launch=True,
+                strict_transport=True,
+            ),
+        )
+        windows_source = (
+            r"python3 scripts/ai_dememory.py --root C:\vault "
+            r"mcp-client-smoke --command python3 --command-arg "
+            r"C:\checkout\scripts\ai_dememory.py"
+        )
+        self.assertEqual(
+            [],
+            _mcp_client_smoke_command_errors(
+                windows_source + "\n",
+                "docs/literal-windows-source.md",
+                require_python_source_launch=True,
+                strict_transport=True,
+            ),
+        )
         mixed_errors = _mcp_client_smoke_command_errors(
             valid_source
             + "\nai-dememory --root . mcp-client-smoke"

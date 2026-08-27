@@ -407,9 +407,16 @@ local-API onboarding hint and documentation follow-up.
   assignments, substitutions, or shell semantics. A non-smoke exemption must
   be one standalone, operator-free segment with an explicit literal command;
   nested substitutions and a second dynamic segment cannot hide a strict smoke
-  candidate. Its conservative transport mode is enabled only by the owned PR
-  and release-checklist guards; general operations guidance remains relaxed.
-- Local validation for the branch implementation passes 656 memory-tool tests
+  candidate. Reviewed literal wrappers and Python interpreter options are parsed
+  only far enough to identify the dispatcher and exact command slot. Dynamic
+  prefixes, alternate tokenizations that reconstruct the protected route through
+  adjacent POSIX quotes or escapes, unknown option-shaped Python flags, and
+  ambiguous nested dispatchers fail closed. Its conservative transport mode is
+  enabled only by the owned PR and release-checklist guards; general operations
+  guidance remains relaxed. Exact checklist cardinality and adjacency count only
+  Markdown-visible lines: HTML comments, fenced examples, and all seven CommonMark
+  raw-HTML block classes cannot supply hidden proof.
+- Local validation for the branch implementation passes 658 memory-tool tests
   with 45 expected platform skips, 159 documentation/profile tests, the
   documentation, PR-template and release-checklist guards, secret scan,
   targeted Python compilation, and diff checks. Focal canaries additionally

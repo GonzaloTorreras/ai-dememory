@@ -15,6 +15,7 @@ from docs_site_guard import (
     MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM,
     MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM,
     _mcp_client_smoke_command_errors,
+    markdown_visible_checklist_lines,
 )
 
 
@@ -616,7 +617,7 @@ def level_two_sections(text: str) -> dict[str, list[str]]:
 def validate_release_checklist_text(text: str) -> list[ChecklistGuardIssue]:
     issues: list[ChecklistGuardIssue] = []
     normalized = normalize(text)
-    lines = tuple(text.splitlines())
+    lines = markdown_visible_checklist_lines(text)
     canonical_counts = {
         "source": (MCP_CLIENT_SMOKE_CANONICAL_SOURCE_CHECKLIST_ITEM, 2),
         "config": (MCP_CLIENT_SMOKE_CANONICAL_CONFIG_CHECKLIST_ITEM, 3),
