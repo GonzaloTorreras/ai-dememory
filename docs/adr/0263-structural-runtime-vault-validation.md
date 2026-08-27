@@ -61,10 +61,11 @@ and the unbound hook no-op remain rootless and must not invoke this validator.
 `init` and `vault-template` remain bootstrap operations because their purpose is
 to create a vault rather than consume an initialized one.
 
-This decision does not complete `BRG-003`. Legacy generic dispatch still needs
-an exhaustive `vault-bound`, `source-bound`, or `rootless` command policy and
-removal of unintended CWD/package discovery before the frontier can advance to
-`BRG-019`.
+This decision does not complete `BRG-003`. The later PR #54 supplied the
+exhaustive `vault-bound`, `source-bound`, context-dependent, and package/
+rootless inventory. Policy-specific dispatcher enforcement and removal of
+unintended CWD/package discovery still must complete before the frontier can
+advance to `BRG-019`.
 
 ## Consequences
 

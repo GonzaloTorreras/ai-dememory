@@ -77,9 +77,14 @@ source-bound, package/rootless, or context-dependent. Context-dependent does
 not imply one shared subcommand rule: each entry records its selector and
 terminal branches. Depending on the command, that selector is the caller-chosen
 corpus, root structure or artifact availability, an acceptance action, or the
-`mcp-inventory --check-docs` flag. Enforcement is still being migrated in
-policy-specific slices, so accepting a path on one of those legacy commands
-must not yet be interpreted as proof that the shared structural validator ran.
+`mcp-inventory --check-docs` flag. The package/rootless branch is now enforced
+for `verify-mcp` and `api-smoke`: both parse their own exact grammar, ignore
+ambient vault authority as an input, and use only the active package or a
+smoke-owned temporary vault. A legacy nonempty `--root` remains an ignored
+compatibility value and is never resolved. Enforcement of source-bound, vault-
+bound, and context-dependent generic commands is still being migrated in
+separate slices, so accepting a path on one of those remaining commands must not
+be interpreted as proof that the shared structural validator ran.
 
 The contextual target contract is explicit:
 

@@ -41,6 +41,7 @@ PINNED_TEST_IMAGE = "registry.example/ai-dememory@sha256:" + ("a" * 64)
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(MCP_SERVER))
 
+import memorylib  # noqa: E402
 from ai_dememory_tool import __version__ as PACKAGE_VERSION  # noqa: E402
 from acceptance_guard import validate_acceptance_checklist, validate_acceptance_checklist_text  # noqa: E402
 from adr_guard import validate_adr_docs, validate_adr_text  # noqa: E402
@@ -90,10 +91,11 @@ from http_api import (  # noqa: E402
     require_safe_request_context,
     serve,
 )
-from api_smoke import run_api_smoke  # noqa: E402
+from api_smoke import main as api_smoke_main, run_api_smoke  # noqa: E402
 from install_smoke import (  # noqa: E402
     InstallSmokeError,
     SmokeStep,
+    assert_installed_package_origin,
     assert_doctor_summary,
     assert_maintenance_status_artifacts,
     assert_mcp_initialize_and_ping,
@@ -287,7 +289,7 @@ from onboarding import main as onboarding_main  # noqa: E402
 from sleep_consolidation import SleepError, apply_review_packets, build_sleep_plan, main as sleep_main, write_sleep_report  # noqa: E402
 from vector_gate import VectorReadiness, evaluate_vector_readiness, write_vector_report  # noqa: E402
 from validate_memory import main as validate_main, validate_repo, validate_repo_result  # noqa: E402
-from verify_mcp_contract import validate_contract  # noqa: E402
+from verify_mcp_contract import main as verify_mcp_main, validate_contract  # noqa: E402
 from working_memory import handoff, show_current, snapshot, working_status  # noqa: E402
 from review_memory import (  # noqa: E402
     REVIEW_MODE_ALIASES,
@@ -513,6 +515,161 @@ class MemoryToolTests(unittest.TestCase):
 
             self.assertFalse(missing_root.exists())
             self.assertEqual(validate_contract(missing_root), [])
+
+    def test_rootless_modules_ignore_legacy_root_without_mutating_repo_root(self) -> None:
+        canary = r"\\invalid.example\share\must-not-resolve"
+        original_repo_root = memorylib.REPO_ROOT
+
+        api_output = io.StringIO()
+        with (
+            patch("api_smoke.run_api_smoke", return_value=[]),
+            redirect_stdout(api_output),
+        ):
+            self.assertEqual(api_smoke_main(["--root", canary, "--json"]), 0)
+        self.assertEqual(json.loads(api_output.getvalue()), [])
+
+        contract_output = io.StringIO()
+        with (
+            patch("verify_mcp_contract.validate_contract", return_value=[]),
+            redirect_stdout(contract_output),
+        ):
+            self.assertEqual(verify_mcp_main(["--root", canary, "--json"]), 0)
+        self.assertEqual(json.loads(contract_output.getvalue()), [])
+        self.assertEqual(memorylib.REPO_ROOT, original_repo_root)
+
+    def test_rootless_direct_scripts_prefer_source_over_stale_installed_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            shadow_package = temporary / "shadow" / "ai_dememory_tool"
+            shadow_package.mkdir(parents=True)
+            (shadow_package / "__init__.py").write_text(
+                '__version__ = "2.1.1"\n',
+                encoding="utf-8",
+            )
+            env = {
+                **os.environ,
+                "AI_DEMEMORY_CONFIG_HOME": str(temporary / "missing-config-home"),
+                "AI_DEMEMORY_ROOT": r"\\invalid.example\share\must-not-resolve",
+                # Reproduce the subtle ordering case: the authoritative source
+                # root is present, but only after a stale package. Direct
+                # scripts must still move their own checkout to precedence.
+                "PYTHONPATH": os.pathsep.join((str(shadow_package.parent), str(ROOT))),
+            }
+            for script in ("verify_mcp_contract.py", "api_smoke.py"):
+                with self.subTest(script=script):
+                    completed = subprocess.run(
+                        [sys.executable, str(SCRIPTS / script), "--json"],
+                        cwd=temporary,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                        check=False,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    payload = json.loads(completed.stdout)
+                    if script == "verify_mcp_contract.py":
+                        self.assertEqual(payload, [])
+                    else:
+                        self.assertTrue(payload)
+                        self.assertTrue(all(step["status"] == "ok" for step in payload))
+
+    def test_rootless_modules_reject_ambiguous_legacy_root_grammar_before_work(self) -> None:
+        invalid_arguments = (
+            ["--ro", "legacy"],
+            ["--root"],
+            ["--root="],
+            ["--root", "first", "--root", "second"],
+            ["--unknown"],
+            ["--", "--root", "legacy"],
+        )
+        for name, entrypoint, work_target in (
+            ("api-smoke", api_smoke_main, "api_smoke.run_api_smoke"),
+            ("verify-mcp", verify_mcp_main, "verify_mcp_contract.validate_contract"),
+        ):
+            for arguments in invalid_arguments:
+                with self.subTest(command=name, arguments=arguments):
+                    with (
+                        patch(work_target) as work,
+                        redirect_stderr(io.StringIO()),
+                        self.assertRaises(SystemExit) as raised,
+                    ):
+                        entrypoint(list(arguments))
+                    self.assertEqual(raised.exception.code, 2)
+                    work.assert_not_called()
+
+    def test_unified_rootless_commands_bypass_vault_resolution_without_mutating_env(self) -> None:
+        canary = r"\\invalid.example\share\must-not-resolve"
+        for command in ("api-smoke", "verify-mcp"):
+            for position in ("global", "post-command"):
+                with self.subTest(command=command, position=position):
+                    observed: dict[str, object] = {}
+
+                    def module_main(arguments: list[str]) -> int:
+                        observed["argv"] = list(arguments)
+                        observed["root_env"] = os.environ.get("AI_DEMEMORY_ROOT")
+                        return 0
+
+                    module = type(
+                        "RootlessModule",
+                        (),
+                        {"main": staticmethod(module_main)},
+                    )
+                    if position == "global":
+                        arguments = ["--root", canary, command, "--json"]
+                        expected_argv = ["--json"]
+                    else:
+                        arguments = [command, "--root", canary, "--json"]
+                        expected_argv = ["--root", canary, "--json"]
+
+                    with (
+                        patch.dict(
+                            os.environ,
+                            {"AI_DEMEMORY_ROOT": "ambient-poison"},
+                            clear=False,
+                        ),
+                        patch("ai_dememory_tool.cli.configure_imports"),
+                        patch(
+                            "ai_dememory_tool.cli.load_default_vault",
+                            side_effect=AssertionError("rootless command read the selector"),
+                        ),
+                        patch(
+                            "ai_dememory_tool.cli.find_memory_root",
+                            side_effect=AssertionError("rootless command discovered CWD"),
+                        ),
+                        patch(
+                            "ai_dememory_tool.cli.importlib.import_module",
+                            return_value=module,
+                        ),
+                        patch.object(
+                            Path,
+                            "resolve",
+                            side_effect=AssertionError("rootless command resolved a root"),
+                        ),
+                    ):
+                        self.assertEqual(cli_main(arguments), 0)
+                        self.assertEqual(os.environ["AI_DEMEMORY_ROOT"], "ambient-poison")
+
+                    self.assertEqual(observed["argv"], expected_argv)
+                    self.assertEqual(observed["root_env"], "ambient-poison")
+
+    def test_unified_rootless_help_precedes_vault_resolution(self) -> None:
+        for command in ("api-smoke", "verify-mcp"):
+            with self.subTest(command=command):
+                with (
+                    patch(
+                        "ai_dememory_tool.cli.load_default_vault",
+                        side_effect=AssertionError("rootless help read the selector"),
+                    ),
+                    patch(
+                        "ai_dememory_tool.cli.find_memory_root",
+                        side_effect=AssertionError("rootless help discovered CWD"),
+                    ),
+                    redirect_stdout(io.StringIO()),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    cli_main([command, "--help"])
+                self.assertEqual(raised.exception.code, 0)
 
     def test_mcp_inventory_reads_source_only_for_check_docs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -15856,6 +16013,23 @@ class MemoryToolTests(unittest.TestCase):
             self.assertEqual(pip_path, Path("venv") / "bin" / "pip")
             self.assertEqual(command_path, Path("venv") / "bin" / "ai-dememory")
 
+    def test_install_smoke_rejects_package_origin_outside_fresh_venv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temporary = Path(tmp)
+            venv = temporary / "venv"
+            inside = venv / "Lib" / "site-packages" / "ai_dememory_tool" / "__init__.py"
+            outside = temporary / "shadow" / "ai_dememory_tool" / "__init__.py"
+            inside.parent.mkdir(parents=True)
+            outside.parent.mkdir(parents=True)
+            inside.write_text("", encoding="utf-8")
+            outside.write_text("", encoding="utf-8")
+
+            assert_installed_package_origin(f"{inside}\n", venv)
+            with self.assertRaisesRegex(InstallSmokeError, "outside the fresh virtual environment"):
+                assert_installed_package_origin(f"{outside}\n", venv)
+            with self.assertRaisesRegex(InstallSmokeError, "origin was empty"):
+                assert_installed_package_origin("\n", venv)
+
     def test_install_smoke_run_step_allows_expected_nonzero_exit(self) -> None:
         steps: list[SmokeStep] = []
         completed = run_step(
@@ -15869,6 +16043,24 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(steps[0].returncode, 1)
         with self.assertRaises(InstallSmokeError):
             run_step([], "unexpected nonzero", [sys.executable, "-c", "import sys; sys.exit(1)"])
+
+    def test_install_smoke_run_step_removes_python_import_authority(self) -> None:
+        completed = subprocess.CompletedProcess(["smoke"], 0, "", "")
+        supplied_env = {
+            **os.environ,
+            "PYTHONHOME": "poison-home",
+            "PYTHONPATH": "poison-path",
+            "PIP_INDEX_URL": "https://example.invalid/simple",
+        }
+
+        with patch("install_smoke.run_owned_capture", return_value=completed) as owned:
+            self.assertIs(run_step([], "isolated", ["smoke"], env=supplied_env), completed)
+
+        child_env = owned.call_args.kwargs["env"]
+        self.assertNotIn("PYTHONHOME", child_env)
+        self.assertNotIn("PYTHONPATH", child_env)
+        self.assertEqual(child_env["PYTHONNOUSERSITE"], "1")
+        self.assertEqual(child_env["PIP_INDEX_URL"], "https://example.invalid/simple")
 
     def test_install_smoke_command_list_covers_v2_cli_surfaces(self) -> None:
         commands = {name: args for name, args in package_smoke_commands()}

@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import threading
 from typing import Any
@@ -16,9 +17,23 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from unittest.mock import patch
 
+# A direct source-script invocation starts with ``scripts/`` on sys.path. Put
+# this script's own checkout ahead of an older installed ai_dememory_tool before
+# the first package import; retrying after a failed import would leave that old
+# package cached in sys.modules. Installed namespaced execution already has the
+# authoritative package path and must not select a checkout this way.
+if not __package__:
+    source_root = Path(__file__).resolve().parents[1]
+    if (source_root / "ai_dememory_tool").is_dir():
+        # Insert unconditionally. A caller-controlled PYTHONPATH may already
+        # contain this checkout after a stale or shadow package; membership is
+        # not proof of import precedence.
+        sys.path.insert(0, str(source_root))
+
+from ai_dememory_tool.argument_safety import reject_duplicate_options
+
 from http_api import MUTATION_INTENT_HEADER, MUTATION_INTENT_VALUE, main as api_main, serve
 from index_memory import rebuild_index
-from memorylib import repo_root
 
 
 @dataclass(frozen=True)
@@ -187,13 +202,19 @@ def run_api_smoke() -> list[ApiSmokeStep]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", default=None, help="Accepted for command consistency; smoke uses a temp vault.")
+    arguments = list(argv if argv is not None else sys.argv[1:])
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Legacy compatibility value; ignored because the smoke owns a temporary vault.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON output.")
-    args = parser.parse_args(argv)
+    reject_duplicate_options(parser, arguments, ("--root",))
+    args = parser.parse_args(arguments)
 
-    if args.root:
-        repo_root(args.root)
+    if args.root is not None and not args.root.strip():
+        parser.error("--root requires a non-empty compatibility value")
     try:
         steps = run_api_smoke()
     except ApiSmokeError as exc:
