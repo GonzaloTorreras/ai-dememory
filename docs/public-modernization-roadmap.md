@@ -268,6 +268,11 @@ Generate current inventories for:
 - docs-to-command coverage and stale release claims;
 - cold CLI/hook startup, warm recall latency, peak RSS, and held-out recall.
 
+Normative ownership is narrower than this historical phase: `BRG-019` owns
+bridge/MCP capability and schema budgets, `MIG-001` owns the complete
+writer/format/locking inventory, and `RET-001` owns truth-preserving recall
+evaluation. Their exact order remains in the planning contract.
+
 Create a public compatibility baseline and v2 support policy. Do not increment
 the package version merely to land planning evidence. Add an active ADR index
 and split `tests/test_memory_tools.py` into discoverable contract/domain suites
@@ -298,13 +303,16 @@ paths contain no hidden writer.
 Keep FTS as control. Add:
 
 - Unicode normalization and explainable candidate generation;
-- held-out recall/miss ledgers with contamination controls;
+- held-out recall challenge corpora with contamination controls;
 - temporal supersession and provenance projection;
 - optional semantic candidate union with persisted embedder identity;
 - rebuild, repair, and export receipts.
 
 Promote an experiment only when it improves held-out product recall or a defined
 workflow without violating latency, privacy, install size, or offline use.
+For current task ownership, use `GRF-001` for the versioned graph projection and
+`RET-002` for the later opt-in retrieval comparison; neither task is active
+before `GATE-B`.
 
 ### Phase 4 - Optional visual strangler
 
@@ -418,6 +426,9 @@ release, evidence, and blockers in [development status](development-status.md).
 The [governed learning design handoff](governed-learning-loop-handoff.md)
 supplies design constraints only when one of its owning task ids reaches that
 frontier.
+The [proposal validation handoff](proposal-validation-handoff.md) classifies the
+recent graph, retrieval, format, concurrency, review, and MCP audit claims and
+maps only the confirmed gaps to those normative owners.
 
 Continue to earn retrieval, visual-plane, or model-assisted expansion with
 measured product evidence rather than roadmap prose.

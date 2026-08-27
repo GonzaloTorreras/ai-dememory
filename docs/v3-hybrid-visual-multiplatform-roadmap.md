@@ -70,23 +70,69 @@ Reject or defer:
 The machine-readable order is
 `contracts/planning/v3-execution-sequence.json`. Current public tasks are:
 
-| Task | Purpose | Batch | State |
-| --- | --- | --- | --- |
-| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | complete; stable verified |
-| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | current frontier |
-| `BRG-017` | Strict config parsing and diagnostics | `B04b` | complete |
-| `BRG-019` | Bridge inventories and exact-artifact tooling | `B04c` | pending |
-| `MIG-001` | Freeze and generate the canonical writer inventory | `B05a` | pending |
-| `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | blocked on evidence |
-| `OBS-001` | Bounded provider-neutral observation shadow | `B07a` | future; after `GATE-B` |
-| `OUT-001` | Exact outcome attribution without exposure rewards | `B07b` | future; after `OBS-001` |
-| `CON-001` | Deterministic governed candidate materialization | `B08a` | future; after `OUT-001` |
-| `MEM-001` | Reviewed semantic and advisory procedural forms | `B08b` | future; after `CON-001` |
-| `ONB-001` | V3 guided onboarding experience | `B20` | future; not BRG-014 |
+<!-- BEGIN NORMATIVE TASK STATE TABLE -->
+
+| Task ID | Objective | Batch | State | Notes |
+| --- | --- | --- | --- | --- |
+| `BRG-014` | Separate config-only setup from memory-only onboarding | `B04a` | `complete` | Stable verified baseline. |
+| `BRG-003` | Deterministic explicit vault/root binding | `B04b` | `in_progress` | Sole current frontier. |
+| `BRG-017` | Strict config parsing and diagnostics | `B04b` | `complete` | Completed within the current batch. |
+| `BRG-019` | Bridge/MCP capability, effect, profile, and schema-budget inventories | `B04c` | `pending` | Starts after `BRG-003`. |
+| `MIG-001` | Freeze writer, accepted-format, locking, and recovery inventories | `B05a` | `pending` | Starts after `BRG-019`. |
+| `RET-001` | Truth-preserving regression and held-out recall evaluation | `B05b` | `pending` | Starts after `MIG-001`. |
+| `GATE-B` | Demonstrate V2 compatibility before migration | `B06` | `blocked` | Requires external evidence. |
+| `GRF-001` | Version a collision-safe graph projection contract | `B06a` | `future` | Starts after `GATE-B`. |
+| `RET-002` | Compare bounded retrieval candidates in shadow mode | `B06b` | `future` | Starts after `GRF-001`. |
+| `OBS-001` | Bounded provider-neutral observation shadow | `B07a` | `future` | Starts after `GATE-B`. |
+| `OUT-001` | Exact outcome attribution without exposure rewards | `B07b` | `future` | Starts after `OBS-001`. |
+| `CON-001` | Deterministic governed candidate materialization | `B08a` | `future` | Starts after `OUT-001`. |
+| `MEM-001` | Reviewed semantic and advisory procedural forms | `B08b` | `future` | Starts after `CON-001`. |
+| `ONB-001` | V3 guided onboarding experience | `B20` | `future` | Distinct from `BRG-014`; starts after `GATE-B`. |
+
+<!-- END NORMATIVE TASK STATE TABLE -->
+
+Current frontier: `BRG-003`.
 
 No task may be marked complete from documentation alone. Evidence paths must
 refer to current public commits and reproducible tests; external gates remain
 blocked until authenticated providers return exact readback.
+
+### Acceptance boundaries added by proposal validation
+
+The [proposal validation handoff](proposal-validation-handoff.md) records the
+evidence behind these refinements. It is explanatory; the task and batch order
+above and in the JSON contract is authoritative.
+
+- `BRG-019` must generate exact inventories for provider events, aliases,
+  fingerprints, writers and side effects, plus MCP tool families, compatibility
+  aliases, deprecation state, profile exposure, tool counts, schema bytes,
+  estimated tokens, and named budgets. Drift must fail an exact-artifact check.
+  This task does not add an event ledger, learning loop, or MCP tool.
+- `MIG-001` must cover every canonical, proposal, receipt, archive, report, and
+  generated-index writer; each accepted frontmatter/input format; deduplication
+  and queue limits; lock/fencing ownership; temporary paths; crash recovery;
+  retention; and secret scanning. In particular, index rebuilds need a bounded
+  shared writer boundary and unique per-attempt temporary files before their
+  concurrency can be claimed safe.
+- `RET-001` must separate passing regression fixtures from reviewed unresolved
+  challenges, verify that every expected id/path exists, freeze a corpus hash,
+  prevent train/test leakage, and let failures remain represented without
+  weakening release regression checks. Spanish/Unicode cases must expose the
+  current ASCII-tokenization baseline rather than disappearing from it. It
+  changes neither ranking nor runtime dependencies.
+- `GRF-001` must fail closed on normalized-node collisions, add
+  `schema_version`, state `reference_scope=within_page` and
+  `reference_detection=body_mention_v1`, provide strict graph output schemas,
+  and test reference, collision, and page-closure semantics. A real MCP consumer
+  must read back that contract. It remains a disposable projection and does not
+  authorize graph-aware recall.
+- `RET-002` may compare FTS, a shared deterministic Unicode
+  normalization/tokenization candidate, fuzzy/query variants, bounded one-hop
+  graph candidates, and an optional local multilingual vector candidate only in
+  opt-in shadow reports. No path becomes a production dependency or default
+  ranking signal without at least a five-point gain across at least 100 reviewed
+  held-out cases, no policy/provenance regression, acceptable p95/RSS, and
+  external consumer readback.
 
 ## Delivery Phases
 
@@ -102,13 +148,19 @@ blocked until authenticated providers return exact readback.
 
 - Complete the remaining `BRG-003` frontier first, then `BRG-019` and
   `MIG-001`, as small PRs. Preserve the completed `BRG-017` strict-config
-  boundary while those integrations are inventoried.
-- Generate CLI, MCP, and canonical-writer inventories.
+  boundary while those integrations are inventoried. Repair the recall evidence
+  contract under `RET-001` before attempting `GATE-B`.
+- Generate CLI, bridge, MCP profile/schema-budget, accepted-format, and complete
+  writer inventories.
 - Add exact-artifact, concurrent binding, crash recovery, and config strictness
   coverage without importing archive runtime wholesale.
 
 ### Phase 2: Measured retrieval and maintenance
 
+- After `GATE-B`, stabilize the graph as a versioned disposable projection in
+  `GRF-001`; only then may `RET-002` compare retrieval candidates in shadow
+  mode. This is an independent branch from governed learning and does not block
+  `OBS-001`.
 - Treat the
   [governed learning loop handoff](governed-learning-loop-handoff.md) as the
   approved design for `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001`. These
@@ -125,8 +177,9 @@ blocked until authenticated providers return exact readback.
   not create acceptance evidence or executable work. Keep query-time synthesis
   read-only and durable consolidation proposal-first.
 - Add incremental checkpoints, no-op maintenance, and stale-lock fencing.
-- Keep FTS baseline until a held-out corpus proves a vector experiment improves
-  recall enough to justify its cost and migration burden.
+- Keep FTS as the production baseline until `RET-001` supplies a truth-preserving
+  held-out corpus and `RET-002` proves that a candidate improves recall enough
+  to justify its latency, memory, privacy, and migration burden.
 - Do not add model-assisted synthesis to the executable DAG until a reviewed
   replay proves deterministic consolidation has a material gap.
 

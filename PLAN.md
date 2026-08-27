@@ -3,9 +3,11 @@
 This is a non-normative future research appendix for `ai-dememory`. It is separate from
 `ai-dememory roadmap status`, which reports current v2 implementation evidence.
 The [governed learning loop handoff](docs/governed-learning-loop-handoff.md)
-refines the local observation, attribution, and consolidation direction. Both
-documents are explanatory; executable order and state live only in the V3
-roadmap and `contracts/planning/**`.
+refines the local observation, attribution, and consolidation direction. The
+[proposal validation handoff](docs/proposal-validation-handoff.md) separately
+classifies graph, retrieval, format, concurrency, review, and MCP audit claims.
+All three documents are explanatory; executable order and state live only in
+the V3 roadmap and `contracts/planning/**`.
 
 The guiding target:
 
@@ -45,7 +47,9 @@ the following capabilities. This is not a current release-readiness claim; use
 - Search and context assembly are explainable and token-budgeted.
 - Working memory, lifecycle feedback, review workflows, hooks, imports, git
   lessons, and release evidence exist.
-- Optional vector search is gated because current recall fixtures pass.
+- Current vector readiness is gated by passing regression fixtures, but that
+  set does not preserve unresolved reviewed misses. Normative task `RET-001`
+  repairs that evidence boundary before any retrieval experiment is trusted.
 
 This means the next roadmap should not start with better embeddings or broader
 automation. It should start with governance and evaluation.
@@ -243,6 +247,12 @@ This is not "turn vectors on." It is a staged retrieval-review layer that can
 combine deterministic search, fuzzy matching, graph hints, optional embeddings,
 and an optional cheap reviewer model.
 
+Normative ownership is intentionally narrower than this research space:
+`RET-001` first separates passing regressions from held-out challenges before
+`GATE-B`; after that gate, `GRF-001` versions the graph projection and `RET-002`
+may compare bounded candidates in opt-in shadow mode. These tasks do not
+authorize a reviewer model, production embedding dependency, or ranking change.
+
 Capabilities to explore:
 
 - Strong fuzzy lexical matching for typos, accents, spelling variants, slugs,
@@ -295,6 +305,8 @@ owning task is present on that live normative frontier.
 - Current implementation status: `docs/roadmap-status.md`
 - Governed observation, attribution, and consolidation handoff:
   `docs/governed-learning-loop-handoff.md`
+- Validated audit disposition and task mapping:
+  `docs/proposal-validation-handoff.md`
 - Detailed governance appendix: `docs/shared-memory-governance-roadmap.md`
 - MCP v2 product plan: `docs/mcp-v2.md`
 - Memory quality and recall fixtures: `docs/memory-quality.md`

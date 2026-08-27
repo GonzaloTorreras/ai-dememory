@@ -51,10 +51,12 @@ References:
   provider files, writing files, or deleting archives.
 - Health-aware: local clients can inspect doctor readiness checks without
   mutating files.
-- Quality-aware: local clients can inspect recall fixture freshness and pending
-  recall miss review work.
-- Vector-gated: local clients can inspect vector readiness evidence without
-  creating embeddings or enabling vector search.
+- Quality-aware: local clients can inspect passing regression-fixture freshness
+  and pending recall miss review work. Current fixtures do not represent
+  unresolved held-out challenges.
+- Vector-status aware: local clients can inspect descriptive vector-readiness
+  output without creating embeddings, enabling vector search, or authorizing a
+  retrieval experiment.
 - Sleep-aware: local clients can prepare consolidation review packets without
   mutating canonical memory.
 - Working-aware: local clients can read generated current task state and write
@@ -73,8 +75,8 @@ References:
   direct durable mutations.
 - Rebuildable: SQLite index and distilled exports are reproducible from
   Markdown.
-- Measurable: recall quality is checked with curated fixtures before adding
-  vector search.
+- Measurable: solved recall behavior is checked with curated passing regression
+  fixtures; unresolved quality evaluation remains future `RET-001` work.
 - Auditable: retrieval writes to `retrieval_log`; lifecycle scores preserve
   retrieval/outcome feedback across index rebuilds; consolidation is dry-run by
   default; reviewed false positives and conflicts are recorded in
@@ -100,7 +102,8 @@ References:
 
 ## Deliberate Non-Goals
 
-- No vector search until retrieval logs prove FTS recall failures.
+- No vector search based on current retrieval logs, regression fixtures, or
+  `vector status`; they do not constitute the future held-out evaluation gate.
 - No remote HTTP MCP server until authentication and authorization requirements
   are explicit.
 - No automatic durable memory mutation.
@@ -122,7 +125,8 @@ References:
    manual stdio server only as a compatibility shim if client compatibility
    issues appear.
 3. Keep package install, local API, Docker MCP, and MCP stdio smoke checks in CI.
-4. Add weekly recall quality fixtures from real retrieval misses with
+4. Add weekly regression fixtures from real, reviewed, and already solved
+   retrieval misses with
    `ai-dememory recall-fixtures status`, MCP `memory.recall_fixture_status`,
    MCP `memory.recall_miss_candidate`, MCP `memory.recall_review_plan`, MCP
    `memory.recall_review_packet`, MCP
@@ -131,7 +135,9 @@ References:
    `memory.recall_miss_review`, MCP `memory.vector_status`, and
    `ai-dememory recall-fixtures promote-miss`. Use
    `ai-dememory recall-fixtures packet --write-report` for human weekly review
-   handoffs without promoting fixtures.
+   handoffs without promoting fixtures. `promote-miss` accepts only a case that
+   passes against the current index. Keep unresolved reviewed misses pending;
+   future `RET-001` owns their separate held-out representation.
    MCP `memory.acceptance_packet_archive_status` lists generated manual
    acceptance packet snapshots without recording evidence. MCP
    `memory.acceptance_packet_archive_retention_plan` previews generated manual
@@ -142,4 +148,6 @@ References:
    `docs/v3-hybrid-visual-multiplatform-roadmap.md` and
    `contracts/planning/v3-execution-sequence.json`. Use `PLAN.md` only as
    non-normative research for productization, governance, evaluation,
-   traceability, quarantine, and gated retrieval ideas.
+   traceability, quarantine, and gated retrieval ideas. The retrieval sequence
+   is `RET-001` -> `GATE-B` -> `GRF-001` -> `RET-002`; current MCP vector status
+   does not advance it.

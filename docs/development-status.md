@@ -13,19 +13,21 @@ reproducible evidence changes.
   handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
   historical release commit into a permanent `main` claim.
 - For this handoff, public `main` was read back at
-  `10b83ada74c07f8bfec66dbf51e3d14268585112`, the squash merge result of
-  [PR #54](https://github.com/GonzaloTorreras/ai-dememory/pull/54). Its history
-  contains the exhaustive generic-command root-policy inventory from PR #54,
-  structural runtime-vault validation from PR #53, rootless provider detection
-  from PR #52, the completed strict-configuration boundary from PR #51, strict
-  maintenance and scheduler corrections from PRs #50 and #48, the
-  planning-authority consolidation from PR #49, the planning-only governed-
-  learning handoff from PR #47, and the unpublished `2.1.2` default-vault/
-  wizard correction from PR #46. The exact PR #54 head passed
-  [CI run 33041154878](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33041154878)
-  and [Pages validation 33041154848](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33041154848);
-  independent exact-head reviews returned `READY`, and post-merge public plus
-  local `origin/main` readback matched the squash commit.
+  `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`, the squash merge result of
+  [PR #55](https://github.com/GonzaloTorreras/ai-dememory/pull/55). Its history
+  contains the package-rootless diagnostic enforcement from PR #55, the
+  exhaustive generic-command root-policy inventory from PR #54, structural
+  runtime-vault validation from PR #53, rootless provider detection from PR
+  #52, the completed strict-configuration boundary from PR #51, and the prior
+  public planning and compatible `2.1.2` source corrections. The exact PR #55
+  head passed
+  [CI run 33070363903](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33070363903)
+  and [Pages validation 33070363887](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33070363887);
+  fresh functional and security reviewers returned `READY`, and the owner
+  receipt bound those results to the exact base/head/tree tuple. Post-merge
+  public [CI run 33072030026](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33072030026)
+  then passed `verify` plus all nine OS/Python compatibility jobs, and local
+  `origin/main` readback matched the squash commit.
 - Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
   its annotated tag peels to
   `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
@@ -455,11 +457,14 @@ local-API onboarding hint and documentation follow-up.
   handoff. No version, DAG state, package publication, installed vault, host
   configuration, or release changed.
 
-### Current Package-Rootless Generic Dispatch Increment
+### Merged Package-Rootless Generic Dispatch Increment
 
-- The `codex/brg003-rootless-dispatch` branch is based directly on public
-  `main` at `10b83ada74c07f8bfec66dbf51e3d14268585112` and remains inside
-  `BRG-003` / `B04b`.
+- PR [#55](https://github.com/GonzaloTorreras/ai-dememory/pull/55) was squash
+  merged to public `main` at `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`.
+  Its exact head `4f2d8ea5e6e4b40c34462887dcfedc183d057137` and tree
+  `167f8d813ac16a16cb26ee38b20c55680050a939` passed the CI, Pages, independent
+  functional/security review, owner receipt, merge readback, and public-main CI
+  evidence summarized above. The change remains inside `BRG-003` / `B04b`.
 - The generic dispatcher now enforces the inventory's two unconditional
   package/rootless entries before any legacy vault lookup. `verify-mcp` loads
   the contract exported by the active package, while `api-smoke` owns its
@@ -494,6 +499,43 @@ local-API onboarding hint and documentation follow-up.
   `mcp-inventory` is intentionally deferred to the next contextual slice, and
   no version, package, tag, release, installed vault, host configuration, or
   future learning capability changes.
+
+## Current Proposal Validation And Planning Consolidation
+
+- The current `codex/proposal-validation-roadmap` branch is based directly on
+  public `main` at `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`. It treats the
+  supplied external repository assessment as hypotheses, not instructions or
+  evidence, and changes no runtime, package, vault, version, configuration, or
+  current frontier.
+- Confirmed gaps are assigned to existing or explicit future owners: exact
+  MCP/profile budgets under `BRG-019`; writers, accepted formats, proposal caps,
+  YAML duplicate rejection, and index fencing/recovery under `MIG-001`;
+  truth-preserving held-out recall evidence under new pending `RET-001`; then
+  `GATE-B`; followed by future `GRF-001` and `RET-002` as an independent
+  post-gate graph/retrieval branch. Governed learning remains the parallel
+  `OBS-001` -> `OUT-001` -> `CON-001` -> `MEM-001` branch after `GATE-B`.
+- The current ASCII token boundary is now recorded as a high-probability
+  multilingual quality risk. `RET-001` must expose it with reviewed
+  Spanish/Unicode cases; `RET-002` must compare one shared deterministic Unicode
+  normalization boundary before an optional local embedding candidate. Graph
+  output must separately declare page-local closure and body-mention reference
+  detection rather than imply semantic links.
+- Active quality, operations, MCP, release-checklist, vector, and roadmap docs
+  now distinguish passing regression fixtures from unresolved held-out
+  challenges. `vector status` is descriptive only. The current source snapshot
+  reports the admin MCP profile at 74 tools, 81,234 schema bytes, and about
+  20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement.
+- Planning validation now rejects task dependencies whose batches are not
+  transitively compatible, requires empty evidence for every `future` task, and
+  checks exact task-id/batch/state/frontier parity between the delimited
+  normative roadmap table and the JSON contract. The current frontier remains
+  exactly `BRG-003`; contract version 1 and the empty public execution ledger
+  are unchanged.
+- Local pre-rebase evidence passed 181 focused planning, documentation-site,
+  MCP-profile, and Pages tests. The planning validator, documentation-site
+  guard, MCP docs inventory check, secret scan, artifact guard, and diff check
+  also passed. No Python test process remained after completion. Exact rebased
+  head, CI, Pages, and fresh independent review remain PR delivery evidence.
 
 ## Completed BRG-017 Strict Configuration Boundary
 
@@ -694,16 +736,17 @@ remain intact.
    release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
    from TestPyPI, and read back. Each tag and publication must remain bound to
    its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Complete the current `BRG-003` package/rootless slice for `api-smoke` and
-   `verify-mcp`, then split `mcp-inventory`: normal/profile output is package-
-   derived and rootless, while `--check-docs` is source-bound. Continue the
-   remaining source, vault, and contextual policies in compatible slices;
+2. Continue `BRG-003` by splitting `mcp-inventory`: normal/profile output is
+   package-derived and rootless, while `--check-docs` is source-bound. Continue
+   the remaining source, vault, and contextual policies in compatible slices;
    never reuse the vault resolver for a source-bound command.
-3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, and the
-   externally read-back `GATE-B` in their normative order after `BRG-003`.
-4. Keep `OBS-001`, `OUT-001`, `CON-001`, and `MEM-001` as future work. Their
-   [governed learning handoff](governed-learning-loop-handoff.md) adds no
-   current runtime, config, wizard, ranking, or canonical-write capability.
+3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, `RET-001`,
+   and the externally read-back `GATE-B` in their normative order after
+   `BRG-003`.
+4. After `GATE-B`, keep `GRF-001` -> `RET-002` and `OBS-001` -> `OUT-001` ->
+   `CON-001` -> `MEM-001` as separate future branches. Their planning handoffs
+   add no current runtime, config, wizard, ranking, model, vector, graph-recall,
+   or canonical-write capability.
 5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence. The next
    release identity remains `2.1.2rc1` and then `2.1.2`; do not skip directly
    to `2.1.3`, reuse a tag, or treat source metadata as publication evidence.

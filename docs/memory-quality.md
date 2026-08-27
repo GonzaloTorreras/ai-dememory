@@ -1,8 +1,9 @@
 # Memory Quality
 
-Memory quality is measured before retrieval architecture changes. SQLite FTS
-remains the default retrieval layer until curated recall fixtures prove it is
-insufficient.
+Memory quality must be measured before retrieval architecture changes. The
+current recall fixtures are passing regression cases, so they protect solved
+behavior but cannot by themselves prove whether SQLite FTS is insufficient.
+SQLite FTS remains the default retrieval layer.
 
 ## Recall Fixtures
 
@@ -46,16 +47,20 @@ evidence is stricter: `ai-dememory release-evidence --json` includes
 `vector_readiness`. `release-evidence --strict` remains blocked with
 `recall_fixture_review` until a reviewed promotion makes the fixture set fresh.
 If fixture results make a vector experiment eligible, release evidence adds a
-`vector_readiness_review` blocker. The reviewed promotion itself is still the
-evidence that weekly recall quality is improving from real misses.
+`vector_readiness_review` blocker. This is a descriptive v2 signal, not
+authorization to add vector retrieval. A reviewed promotion proves that a
+previously observed and now-solved case is protected against regression; it is
+not evidence that unresolved misses are represented.
 
 For the 2.1.0 release, the five checked-in fixtures are bootstrap fixtures with
 `source_ref: initial-quality-fixture`; they validate deterministic mechanics,
 not production recall effectiveness. Do not convert their passing result into
-a recall-quality claim. Product evidence starts when reviewed misses are
-promoted with their source references. A useful next evidence milestone is at
-least 20 promoted misses spanning multiple projects and both project-specific
-and cross-project queries, reported separately from the bootstrap set.
+a recall-quality claim. Reviewed promotions with source references improve the
+regression corpus only. A useful regression milestone is at least 20 promoted
+and passing cases spanning multiple projects and both project-specific and
+cross-project queries, reported separately from the bootstrap set. Unresolved
+reviewed misses need the separate held-out representation planned by
+`RET-001`; they cannot be promoted into the current passing fixture set.
 
 Use `recall-fixtures review-plan` during weekly review to list pending
 `inbox/recall-feedback/` miss files, malformed miss files, fixture freshness,
@@ -164,6 +169,9 @@ review provenance, secret-scans the fixture, validates that the fixture passes
 against the current generated search index, and then marks the source miss as
 `status: promoted` with the promoted fixture id. If the fixture would fail,
 promotion rolls back the fixture file and leaves the miss proposed for review.
+Consequently only solved misses can become current regression fixtures. Until
+`RET-001` adds a truth-preserving held-out challenge set, an unresolved reviewed
+miss remains review evidence rather than evaluation-corpus coverage.
 
 If review shows that a miss is invalid, obsolete, duplicate, or not useful for
 the fixture suite, close it without changing fixtures:
@@ -183,8 +191,9 @@ file, secret-scans the review metadata, and keeps canonical memory and
 
 ## Vector Search Gate
 
-Do not add vector search until recall fixtures show important searches failing
-with SQLite FTS and manual review confirms semantic retrieval would help.
+Do not add vector search based on the current fixture or `vector status` output.
+The current command summarizes a passing regression corpus and cannot preserve
+unresolved failures as held-out evidence.
 The same principle applies to super-search ideas in the non-normative
 `PLAN.md` appendix: fuzzy matching, candidate-bundle review, and optional
 model/provider review must first enter the normative planning frontier and
@@ -203,7 +212,13 @@ ai-dememory vector status --write-report
 ai-dememory vector status --write-report --report-path reports/vector-readiness.md
 ```
 
-The default decision is `not_justified` when all fixtures pass. A vector
-experiment is eligible only when recall falls below the configured threshold and
-enough fixture cases fail. Custom report paths must stay inside the memory root,
-and the rendered Markdown report is secret-scanned before writing.
+The default decision is `not_justified` when all fixtures pass. Any other
+reported decision is descriptive only and does not authorize vector work.
+Custom report paths must stay inside the memory root, and the rendered Markdown
+report is secret-scanned before writing.
+
+The normative sequence is `RET-001` (separate passing regressions from reviewed
+held-out challenges), then `GATE-B` (external compatibility readback), then
+`GRF-001` (versioned graph projection), and only then `RET-002` (bounded shadow
+retrieval comparison). Any optional local vector candidate belongs inside
+`RET-002`; it is not current runtime scope.

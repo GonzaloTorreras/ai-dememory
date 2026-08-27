@@ -140,6 +140,23 @@ def dependency_cycle(graph: dict[str, list[str]]) -> list[str] | None:
     return None
 
 
+def dependency_reachable(graph: dict[str, list[str]], start: str, target: str) -> bool:
+    """Return whether target is start or one of its transitive dependencies."""
+    pending = [start]
+    visited: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if node == target:
+            return True
+        if node in visited:
+            continue
+        visited.add(node)
+        pending.extend(
+            dependency for dependency in graph.get(node, []) if dependency not in visited
+        )
+    return False
+
+
 def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[str]:
     errors: list[str] = []
     raw_tasks = sequence.get("tasks")
@@ -189,6 +206,19 @@ def validate_sequence_semantics(sequence: dict[str, Any], root: Path) -> list[st
         for dependency in dependencies:
             if dependency not in task_map:
                 errors.append(f"task {task_id} depends on unknown task {dependency}")
+                continue
+            dependency_batch = task_map[dependency].get("batch")
+            if (
+                batch_id in batch_map
+                and dependency_batch in batch_map
+                and not dependency_reachable(
+                    batch_graph, str(batch_id), str(dependency_batch)
+                )
+            ):
+                errors.append(
+                    f"task {task_id} in batch {batch_id} depends on task {dependency} "
+                    f"in unreachable batch {dependency_batch}"
+                )
         evidence = task.get("evidence", [])
         if isinstance(evidence, list):
             for value in evidence:

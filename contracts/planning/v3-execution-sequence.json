@@ -30,10 +30,28 @@
       "tasks": ["MIG-001"]
     },
     {
+      "id": "B05b",
+      "title": "Truth-preserving recall evaluation",
+      "depends_on": ["B05a"],
+      "tasks": ["RET-001"]
+    },
+    {
       "id": "B06",
       "title": "Compatibility gate",
-      "depends_on": ["B05a"],
+      "depends_on": ["B05b"],
       "tasks": ["GATE-B"]
+    },
+    {
+      "id": "B06a",
+      "title": "Versioned graph projection contract",
+      "depends_on": ["B06"],
+      "tasks": ["GRF-001"]
+    },
+    {
+      "id": "B06b",
+      "title": "Bounded retrieval experiments",
+      "depends_on": ["B06a"],
+      "tasks": ["RET-002"]
     },
     {
       "id": "B07a",
@@ -83,7 +101,7 @@
     {
       "id": "BRG-019",
       "batch": "B04c",
-      "title": "Generate bridge inventories and exact-artifact checks",
+      "title": "Generate bridge and MCP capability-budget inventories",
       "status": "pending",
       "depends_on": ["BRG-003", "BRG-017"],
       "evidence": [],
@@ -171,9 +189,18 @@
     {
       "id": "MIG-001",
       "batch": "B05a",
-      "title": "Freeze and generate the canonical writer inventory",
+      "title": "Freeze writer, accepted-format, and recovery inventories",
       "status": "pending",
       "depends_on": ["BRG-003", "BRG-017", "BRG-019"],
+      "evidence": [],
+      "external_readback_required": false
+    },
+    {
+      "id": "RET-001",
+      "batch": "B05b",
+      "title": "Make recall evaluation truth-preserving and held-out",
+      "status": "pending",
+      "depends_on": ["MIG-001"],
       "evidence": [],
       "external_readback_required": false
     },
@@ -182,7 +209,25 @@
       "batch": "B06",
       "title": "Demonstrate V2 compatibility before migration",
       "status": "blocked",
-      "depends_on": ["MIG-001"],
+      "depends_on": ["MIG-001", "RET-001"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "GRF-001",
+      "batch": "B06a",
+      "title": "Version the collision-safe graph projection contract",
+      "status": "future",
+      "depends_on": ["GATE-B"],
+      "evidence": [],
+      "external_readback_required": true
+    },
+    {
+      "id": "RET-002",
+      "batch": "B06b",
+      "title": "Compare bounded retrieval candidates in shadow mode",
+      "status": "future",
+      "depends_on": ["GRF-001"],
       "evidence": [],
       "external_readback_required": true
     },

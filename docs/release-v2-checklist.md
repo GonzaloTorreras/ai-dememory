@@ -501,7 +501,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   tool listing.
 - [ ] MCP client config smoke matches JSON-RPC responses by id and skips server
   notifications.
-- [ ] `quality/recall-fixtures.json` contains representative recall fixtures.
+- [ ] `quality/recall-fixtures.json` contains representative passing regression
+  fixtures. Unresolved reviewed misses are not claimed as covered; their future
+  held-out representation belongs to `RET-001`.
 - [ ] Private vault setup does not stage generated artifact directories.
 - [ ] Draft PR exists from the current `codex/*` release-readiness branch to
   `main`, and the current PR URL is recorded in release evidence.
@@ -570,7 +572,8 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures promote-miss` marks the
   source miss as `status: promoted`.
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures promote-miss` validates
-  that the fixture passes before committing it.
+  that the fixture passes before committing it, so only solved misses enter the
+  current regression set.
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures promote-miss --help`
 - [ ] `python3 scripts/ai_dememory.py recall-fixtures review-miss` marks a
   reviewed miss as `rejected` or `dismissed` without writing fixtures.
@@ -669,9 +672,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   recall fixture provenance, and adds a `recall_fixture_review` blocker only
   when current eval is unavailable or failing, or when pending/invalid recall
   miss files exist.
-- [ ] `python3 scripts/ai_dememory.py release-evidence --json` reports a
-  `vector_readiness_review` blocker when measured recall failures make a vector
-  experiment eligible for review.
+- [ ] `python3 scripts/ai_dememory.py release-evidence --json` reports the
+  current regression-based `vector_readiness_review` signal as descriptive
+  only; it does not authorize vector work.
 - [ ] `python3 scripts/ai_dememory.py release-evidence --strict`
 - [ ] `python3 scripts/ai_dememory.py release-evidence --write-report --report-path
   reports/v2-release-evidence.md`
@@ -913,8 +916,9 @@ Use this checklist before marking the MCP memory toolchain as v2.0-ready.
   candidates without writing canonical memory.
 - [ ] Repeated git lesson capture skips candidates with the same stable
   fingerprint instead of writing duplicate inbox files.
-- [ ] `ai-dememory vector status` reports `not_justified` until measured
-  recall failures pass the configured gate.
+- [ ] `ai-dememory vector status` reports the current regression-based decision
+  without creating embeddings or authorizing vector work. Future evaluation
+  follows `RET-001` -> `GATE-B` -> `GRF-001` -> `RET-002`.
 - [ ] `ai-dememory schedule plan --json` returns platform scheduler commands,
   cron entries, and side-effect flags without writing scheduler state.
 - [ ] Installed `ai-dememory schedule plan --json` validates scheduler
@@ -1160,8 +1164,8 @@ Run only after the PR exists, preserving the requested workflow order.
   handoff metadata without writing reports, fixtures, or miss outcomes.
 - [ ] `memory.recall_miss_review` records reviewed rejected or dismissed miss
   outcomes without writing fixture files or canonical memory.
-- [ ] `memory.vector_status` reports vector readiness without creating
-  embeddings or vector indexes.
+- [ ] `memory.vector_status` reports descriptive vector readiness without
+  creating embeddings, vector indexes, or authorizing retrieval changes.
 - [ ] `memory.provenance_status` reports durable provenance issues without
   writing reports.
 - [ ] `memory.working_current` reads generated current task state without
