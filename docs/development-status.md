@@ -40,7 +40,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 60 tests: 57 pass locally and three symlink tests are
+- The focused suite runs 61 tests: 58 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.

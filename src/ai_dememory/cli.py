@@ -199,7 +199,7 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             selected = "yes" if result["select_as_default"] else "no"
             print(f"Vault ready: {result['name']}")
             print(f"Location: {result['vault']}")
-            print(f"Saved as default: {selected}")
+            print(f"Selected as default by this setup: {selected}")
             print(f"Search index: {state} (recall builds it when needed)")
             print(f"Background processes: {result['background_processes']}")
             print(f"Model calls: {result['model_calls']}")

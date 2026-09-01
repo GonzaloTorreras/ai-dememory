@@ -14,7 +14,7 @@ class SetupMvpTests(V3TestCase):
         self.assertEqual(code, 0, error)
         self.assertIn("Vault ready: my vault", output)
         self.assertIn(f"Location: {vault_path.resolve()}", output)
-        self.assertIn("Saved as default: yes", output)
+        self.assertIn("Selected as default by this setup: yes", output)
         self.assertIn("Search index: not built (recall builds it when needed)", output)
         self.assertIn("Background processes: 0", output)
         self.assertIn("Model calls: 0", output)
@@ -42,8 +42,21 @@ class SetupMvpTests(V3TestCase):
         )
 
         self.assertEqual(code, 0, error)
-        self.assertIn("Saved as default: no", output)
+        self.assertIn("Selected as default by this setup: no", output)
         self.assertIn(
             "Next: Use --vault with the location above when running remember.",
             output,
         )
+
+    def test_no_select_preserves_an_existing_default_without_claiming_an_action(self) -> None:
+        vault_path = self.root / "selected"
+        code, _, error = self.run_cli("setup", str(vault_path), "--yes")
+        self.assertEqual(code, 0, error)
+
+        code, output, error = self.run_cli("setup", "--yes", "--no-select")
+
+        self.assertEqual(code, 0, error)
+        self.assertIn("Selected as default by this setup: no", output)
+        code, status, error = self.run_cli("status", "--json")
+        self.assertEqual(code, 0, error)
+        self.assertEqual(json.loads(status)["vault"], str(vault_path.resolve()))
