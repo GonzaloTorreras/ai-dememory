@@ -15,8 +15,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out repository
@@ -27,110 +34,22 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - name: Install alongside official MCP SDK
-        run: python -m pip install . mcp==1.28.1
-      - name: Verify isolated package namespaces and CLI
+      - name: Install package
+        run: python -m pip install .
+      - name: Verify isolated package namespace and CLI
         working-directory: ${{ runner.temp }}
-        run: python -c "import mcp, ai_dememory_tool; from ai_dememory_tool.mcp_server import memory_mcp; assert all('site-packages' in module.__file__ for module in (mcp, ai_dememory_tool, memory_mcp)); print(mcp.__file__, ai_dememory_tool.__file__, memory_mcp.__file__)"
-      - name: Verify CLI
-        working-directory: ${{ runner.temp }}
-        run: ai-dememory --version
-      - name: Run platform-pure unit tests
-        run: >-
-          python -m unittest
-          tests.test_portability
-          tests.test_harness_hooks
-          tests.test_mcp_lifecycle
-          tests.test_onboarding
-          tests.test_turn_context
-
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Compile Python
-        run: python -m compileall -q scripts mcp/server ai_dememory_tool
-
-      - name: Validate memory schema
-        run: python scripts/ai_dememory.py validate
-
-      - name: Secret scan
-        run: python scripts/ai_dememory.py secret-scan
-
-      - name: Verify MCP contract
-        run: python scripts/ai_dememory.py verify-mcp
-
-      - name: Generated artifact guard
-        run: python scripts/ai_dememory.py artifact-guard
-
-      - name: Vault setup guard
-        run: python scripts/ai_dememory.py vault-setup-guard
-
-      - name: PR template guard
-        run: python scripts/ai_dememory.py pr-template-guard
-
-      - name: PR draft guard
-        run: python scripts/ai_dememory.py pr-draft-guard
-
-      - name: Manual acceptance guard
-        run: python scripts/ai_dememory.py acceptance-guard
-
-      - name: ADR guard
-        run: python scripts/ai_dememory.py adr-guard
-
-      - name: Release checklist guard
-        run: python scripts/ai_dememory.py release-checklist-guard
-
-      - name: Release readiness check
-        run: python scripts/ai_dememory.py release-check
-
-      - name: Roadmap status
-        run: python scripts/ai_dememory.py roadmap status --json
-
-      - name: Local REST API smoke
-        run: python scripts/ai_dememory.py api-smoke
-
-      - name: Unit tests
-        run: python -m unittest discover -s tests -t .
-
-      - name: Rebuild index smoke
-        run: python scripts/ai_dememory.py index
-
-      - name: Search smoke
-        run: python scripts/ai_dememory.py search codex --limit 1
-
-      - name: Recall quality smoke
-        run: python scripts/ai_dememory.py eval-recall
-
-      - name: Strict PR release readiness check
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          AI_DEMEMORY_PR_URL: ${{ github.event.pull_request.html_url }}
-        run: python scripts/ai_dememory.py release-check --strict
-
-      - name: MCP runtime smoke
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          AI_DEMEMORY_PR_URL: ${{ github.event.pull_request.html_url }}
-        run: python scripts/ai_dememory.py mcp-smoke
-
-      - name: Package install smoke
-        run: python scripts/ai_dememory.py install-smoke
-
-      - name: Package build smoke
-        run: python scripts/ai_dememory.py package-build-smoke
-
-      - name: Docker local MCP smoke
-        run: python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:ci
-
-      - name: Final package build artifact guard
-        run: python scripts/ai_dememory.py package-build-smoke --check-clean
+        run: python -c "import ai_dememory; assert 'site-packages' in ai_dememory.__file__; print(ai_dememory.__file__)"
+      - name: Verify CLI and focused tests
+        run: |
+          ai-dememory --version
+          python -m compileall -q src/ai_dememory
+          python -m unittest discover -s tests_v3 -t .
+      - name: Run a real installed CLI flow
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        shell: bash
+        run: |
+          export AI_DEMEMORY_CONFIG_DIR="$RUNNER_TEMP/config"
+          ai-dememory setup "$RUNNER_TEMP/vault" --yes
+          ai-dememory remember "CI remembers deterministic local state" --title "CI memory"
+          ai-dememory recall deterministic
+          ai-dememory status --json

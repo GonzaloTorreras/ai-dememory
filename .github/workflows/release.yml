@@ -1,156 +1,116 @@
-name: AI-operated package release
+name: Publish explicitly approved V3 package
 
 on:
   workflow_dispatch:
     inputs:
-      intent:
-        description: "Authorize initial publication or an explicit recovery."
-        required: true
-        type: choice
-        options:
-          - publish
-          - recover
       tag:
         description: "Existing immutable release tag."
         required: true
         type: string
       approved_sha:
-        description: "Exact commit resolved by the immutable tag."
+        description: "Exact commit resolved by the tag."
         required: true
         type: string
       confirm:
-        description: "Type <intent>-<tag>@<approved_sha>."
+        description: "Type publish-<tag>@<approved_sha>."
         required: true
         type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: ai-release-${{ inputs.tag }}
+  group: ai-dememory-release-${{ inputs.tag }}
   cancel-in-progress: false
-
-env:
-  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   validate:
     runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.release.outputs.version }}
-      tag: ${{ steps.release.outputs.tag }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
+      version: ${{ steps.identity.outputs.version }}
+      prerelease: ${{ steps.identity.outputs.prerelease }}
     steps:
-      - name: Validate explicit publication authorization
+      - name: Validate explicit publication approval
         env:
-          RELEASE_INTENT: ${{ inputs.intent }}
+          RELEASE_TAG: ${{ inputs.tag }}
           APPROVED_SHA: ${{ inputs.approved_sha }}
           RELEASE_CONFIRM: ${{ inputs.confirm }}
-        shell: bash
         run: |
-          [[ "$RELEASE_INTENT" =~ ^(publish|recover)$ ]]
+          test "$RELEASE_CONFIRM" = "publish-$RELEASE_TAG@$APPROVED_SHA"
           [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
-          test "$RELEASE_CONFIRM" = "$RELEASE_INTENT-$RELEASE_TAG@$APPROVED_SHA"
-
-      - name: Check out immutable tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Require the immutable tag to resolve to the approved commit
-        env:
-          APPROVED_SHA: ${{ inputs.approved_sha }}
-        shell: bash
-        run: test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Validate tag, version, changelog, repository, and main ancestry
-        id: release
-        run: python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
-
-      - name: Compile Python
-        run: python -m compileall -q scripts mcp/server ai_dememory_tool
-
-      - name: Distribution safety guards
+      - name: Validate exact identity and product
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
         run: |
-          python scripts/ai_dememory.py publish-guard
-          python scripts/ai_dememory.py artifact-guard
-          python scripts/ai_dememory.py validate
-          python scripts/ai_dememory.py secret-scan
-          python scripts/ai_dememory.py verify-mcp
-          python scripts/ai_dememory.py release-check
-
-      - name: Unit and runtime tests
-        run: |
-          python -m unittest discover -s tests -t .
-          python scripts/ai_dememory.py install-smoke
-          python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:release
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$APPROVED_SHA"
+          version="$(PYTHONPATH=src python -c 'import ai_dememory; print(ai_dememory.__version__)')"
+          test "$RELEASE_TAG" = "v$version"
+          test "$(grep -Fxc "## [$version] - $(date -u +%F)" CHANGELOG.md)" -eq 1
+          successful_runs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" -f head_sha="$APPROVED_SHA" -f branch=main -f event=push -f status=completed -f per_page=20 --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
+          test "$successful_runs" -ge 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" =~ [A-Za-z] ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          python -m compileall -q src/ai_dememory
+          python -m unittest discover -s tests_v3 -t .
 
   build:
     needs: validate
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      id-token: write
       attestations: write
+      id-token: write
     steps:
-      - name: Check out immutable tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.validate.outputs.tag }}
+          ref: ${{ inputs.approved_sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Install pinned build tooling
-        run: python -m pip install build==1.2.2.post1 twine==6.1.0 setuptools==80.9.0 wheel==0.45.1
-
-      - name: Build distributions once
-        shell: bash
-        run: |
-          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
-          python -m build --no-isolation
-
-      - name: Check and smoke exact artifacts
+      - name: Build once and inspect exact artifacts
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
         run: |
+          test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
+          python -m pip install build==1.2.2.post1 twine==6.1.0
+          python -m build
           python -m twine check dist/*
-          python scripts/release_artifact_smoke.py --dist dist --version "$RELEASE_VERSION"
-
-      - name: Generate deterministic release notes from the exact changelog section
-        env:
-          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-        run: >-
-          python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --version-only
-          --release-notes RELEASE_NOTES.md
-
-      - name: Generate checksums
-        shell: bash
-        run: sha256sum dist/* RELEASE_NOTES.md | sort -k2 > SHA256SUMS
-
-      - name: Attest built distributions
-        uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+          python -c "import glob,zipfile; p=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(p).namelist(); assert any(x.startswith('ai_dememory/') for x in n); assert not any(x.startswith(('ai_dememory_tool/','scripts/','mcp/')) for x in n)"
+          ! tar -tf dist/*.tar.gz | grep -Eq '/(tests|tests_v3|scripts|mcp|ai_dememory_tool)/'
+          python -m venv /tmp/ai-dememory-smoke
+          /tmp/ai-dememory-smoke/bin/pip install --no-deps dist/*.whl
+          export AI_DEMEMORY_CONFIG_DIR=/tmp/ai-dememory-config
+          /tmp/ai-dememory-smoke/bin/ai-dememory --version
+          /tmp/ai-dememory-smoke/bin/ai-dememory setup /tmp/ai-dememory-vault --yes
+          /tmp/ai-dememory-smoke/bin/ai-dememory remember "release artifact smoke" --title "Release smoke"
+          /tmp/ai-dememory-smoke/bin/ai-dememory recall artifact
+          /tmp/ai-dememory-smoke/bin/ai-dememory status --json
+          sha256sum dist/* | sort -k2 > SHA256SUMS
+      - uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
         with:
           subject-path: dist/*
-
-      - name: Upload the tested release bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: python-release-${{ needs.validate.outputs.tag }}
+          name: python-release-${{ inputs.tag }}
           path: |
             dist/
-            RELEASE_NOTES.md
             SHA256SUMS
           if-no-files-found: error
           retention-days: 30
@@ -166,25 +126,11 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check out immutable tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          ref: ${{ needs.validate.outputs.tag }}
-          persist-credentials: false
-      - name: Download tested release bundle
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: python-release-${{ needs.validate.outputs.tag }}
+          name: python-release-${{ inputs.tag }}
           path: release-bundle
-      - name: Verify whether exact artifacts already exist
-        id: existing
-        run: >-
-          python scripts/published_artifact_guard.py --dist release-bundle/dist
-          --repository testpypi --version "${{ needs.validate.outputs.version }}"
-          --github-output "$GITHUB_OUTPUT"
-      - name: Publish prerelease to TestPyPI with OIDC
-        if: steps.existing.outputs.published != 'true'
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: release-bundle/dist/
           repository-url: https://test.pypi.org/legacy/
@@ -200,25 +146,11 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check out immutable tag
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          ref: ${{ needs.validate.outputs.tag }}
-          persist-credentials: false
-      - name: Download tested release bundle
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: python-release-${{ needs.validate.outputs.tag }}
+          name: python-release-${{ inputs.tag }}
           path: release-bundle
-      - name: Verify whether exact artifacts already exist
-        id: existing
-        run: >-
-          python scripts/published_artifact_guard.py --dist release-bundle/dist
-          --repository pypi --version "${{ needs.validate.outputs.version }}"
-          --github-output "$GITHUB_OUTPUT"
-      - name: Publish stable release to PyPI with OIDC
-        if: steps.existing.outputs.published != 'true'
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           packages-dir: release-bundle/dist/
 
@@ -231,49 +163,36 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.approved_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Verify the published package from its index
+      - name: Verify published index package
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
-        shell: bash
         run: |
-          if [[ "$PRERELEASE" == "true" ]]; then
-            INDEX_URL="https://test.pypi.org/simple/"
-          else
-            INDEX_URL="https://pypi.org/simple/"
-          fi
-          for attempt in {1..12}; do
-            if python -m pip install --no-cache-dir --index-url "$INDEX_URL" "ai-dememory==$RELEASE_VERSION"; then
-              ai-dememory --help
-              exit 0
-            fi
-            sleep 10
-          done
+          if [[ "$PRERELEASE" == "true" ]]; then INDEX=https://test.pypi.org/simple/; else INDEX=https://pypi.org/simple/; fi
+          for attempt in {1..12}; do python -m pip install --no-cache-dir --index-url "$INDEX" "ai-dememory==$RELEASE_VERSION" && ai-dememory --version && exit 0; sleep 10; done
           exit 1
-
-      - name: Download release bundle
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: python-release-${{ needs.validate.outputs.tag }}
+          name: python-release-${{ inputs.tag }}
           path: release-bundle
-
-      - name: Create immutable GitHub Release with evidence
+      - name: Create immutable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
-        shell: bash
         run: |
-          test -s release-bundle/RELEASE_NOTES.md
-          EXTRA=()
-          if [[ "$PRERELEASE" == "true" ]]; then EXTRA+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" \
-            release-bundle/dist/* release-bundle/RELEASE_NOTES.md release-bundle/SHA256SUMS \
-            --verify-tag --notes-file release-bundle/RELEASE_NOTES.md \
-            --title "ai-dememory $RELEASE_TAG" "${EXTRA[@]}"
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
+          test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
+          extra=(); if [[ "$PRERELEASE" == "true" ]]; then extra+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" release-bundle/dist/* release-bundle/SHA256SUMS --verify-tag --generate-notes --title "ai-dememory $RELEASE_TAG" "${extra[@]}"

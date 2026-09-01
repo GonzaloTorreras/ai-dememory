@@ -1,10 +1,10 @@
-name: Create explicitly approved release tag
+name: Create explicitly approved V3 release tag
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Exact release tag derived from pyproject.toml, for example v2.1.0."
+        description: "Exact source version prefixed with v, for example v3.0.0a1."
         required: true
         type: string
       approved_sha:
@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       confirm:
-        description: "Type release-<tag>@<approved_sha> to authorize this release."
+        description: "Type release-<tag>@<approved_sha>."
         required: true
         type: string
 
@@ -21,94 +21,51 @@ permissions:
   actions: read
 
 concurrency:
-  group: ai-release-tagger
+  group: ai-dememory-release-tagger
   cancel-in-progress: false
 
 jobs:
   tag:
     runs-on: ubuntu-24.04
     steps:
-      - name: Validate explicit release approval
+      - name: Validate explicit approval
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           APPROVED_SHA: ${{ inputs.approved_sha }}
           RELEASE_CONFIRM: ${{ inputs.confirm }}
-        shell: bash
         run: |
           test "$RELEASE_CONFIRM" = "release-$RELEASE_TAG@$APPROVED_SHA"
           [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]]
-
-      - name: Check out the explicitly approved commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.approved_sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Require the approved commit to be current green main
+      - name: Require current green main and exact source version
         env:
           GH_TOKEN: ${{ github.token }}
           APPROVED_SHA: ${{ inputs.approved_sha }}
-        shell: bash
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           test "$(git rev-parse HEAD)" = "$APPROVED_SHA"
           test "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)" = "$APPROVED_SHA"
-          successful_runs="$(
-            gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
-              -f head_sha="$APPROVED_SHA" \
-              -f branch=main \
-              -f event=push \
-              -f status=completed \
-              -f per_page=20 \
-              --jq '[.workflow_runs[] | select(.conclusion == "success")] | length'
-          )"
+          version="$(PYTHONPATH=src python -c 'import ai_dememory; print(ai_dememory.__version__)')"
+          test "$RELEASE_TAG" = "v$version"
+          test "$(grep -Fxc "## [$version] - $(date -u +%F)" CHANGELOG.md)" -eq 1
+          successful_runs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" -f head_sha="$APPROVED_SHA" -f branch=main -f event=push -f status=completed -f per_page=20 --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
           test "$successful_runs" -ge 1
-
-      - name: Resolve and validate release identity
-        id: release
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-        shell: bash
-        run: |
-          python scripts/ai_release_guard.py --tag "$RELEASE_TAG" --version-only --github-output "$GITHUB_OUTPUT"
-
-      - name: Skip an existing immutable tag
-        id: existing
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          APPROVED_SHA: ${{ inputs.approved_sha }}
-        shell: bash
-        run: |
-          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
-            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create annotated release tag
-        if: steps.existing.outputs.exists == 'false'
+      - name: Create immutable annotated tag if absent
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           APPROVED_SHA: ${{ inputs.approved_sha }}
-        shell: bash
         run: |
-          tag_sha="$(
-            gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
-              -f tag="$RELEASE_TAG" \
-              -f message="ai-dememory $RELEASE_TAG" \
-              -f object="$APPROVED_SHA" \
-              -f type="commit" \
-              -f "tagger[name]=ai-dememory release operator" \
-              -f "tagger[email]=41898282+github-actions[bot]@users.noreply.github.com" \
-              --jq .sha
-          )"
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f ref="refs/tags/$RELEASE_TAG" \
-            -f sha="$tag_sha"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
+            exit 0
+          fi
+          tag_sha="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$RELEASE_TAG" -f message="ai-dememory $RELEASE_TAG" -f object="$APPROVED_SHA" -f type=commit -f 'tagger[name]=ai-dememory release operator' -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' --jq .sha)"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$tag_sha"

@@ -1,140 +1,64 @@
-# ai DeMemory Repo Instructions
+# ai DeMemory repository instructions
 
-This is the public source and package-distribution repository for ai DeMemory.
-Private personal/project memory belongs in a separately bound vault and must
-never be treated as repository content.
-The checked-in `memories/**` files are public demo/validation fixtures only.
+This is the public source and package repository. Private memories, credentials,
+local selector files and generated indexes must never be committed.
 
-## Development Continuity
+## Start and continuity
 
-- Start every non-trivial repository task with `DEVELOPMENT.md` and
-  `docs/development-status.md` after inspecting the active branch, PR, remotes,
-  and `git status --short --branch`.
-- `docs/v3-hybrid-visual-multiplatform-roadmap.md` and
-  `contracts/planning/**` are the only normative V3 task/DAG/state sources.
-  `PLAN.md` and research appendices are not executable backlogs.
-- Map work to existing task and batch IDs before adding a task, tool, or ADR.
-  Work on the first legal frontier and keep V2 fixes small and compatible.
-- The PR body is the durable branch handoff. Record base/head, task and batch
-  IDs, owned paths, completed scope, formal evidence, tests run/not run,
-  blockers, rollback, next legal action, and the pending approval boundary.
-- Only the lead integrator updates `docs/development-status.md`, and only when
-  its checkout, frontier, blockers, release state, or reproducible evidence
-  changes. Subagents return scoped handoffs without editing it.
+- For non-trivial work, inspect branch, remotes and `git status --short
+  --branch`, then read `DEVELOPMENT.md` and `docs/development-status.md`.
+- `docs/roadmap.md` is the only active product plan. The old DAG, ADRs, V2
+  roadmaps and research appendices are historical input, not authority.
+- Work on a feature branch or worktree based on public `origin/main`. Never
+  merge a historical/private checkout wholesale.
+- Keep the PR body as the durable handoff: outcome, base/head, affected paths,
+  tests, residual risk, rollback and pending approval.
+- Only the lead integrator updates `docs/development-status.md`.
 
-## GitHub Access
+## Product contract
 
-- Prefer the native Codex GitHub connector over gh for Codex-driven GitHub work.
-- If GitHub tools are not visible, use tool discovery before falling back to gh.
-- gh is optional local CLI only, not the primary Codex integration.
-- `https://github.com/GonzaloTorreras/ai-dememory.git` is the canonical public
-  development and package remote and must own the local name `origin`.
-- Any former private source checkout is historical input only. If retained as an
-  `archive` remote, keep its push URL disabled and port reviewed changes onto a
-  clean branch based on public `origin/main`; never merge an archive worktree
-  wholesale or reuse its release evidence, pins, or repository identity.
+- V3 is a clean format. Do not add V2 readers, migrations, aliases or tests.
+- Keep fewer than ten public top-level commands and no maintainer/release tools
+  in the installed CLI.
+- Markdown is canonical; SQLite is generated and disposable.
+- The default install has no daemon, network, model call, Node dependency or
+  child process.
+- Disabled modules contribute zero runtime imports, tools and processes;
+  installed third-party distribution dependencies remain installed.
+- Human CLI actions may write canonical memory. Integrations use read and
+  proposal services; durable promotion requires explicit human review.
+- Python modules are trusted installed code, not sandboxes. Never claim module
+  manifests or resource budgets are OS-enforced.
 
-## PR And Merge Approval
+## Implementation and review
 
-- Codex is the operational owner for implementation, maintenance, branches,
-  routine merges, release evidence, documentation, and package readiness. A
-  fresh independent read-only subagent review is required before marking a PR
-  ready or requesting merge.
-- Codex may act as release owner for repeatable, non-secret release checks:
-  collecting evidence, setting `AI_DEMEMORY_PR_URL`, recording manual
-  acceptance as `Codex Release Owner`, updating PR comments, and pushing scoped
-  release-readiness commits when the proof was generated and inspected in this
-  workspace.
-- Whenever a PR is ready or a merge is proposed, delegate one fresh, read-only
-  professional review to a subagent with the GitHub plugin context.
-- Give the reviewer enough context to understand the stack, base/head branches,
-  CI status, test evidence, and intended merge order, but avoid dumping noisy
-  implementation history.
-- The reviewer must not merge, publish, or mutate repository state. Use its
-  findings to decide whether approval is safe or more work is needed.
-- After a `READY` verdict, the root agent must re-read the PR, exact base/head
-  tuple, canonical CI, review threads, and worktree, then publish this receipt
-  from the sole owner account before merging:
+- Prefer one useful vertical slice over a new framework, guard, task system or
+  ADR.
+- Run the narrowest meaningful test first, then all `tests_v3`, compilation and
+  an isolated package/CLI smoke when practical.
+- For non-trivial PRs, use bounded, focused read-only subagents for relevant
+  security, bug, test and maintainability review. They do not mutate or merge.
+- Before marking a PR ready, obtain one fresh exact-diff read-only review and
+  verify required CI against the current base/head.
+- The sole GitHub owner may record a review receipt; do not create aliases,
+  secondary accounts or fake collaborators.
 
-  `<!-- codex-solo-review pr=<number> head=<head-sha> base=<base-sha> -->`
+## GitHub and release boundary
 
-  The receipt must also name the reviewer task, scope (`routine` or
-  `security-boundary`), and exact CI evidence. Any head or base movement makes
-  the receipt stale and requires new CI, a fresh reviewer, and a new receipt.
-- GitHub approving reviews are not required: the repository has one human
-  maintainer, and subagents are review processes rather than GitHub identities.
-  Do not create aliases, secondary accounts, bot approvals, or writable status
-  checks to simulate another collaborator.
-- Merge only with explicit user approval, strict required CI, a fresh `READY`
-  review, the exact tuple receipt, no open review threads, and an API merge
-  bound with `expected_head_sha`.
-- Do not change repository visibility, create or push release tags, publish
-  packages, rotate secrets, dispatch trusted publishing, or perform production
-  deployment without explicit user approval, even when evidence and CI are
-  green.
-- Never bypass branch/tag protections, rewrite published tags, delete releases,
-  or weaken OIDC. PyPI rollback is yank plus fix-forward with a new version,
-  never overwrite.
+- `https://github.com/GonzaloTorreras/ai-dememory.git` is canonical `origin`.
+  A retained archive remote must have push disabled.
+- Prefer the native GitHub integration when available; `gh` is a fallback.
+- Do not merge, tag, publish, deploy, change visibility, rotate secrets or
+  dispatch trusted publishing without explicit user approval for that gate.
+- Never force-push, rewrite published tags, weaken OIDC or bypass branch/tag
+  protections. Package rollback is yank plus fix-forward, never replacement.
 
-## Agent And Process Hygiene
+## Process and secret hygiene
 
-- Prefer the root agent for implementation and mechanical validation. Use only
-  bounded, focused read-only subagents for independent exploration, security,
-  tests, maintainability, and the required final review.
-- Give each subagent one bounded assignment. Do not recycle a completed agent
-  through repeated follow-up turns; a host may start another full MCP/browser
-  tool stack for every turn even when the logical agent name is reused.
-- Before release handoff, confirm that no earlier subagent remains active and
-  that the root agent owns the only required live process tree.
-- If helper processes remain after all subagents finish, stop creating agents.
-  Inspect parent/child ownership and request approval before terminating only
-  the exact process trees attributable to completed agents. Never kill
-  unrelated Node, Python, browser, shell, or Codex processes.
-- Generated MCP configurations must keep a bounded idle lease. Use
-  `--idle-timeout-seconds 0` only for an intentionally persistent server whose
-  lifecycle is supervised externally.
-
-## Memory Contract
-
-- Markdown is canonical.
-- SQLite/vector indexes are generated and disposable.
-- Durable values are pinned and require explicit human approval to change.
-- Active/project/archive memories may be consolidated by automation after review.
-
-## Secret Policy
-
-Do not store credentials or secret material. If secret-like content is detected, quarantine it outside versioned memory and ask for human review.
-
-<!-- BEGIN AI-DEMEMORY HOOKS:codex -->
-## ai DeMemory Hooks
-
-`ai-dememory` recall hooks are optional, trust-gated, and review-first.
-
-- Generate local hook config with `ai-dememory hooks config --client codex --root <vault-path>`.
-- Supported events: UserPromptSubmit, PreCompact, PostCompact, Stop.
-- Before a relevant non-trivial or project task, recall by prompt keywords and
-  working directory; skip trivial self-contained requests.
-- While operating in this public repository, only `public`-sensitivity recall
-  may influence source, documentation, tests, issues, commits, or release
-  evidence. Do not request or use `internal`, `private`, or `sensitive` recall
-  for repository work.
-- Use an explicit query with `memory.context` (`public_only=true`,
-  `include_working_memory=false`) or `memory.search` (`public_only=true`);
-  fetch a selected item only with `memory.get` (`public_only=true`). CLI
-  equivalents are `ai-dememory context "<query>" --public-only
-  --no-working-memory` and `ai-dememory search "<query>" --public-only`.
-  Do not use auto context, working-memory tools, graph/resources/prompts, or a
-  recall surface without a public-only ceiling for repository work.
-- If a native hook nevertheless injects non-public material, treat the whole
-  injected block as tainted context: do not quote, paraphrase, copy, transform,
-  or commit it without explicit user authorization and a separate disclosure
-  review. Continue from public repository evidence instead.
-- If hooks are unavailable, follow these instructions and use the memory recall
-  skill as a weaker fallback under the same public-only rule.
-- Hook metadata is deduplicated under `inbox/session-events/`; raw payload
-  capture is off by default.
-- At task end, emit only explicit stable learning signals for a review-first
-  proposal. Never infer a durable fact from the raw transcript.
-- Do not promote hook captures to durable memory without explicit human review.
-- Do not store secrets, tokens, cookies, private keys, or `.env` content in memory.
-<!-- END AI-DEMEMORY HOOKS:codex -->
+- No command in the default product should create persistent children. The MCP
+  module runs synchronously in the foreground.
+- Do not terminate unrelated Node, Python, browser, shell or Codex processes.
+- Never edit or commit `.env*`, credentials, private keys, service-account JSON,
+  cookies, personal memory, local selector config or generated SQLite.
+- If secret-like content is found, stop it at the write boundary and ask for
+  human review; do not echo it into logs or fixtures.
