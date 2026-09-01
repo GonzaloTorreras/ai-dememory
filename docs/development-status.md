@@ -49,16 +49,19 @@ Updated: 2026-09-01
 - Hosted [CI run 33557863730](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33557863730)
   passed the current five-slice alpha on Linux 3.11/3.13, macOS 3.12 and Windows
   3.12 at exact pushed head `5cae0ae`.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `8020c83` and
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `cb0108f` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
   module discovery, real MCP search/proposal, review acceptance and disable.
   Final installed state was two memories, zero proposals, zero background
   processes and zero model calls.
-- Artifact evidence: wheel 28,781 bytes, SHA-256
-  `ccb90f67376ccfab0acd7c415f7f30ca17ac1d5d40a80afbe45478bead8ce2b5`;
-  sdist 26,497 bytes, SHA-256
-  `31d2e21afe2c572f9ffcaed3a1569f5cf53bfb3ef1ca27cbe09dabc85df366e7`.
+- The same installed core created a community package in a path containing
+  spaces; that package installed editable, appeared disabled, enabled, ran in
+  the foreground, and disabled cleanly.
+- Artifact evidence: wheel 28,877 bytes, SHA-256
+  `cd461f96536608e1b52721c0c0131716ff932898891feec27c24e3b4aceaa367`;
+  sdist 26,662 bytes, SHA-256
+  `04a8959248c95b840bf3c96d83ff6ea8aafb299eececb0ff5112a35678b011f0`.
 - Fresh review found and fixed one status-side-effect bug: inspection now opens
   an existing generated index as immutable read-only data and reports `invalid`
   instead of repairing it. The security reread found no P0-P3 issue.
@@ -67,7 +70,7 @@ Updated: 2026-09-01
 
 ## Next
 
-Six vertical slices and the full local regression are complete. The existing
-artifact hashes belong to product head `8020c83`; the small scaffold-UX change
-must be rebuilt from its final code head before the next push. The excluded V2
-tree remains inert. Merge, tag and package publication remain explicit gates.
+Six vertical slices, the full regression and current installed-package flow are
+complete. The next action is a narrow fresh review, then push and exact-head CI.
+The excluded V2 tree remains inert. Merge, tag and package publication remain
+explicit gates.
