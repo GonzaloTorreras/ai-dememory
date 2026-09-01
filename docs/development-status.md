@@ -43,9 +43,16 @@ Updated: 2026-09-01
   passed on Linux 3.11/3.13, macOS 3.12 and Windows 3.12. The preceding run
   exposed a Windows short-path assertion in the new test; `fa3eb19` normalized
   the expected path and the exact rerun passed.
-- The last clean package evidence belongs to the save-MVP head `a32657e`.
-  Because the local recall slice changes CLI output, artifacts must be rebuilt
-  at the next push/release consolidation gate; no publication is requested.
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `c0b84cb` and
+  installed without dependencies into a new virtual environment outside the
+  checkout. The installed CLI completed setup, save, recall, readable status,
+  module discovery, real MCP search/proposal, review acceptance and disable.
+  Final installed state was two memories, zero proposals, zero background
+  processes and zero model calls.
+- Artifact evidence: wheel 28,724 bytes, SHA-256
+  `27267391742180b5241a1db23e9ca41f8431842b34692a3ed9d1d59ea7faaca8`;
+  sdist 26,430 bytes, SHA-256
+  `c57ec8a0935d564bae58bbb5a12326615621eb00c43d4b57a770eb78b974a0bb`.
 - Fresh exact product and security rereads found no remaining code blocker or
   P0-P2 finding after malformed-file, capacity, concurrent-lock, rollback and
   supplied-ID containment regressions were added.
@@ -55,6 +62,7 @@ Updated: 2026-09-01
 ## Next
 
 The save MVP remains independently reviewed and hosted-CI green. Five vertical
-slices are locally complete. The next action is consolidation: full regression,
-fresh package evidence and independent review before another push. The excluded
-V2 tree remains inert. Merge, tag and package publication remain explicit gates.
+slices, the full local regression and installed-package smoke are complete. The
+next action is fresh independent review before another push, followed by hosted
+CI. The excluded V2 tree remains inert. Merge, tag and package publication remain
+explicit gates.
