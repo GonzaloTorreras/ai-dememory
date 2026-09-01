@@ -58,4 +58,3 @@ class RecallMemoryMvpTests(V3TestCase):
         code, output, error = self.run_cli("recall", "absent-term")
         self.assertEqual(code, 0, error)
         self.assertEqual(output.strip(), "No matching memories.")
-

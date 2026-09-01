@@ -253,22 +253,24 @@ class SearchIndex:
         self._validate_storage_paths()
         if not self.path.exists():
             return {"state": "not_built", "rows": 0, "bytes": 0, "last_synced_at": None}
+        size = self.path.stat().st_size
         try:
-            connection = self._connect()
-        except sqlite3.Error as exc:
-            raise SearchError(f"Cannot inspect generated search index: {exc}") from exc
+            uri = f"{self.path.resolve().as_uri()}?mode=ro&immutable=1"
+            connection = sqlite3.connect(uri, uri=True)
+        except sqlite3.Error:
+            return {"state": "invalid", "rows": 0, "bytes": size, "last_synced_at": None}
         try:
             rows = connection.execute("SELECT COUNT(*) FROM memory_files").fetchone()[0]
             synced = connection.execute(
                 "SELECT value FROM index_meta WHERE key = 'last_synced_at'"
             ).fetchone()
-        except sqlite3.Error as exc:
-            raise SearchError(f"Cannot inspect generated search index: {exc}") from exc
+        except sqlite3.Error:
+            return {"state": "invalid", "rows": 0, "bytes": size, "last_synced_at": None}
         finally:
             connection.close()
         return {
             "state": "ready",
             "rows": int(rows),
-            "bytes": self.path.stat().st_size,
+            "bytes": size,
             "last_synced_at": synced[0] if synced else None,
         }

@@ -86,4 +86,3 @@ class McpVerticalMvpTests(V3TestCase):
         code, output, error = self.run_cli("module", "disable", "mcp")
         self.assertEqual(code, 0, error)
         self.assertIn("Disabled module: mcp", output)
-

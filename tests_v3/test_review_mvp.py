@@ -76,4 +76,3 @@ class ReviewMemoryMvpTests(V3TestCase):
         code, output, error = self.run_cli("review")
         self.assertEqual(code, 0, error)
         self.assertEqual(output.strip(), "No pending proposals.")
-

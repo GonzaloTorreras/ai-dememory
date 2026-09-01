@@ -35,7 +35,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 54 tests: 51 pass locally and three symlink tests are
+- The focused suite runs 55 tests: 52 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
@@ -53,9 +53,9 @@ Updated: 2026-09-01
   `27267391742180b5241a1db23e9ca41f8431842b34692a3ed9d1d59ea7faaca8`;
   sdist 26,430 bytes, SHA-256
   `c57ec8a0935d564bae58bbb5a12326615621eb00c43d4b57a770eb78b974a0bb`.
-- Fresh exact product and security rereads found no remaining code blocker or
-  P0-P2 finding after malformed-file, capacity, concurrent-lock, rollback and
-  supplied-ID containment regressions were added.
+- Fresh review found and fixed one status-side-effect bug: inspection now opens
+  an existing generated index as immutable read-only data and reports `invalid`
+  instead of repairing it. The security reread found no P0-P3 issue.
 - Residual risk: atomic file replacement does not fsync the parent directory
   against sudden power loss.
 
