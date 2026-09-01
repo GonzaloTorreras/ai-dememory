@@ -19,13 +19,18 @@ This is the only active product plan. It is intentionally not a large DAG.
   memory, create one pending proposal and stop cleanly on stdin EOF.
 - Fifth vertical MVP: inspect the selected vault in readable text or compact
   JSON without building the index, starting processes or calling a model.
+- Consolidated alpha: full regression, clean wheel/sdist installation, complete
+  installed CLI/MCP/review smoke and exact-head cross-platform CI.
+- Sixth vertical MVP: scaffold a community module outside the repository,
+  install it, discover it as disabled, enable it, run it in the foreground and
+  disable it again.
 
 ## Now
 
-- Consolidate the five completed slices as one installable alpha: run the full
-  regression suite, build clean artifacts and smoke-test the installed wheel.
-- Keep the package free of diagnostics, administration and background services.
-- Refresh independent product and security review before the next PR push.
+- Consolidate the sixth slice from the installed core wheel and refresh its
+  narrow product/security review before pushing.
+- Keep the scaffold tiny and editable; do not add another SDK, module manager,
+  sandbox, daemon or project generator framework.
 
 ## Next
 

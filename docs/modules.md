@@ -13,6 +13,10 @@ The human list shows state and capabilities. `module enable` prints the exact
 foreground `serve` command to run next; `--json` keeps the same information for
 clients and scripts.
 
+`module create` writes one tiny editable Python package and prints the exact
+install, enable and foreground-run commands. It does not install or execute the
+new code automatically.
+
 ## Contract
 
 An installed module registers the `ai_dememory.modules` Python entry-point and

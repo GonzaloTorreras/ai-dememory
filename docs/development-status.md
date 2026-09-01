@@ -26,6 +26,9 @@ Updated: 2026-09-01
   read/proposal tools in one foreground process and exits cleanly on stdin EOF.
 - Fifth vertical MVP: `status` reports useful vault state in readable text or
   JSON without building the disposable index or starting anything.
+- Sixth vertical MVP: `module create` explains its next steps and its generated
+  package completes install, disabled discovery, enable, foreground run and
+  disable in an isolated environment.
 - `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
 - Canonical Markdown, incremental SQLite FTS and review proposals.
 - Lazy optional modules plus module scaffolding.
@@ -35,7 +38,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 55 tests: 52 pass locally and three symlink tests are
+- The focused suite runs 56 tests: 53 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
@@ -43,6 +46,9 @@ Updated: 2026-09-01
   passed on Linux 3.11/3.13, macOS 3.12 and Windows 3.12. The preceding run
   exposed a Windows short-path assertion in the new test; `fa3eb19` normalized
   the expected path and the exact rerun passed.
+- Hosted [CI run 33557863730](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33557863730)
+  passed the current five-slice alpha on Linux 3.11/3.13, macOS 3.12 and Windows
+  3.12 at exact pushed head `5cae0ae`.
 - Clean `3.0.0a1` artifacts were rebuilt from local product head `8020c83` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
@@ -61,8 +67,7 @@ Updated: 2026-09-01
 
 ## Next
 
-The save MVP remains independently reviewed and hosted-CI green. Five vertical
-slices, the full local regression and installed-package smoke are complete. The
-next action is fresh independent review before another push, followed by hosted
-CI. The excluded V2 tree remains inert. Merge, tag and package publication remain
-explicit gates.
+Six vertical slices and the full local regression are complete. The existing
+artifact hashes belong to product head `8020c83`; the small scaffold-UX change
+must be rebuilt from its final code head before the next push. The excluded V2
+tree remains inert. Merge, tag and package publication remain explicit gates.

@@ -85,6 +85,10 @@ Create a community module without copying this repository:
 ai-dememory module create my-module
 ```
 
+The scaffold command prints its location followed by the three commands to
+install, enable and run it. The generated package is deliberately small: one
+manifest, one foreground function and one test.
+
 See [modules](docs/modules.md) for the trust and resource contract.
 
 ## Product boundaries

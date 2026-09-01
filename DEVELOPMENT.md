@@ -42,6 +42,7 @@ python -m unittest tests_v3.test_recall_mvp
 python -m unittest tests_v3.test_review_mvp
 python -m unittest tests_v3.test_mcp_mvp
 python -m unittest tests_v3.test_status_mvp
+python -m unittest tests_v3.test_module_mvp
 ```
 
 Only after it passes, run the wider regression checks:

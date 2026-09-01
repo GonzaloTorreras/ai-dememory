@@ -231,7 +231,27 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         return 0
     if args.command == "module" and args.module_command == "create":
         path = create_module(args.module_id, args.path)
-        _emit({"created": str(path), "next": [f"python -m pip install -e {path}"]}, json_output)
+        install = f'python -m pip install -e "{path}"'
+        next_steps = (
+            install,
+            f"ai-dememory module enable {args.module_id}",
+            f"ai-dememory serve {args.module_id}",
+        )
+        if json_output:
+            _emit(
+                {
+                    "module_id": args.module_id,
+                    "created": str(path),
+                    "next": list(next_steps),
+                },
+                True,
+            )
+        else:
+            print(f"Created module: {args.module_id}")
+            print(f"Location: {path}")
+            print("Next:")
+            for step in next_steps:
+                print(f"  {step}")
         return 0
 
     vault = _resolve_vault(explicit_vault)
