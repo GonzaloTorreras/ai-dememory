@@ -54,7 +54,7 @@ Updated: 2026-09-01
 - Hosted [CI run 33559046205](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559046205)
   passed the six-slice modular alpha on the same matrix at exact pushed head
   `04e2c10`.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `922e1ec` and
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `8e0b5e1` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
   module discovery, real MCP search/proposal, review acceptance and disable.
@@ -63,10 +63,10 @@ Updated: 2026-09-01
 - The same installed core created a community package in a path containing
   spaces; that package installed editable, appeared disabled, enabled, ran in
   the foreground, and disabled cleanly.
-- Artifact evidence: wheel 28,945 bytes, SHA-256
-  `6c5948e70b21cb8eb6f3a25ced66083fa8bb523afb0bcc860e0e92e6ec90680e`;
-  sdist 26,718 bytes, SHA-256
-  `09bbeb532abb01515db1a164904f9f881a188ecbf6d9164383b12ca0c4d82599`.
+- Artifact evidence: wheel 29,091 bytes, SHA-256
+  `3c4a2d846f9c9341d3b8ca3fcd44f36489ff164d2341d91fcdd257a6693a2914`;
+  sdist 26,941 bytes, SHA-256
+  `2feb154933ee63867b77700f1f445263c96d172b979b7034e1e754386469d686`.
 - Fresh review found and fixed one status-side-effect bug: inspection now opens
   an existing generated index as immutable read-only data and reports `invalid`
   instead of repairing it. The security reread found no P0-P3 issue.
@@ -75,7 +75,7 @@ Updated: 2026-09-01
 
 ## Next
 
-Seven vertical slices and the full regression are complete. The current artifact
-hashes belong to product head `922e1ec`; setup presentation must be rebuilt from
-its final code head before the next push. The excluded V2 tree remains inert.
-Merge, tag and package publication remain explicit gates.
+Seven vertical slices, the full regression and current installed-package flow
+are complete. The next action is a narrow fresh review, then push and exact-head
+CI. The excluded V2 tree remains inert. Merge, tag and package publication remain
+explicit gates.
