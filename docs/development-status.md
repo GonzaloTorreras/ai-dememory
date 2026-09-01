@@ -29,8 +29,12 @@ Updated: 2026-09-01
 - Local compile passed with the bundled Python 3.12 runtime.
 - The focused suite runs 46 tests: 43 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
-  junction containment test passes; the Linux CI matrix will execute the
+  junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
+- Hosted [CI run 33546063325](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33546063325)
+  passed on Linux 3.11/3.13, macOS 3.12 and Windows 3.12. The preceding run
+  exposed a Windows short-path assertion in the new test; `fa3eb19` normalized
+  the expected path and the exact rerun passed.
 - Clean `3.0.0a1` artifacts were rebuilt from the reviewed source: a 28,081-byte
   wheel and a 25,618-byte sdist. Their inventories contain only the V3 package, license,
   readmes and distribution metadata, with no V2 runtime, tests or scripts.
@@ -44,13 +48,12 @@ Updated: 2026-09-01
 - Fresh exact product and security rereads found no remaining code blocker or
   P0-P2 finding after malformed-file, capacity, concurrent-lock, rollback and
   supplied-ID containment regressions were added.
-- Residual risk: the three symlink cases require hosted Linux evidence, and
-  atomic file replacement does not fsync the parent directory against sudden
-  power loss.
+- Residual risk: atomic file replacement does not fsync the parent directory
+  against sudden power loss.
 
 ## Next
 
-Obtain fresh independent review and hosted CI for the vertical save commit. The
+The vertical save MVP is independently reviewed and hosted-CI green. The
 excluded V2 tree remains physically present but inert; physical deletion is a
 separate one-time cleanup. Merge, tag and package publication remain explicit
 gates.
