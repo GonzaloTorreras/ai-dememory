@@ -21,7 +21,9 @@ ai-dememory remember "Markdown is the canonical memory." --title "Storage rule"
 `setup` explains one concrete action: where the vault will live, what it will
 create, and what it will not do. It creates no daemon, starts no child process,
 calls no model, and uses no network. The selected vault is saved in the user's
-local configuration, so normal commands work from any directory.
+local configuration, so normal commands work from any directory. After setup it
+prints the selected location, index state and one next command instead of a raw
+configuration dump.
 
 `remember` is the V3 MVP. It atomically writes one Markdown file, reads that
 file back, and only then prints `Saved and verified` with its identifier and

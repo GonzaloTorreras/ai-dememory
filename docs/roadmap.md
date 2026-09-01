@@ -24,13 +24,16 @@ This is the only active product plan. It is intentionally not a large DAG.
 - Sixth vertical MVP: scaffold a community module outside the repository,
   install it, discover it as disabled, enable it, run it in the foreground and
   disable it again.
+- Seventh vertical MVP: finish setup with a readable location, selected/default
+  state, lazy-index state, zero-resource facts and one valid next action while
+  preserving JSON for automation.
 
 ## Now
 
-- Consolidate the sixth slice from the installed core wheel and refresh its
-  narrow product/security review before pushing.
-- Keep the scaffold tiny and editable; do not add another SDK, module manager,
-  sandbox, daemon or project generator framework.
+- Consolidate the setup UX from the installed core wheel and refresh its narrow
+  product/security review before pushing.
+- Keep setup to one location decision; do not reintroduce the V2 questionnaire,
+  intensity profiles or future-feature switches.
 
 ## Next
 

@@ -29,6 +29,8 @@ Updated: 2026-09-01
 - Sixth vertical MVP: `module create` explains its next steps and its generated
   package completes install, disabled discovery, enable, foreground run and
   disable; deterministic tests use a temporary entry-point fixture.
+- Seventh vertical MVP: setup finishes with a readable summary and one valid
+  next action; `--no-select` no longer implies a default vault exists.
 - `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
 - Canonical Markdown, incremental SQLite FTS and review proposals.
 - Lazy optional modules plus module scaffolding.
@@ -38,7 +40,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 57 tests: 54 pass locally and three symlink tests are
+- The focused suite runs 60 tests: 57 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
@@ -49,6 +51,9 @@ Updated: 2026-09-01
 - Hosted [CI run 33557863730](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33557863730)
   passed the current five-slice alpha on Linux 3.11/3.13, macOS 3.12 and Windows
   3.12 at exact pushed head `5cae0ae`.
+- Hosted [CI run 33559046205](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559046205)
+  passed the six-slice modular alpha on the same matrix at exact pushed head
+  `04e2c10`.
 - Clean `3.0.0a1` artifacts were rebuilt from local product head `922e1ec` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
@@ -70,7 +75,7 @@ Updated: 2026-09-01
 
 ## Next
 
-Six vertical slices, the full regression and current installed-package flow are
-complete. The next action is a narrow fresh review, then push and exact-head CI.
-The excluded V2 tree remains inert. Merge, tag and package publication remain
-explicit gates.
+Seven vertical slices and the full regression are complete. The current artifact
+hashes belong to product head `922e1ec`; setup presentation must be rebuilt from
+its final code head before the next push. The excluded V2 tree remains inert.
+Merge, tag and package publication remain explicit gates.

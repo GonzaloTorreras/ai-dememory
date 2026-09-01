@@ -175,7 +175,11 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
                 "state": "ready" if (vault.indexes_dir / "memory.sqlite").exists() else "not_built",
                 "built_by": "recall",
             },
-            "next": ['ai-dememory remember "Something worth remembering"'],
+            "next": (
+                ['ai-dememory remember "Something worth remembering"']
+                if not args.no_select
+                else ["Use --vault with the location above when running remember."]
+            ),
             "optional_later": [
                 'ai-dememory recall "something"',
                 "ai-dememory module enable mcp",
@@ -187,7 +191,20 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
 
 def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool) -> int:
     if args.command == "setup":
-        _emit(_setup(args, json_output), json_output)
+        result = _setup(args, json_output)
+        if json_output:
+            _emit(result, True)
+        else:
+            state = str(result["search_index"]["state"]).replace("_", " ")
+            selected = "yes" if result["select_as_default"] else "no"
+            print(f"Vault ready: {result['name']}")
+            print(f"Location: {result['vault']}")
+            print(f"Saved as default: {selected}")
+            print(f"Search index: {state} (recall builds it when needed)")
+            print(f"Background processes: {result['background_processes']}")
+            print(f"Model calls: {result['model_calls']}")
+            print(f"Network: {'on' if result['network'] else 'off'}")
+            print(f"Next: {result['next'][0]}")
         return 0
     if args.command == "module" and args.module_command == "list":
         descriptors = list(discover_modules().values())

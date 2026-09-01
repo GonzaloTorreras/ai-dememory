@@ -38,6 +38,7 @@ Prove the smallest changed slice first:
 
 ```bash
 python -m unittest tests_v3.test_save_mvp
+python -m unittest tests_v3.test_setup_mvp
 python -m unittest tests_v3.test_recall_mvp
 python -m unittest tests_v3.test_review_mvp
 python -m unittest tests_v3.test_mcp_mvp
