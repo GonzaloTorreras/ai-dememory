@@ -30,8 +30,8 @@ This is the only active product plan. It is intentionally not a large DAG.
 
 ## Now
 
-- Consolidate the setup UX from the installed core wheel and refresh its narrow
-  product/security review before pushing.
+- Hold the seven-slice alpha stable for its merge decision; do not add another
+  feature to this already reviewed PR.
 - Keep setup to one location decision; do not reintroduce the V2 questionnaire,
   intensity profiles or future-feature switches.
 
