@@ -43,16 +43,16 @@ Updated: 2026-09-01
   passed on Linux 3.11/3.13, macOS 3.12 and Windows 3.12. The preceding run
   exposed a Windows short-path assertion in the new test; `fa3eb19` normalized
   the expected path and the exact rerun passed.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `c0b84cb` and
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `8020c83` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
   module discovery, real MCP search/proposal, review acceptance and disable.
   Final installed state was two memories, zero proposals, zero background
   processes and zero model calls.
-- Artifact evidence: wheel 28,724 bytes, SHA-256
-  `27267391742180b5241a1db23e9ca41f8431842b34692a3ed9d1d59ea7faaca8`;
-  sdist 26,430 bytes, SHA-256
-  `c57ec8a0935d564bae58bbb5a12326615621eb00c43d4b57a770eb78b974a0bb`.
+- Artifact evidence: wheel 28,781 bytes, SHA-256
+  `ccb90f67376ccfab0acd7c415f7f30ca17ac1d5d40a80afbe45478bead8ce2b5`;
+  sdist 26,497 bytes, SHA-256
+  `31d2e21afe2c572f9ffcaed3a1569f5cf53bfb3ef1ca27cbe09dabc85df366e7`.
 - Fresh review found and fixed one status-side-effect bug: inspection now opens
   an existing generated index as immutable read-only data and reports `invalid`
   instead of repairing it. The security reread found no P0-P3 issue.
