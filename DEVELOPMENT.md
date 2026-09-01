@@ -38,6 +38,7 @@ Prove the smallest changed slice first:
 
 ```bash
 python -m unittest tests_v3.test_save_mvp
+python -m unittest tests_v3.test_recall_mvp
 ```
 
 Only after it passes, run the wider regression checks:

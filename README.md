@@ -30,7 +30,8 @@ Use `--json` for a stable machine-readable result with `saved: true` and
 `verified: true`.
 
 Recall is a separate, lazy step. The disposable SQLite index is created or
-updated only when it is actually needed:
+updated only when it is actually needed. Human output reports how many memories
+matched; `--json` returns `query`, `count` and `results`:
 
 ```bash
 ai-dememory recall "canonical memory"

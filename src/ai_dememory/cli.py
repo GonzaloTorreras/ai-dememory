@@ -227,10 +227,19 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
     if args.command == "recall":
         hits = SearchIndex(vault).search(args.query, args.limit)
         if json_output:
-            _emit({"query": args.query, "results": [hit.to_dict() for hit in hits]}, True)
+            _emit(
+                {
+                    "query": args.query,
+                    "count": len(hits),
+                    "results": [hit.to_dict() for hit in hits],
+                },
+                True,
+            )
         elif not hits:
             print("No matching memories.")
         else:
+            noun = "memory" if len(hits) == 1 else "memories"
+            print(f"Found {len(hits)} matching {noun}.")
             for hit in hits:
                 print(f"{hit.title}  [{hit.memory_id[:8]}]")
                 print(f"  {hit.snippet}")
