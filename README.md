@@ -15,6 +15,7 @@ Use Python 3.11 or newer from a source checkout:
 ```bash
 python -m pip install .
 ai-dememory setup
+ai-dememory remember "Markdown is the canonical memory." --title "Storage rule"
 ```
 
 `setup` explains one concrete action: where the vault will live, what it will
@@ -22,8 +23,16 @@ create, and what it will not do. It creates no daemon, starts no child process,
 calls no model, and uses no network. The selected vault is saved in the user's
 local configuration, so normal commands work from any directory.
 
+`remember` is the V3 MVP. It atomically writes one Markdown file, reads that
+file back, and only then prints `Saved and verified` with its identifier and
+path. It does not build SQLite, start a process or require the source checkout.
+Use `--json` for a stable machine-readable result with `saved: true` and
+`verified: true`.
+
+Recall is a separate, lazy step. The disposable SQLite index is created or
+updated only when it is actually needed:
+
 ```bash
-ai-dememory remember "Markdown is the canonical memory." --title "Storage rule"
 ai-dememory recall "canonical memory"
 ai-dememory status
 ```

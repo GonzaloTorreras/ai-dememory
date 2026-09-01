@@ -34,6 +34,14 @@ legacy task ID.
 
 ## Routine validation
 
+Prove the smallest changed slice first:
+
+```bash
+python -m unittest tests_v3.test_save_mvp
+```
+
+Only after it passes, run the wider regression checks:
+
 ```bash
 python -m compileall -q src/ai_dememory
 python -m unittest discover -s tests_v3 -t .

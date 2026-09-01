@@ -144,7 +144,10 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
     target = Path(args.path or existing or (Path.home() / "ai-dememory-vault")).expanduser().resolve()
     plan = {
         "vault": str(target),
-        "creates": ["Markdown memories", "review proposals", "a disposable SQLite search index"],
+        "prepares": [
+            "canonical Markdown memory storage",
+            "empty directories for optional proposals and generated search data",
+        ],
         "background_processes": 0,
         "model_calls": 0,
         "network": False,
@@ -155,7 +158,8 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
             raise CliError("Setup needs confirmation; rerun with --yes in non-interactive use")
         print("ai DeMemory will create a small local vault:")
         print(f"  Location: {target}")
-        print("  Data: Markdown memories, review proposals, disposable SQLite index")
+        print("  Now: canonical Markdown memory storage")
+        print("  Search index: setup does not build it; recall builds it only when needed")
         print("  Background work, model calls and network: none")
         answer = input("Create/select this vault? [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
@@ -167,10 +171,14 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
         {
             "name": vault.name,
             "config": str(config_path()),
-            "next": [
-                'ai-dememory remember "Something worth remembering"',
+            "search_index": {
+                "state": "ready" if (vault.indexes_dir / "memory.sqlite").exists() else "not_built",
+                "built_by": "recall",
+            },
+            "next": ['ai-dememory remember "Something worth remembering"'],
+            "optional_later": [
                 'ai-dememory recall "something"',
-                "ai-dememory module enable mcp  # optional AI connection",
+                "ai-dememory module enable mcp",
             ],
         }
     )
@@ -208,8 +216,13 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
     vault = _resolve_vault(explicit_vault)
     if args.command == "remember":
         memory = vault.remember(args.content, args.title)
-        SearchIndex(vault).sync()
-        _emit(memory.to_dict(), json_output)
+        result = memory.to_dict()
+        result.update({"saved": True, "verified": True})
+        if json_output:
+            _emit(result, True)
+        else:
+            print(f"Saved and verified: {memory.title} [{memory.memory_id[:8]}]")
+            print(f"  {memory.path}")
         return 0
     if args.command == "recall":
         hits = SearchIndex(vault).search(args.query, args.limit)

@@ -3,13 +3,12 @@
 ai DeMemory has one small core and optional modules.
 
 ```text
-Human CLI ──remember──────────────► Markdown memories (canonical)
-    │                                      │
-    └─recall/status──► SQLite FTS ◄────────┘
-                           ▲
-AI or optional module ─────┼─search/get/context/status
-             │             │
-             └─propose──► Markdown proposals ──human review──► Markdown memories
+Human CLI ──remember──► atomic write ──► read-back ──► canonical Markdown
+Human CLI ──recall/status──► SQLite FTS ◄───────────────┘
+                                 ▲
+AI or optional module ───────────┼─search/get/context/status
+             │                   │
+             └─propose──► Markdown proposals ──human review──► canonical Markdown
 ```
 
 ## Core
@@ -18,6 +17,7 @@ The Python core owns:
 
 - selecting one default vault in machine-local configuration;
 - safe, atomic Markdown writes;
+- exact read-back verification before a save is reported;
 - a minimal `id` and `title` memory contract;
 - incremental Unicode FTS indexing and local recall;
 - proposal review; and
@@ -28,6 +28,7 @@ The vault contains only three product directories:
 ```text
 vault/
   .ai-dememory.toml
+  .ai-dememory.write.lock # generated coordination file; contains no memory
   memories/             # canonical Markdown
   proposals/            # pending and decided proposals
   indexes/memory.sqlite # generated, disposable
@@ -39,7 +40,8 @@ removed directly when their audit value is no longer needed.
 
 The app selector stores only the chosen absolute vault path. Commands resolve
 `--vault` first and then the saved default; they never infer a vault from the
-current source checkout.
+current source checkout. `remember` does not touch SQLite; `recall` synchronizes
+the disposable index on demand from canonical Markdown.
 
 ## Modules
 

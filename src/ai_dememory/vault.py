@@ -8,6 +8,7 @@ import re
 import tempfile
 import tomllib
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ MAX_MEMORY_CONTENT_BYTES = 1_900_000
 MAX_MEMORY_FILES = 10_000
 MAX_TITLE_BYTES = 512
 MAX_METADATA_VALUE_BYTES = 1_024
+_MEMORY_ID = re.compile(r"[0-9a-f]{32}")
 
 
 def utc_now() -> str:
@@ -49,6 +51,62 @@ def _atomic_write(path: Path, content: str) -> None:
             temporary.unlink()
 
 
+@contextmanager
+def _exclusive_write_lock(path: Path) -> Iterator[None]:
+    """Fail fast when another process is already changing canonical memory."""
+    if path.is_symlink():
+        raise VaultError(f"Vault write lock cannot be a symbolic link: {path}")
+    try:
+        handle = path.open("a+b")
+    except OSError as exc:
+        raise VaultError(f"Cannot open the vault write lock {path}: {exc}") from exc
+    try:
+        parent = path.parent.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        if resolved.parent != parent or not resolved.is_file():
+            raise VaultError(f"Vault write lock is not a local regular file: {path}")
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+            os.fsync(handle.fileno())
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise VaultError("Another memory write is already in progress; retry the command") from exc
+        try:
+            yield
+        finally:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
+        handle.close()
+
+
+def _rollback_unverified_write(path: Path, reason: object) -> VaultError:
+    try:
+        path.unlink()
+    except OSError as exc:
+        return VaultError(
+            f"Saved memory could not be verified and rollback failed; inspect {path}: {exc}"
+        )
+    return VaultError(f"Saved memory could not be verified and was rolled back: {path}: {reason}")
+
+
 def _slug(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return (slug[:48] or "memory").strip("-")
@@ -70,6 +128,12 @@ def validate_title(value: str, subject: str) -> str:
     if len(encoded) > MAX_TITLE_BYTES:
         raise VaultError(f"{subject} exceeds the {MAX_TITLE_BYTES}-byte limit")
     return title
+
+
+def validate_memory_id(value: str) -> str:
+    if not _MEMORY_ID.fullmatch(value):
+        raise VaultError("Memory id must be exactly 32 lowercase hexadecimal characters")
+    return value
 
 
 def parse_markdown(path: Path) -> tuple[dict[str, str], str]:
@@ -254,35 +318,57 @@ class Vault:
         reject_high_confidence_secrets(clean_content)
         clean_title = validate_title(title or _default_title(clean_content), "Memory title")
         reject_high_confidence_secrets(clean_title)
-        memory_id = memory_id or uuid.uuid4().hex
-        existing = self.get(memory_id)
-        if existing:
-            if existing.title == clean_title and existing.content == clean_content:
-                return existing
-            raise VaultError(f"Memory id already exists with different content: {memory_id}")
-        created_at = utc_now()
-        filename = f"{created_at[:10]}-{_slug(clean_title)}-{memory_id[:8]}.md"
-        path = self.memories_dir / filename
-        payload = "\n".join(
-            (
-                "---",
-                f"id: {json.dumps(memory_id)}",
-                f"title: {json.dumps(clean_title)}",
-                f"created_at: {json.dumps(created_at)}",
-                "---",
-                "",
-                clean_content,
-                "",
+        supplied_id = memory_id is not None
+        memory_id = validate_memory_id(memory_id or uuid.uuid4().hex)
+        with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
+            if supplied_id:
+                existing = self.get(memory_id)
+                if existing:
+                    if existing.title == clean_title and existing.content == clean_content:
+                        return existing
+                    raise VaultError(f"Memory id already exists with different content: {memory_id}")
+            if self.memory_count() >= MAX_MEMORY_FILES:
+                raise VaultError(f"Vault has reached the {MAX_MEMORY_FILES}-memory limit")
+            created_at = utc_now()
+            filename = f"{created_at[:10]}-{_slug(clean_title)}-{memory_id}.md"
+            memories = self.memories_dir
+            path = memories / filename
+            if path.parent.resolve(strict=True) != memories:
+                raise VaultError(f"Memory path escapes the vault: {path}")
+            if path.exists():
+                raise VaultError(f"Memory path already exists: {path}")
+            payload = "\n".join(
+                (
+                    "---",
+                    f"id: {json.dumps(memory_id)}",
+                    f"title: {json.dumps(clean_title)}",
+                    f"created_at: {json.dumps(created_at)}",
+                    "---",
+                    "",
+                    clean_content,
+                    "",
+                )
             )
-        )
-        _atomic_write(path, payload)
-        return Memory(memory_id, clean_title, clean_content, created_at, path)
+            _atomic_write(path, payload)
+            try:
+                saved = self.read_memory(path)
+            except VaultError as exc:
+                raise _rollback_unverified_write(path, exc) from exc
+            if (
+                saved.memory_id != memory_id
+                or saved.title != clean_title
+                or saved.content != clean_content
+                or saved.created_at != created_at
+            ):
+                raise _rollback_unverified_write(path, "stored fields did not match the request")
+            return saved
 
     def read_memory(self, path: Path) -> Memory:
         metadata, content = parse_markdown(path)
-        memory_id = metadata.get("id", "").strip()
-        if not memory_id:
+        raw_memory_id = metadata.get("id", "").strip()
+        if not raw_memory_id:
             raise VaultError(f"Memory {path.name} requires id and title")
+        memory_id = validate_memory_id(raw_memory_id)
         title = validate_title(metadata.get("title", ""), f"Memory {path.name} title")
         return Memory(memory_id, title, content, metadata.get("created_at", ""), path)
 

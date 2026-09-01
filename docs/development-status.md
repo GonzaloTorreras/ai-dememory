@@ -14,6 +14,10 @@ Updated: 2026-09-01
 
 - New self-contained `src/ai_dememory` package with no runtime dependencies.
 - Saved default vault usable from any working directory.
+- First vertical MVP: `remember` atomically writes canonical Markdown, reads it
+  back and reports success only after the stored fields match exactly.
+- Saving is independent from SQLite; `recall` builds the disposable index only
+  when search is requested.
 - `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
 - Canonical Markdown, incremental SQLite FTS and review proposals.
 - Lazy optional modules plus module scaffolding.
@@ -23,27 +27,30 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 39 tests: 36 pass locally and three symlink tests are
+- The focused suite runs 46 tests: 43 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; the Linux CI matrix will execute the
   symlink cases.
-- Clean `3.0.0a1` artifacts were rebuilt: a 27,048-byte wheel and a
-  24,355-byte sdist. Their inventories contain only the V3 package, license,
+- Clean `3.0.0a1` artifacts were rebuilt from the reviewed source: a 28,081-byte
+  wheel and a 25,618-byte sdist. Their inventories contain only the V3 package, license,
   readmes and distribution metadata, with no V2 runtime, tests or scripts.
-- The wheel installed into a fresh virtual environment and completed setup ->
-  remember -> recall -> module list/enable -> UTF-8 MCP proposal -> review list
-  -> status from outside the checkout. Its import path was the isolated
-  environment, not the source tree.
+- The final wheel installed into a fresh virtual environment and completed
+  setup -> human save -> JSON save -> lazy recall from outside the checkout.
+  Both saves were read back, returned verified success and left SQLite absent;
+  recall then created the generated index.
 - SHA-256: wheel
-  `38ebe6d3aa88f17993c7f4577c6688bf5f7d027135409dd1fabbccf4c80d71a5`;
-  sdist `960b383799c5875ce422ed5b22f71aaf1a29be0b8697caea45b8cfc321cf4f2d`.
-- Independent exact post-fix product and security rereads both returned READY
-  with no reproducible blocker and no P0-P3 security finding.
+  `7dfb75df06b6162d22efa9cb77d14ba61a3a3237aaf1f8dc0c47a8094ee81aff`;
+  sdist `5e89ad01ff3756c5c4f03f99b02831a2f73a441ff5b723431d41af489a2cceaa`.
+- Fresh exact product and security rereads found no remaining code blocker or
+  P0-P2 finding after malformed-file, capacity, concurrent-lock, rollback and
+  supplied-ID containment regressions were added.
+- Residual risk: the three symlink cases require hosted Linux evidence, and
+  atomic file replacement does not fsync the parent directory against sudden
+  power loss.
 
 ## Next
 
-The excluded V2 tree remains physically present but inert because the host
-blocked a broad destructive cleanup without a new explicit approval. Obtain the
-hosted four-job CI result on the alpha PR before considering merge. Physical
-deletion is a separate one-time cleanup. Merge, tag and package publication
-remain explicit gates.
+Obtain fresh independent review and hosted CI for the vertical save commit. The
+excluded V2 tree remains physically present but inert; physical deletion is a
+separate one-time cleanup. Merge, tag and package publication remain explicit
+gates.

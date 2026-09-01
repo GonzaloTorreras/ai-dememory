@@ -4,8 +4,12 @@ This is the only active product plan. It is intentionally not a large DAG.
 
 ## Now
 
-- Prove the clean flow: setup, remember, recall, review and status.
-- Prove modules are lazy and MCP exposes exactly five tools.
+- Ship the first vertical MVP: setup once, save one human-approved memory from
+  any directory, atomically read it back and return an understandable result.
+- Keep saving independent from search, modules, MCP, network, models and
+  background processes.
+- Prove the save contract in isolation before using the broader V3 suite as a
+  regression check.
 - Replace V2 CI, packaging and public documentation with V3 truth.
 - Physically remove the excluded V2 runtime, tests, guards, ADRs and planning
   contracts after the one-time destructive cleanup receives explicit approval.
@@ -14,6 +18,9 @@ This is the only active product plan. It is intentionally not a large DAG.
 
 ## Next
 
+- Exercise recall, review and the optional MCP module as separate vertical
+  slices; none may become a dependency of saving.
+- Prove modules are lazy and MCP exposes exactly five tools.
 - Test the alpha in real Codex, Claude and Hermes sessions using the same MCP
   module, beginning read-only/proposal-only.
 - Measure startup time, RSS, index growth and recall usefulness on a real but
