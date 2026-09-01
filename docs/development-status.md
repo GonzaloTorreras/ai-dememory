@@ -49,7 +49,7 @@ Updated: 2026-09-01
 - Hosted [CI run 33557863730](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33557863730)
   passed the current five-slice alpha on Linux 3.11/3.13, macOS 3.12 and Windows
   3.12 at exact pushed head `5cae0ae`.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `cb0108f` and
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `922e1ec` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
   module discovery, real MCP search/proposal, review acceptance and disable.
@@ -58,10 +58,10 @@ Updated: 2026-09-01
 - The same installed core created a community package in a path containing
   spaces; that package installed editable, appeared disabled, enabled, ran in
   the foreground, and disabled cleanly.
-- Artifact evidence: wheel 28,877 bytes, SHA-256
-  `cd461f96536608e1b52721c0c0131716ff932898891feec27c24e3b4aceaa367`;
-  sdist 26,662 bytes, SHA-256
-  `04a8959248c95b840bf3c96d83ff6ea8aafb299eececb0ff5112a35678b011f0`.
+- Artifact evidence: wheel 28,945 bytes, SHA-256
+  `6c5948e70b21cb8eb6f3a25ced66083fa8bb523afb0bcc860e0e92e6ec90680e`;
+  sdist 26,718 bytes, SHA-256
+  `09bbeb532abb01515db1a164904f9f881a188ecbf6d9164383b12ca0c4d82599`.
 - Fresh review found and fixed one status-side-effect bug: inspection now opens
   an existing generated index as immutable read-only data and reports `invalid`
   instead of repairing it. The security reread found no P0-P3 issue.
