@@ -54,7 +54,7 @@ Updated: 2026-09-01
 - Hosted [CI run 33559046205](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559046205)
   passed the six-slice modular alpha on the same matrix at exact pushed head
   `04e2c10`.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `8e0b5e1` and
+- Clean `3.0.0a1` artifacts were rebuilt from local product head `e45fced` and
   installed without dependencies into a new virtual environment outside the
   checkout. The installed CLI completed setup, save, recall, readable status,
   module discovery, real MCP search/proposal, review acceptance and disable.
@@ -63,10 +63,10 @@ Updated: 2026-09-01
 - The same installed core created a community package in a path containing
   spaces; that package installed editable, appeared disabled, enabled, ran in
   the foreground, and disabled cleanly.
-- Artifact evidence: wheel 29,091 bytes, SHA-256
-  `3c4a2d846f9c9341d3b8ca3fcd44f36489ff164d2341d91fcdd257a6693a2914`;
-  sdist 26,941 bytes, SHA-256
-  `2feb154933ee63867b77700f1f445263c96d172b979b7034e1e754386469d686`.
+- Artifact evidence: wheel 29,101 bytes, SHA-256
+  `db28023f85081837f6cc6adc588389ff0f5c4406d1476766807f6ddd45c38176`;
+  sdist 26,922 bytes, SHA-256
+  `bf35343a2053ac87df6390fc50b8b51740587bcb569f8375dbfde7dfc4fe75ed`.
 - Fresh review found and fixed one status-side-effect bug: inspection now opens
   an existing generated index as immutable read-only data and reports `invalid`
   instead of repairing it. The security reread found no P0-P3 issue.
