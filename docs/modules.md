@@ -9,6 +9,10 @@ ai-dememory module disable mcp
 ai-dememory module create my-module
 ```
 
+The human list shows state and capabilities. `module enable` prints the exact
+foreground `serve` command to run next; `--json` keeps the same information for
+clients and scripts.
+
 ## Contract
 
 An installed module registers the `ai_dememory.modules` Python entry-point and

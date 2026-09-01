@@ -22,6 +22,8 @@ Updated: 2026-09-01
   reports an explicit match count and returns a clear empty result.
 - Third vertical MVP: `review` exposes readable list/show/accept/reject results;
   acceptance saves verified Markdown without eagerly building SQLite.
+- Fourth vertical MVP: the optional MCP module is enabled explicitly, serves
+  read/proposal tools in one foreground process and exits cleanly on stdin EOF.
 - `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
 - Canonical Markdown, incremental SQLite FTS and review proposals.
 - Lazy optional modules plus module scaffolding.
@@ -31,7 +33,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 51 tests: 48 pass locally and three symlink tests are
+- The focused suite runs 52 tests: 49 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
@@ -50,7 +52,7 @@ Updated: 2026-09-01
 
 ## Next
 
-The save MVP remains independently reviewed and hosted-CI green. Recall and
-review are locally complete; the optional MCP client flow is the next vertical
-slice. The excluded V2 tree remains inert. Merge, tag and package publication
-remain explicit gates.
+The save MVP remains independently reviewed and hosted-CI green. Recall, review
+and the optional MCP flow are locally complete; human-readable status is the
+next vertical slice. The excluded V2 tree remains inert. Merge, tag and package
+publication remain explicit gates.

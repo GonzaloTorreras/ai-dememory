@@ -190,23 +190,44 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         _emit(_setup(args, json_output), json_output)
         return 0
     if args.command == "module" and args.module_command == "list":
-        modules = [descriptor.to_dict() for descriptor in discover_modules().values()]
-        _emit({"modules": modules}, json_output)
+        descriptors = list(discover_modules().values())
+        if json_output:
+            _emit(
+                {"count": len(descriptors), "modules": [item.to_dict() for item in descriptors]},
+                True,
+            )
+        elif not descriptors:
+            print("No modules installed.")
+        else:
+            for descriptor in descriptors:
+                state = "enabled" if descriptor.enabled else "disabled"
+                print(f"{descriptor.module_id} [{state}]")
+                print(f"  {descriptor.summary}")
+                if descriptor.capabilities:
+                    print(f"  capabilities: {', '.join(descriptor.capabilities)}")
         return 0
     if args.command == "module" and args.module_command == "enable":
         manifest = enable_module(args.module_id)
-        _emit(
-            {
-                "enabled": manifest.module_id,
-                "capabilities": list(manifest.capabilities),
-                "resource_budget": manifest.resource_budget,
-            },
-            json_output,
-        )
+        result = {
+            "enabled": manifest.module_id,
+            "capabilities": list(manifest.capabilities),
+            "resource_budget": manifest.resource_budget,
+            "next": f"ai-dememory serve {manifest.module_id}",
+        }
+        if json_output:
+            _emit(result, True)
+        else:
+            print(f"Enabled module: {manifest.module_id}")
+            if manifest.capabilities:
+                print(f"Capabilities: {', '.join(manifest.capabilities)}")
+            print(f"Next: {result['next']}")
         return 0
     if args.command == "module" and args.module_command == "disable":
         disable_module(args.module_id)
-        _emit({"disabled": args.module_id}, json_output)
+        if json_output:
+            _emit({"disabled": args.module_id}, True)
+        else:
+            print(f"Disabled module: {args.module_id}")
         return 0
     if args.command == "module" and args.module_command == "create":
         path = create_module(args.module_id, args.path)

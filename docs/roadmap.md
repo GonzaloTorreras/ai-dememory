@@ -15,14 +15,16 @@ This is the only active product plan. It is intentionally not a large DAG.
 - Third vertical MVP: list and inspect an AI proposal, then explicitly accept or
   reject it. Acceptance creates verified Markdown without building SQLite;
   rejection creates no canonical memory.
+- Fourth vertical MVP: enable the bundled MCP module, retrieve one canonical
+  memory, create one pending proposal and stop cleanly on stdin EOF.
 
 ## Now
 
-- Fourth vertical MVP: enable the bundled MCP module, make one read call and one
-  proposal call, then stop cleanly with no child process or network listener.
-- Keep the module optional and foreground-only; do not add hooks, daemons or a
-  provider abstraction.
-- Prove MCP in isolation before running the broader V3 regression suite.
+- Fifth vertical MVP: make `status` understandable to a person while preserving
+  a compact JSON contract for scripts and clients.
+- Report only current vault, memory, proposal, index and enabled-module state;
+  do not turn status into diagnostics or administration.
+- Prove status in isolation before running the broader V3 regression suite.
 
 ## Next
 

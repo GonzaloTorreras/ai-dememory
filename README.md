@@ -67,6 +67,9 @@ ai-dememory module enable mcp
 ai-dememory serve mcp
 ```
 
+`module list` shows enabled/disabled state and capabilities. Enabling a module
+prints its foreground `serve` command; disabling it starts no cleanup process.
+
 The bundled MCP module runs in the foreground over stdio and exposes exactly
 five tools: search, get, context, propose and status. It opens no network port
 and starts no subprocess. Disable it with `ai-dememory module disable mcp`.
