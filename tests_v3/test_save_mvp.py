@@ -99,7 +99,7 @@ class SaveMemoryMvpTests(unittest.TestCase):
 
         self.assertEqual(code, 0, error)
         self.assertIn("Saved and verified: Clear result", output)
-        self.assertIn(str(vault_path / "memories"), output)
+        self.assertIn(str(vault_path.resolve() / "memories"), output)
 
     def test_unrelated_malformed_markdown_does_not_block_a_new_save(self) -> None:
         vault_path = self.root / "vault"
