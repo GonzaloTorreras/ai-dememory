@@ -12,20 +12,21 @@ This is the only active product plan. It is intentionally not a large DAG.
   match count and an explicit empty result.
 - SQLite remains lazy and disposable; ranking stays unchanged until retrieval
   failures are measured.
+- Third vertical MVP: list and inspect an AI proposal, then explicitly accept or
+  reject it. Acceptance creates verified Markdown without building SQLite;
+  rejection creates no canonical memory.
 
 ## Now
 
-- Third vertical MVP: list one AI proposal, inspect it and explicitly accept or
-  reject it without allowing modules to write canonical memory directly.
-- Make the human decision and resulting state obvious before expanding review
-  policy or automation.
-- Prove review in isolation before running the broader V3 regression suite.
+- Fourth vertical MVP: enable the bundled MCP module, make one read call and one
+  proposal call, then stop cleanly with no child process or network listener.
+- Keep the module optional and foreground-only; do not add hooks, daemons or a
+  provider abstraction.
+- Prove MCP in isolation before running the broader V3 regression suite.
 
 ## Next
 
-- Exercise review and the optional MCP module as separate vertical slices;
-  neither may become a dependency of saving or recall.
-- Prove modules are lazy and MCP exposes exactly five tools.
+- Test the completed save/recall/review/MCP flow in one real client session.
 - Test the alpha in real Codex, Claude and Hermes sessions using the same MCP
   module, beginning read-only/proposal-only.
 - Measure startup time, RSS, index growth and recall usefulness on a real but

@@ -253,20 +253,53 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         action = args.review_command or "list"
         if action == "list":
             limit = getattr(args, "limit", 20)
-            _emit({"proposals": [item.to_dict() for item in store.list(limit=limit)]}, json_output)
+            proposals = store.list(limit=limit)
+            if json_output:
+                _emit(
+                    {"count": len(proposals), "proposals": [item.to_dict() for item in proposals]},
+                    True,
+                )
+            elif not proposals:
+                print("No pending proposals.")
+            else:
+                noun = "proposal" if len(proposals) == 1 else "proposals"
+                print(f"{len(proposals)} pending {noun}.")
+                for proposal in proposals:
+                    print(f"{proposal.title}  [{proposal.proposal_id[:8]}]")
+                    print(f"  created: {proposal.created_at}")
         elif action == "show":
             proposal = store.get(args.proposal_id)
             if proposal is None:
                 raise CliError(f"Proposal not found: {args.proposal_id}")
-            _emit(proposal.to_dict(), json_output)
+            if json_output:
+                _emit(proposal.to_dict(), True)
+            else:
+                print(f"Proposal: {proposal.title} [{proposal.proposal_id[:8]}]")
+                print(f"Status: {proposal.status}")
+                print(f"Created: {proposal.created_at}")
+                print()
+                print(proposal.content)
+                print()
+                print(proposal.path)
         else:
             proposal, memory = store.decide(args.proposal_id, accept=action == "accept")
+            memory_result = None
             if memory:
-                SearchIndex(vault).sync()
-            _emit(
-                {"proposal": proposal.to_dict(), "memory": memory.to_dict() if memory else None},
-                json_output,
-            )
+                memory_result = memory.to_dict()
+                memory_result.update({"saved": True, "verified": True})
+            result = {
+                "decision": proposal.status,
+                "proposal": proposal.to_dict(),
+                "memory": memory_result,
+            }
+            if json_output:
+                _emit(result, True)
+            elif memory:
+                print(f"Accepted proposal: {proposal.title} [{proposal.proposal_id[:8]}]")
+                print(f"Saved and verified: {memory.title} [{memory.memory_id[:8]}]")
+                print(f"  {memory.path}")
+            else:
+                print(f"Rejected proposal: {proposal.title} [{proposal.proposal_id[:8]}]")
         return 0
     if args.command == "serve":
         module = load_enabled_module(args.module_id)

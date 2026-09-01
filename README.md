@@ -44,7 +44,9 @@ Use `--vault <path>` only when deliberately overriding the saved default.
 
 `remember` is a direct human action and writes canonical Markdown. Optional AI
 integrations can only create proposals through the public module API. A person
-then decides:
+then decides. `review` shows a readable pending list; accepting reports the
+verified Markdown path without building SQLite, while rejecting creates no
+memory:
 
 ```bash
 ai-dememory review
