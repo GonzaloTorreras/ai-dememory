@@ -17,18 +17,20 @@ This is the only active product plan. It is intentionally not a large DAG.
   rejection creates no canonical memory.
 - Fourth vertical MVP: enable the bundled MCP module, retrieve one canonical
   memory, create one pending proposal and stop cleanly on stdin EOF.
+- Fifth vertical MVP: inspect the selected vault in readable text or compact
+  JSON without building the index, starting processes or calling a model.
 
 ## Now
 
-- Fifth vertical MVP: make `status` understandable to a person while preserving
-  a compact JSON contract for scripts and clients.
-- Report only current vault, memory, proposal, index and enabled-module state;
-  do not turn status into diagnostics or administration.
-- Prove status in isolation before running the broader V3 regression suite.
+- Consolidate the five completed slices as one installable alpha: run the full
+  regression suite, build clean artifacts and smoke-test the installed wheel.
+- Keep the package free of diagnostics, administration and background services.
+- Refresh independent product and security review before the next PR push.
 
 ## Next
 
-- Test the completed save/recall/review/MCP flow in one real client session.
+- Test the completed save/recall/review/status/MCP flow in one real client
+  session.
 - Test the alpha in real Codex, Claude and Hermes sessions using the same MCP
   module, beginning read-only/proposal-only.
 - Measure startup time, RSS, index growth and recall usefulness on a real but

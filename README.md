@@ -38,6 +38,11 @@ ai-dememory recall "canonical memory"
 ai-dememory status
 ```
 
+`status` is a read-only summary of the selected vault: canonical memories,
+pending proposals, generated index state, enabled modules, background processes
+and model calls. It does not build the index or start anything. Use
+`ai-dememory status --json` for scripts.
+
 Use `--vault <path>` only when deliberately overriding the saved default.
 
 ## Human writes, AI proposes

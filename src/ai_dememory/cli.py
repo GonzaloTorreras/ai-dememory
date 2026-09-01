@@ -267,7 +267,24 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
                 print(f"  {hit.path}")
         return 0
     if args.command == "status":
-        _emit(CoreServices(vault).status(), json_output)
+        status = CoreServices(vault).status()
+        if json_output:
+            _emit(status, True)
+        else:
+            index = status["index"]
+            index_state = str(index["state"]).replace("_", " ")
+            modules = ", ".join(status["enabled_modules"]) or "none"
+            print(f"Vault: {status['name']}")
+            print(f"Location: {status['vault']}")
+            print(f"Memories: {status['memories']}")
+            print(f"Pending proposals: {status['pending_proposals']}")
+            print(
+                f"Search index: {index_state} "
+                f"({index['rows']} rows, {index['bytes']} bytes)"
+            )
+            print(f"Enabled modules: {modules}")
+            print(f"Background processes: {status['background_processes']}")
+            print(f"Model calls: {status['model_calls']}")
         return 0
     if args.command == "review":
         store = ProposalStore(vault)
