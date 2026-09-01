@@ -28,7 +28,7 @@ Updated: 2026-09-01
   JSON without building the disposable index or starting anything.
 - Sixth vertical MVP: `module create` explains its next steps and its generated
   package completes install, disabled discovery, enable, foreground run and
-  disable in an isolated environment.
+  disable; deterministic tests use a temporary entry-point fixture.
 - `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
 - Canonical Markdown, incremental SQLite FTS and review proposals.
 - Lazy optional modules plus module scaffolding.
@@ -38,7 +38,7 @@ Updated: 2026-09-01
 ## Evidence
 
 - Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 56 tests: 53 pass locally and three symlink tests are
+- The focused suite runs 57 tests: 54 pass locally and three symlink tests are
   skipped because this Windows account cannot create them. A real Windows
   junction containment test passes; hosted Linux CI executes the portable
   symlink cases.
