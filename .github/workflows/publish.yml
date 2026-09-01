@@ -1,22 +1,10 @@
-name: Legacy publish readiness (no upload)
+name: V3 release preflight (no upload)
 
 on:
   workflow_dispatch:
     inputs:
-      repository:
-        description: "Package index whose release readiness should be checked."
-        required: true
-        default: "testpypi"
-        type: choice
-        options:
-          - testpypi
-          - pypi
       confirm:
-        description: "Type preflight to confirm this read-only hosted validation."
-        required: true
-        type: string
-      pr_url:
-        description: "GitHub PR URL carrying release review and CI evidence."
+        description: "Type preflight to run a read-only package check."
         required: true
         type: string
 
@@ -24,63 +12,26 @@ permissions:
   contents: read
 
 jobs:
-  validate-inputs:
-    name: Validate preflight confirmation
-    runs-on: ubuntu-latest
+  preflight:
+    runs-on: ubuntu-24.04
     steps:
       - name: Require explicit confirmation
         if: ${{ inputs.confirm != 'preflight' }}
-        run: |
-          echo "Set confirm=preflight to run legacy readiness checks without publishing." >&2
-          exit 1
-
-  preflight:
-    name: Legacy publish readiness verification
-    needs: validate-inputs
-    runs-on: ubuntu-latest
-    env:
-      AI_DEMEMORY_PR_URL: ${{ inputs.pr_url }}
-      PUBLISH_REPOSITORY: ${{ inputs.repository }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        run: exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
-      - name: Compile Python
-        run: python -m compileall -q scripts mcp/server ai_dememory_tool
-
-      - name: Publish workflow guard
-        run: python scripts/ai_dememory.py publish-guard
-
-      - name: Generated artifact guard
-        run: python scripts/ai_dememory.py artifact-guard
-
-      - name: Validate memory schema
-        run: python scripts/ai_dememory.py validate
-
-      - name: Secret scan
-        run: python scripts/ai_dememory.py secret-scan
-
-      - name: Verify MCP contract
-        run: python scripts/ai_dememory.py verify-mcp
-
-      - name: Release readiness check
-        run: python scripts/ai_dememory.py release-check
-
-      - name: Package install smoke
-        run: python scripts/ai_dememory.py install-smoke
-
-      - name: Package build smoke
-        run: python scripts/ai_dememory.py package-build-smoke --check-clean
-
-      - name: Docker local MCP smoke
-        run: python scripts/ai_dememory.py install-smoke --skip-package --docker --image ai-dememory:publish
-
-      - name: Strict publish readiness plan
-        run: python scripts/ai_dememory.py publish-plan --repository "$PUBLISH_REPOSITORY" --pr-url "$AI_DEMEMORY_PR_URL" --strict
+      - name: Test product
+        run: |
+          python -m compileall -q src/ai_dememory
+          python -m unittest discover -s tests_v3 -t .
+      - name: Build and inspect package
+        run: |
+          python -m pip install build==1.2.2.post1 twine==6.1.0
+          python -m build
+          python -m twine check dist/*
+          python -c "import glob,zipfile; p=glob.glob('dist/*.whl')[0]; n=zipfile.ZipFile(p).namelist(); assert any(x.startswith('ai_dememory/') for x in n); assert not any(x.startswith(('ai_dememory_tool/','scripts/','mcp/')) for x in n); print(p)"
+          ! tar -tf dist/*.tar.gz | grep -Eq '/(tests|tests_v3|scripts|mcp|ai_dememory_tool)/'

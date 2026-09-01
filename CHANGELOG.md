@@ -5,6 +5,26 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a1] - Unreleased
+
+### Changed
+
+- Rebuild the product around seven public commands, canonical Markdown,
+  automatic Unicode SQLite FTS and one saved default vault.
+- Replace the monolithic CLI/admin runtime with a dependency-free
+  `src/ai_dememory` package and lazy optional modules.
+- Replace 74 MCP tools with a disabled-by-default foreground module exposing
+  search, get, context, propose and status.
+- Replace the normative task DAG with one small Now / Next / Later roadmap and
+  focused product tests.
+
+### Removed
+
+- Remove V2 migration and compatibility requirements. V3 does not read or
+  emulate the unused V2 vault schema or command surface.
+- Remove daemon, scheduler, hooks, graph, vector, REST, import, maintenance and
+  release administration from the default runtime.
+
 ## [2.1.2] - Unreleased
 
 ### Added

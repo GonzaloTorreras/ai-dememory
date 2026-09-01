@@ -1,63 +1,60 @@
----
-id: mem_architecture_20260614
-title: ai DeMemory Architecture
-type: durable
-status: active
-scope: project
-project: ai-dememory
-tags: [memory, architecture, codex, obsidian, sqlite, mcp]
-aliases: [memory tool architecture, multi llm memory]
-created_at: 2026-06-14
-updated_at: 2026-07-27
-confidence: 0.95
-sensitivity: public
-source:
-  kind: codex
-  ref: public-canonicalization-review
-pin: true
-decay: none
-review_after: 2026-10-26
----
+# Architecture
 
-# ai DeMemory Architecture
+ai DeMemory has one small core and optional modules.
 
-## Verdict
+```text
+Human CLI ──remember──────────────► Markdown memories (canonical)
+    │                                      │
+    └─recall/status──► SQLite FTS ◄────────┘
+                           ▲
+AI or optional module ─────┼─search/get/context/status
+             │             │
+             └─propose──► Markdown proposals ──human review──► Markdown memories
+```
 
-Use hybrid Markdown plus SQLite FTS.
+## Core
 
-- Markdown/Obsidian is canonical and human editable.
-- The public `ai-dememory` repository distributes the tool and public demo
-  fixtures; it is never a personal vault.
-- A separate private vault, optionally synchronized through its own private
-  repository, stores real user memory.
-- SQLite FTS is generated retrieval infrastructure.
-- MCP is the common interface for Codex, Claude, and Gemini.
-- A versioned resource-policy layer resolves `minimal`, `balanced`, or `active`
-  ceilings before recall, imports, hooks, maintenance, or scheduling run.
-- MCP profiles are enforced by the Python server; client allowlists are defense
-  in depth rather than the capability boundary. Public repository use has a
-  server-forced three-tool public ceiling; generated private-vault clients
-  default to four-tool core.
-- MCP stdio self-expires when idle, and package-owned external work runs behind
-  one bounded process-tree supervisor with non-interactive stdin: Windows Job
-  Objects and POSIX owned sessions/process groups.
-- Canonical/secret discovery, files/bytes, graph pages/nodes/edges, MCP
-  frames/queues/output, and disposable SQLite audit history are all bounded.
-- Operational setup, optional personal onboarding, and the scheduler use
-  separate exact preview fingerprints. Setup changes only vault config;
-  onboarding changes only reviewed memory; installation remains passive.
-- Vector search is a future optional layer, not the foundation.
-- Python owns domain policy and durable writes. A future TypeScript/React visual
-  plane may use generated contracts but cannot become canonical authority.
+The Python core owns:
 
-## Acceptance Criteria
+- selecting one default vault in machine-local configuration;
+- safe, atomic Markdown writes;
+- a minimal `id` and `title` memory contract;
+- incremental Unicode FTS indexing and local recall;
+- proposal review; and
+- module discovery and activation.
 
-1. Markdown can be edited in Obsidian.
-2. SQLite can be rebuilt from Markdown.
-3. LLMs retrieve memory through MCP with source, confidence, status, and path.
-4. Durable memories are not automatically overwritten.
-5. Secret scanning blocks sensitive content.
-6. Vector search can be added without changing canonical memory.
-7. Resource overrides cannot escape hard min/max ceilings.
-8. ai-dememory runtime model/embedding calls remain zero unless a future,
-   separately reviewed architecture decision changes that contract.
+The vault contains only three product directories:
+
+```text
+vault/
+  .ai-dememory.toml
+  memories/             # canonical Markdown
+  proposals/            # pending and decided proposals
+  indexes/memory.sqlite # generated, disposable
+```
+
+Proposals are capped at 64 KB each and 1,000 files total. `review list` returns
+at most 20 by default (100 when requested); reviewed proposal files can be
+removed directly when their audit value is no longer needed.
+
+The app selector stores only the chosen absolute vault path. Commands resolve
+`--vault` first and then the saved default; they never infer a vault from the
+current source checkout.
+
+## Modules
+
+Modules are disabled by default and loaded only after activation. The stable
+`CoreServices` object offers search, get, bounded context, propose and status;
+it deliberately has no canonical-write method.
+
+This is an API boundary, not a sandbox. Installing a Python module gives that
+package the same local-code trust as any other dependency. Manifests make
+capabilities and resource intentions visible, but the operating system does not
+enforce them.
+
+## Runtime choice
+
+Python remains the correct core runtime because Markdown, SQLite, packaging,
+CLI and stdio MCP all work with the standard library. Node would add a second
+runtime without improving the current data path. A future web UI may use
+TypeScript inside an optional module after the headless product is proven.

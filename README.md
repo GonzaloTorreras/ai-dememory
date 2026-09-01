@@ -1,309 +1,93 @@
 # ai DeMemory
 
-ai DeMemory is a local-first, review-first memory tool for Codex, Claude,
-Gemini, Obsidian, and future clients. Install the Python CLI, create a
-separately bound private vault, and keep Markdown as the human-editable source
-of truth.
+ai DeMemory gives people and AI tools a small, local memory that remains easy
+to inspect and edit. Markdown is the source of truth. SQLite is only a generated
+search index.
 
-This public repository distributes the tool, documentation, and public
-demo/validation fixtures. It is not a personal vault: private memories,
-credentials, and local receipts belong in a separately bound private location.
-SQLite FTS, exports, reports, and future vector indexes are generated from
-Markdown and can be rebuilt.
+The current `main` line is being rebuilt as V3. The source version is
+`3.0.0a1`; it is not published yet. V3 deliberately does not migrate or emulate
+2.x because there are no known production vaults to preserve.
 
-## Choose Your Path
+## Start in under five minutes
 
-- **Install the tool and create a private vault:** follow [Quick Start](#quick-start).
-- **Connect an AI client or run a local dashboard/script:** use
-  [Use It Locally](#use-it-locally) after the wizard.
-- **Find a focused guide:** start at the [documentation portal](docs/README.md).
-- **Work on the source checkout, tests, or releases:** read
-  [Source Checkout And Contributor Workflows](#source-checkout-and-contributor-workflows).
-
-## Release Status
-
-- Current stable release: `ai-dememory` 2.1.1 on PyPI.
-- Source candidate: 2.1.2, unreleased. It is not installable from a package
-  index until it is tagged and published.
-- Use the installed CLI and the wizard below; no version pin or compatibility
-  flag is required for normal setup.
-- MCP protocol baseline: stable `2025-11-25`, with `2024-11-05` accepted for
-  older clients.
-- Python 3.11+ is the only headless runtime. Node is not an installation or
-  background-process dependency; see
-  [the runtime boundary](docs/adr/0254-python-node-runtime-boundary.md).
-- Transport is local MCP stdio plus an optional local REST API. Remote HTTP,
-  OAuth, automatic durable writes, and vector search are out of scope for this
-  release.
-
-The [public modernization roadmap](docs/public-modernization-roadmap.md)
-describes product direction. Source-site delivery, planning, and release
-operations are contributor material, not installation steps.
-
-## Quick Start
-
-### Install and create a private vault
-
-Install the stable package and create a separate private vault with the
-interactive wizard:
+Use Python 3.11 or newer from a source checkout:
 
 ```bash
-pipx install ai-dememory
-ai-dememory init ~/code/my-memory --wizard
+python -m pip install .
+ai-dememory setup
 ```
 
-The wizard previews its plan, shows resource limits, and asks before it writes
-the vault operational config. It never imports chats, creates personal memory,
-installs hooks or schedules, or edits a client configuration.
-
-In the upcoming 2.1.2 correction, a successful interactive setup can remember
-that vault as this machine's local default. That explicit opt-in stores only
-its absolute path outside the vault; it never stores or moves memory. `--root`
-and `AI_DEMEMORY_ROOT` override it whenever you deliberately select another
-vault. See the operations runbook for managing an existing default.
-
-The complete instructions live in the [installation guide](docs/install.md).
-
-`uv` users can substitute `uv tool install ai-dememory` for the first line.
-On Windows, use a private path such as `D:\Memory\my-vault` instead of
-the example path.
-
-### Connect a client when you are ready
-
-Client configuration is a separate, explicit action: inspect the generated
-fragment before copying it into Codex, Claude, or another host.
+`setup` explains one concrete action: where the vault will live, what it will
+create, and what it will not do. It creates no daemon, starts no child process,
+calls no model, and uses no network. The selected vault is saved in the user's
+local configuration, so normal commands work from any directory.
 
 ```bash
-ai-dememory --root ~/code/my-memory mcp-config --client codex
+ai-dememory remember "Markdown is the canonical memory." --title "Storage rule"
+ai-dememory recall "canonical memory"
+ai-dememory status
 ```
 
-The generated fragment binds the vault, uses the reduced server-enforced
-`core` profile, and sets an idle lease. You do not need to type its internal
-runtime arguments during first-run setup.
+Use `--vault <path>` only when deliberately overriding the saved default.
 
-### Optionally add a personal baseline
+## Human writes, AI proposes
 
-The setup wizard intentionally does not ask for personal values or agent
-preferences. If you later choose to record a reviewed durable baseline, run
-the separate flow below and inspect its preview before applying it:
+`remember` is a direct human action and writes canonical Markdown. Optional AI
+integrations can only create proposals through the public module API. A person
+then decides:
 
 ```bash
-ai-dememory --root ~/code/my-memory onboard
+ai-dememory review
+ai-dememory review show <proposal-id>
+ai-dememory review accept <proposal-id>
+ai-dememory review reject <proposal-id>
 ```
 
-It explains each required field, retries a blank answer, and never changes the
-operational policy chosen by the wizard.
+## Optional modules
 
-### Update or diagnose an installation
-
-For an existing pipx install, repair it with the current stable package.
-`--version` is the normal diagnostic when you need to confirm what is on PATH.
+Everything beyond the local core is opt-in. A disabled module contributes zero
+runtime imports, tools and processes. Dependencies of an already installed
+third-party package remain installed until that package is uninstalled.
 
 ```bash
-pipx install --force ai-dememory
-ai-dememory --version
+ai-dememory module list
+ai-dememory module enable mcp
+ai-dememory serve mcp
 ```
 
-To create a reusable private GitHub vault template rather than one local vault:
+The bundled MCP module runs in the foreground over stdio and exposes exactly
+five tools: search, get, context, propose and status. It opens no network port
+and starts no subprocess. Disable it with `ai-dememory module disable mcp`.
+
+Create a community module without copying this repository:
 
 ```bash
-ai-dememory vault-template export ~/code/ai-dememory-vault-template
+ai-dememory module create my-module
 ```
 
-Review the exported files, then keep that vault repository private and separate
-from the public tool distribution repository.
+See [modules](docs/modules.md) for the trust and resource contract.
 
-## Use It Locally
+## Product boundaries
 
-The wizard creates a private vault and its bounded local policy; it neither
-launches a local API nor changes host configuration. The MCP configuration
-above uses stdio, not a network port. Generated client configuration includes a
-bound vault, a reduced tool profile, and an idle lease; see [Local MCP](docs/local-mcp.md)
-and [MCP client configuration](docs/mcp-client-config.md) for the full setup.
+- Python is the only core runtime; Node is not required.
+- Markdown is canonical; `indexes/memory.sqlite` is disposable.
+- The default install has no scheduler, hooks, dashboard, graph, vectors,
+  embeddings, model calls or background process.
+- Modules are local trusted Python code, not sandboxes. Their declared resource
+  budgets are visible metadata, not an operating-system enforcement boundary.
+- The public source repository and every private vault are separate locations.
+- High-confidence secret material is rejected at canonical and proposal writes;
+  credentials still belong in a credential manager.
 
-For a local script or dashboard that needs HTTP rather than MCP stdio, run the
-optional REST API from the installed command:
+## Documentation
 
-```bash
-ai-dememory --root ~/code/my-memory api
-```
+- [Concept and architecture](docs/architecture.md)
+- [Optional modules](docs/modules.md)
+- [Now / Next / Later](docs/roadmap.md)
+- [Development](DEVELOPMENT.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
 
-It runs in the foreground, binds only to `127.0.0.1:8765` by default, and stops
-with Ctrl-C. It is not started automatically. The [local API guide](docs/local-api.md)
-covers endpoint details, indexing, and the stricter API-key/TLS requirements
-for any deliberate non-loopback binding.
-
-## Documentation By Task
-
-The [documentation portal](docs/README.md) separates first use, local MCP/API
-operation, maintenance, architecture, and source/release material. Start there
-instead of treating every repository command as an installation requirement.
-
-## Source Checkout And Contributor Workflows
-
-This section is for people working on a trusted source checkout, tests, or
-release evidence. It is not part of a normal `pipx` installation or wizard
-first run. The installed `ai-dememory` command is the normal private-vault
-interface; compatibility wrappers and direct script modules belong only to
-source debugging and CI.
-
-- [Documentation portal](docs/README.md): choose the relevant user, operations,
-  architecture, or contributor guide.
-- [Maintainer script reference](scripts/README.md): checkout-only test, CI, and
-  compatibility-wrapper guidance.
-- [Draft PR handoff](docs/pr-draft.md): required evidence and exact-head PR
-  workflow.
-- [v2 release checklist](docs/release-v2-checklist.md): release and package
-  evidence gates.
-- [Development continuity](DEVELOPMENT.md) and
-  [current development status](docs/development-status.md): public frontier,
-  branch, and approval boundary.
-
-On Windows PowerShell, contributor instructions use `py -3` where their
-equivalent says `python3`. Do not copy source-checkout test or release commands
-into a personal vault workflow.
-
-## Architecture
-
-- Markdown and Obsidian are the human-editable source of truth.
-- A separately chosen private Git repository can sync and version canonical
-  memory; the public tool repository does not contain that memory.
-- SQLite FTS5 is the local retrieval and ranking layer; graph, reports, and
-  future vector indexes are generated and disposable.
-- MCP exposes local recall and review-first proposal tools. The optional REST
-  API serves local dashboards and scripts that cannot launch MCP stdio.
-- Vector search remains optional and requires measured recall evidence before
-  it can add a dependency or privacy surface.
-
-See [architecture](docs/architecture.md), [schema](docs/schema.md),
-[operations](docs/operations.md), and [source-grounded query design](docs/source-grounded-query-design.md).
-
-## Safety Model
-
-- Never store secrets, tokens, private keys, service-account JSON, cookies,
-  recovery codes, or `.env` contents in a vault or this repository.
-- Durable memory changes require human review. LLMs may create proposals in
-  `inbox/llm-captures/`, not direct durable writes.
-- Generated indexes, context exports, and reports can be rebuilt from canonical
-  Markdown; they are not durable memory by themselves.
-- Secret scanning and schema validation run before indexing.
-- `private` and `sensitive` memories are excluded from default search, MCP
-  results, and generated context unless a local user explicitly includes them.
-- `internal` memory can be valid in a private vault but is not public-safe.
-  Public-repository work must request the fail-closed `public_only` ceiling.
-
-## Public Source Repository Layout
-
-This describes the public checkout and its demo/validation fixtures. A real
-vault is separately bound and must not be added to this repository.
-
-- `memories/` and `inbox/`: public fixtures and review candidates, never a
-  personal memory archive.
-- `working/`, `indexes/`, `distilled/`, and `reports/`: generated state,
-  indexes, exports, and review output.
-- `mcp/`: MCP server implementation and integration notes.
-- `scripts/`: maintainer validation, retrieval, integration, and release tools.
-- `templates/` and `vault-template/`: starter content for a private vault.
-- `contracts/planning/`: normative V3 task order and state; historical research
-  in `PLAN.md` is explanatory, not an executable backlog.
-
-## MCP v2 Operation
-
-For normal local use, generate a bound client configuration through the command
-in Quick Start. The default `core` profile exposes four server-enforced tools;
-the checked-in public plugin is stricter and uses a three-tool `public` profile
-with `public_only=true`, no sensitive content, and no working-memory injection.
-`working` and `review` are opt-in, while `admin` preserves the complete
-historical MCP surface for compatibility and broad maintenance.
-
-MCP resources do not expose `private`, `sensitive`, or `secret-prohibited`
-memory by default. Tools that could include sensitive content require an
-explicit opt-in, and proposal/review actions remain confined to review-first
-locations. The server is stdio-only; do not expose it as a network service
-without a separate authentication and authorization design.
-
-The following machine-checked inventory is collapsed so it does not obscure
-the normal installation path. The complete protocol explanation and profile
-measurements are in [MCP V2](docs/mcp-v2.md),
-[MCP tool profiles](docs/mcp-tool-profiles.md), and
-[the protocol gap analysis](docs/mcp-v2-gap-analysis.md).
-
-<details>
-<summary>Maintainer inventory: 74 MCP tools</summary>
-
-Implemented MCP surface: 74 MCP tools.
-
-- `memory.search`, `memory.get`, `memory.write_proposal`,
-  `memory.mark_seen`, `memory.reindex`, `memory.consolidate`,
-  `memory.secret_scan`, `memory.graph`, `memory.doctor`,
-  `memory.validate_status`, `memory.capture_miss`,
-  `memory.recall_miss_candidate`,
-  `memory.recall_fixture_status`, `memory.recall_review_plan`,
-  `memory.recall_review_packet`,
-  `memory.recall_review_packet_archive_status`,
-  `memory.recall_review_packet_archive_retention_plan`,
-  `memory.recall_miss_review`,
-  `memory.vector_status`, `memory.roadmap_status`, `memory.context`,
-  `memory.outcome`, `memory.lifecycle_scores`, `memory.maintenance_status`,
-  `memory.import_chats`, `memory.capture_import`, `memory.git_lessons`,
-  `memory.maintenance_run`, `memory.schedule_plan`,
-  `memory.schedule_status`, `memory.schedule_environment`,
-  `memory.hook_events`, `memory.hook_config`, `memory.hook_status`,
-  `memory.hook_capture_review`, `memory.sleep_plan`,
-  `memory.sleep_apply_reviewed`, `memory.working_current`,
-  `memory.working_status`, `memory.working_snapshot`,
-  `memory.working_handoff`, `memory.providers_detect`,
-  `memory.providers_status`, `memory.providers_plan`, `memory.setup_plan`,
-  `memory.setup_health`, `memory.review_false_positives`,
-  `memory.review_stale_false_positives`, `memory.false_positive_ignore`,
-  `memory.false_positive_unignore`, `memory.review_conflicts`,
-  `memory.conflict_dismiss`, `memory.conflict_keep`,
-  `memory.conflict_merge_proposal`, `memory.review_modes`,
-  `memory.review_configure_mode`, `memory.review_plan`,
-  `memory.review_recommendation`, `memory.review_recommendations`,
-  `memory.review_recommendation_archive_status`,
-  `memory.review_recommendation_archive_restore_preview`,
-  `memory.review_recommendation_outcome_report`,
-  `memory.review_recommendation_outcome`, `memory.provenance_status`,
-  `memory.acceptance_status`, `memory.acceptance_verify`,
-  `memory.acceptance_plan`, `memory.acceptance_template`,
-  `memory.acceptance_packet`,
-  `memory.acceptance_packet_archive_status`,
-  `memory.acceptance_packet_archive_retention_plan`,
-  `memory.release_evidence`, `memory.release_evidence_report`, and
-  `memory.publish_plan`.
-
-</details>
-
-## Working In A Private Vault
-
-After creating a separate private vault:
-
-1. Capture new information as Markdown in `inbox/` or an appropriate
-   `memories/` folder.
-2. Validate and secret-scan it before indexing.
-3. Rebuild the disposable SQLite index when you want it searchable.
-4. Search or assemble bounded context for an LLM session.
-5. Promote proposals into durable, project, or active memory only after review.
-
-For imports, hooks, schedulers, maintenance, review packets, and recovery,
-follow the focused guides in the [documentation portal](docs/README.md). Those
-actions are opt-in and are not performed by installation or the wizard.
-
-## Source Validation And Release Gates
-
-Source validation, CI, draft PR evidence, package smoke, release identity, and
-manual acceptance are maintained outside this product entry page. Use the
-[maintainer script reference](scripts/README.md), [draft PR handoff](docs/pr-draft.md),
-and [v2 release checklist](docs/release-v2-checklist.md) for the exact command
-sets and evidence order.
-
-CI validates the source, schema, secret policy, MCP contract, package smoke,
-and generated-artifact boundary. Generated SQLite databases, context exports,
-and reports are never canonical memory and are not staged unless a change
-explicitly reviews them.
-
-Review, merge, and release authority is documented in
-[Development continuity](DEVELOPMENT.md) and the
-[draft PR handoff](docs/pr-draft.md). A private vault is never release evidence
-or public repository content.
+Unlinked 2.x design documents and ADRs are historical source material only and
+will be removed before the first V3 package release. They do not define current
+behavior or priorities.

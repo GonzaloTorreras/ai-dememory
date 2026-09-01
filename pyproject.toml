@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-dememory"
-version = "2.1.2"
-description = "Local-first personal multi-LLM memory toolchain and MCP server."
+dynamic = ["version"]
+description = "Small, local-first memory for people and AI tools."
 readme = "README-PYPI.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -26,17 +26,14 @@ Issues = "https://github.com/GonzaloTorreras/ai-dememory/issues"
 Documentation = "https://github.com/GonzaloTorreras/ai-dememory/tree/main/docs"
 
 [project.scripts]
-ai-dememory = "ai_dememory_tool.cli:main"
+ai-dememory = "ai_dememory.cli:main"
 
 [tool.setuptools]
-include-package-data = true
-packages = ["ai_dememory_tool", "ai_dememory_tool.admin", "ai_dememory_tool.mcp_server"]
-package-dir = { "ai_dememory_tool.admin" = "scripts", "ai_dememory_tool.mcp_server" = "mcp/server" }
+package-dir = { "" = "src" }
 
-[tool.setuptools.package-data]
-ai_dememory_tool = [
-  "templates/vault/**",
-  "templates/vault/.ai-dememory.toml",
-  "templates/vault/.ai-dememory-ignore.toml",
-  "templates/vault/.gitignore",
-]
+[tool.setuptools.dynamic]
+version = { attr = "ai_dememory.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ai_dememory*"]
