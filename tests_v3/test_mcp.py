@@ -73,6 +73,84 @@ class McpModuleTests(unittest.TestCase):
         responses = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "ai-dememory")
         self.assertEqual(len(responses[1]["result"]["tools"]), 7)
+        guidance = responses[0]["result"]["instructions"]
+        for expected in ("memory.context", "memory.learn", "event_id", "provenance", "provisional", "explicit correction"):
+            self.assertIn(expected, guidance)
+
+    def learning_arguments(self, scope="project:alpha", event="one"):
+        return {"title": "Runtime decision", "content": "Use Python", "scope": scope, "event_id": event,
+                "source": {"provider": "codex", "session": "session", "turn": event,
+                           "evidence_kind": "user_statement", "excerpt": "Use Python"}}
+
+    def test_scope_bound_stdio_defaults_retrieval_and_forget(self) -> None:
+        memory = mcp.call_tool(self.services, "memory.learn", self.learning_arguments())
+        other = mcp.call_tool(self.services, "memory.learn", self.learning_arguments("project:beta"))
+        shared = self.vault.remember("Shared Python guidance", "Shared")
+        methods = [
+            {"method": "initialize"},
+            {"method": "tools/list"},
+            {"method": "tools/call", "params": {"name": "memory.context", "arguments": {"query": "Python"}}},
+            {"method": "tools/call", "params": {"name": "memory.get", "arguments": {"memory_id": other["memory_id"]}}},
+            {"method": "tools/call", "params": {"name": "memory.forget", "arguments": {"memory_id": memory["memory_id"]}}},
+        ]
+        requests = "".join(json.dumps({"jsonrpc": "2.0", "id": index + 1, **request}) + "\n"
+                           for index, request in enumerate(methods))
+        output = io.StringIO()
+        self.assertEqual(mcp.serve(self.services, ["--scope", "project:alpha"],
+                                   input_stream=io.StringIO(requests), output_stream=output), 0)
+        responses = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertIn("bound to scope project:alpha", responses[0]["result"]["instructions"])
+        tools = responses[1]["result"]["tools"]
+        self.assertEqual(len(tools), 7)
+        for tool in tools:
+            schema = tool["inputSchema"]["properties"].get("scope")
+            if schema:
+                self.assertEqual(schema["default"], "project:alpha")
+                self.assertEqual(schema["enum"], ["project:alpha"])
+        context = json.loads(responses[2]["result"]["content"][0]["text"])
+        self.assertEqual(set(context["memory_ids"]), {memory["memory_id"], shared.memory_id})
+        self.assertIsNone(json.loads(responses[3]["result"]["content"][0]["text"]))
+        forgotten = json.loads(responses[4]["result"]["content"][0]["text"])
+        self.assertEqual(forgotten["status"], "forgotten")
+        self.assertEqual(self.vault.get(other["memory_id"]).status, "active")
+
+    def test_bound_server_rejects_cross_scope_operations_and_unscoped_proposals(self) -> None:
+        bound = "project:alpha"
+        memory = mcp.call_tool(self.services, "memory.learn", self.learning_arguments(), bound)
+        for scope in ("project:beta", "global"):
+            calls = [
+                ("memory.search", {"query": "Python", "scope": scope}),
+                ("memory.context", {"query": "Python", "scope": scope}),
+                ("memory.get", {"memory_id": memory["memory_id"], "scope": scope}),
+                ("memory.forget", {"memory_id": memory["memory_id"], "scope": scope}),
+                ("memory.learn", self.learning_arguments(scope, "two")),
+            ]
+            for name, arguments in calls:
+                with self.subTest(name=name, scope=scope):
+                    response = mcp.handle_request(self.services, {
+                        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                        "params": {"name": name, "arguments": arguments},
+                    }, bound)
+                    self.assertEqual(response["error"]["code"], -32602)
+        with self.assertRaisesRegex(ValueError, "unscoped proposals"):
+            mcp.call_tool(self.services, "memory.propose", {"title": "Bypass", "content": "No"}, bound)
+        self.assertEqual(ProposalStore(self.vault).count(), 0)
+        self.assertEqual(self.vault.memory_count(), 1)
+        self.assertEqual(self.vault.get(memory["memory_id"]).status, "active")
+
+    def test_bound_learning_requires_explicit_scope_and_arguments_are_not_mutated(self) -> None:
+        arguments = self.learning_arguments()
+        arguments.pop("scope")
+        with self.assertRaisesRegex(ValueError, "missing required fields"):
+            mcp.call_tool(self.services, "memory.learn", arguments, "project:alpha")
+        retrieval = {"query": "Python"}
+        self.assertEqual(mcp.call_tool(self.services, "memory.search", retrieval, "project:alpha"), [])
+        self.assertEqual(retrieval, {"query": "Python"})
+
+    def test_invalid_mcp_runtime_arguments_fail_before_reading_input(self) -> None:
+        for argv in (["--scope"], ["--scope", "../private"], ["--unknown"], ["extra"]):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                mcp.serve(self.services, argv, input_stream=io.StringIO(""), output_stream=io.StringIO())
 
     def test_malformed_tool_call_does_not_stop_stdio_server(self) -> None:
         requests = "\n".join(

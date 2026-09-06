@@ -73,6 +73,13 @@ plain HTML/CSS/JavaScript from the same Python process: no frontend build chain.
 
 ## Job and provider boundary
 
+The optional [harness adapter](integrations.md) installs project-local client
+settings. A short-lived prompt hook retrieves context; a scope-bound stdio MCP
+process handles explicit tool calls. The host model decides what to learn,
+without a second extraction model or transcript reader. Hook telemetry contains
+bounded metadata only. Client trust and model behavior need separate native
+acceptance; protocol tests alone cannot prove proactive learning.
+
 Jobs call a provider protocol, never a harness-specific model class. Named
 routes select an extraction/consolidation profile or a hook/skill override.
 Fallbacks are ordered; each attempt reserves daily budget first. The initial

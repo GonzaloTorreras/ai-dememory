@@ -35,6 +35,13 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    "harness": ModuleDescriptor(
+        module_id="harness", version="1", summary="Project-local Codex and Claude MCP/recall integration.",
+        entrypoint="ai_dememory.builtin_modules.harness",
+        capabilities=("install", "recall-hook"),
+        resource_budget={"network": False, "child_processes": 0, "persistent": False},
+        builtin=True, enabled=False,
+    ),
     "mcp": ModuleDescriptor(
         module_id="mcp",
         version="1",

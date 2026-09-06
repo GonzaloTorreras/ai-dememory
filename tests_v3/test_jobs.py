@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -75,6 +79,111 @@ class LearningJobsTests(unittest.TestCase):
         result = self.jobs.extract([{"role": "user", "content": "Use Python"}], "global")
         self.assertEqual(result["rejected"], 3)
         self.assertEqual(result["learned"], [])
+
+    def test_completed_receipt_replays_despite_changed_output_order_and_count(self):
+        messages = [{"role": "user", "content": "Use Python. Keep functions short."}]
+        self.output({"memories": [{"title": "Language", "content": "Use Python.",
+            "evidence": "Use Python.", "message_index": 0}]})
+        first = self.jobs.extract(messages, "project:one", event_id="stable-event")
+        self.output({"memories": [
+            {"title": "Style", "content": "Keep functions short.",
+             "evidence": "Keep functions short.", "message_index": 0},
+            {"title": "Other title", "content": "Use Python.",
+             "evidence": "Use Python.", "message_index": 0}]})
+        restarted = LearningJobs(self.services, self.factory)
+        replay = restarted.extract(messages, "project:one", event_id="stable-event")
+        self.assertEqual(first, replay)
+        self.assertEqual(self.engine.run.call_count, 1)
+        with closing(sqlite3.connect(self.vault.root / "runtime.sqlite")) as db:
+            receipt = db.execute("SELECT event_key, result FROM extraction_receipts").fetchone()
+        self.assertNotIn("stable-event", receipt[0])
+        for text in ("Use Python", "Keep functions short", "Language", "source", "excerpt"):
+            self.assertNotIn(text, receipt[1])
+
+    def test_cross_event_content_duplicate_has_its_own_durable_receipt(self):
+        messages = [{"role": "user", "content": "Use Python."}]
+        self.output({"memories": [{"title": "Language", "content": "Use Python.",
+            "evidence": "Use Python.", "message_index": 0}]})
+        first = self.jobs.extract(messages, "global", event_id="event-one")
+        duplicate = self.jobs.extract(messages, "global", event_id="event-two")
+        self.assertEqual(duplicate["learned"][0]["memory_id"], first["learned"][0]["memory_id"])
+        self.assertEqual(duplicate["learned"][0]["admission"], "duplicate")
+        self.output({"memories": []})
+        replay = LearningJobs(self.services, self.factory).extract(messages, "global", event_id="event-two")
+        self.assertEqual(replay, duplicate)
+        self.assertEqual(self.engine.run.call_count, 2)
+
+    def test_failed_provider_can_retry_and_partial_admissions_survive_retry(self):
+        messages = [{"role": "user", "content": "Use Python. Keep functions short."}]
+        self.engine.run.side_effect = ValueError("provider unavailable")
+        with self.assertRaises(ValueError):
+            self.jobs.extract(messages, "global", event_id="retry-event")
+        self.engine.run.side_effect = None
+        self.output({"memories": [
+            {"title": "Language", "content": "Use Python.",
+             "evidence": "Use Python.", "message_index": 0},
+            {"title": "Style", "content": "Keep functions short.",
+             "evidence": "Keep functions short.", "message_index": 0}]})
+        original = self.services.learn
+        calls = 0
+
+        def fail_second(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise ValueError("temporary write failure")
+            return original(*args, **kwargs)
+
+        with patch.object(self.services, "learn", side_effect=fail_second):
+            with self.assertRaises(ValueError):
+                self.jobs.extract(messages, "global", event_id="retry-event")
+        first_id = self.services.list_memories()[0]["memory_id"]
+        result = LearningJobs(self.services, self.factory).extract(messages, "global", event_id="retry-event")
+        self.assertEqual(result["learned"][0]["memory_id"], first_id)
+        self.assertEqual(len(result["learned"]), 2)
+        self.assertEqual(len(self.services.list_memories()), 2)
+        self.assertEqual(self.engine.run.call_count, 3)
+
+    def test_concurrent_same_occurrence_fails_fast_then_replays_without_call(self):
+        entered, release = threading.Event(), threading.Event()
+        messages = [{"role": "user", "content": "Use Python."}]
+        self.output({"memories": [{"title": "Language", "content": "Use Python.",
+            "evidence": "Use Python.", "message_index": 0}]})
+        response = self.engine.run.return_value
+
+        def held_provider(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise RuntimeError("Test provider was not released")
+            return response
+
+        self.engine.run.side_effect = held_provider
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            future = workers.submit(self.jobs.extract, messages, "global", event_id="concurrent")
+            try:
+                self.assertTrue(entered.wait(5))
+                with self.assertRaises(ValueError):
+                    LearningJobs(self.services, self.factory).extract(messages, "global", event_id="concurrent")
+            finally:
+                release.set()
+            first = future.result(timeout=5)
+        replay = LearningJobs(self.services, self.factory).extract(messages, "global", event_id="concurrent")
+        self.assertEqual(first, replay)
+        self.assertEqual(self.engine.run.call_count, 1)
+
+    def test_completed_empty_receipt_and_forgotten_memory_do_not_relearn(self):
+        messages = [{"role": "user", "content": "Use Python."}]
+        self.output({"memories": []})
+        empty = self.jobs.extract(messages, "global", event_id="empty-event")
+        self.output({"memories": [{"title": "Language", "content": "Use Python.",
+            "evidence": "Use Python.", "message_index": 0}]})
+        self.assertEqual(self.jobs.extract(messages, "global", event_id="empty-event"), empty)
+        created = self.jobs.extract(messages, "global", event_id="memory-event")
+        self.services.forget(created["learned"][0]["memory_id"])
+        replay = self.jobs.extract(messages, "global", event_id="memory-event")
+        self.assertEqual(replay["learned"][0]["status"], "forgotten")
+        self.assertEqual(self.services.list_memories(), [])
+        self.assertEqual(self.engine.run.call_count, 2)
 
     def test_secret_or_oversized_input_never_reaches_provider(self):
         for content in ("ghp_" + "A" * 30, "x" * 24001):

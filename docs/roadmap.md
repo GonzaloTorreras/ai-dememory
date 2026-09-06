@@ -32,8 +32,8 @@ Every row is a complete user-visible slice, not empty interfaces.
 | Slice | Outcome | Acceptance |
 | --- | --- | --- |
 | Local learning workbench (implemented alpha) | Configure providers and ordered fallback, learn a scoped fact, retrieve its relevant passage, inspect activity, set consolidation interval and budgets in UI | Settings survive restart; mocked provider failure selects fallback within budget; invalid input creates no memory; inference stays provisional. Live model acceptance remains pending |
-| Correction and hygiene (implemented core; ingestion receipts next) | Explicit keyed replacement, exact unkeyed dedupe, undo and inactive-state filtering | Stable core occurrence retries reuse their result; correction wins only in its scope; history remains inspectable. Full extraction retry receipts remain next |
-| Codex integration | MCP tools, bounded recall hook and incremental learning input | Two real sessions share a useful scoped lesson; ignored prompts add no clutter; failure does not block Codex |
+| Correction and hygiene (implemented alpha) | Explicit keyed replacement, exact unkeyed dedupe, undo, inactive-state filtering and durable extraction receipts | Completed extraction retries return original admissions without another provider call; correction wins only in its scope; history remains inspectable. Interrupted two-store writes remain a documented limit |
+| Codex integration (local adapter implemented; native acceptance pending) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Two real sessions share a useful scoped lesson; ignored prompts add no clutter; failure does not block Codex. Native Luna CLI acceptance is currently blocked by client compatibility |
 | Hermes and Claude | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Cross-harness recall works; native caches do not reenter as new evidence |
 | Incremental ingestion | Authorized conversation deltas, occurrence receipts, cursor/retry only where needed, grouped extraction | Changed model indexes/cardinality and cross-event dedupe aliases remain idempotent; rotation/retries preserve attribution; budgets and backlog remain visible |
 | Consolidation and skills | Reversible cleanup, evidence-backed procedural knowledge and tested skill export | Repeated runs converge; recipes work in a second case; executable capabilities have policy, tests and rollback |
@@ -87,9 +87,11 @@ mount SQLite over the network.
 ## Admission and memory quality
 
 Records carry scope, source, status and optional key/supersession. Stable core
-occurrence IDs reuse their first result. Extraction retries are not yet fully
-idempotent when generated source indexes change or a different event was deduped
-onto an older record; add durable occurrence receipts before automatic retries.
+occurrence IDs reuse their first result. Durable extraction receipts preserve
+completed occurrence results and cross-event dedupe aliases without rerunning
+the provider. Per-vault extraction locking rejects concurrent runs; partial
+receipts retain completed admissions. A crash between a Markdown write and its
+receipt commit still needs reconciliation before unattended ingestion is claimed.
 A confidence number cannot grant authority. User statements and
 verified outcomes may be admitted automatically; inference, disputed and
 superseded content is excluded from default factual context. A source excerpt

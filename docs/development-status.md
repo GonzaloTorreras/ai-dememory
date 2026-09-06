@@ -27,6 +27,11 @@ Updated: 2026-09-07
 - Responses/OpenAI-compatible adapters; environment credential references only.
   Durable reservations count fallback attempts. No hardcoded model catalog.
 - Bounded conversation extraction, no model-controlled correction keys.
+- Durable extraction occurrence receipts: completed retries avoid provider
+  calls and preserve aliases, zero-result admissions and original record IDs.
+- Project-local Codex/Claude installer, scope-bound MCP and fail-open
+  UserPromptSubmit recall. No transcript reader, Stop hook or extra model call.
+  Native client acceptance is distinct from installed protocol tests below.
 - Conservative unkeyed duplicate cleanup; optional global summary proposals.
 - Persisted hourly interval controls, manual runs and global foreground schedule.
 - One active plan: [roadmap](roadmap.md). [Workbench guide](workbench.md) separates
@@ -34,8 +39,9 @@ Updated: 2026-09-07
 
 ## Evidence for this slice
 
-- Full V3 suite: 104 tests; 101 passed, three Windows symlink cases skipped.
-  Independent review reran the same suite. Compilation and diff whitespace checks pass.
+- Full V3 suite: 123 tests; 120 passed, three Windows symlink cases skipped.
+  Compilation and diff whitespace checks pass. The final CLI-help regression
+  verifies that enabling the installer points to usable installation help.
 - Focused tests cover source/scope/undo, relevant context, null MCP input,
   generated-key rejection, correction-safe dedupe, 429/timeout fallback,
   concurrent budget reservations, credentials isolation and malformed responses.
@@ -49,7 +55,7 @@ Updated: 2026-09-07
 - Visual comparison retained the white/emerald reference hierarchy, left
   navigation, route rows and restrained controls. Mobile intentionally wraps
   navigation and stacks forms. Empty provider state is real, not sample data.
-- Wheel built and installed without runtime dependencies into an isolated venv.
+- Previous workbench wheel built and installed without runtime dependencies into an isolated venv.
   Installed CLI executed setup/save/recall/enable from outside the checkout;
   installed workbench HTML/JS/CSS rendered and retrieved that synthetic memory.
   Wheel: 56,444 bytes, SHA-256
@@ -57,14 +63,41 @@ Updated: 2026-09-07
 - Fresh read-only reviewer found three learning-integrity blockers; all fixed
   with regressions. Final assessment: no remaining blocker for local opt-in
   alpha, not a remote-service or harness-integration certification.
-- No real paid/local model call, provider credential read, private-vault write
-  or OS service installation was performed. Provider behavior is mocked evidence.
+- No configured extraction-provider call, provider credential read, personal
+  vault write or OS service installation was performed. Provider fallback still
+  has mocked evidence; the Luna acceptance subagent uses Codex account usage.
+
+## Installed integration acceptance
+
+- User authorized an isolated PC installation, test vault and project-local
+  Codex configuration. The existing global executable, client settings and
+  personal vaults were not replaced. No package was published.
+- Final integration wheel: 61,952 bytes, SHA-256
+  `59ddb9c0d912553fa5d50c64ec4a0235855583cc63e3be6112ddf6edef3955d5`.
+  Reinstalled successfully into the isolated runtime; installed enable/help
+  readback passed. The original host launcher was already broken and remains
+  untouched; the isolated executable is the tested entrypoint.
+- A Luna subagent at `low` (its lowest supported effort) exercised the installed
+  stdio MCP with synthetic data. Initialize, tool discovery, learn, duplicate
+  retry, cross-scope rejection, correction and undo passed. A fresh process
+  retrieved the saved fact; both MCP processes exited 0 with empty stderr.
+- Ten invocations of the exact installed hook entrypoint returned 0 and
+  additional context with the saved fact, excluding provisional inference.
+  Measured subprocess wall time: p50 567 ms, p95 598 ms on this PC. This is a
+  small local sample, not a native Codex delivery or representative benchmark.
+  All test-created processes were closed and waited for.
+- Native Codex `exec` with `gpt-5.6-luna`/`low` was rejected by the server with
+  “requires a newer version of Codex”. Installed CLI and current npm stable
+  both reported 0.153.4. The failed probe was stopped; no alternate model or
+  hook-trust bypass was used. Native delivery and `/hooks` trust remain pending.
+- Claude project configuration is schema/unit tested, not live-session tested.
+- Fresh focused read-only review: 41 tests passed and no remaining blocker for
+  isolated local-alpha testing. Do not interpret this as native client certification.
 
 ## Limits and next vertical slice
 
-1. Add extraction occurrence receipts before automatic retries/ingestion.
-   Stable core identities reuse their result, but changed candidate indexes and
-   cross-event dedupe aliases are not fully retry-idempotent yet.
+1. Complete native Codex acceptance once a compatible client/model route is
+   available; review and trust the exact generated hook via the client.
 2. Deliver one real Codex episode: recall, learn a scoped lesson, reuse it in a
    second session, correct it and verify no feedback recapture. Then Hermes and
    Claude adapters; identify DSH before promising its compatibility.
@@ -81,7 +114,9 @@ only 100 active memories are inspected per consolidation pass; automatic
 scheduling processes global scope only. Evidence labels from trusted MCP
 clients are not truth verification. Power loss between two correction-file
 replacements may need reconciliation. Budget prices are configured estimates,
-not provider invoice enforcement. These are documented, not hidden by fake metrics.
+not provider invoice enforcement. A crash between a Markdown admission and its
+durable extraction receipt can require reconciliation; partial retries do not
+make the two stores transactional. These are documented, not hidden by fake metrics.
 
 ## Historical baseline evidence
 

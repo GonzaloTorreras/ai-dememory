@@ -229,7 +229,8 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             "enabled": manifest.module_id,
             "capabilities": list(manifest.capabilities),
             "resource_budget": manifest.resource_budget,
-            "next": f"ai-dememory serve {manifest.module_id}",
+            "next": ("ai-dememory serve harness --help" if manifest.module_id == "harness"
+                     else f"ai-dememory serve {manifest.module_id}"),
         }
         if json_output:
             _emit(result, True)

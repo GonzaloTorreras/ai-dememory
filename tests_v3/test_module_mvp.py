@@ -8,6 +8,11 @@ from tests_v3.test_core import V3TestCase
 
 
 class CommunityModuleMvpTests(V3TestCase):
+    def test_harness_enable_points_to_install_help(self) -> None:
+        code, output, error = self.run_cli("module", "enable", "harness", "--json")
+        self.assertEqual(code, 0, error)
+        self.assertEqual(json.loads(output)["next"], "ai-dememory serve harness --help")
+
     def test_create_json_returns_argv_and_cwd_without_a_shell_command(self) -> None:
         module_path = self.root / "module$(not-a-command)"
         code, output, error = self.run_cli(

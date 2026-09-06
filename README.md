@@ -98,6 +98,10 @@ manifest, one foreground function and one test.
 
 See [modules](docs/modules.md) for the trust and resource contract.
 
+For project-local Codex or Claude Code MCP settings and optional prompt recall,
+follow [local harness integrations](docs/integrations.md). These adapters are
+alpha: consult the acceptance status before assuming native client support.
+
 ## Local dashboard
 
 ```bash
@@ -131,6 +135,7 @@ See [the workbench guide](docs/workbench.md) and [the V3 plan](docs/roadmap.md).
 
 - [Concept and architecture](docs/architecture.md)
 - [Optional modules](docs/modules.md)
+- [Local harness integrations](docs/integrations.md)
 - [Now / Next / Later](docs/roadmap.md)
 - [Development](DEVELOPMENT.md)
 - [Contributing](CONTRIBUTING.md)

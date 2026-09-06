@@ -9,9 +9,9 @@ ai-dememory module disable mcp
 ai-dememory module create my-module
 ```
 
-The human list shows state and capabilities. `module enable` prints the exact
-foreground `serve` command to run next; `--json` keeps the same information for
-clients and scripts.
+The human list shows state and capabilities. `module enable` prints the next
+foreground `serve` command, or installation help for `harness`; `--json` keeps
+the same information for clients and scripts.
 
 `module create` writes one tiny editable Python package and prints the exact
 install, enable and foreground-run commands. It does not install or execute the
@@ -85,6 +85,25 @@ process and exactly seven tools:
 Point an MCP client at command `ai-dememory` with arguments `serve`, `mcp`.
 The saved default vault removes the need to embed a private path in client
 configuration.
+
+Use `ai-dememory serve mcp --scope project:demo` for a project-bound client.
+Omitted read scopes inherit that binding; different scopes are rejected.
+Writes must explicitly match it. Global memories remain readable, and the
+unscoped proposal store is unavailable on bound connections.
+
+## Bundled harness module
+
+`harness` is disabled by default. It installs project-local MCP and prompt-hook
+configuration for Codex or Claude Code, without changing global client settings.
+It needs installation arguments, not a long-running service:
+
+```bash
+ai-dememory module enable harness
+ai-dememory serve harness install --client codex --project <empty-project-path> --scope project:demo
+```
+
+See [integrations](integrations.md) for trust, synthetic acceptance scenarios,
+client limitations and rollback. Hooks run only when invoked by the host.
 
 ## Bundled workbench module
 
