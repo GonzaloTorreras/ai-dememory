@@ -26,9 +26,12 @@ legacy task ID.
   or network calls.
 - A disabled module contributes zero runtime imports, tools and processes;
   dependencies of an installed third-party distribution remain on disk.
-- Markdown is canonical; SQLite is generated and disposable.
-- Direct human CLI actions may write canonical memory. Modules use the
-  read/proposal-only `CoreServices` API.
+- Markdown memories are canonical; search SQLite is generated and disposable.
+  Job/budget receipts are durable operational state, separate from search.
+- Modules use evidence-aware scoped `CoreServices` admission. Routine explicit
+  learning may be automatic and reversible; inference remains provisional.
+- The optional local workbench provides UI settings, activity and scheduling.
+  Jobs run while its foreground process runs. Remote networking is a later slice.
 - Community Python modules are trusted installed code, not sandboxes. Do not
   claim their manifest budgets are OS-enforced.
 

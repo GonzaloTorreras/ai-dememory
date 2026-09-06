@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from .models import SearchHit
-from .vault import Vault, VaultError, utc_now
+from .vault import Vault, VaultError, utc_now, validate_scope
 
 
 class SearchError(ValueError):
@@ -21,7 +21,7 @@ def _canonical_snippet(content: str, tokens: list[str], max_chars: int = 240) ->
     normalized = content.casefold()
     positions = [normalized.find(token.casefold()) for token in tokens]
     positions = [position for position in positions if position >= 0]
-    start = max(0, (min(positions) if positions else 0) - 60)
+    start = max(0, (min(positions) if positions else 0) - min(60, max_chars // 4))
     snippet = " ".join(content[start : start + max_chars].split())
     if start:
         snippet = "… " + snippet
@@ -82,6 +82,13 @@ class SearchIndex:
                 );
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(memory_files)")}
+            if "scope" not in columns:
+                connection.execute("ALTER TABLE memory_files ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'")
+                connection.execute("ALTER TABLE memory_files ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+                connection.execute("DELETE FROM memory_files")
+                connection.execute("DELETE FROM memory_fts")
+                connection.commit()
             return connection
         except Exception:
             connection.close()
@@ -165,8 +172,8 @@ class SearchIndex:
                         )
                     connection.execute(
                         """
-                        INSERT INTO memory_files(memory_id, path, title, created_at, mtime_ns, size)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO memory_files(memory_id, path, title, created_at, mtime_ns, size, scope, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             memory.memory_id,
@@ -175,6 +182,8 @@ class SearchIndex:
                             memory.created_at,
                             stat.st_mtime_ns,
                             stat.st_size,
+                            memory.scope,
+                            memory.status,
                         ),
                     )
                     connection.execute(
@@ -193,9 +202,12 @@ class SearchIndex:
             connection.close()
         return {"indexed": indexed, "removed": removed, "unchanged": skipped}
 
-    def search(self, query: str, limit: int = 5) -> list[SearchHit]:
-        if not 1 <= limit <= 50:
+    def search(self, query: str, limit: int = 5, scope: str = "global") -> list[SearchHit]:
+        validate_scope(scope)
+        if type(limit) is not int or not 1 <= limit <= 50:
             raise SearchError("limit must be between 1 and 50")
+        if not isinstance(query, str):
+            raise SearchError("query must be a string")
         tokens = _TOKEN.findall(query)
         if not tokens:
             raise SearchError("Search query must contain at least one word or number")
@@ -209,11 +221,11 @@ class SearchIndex:
                        bm25(memory_fts, 4.0, 1.0) AS rank
                 FROM memory_fts AS f
                 JOIN memory_files AS m ON m.memory_id = f.memory_id
-                WHERE memory_fts MATCH ?
+                WHERE memory_fts MATCH ? AND m.scope IN ('global', ?) AND m.status = 'active'
                 ORDER BY rank, m.created_at DESC
                 LIMIT ?
                 """,
-                (expression, limit),
+                (expression, scope, limit),
             ).fetchall()
         except sqlite3.Error as exc:
             raise SearchError(f"Search failed: {exc}") from exc
@@ -238,6 +250,8 @@ class SearchIndex:
                 raise SearchError(str(exc)) from exc
             if memory.memory_id != row["memory_id"]:
                 raise SearchError("Generated index identity does not match canonical Markdown")
+            if memory.scope not in {"global", scope} or memory.status != "active":
+                continue
             hits.append(
                 SearchHit(
                     memory_id=memory.memory_id,

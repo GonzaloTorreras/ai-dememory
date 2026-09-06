@@ -20,8 +20,8 @@ def get_manifest() -> ModuleManifest:
     return ModuleManifest(
         module_id="mcp",
         version="1",
-        summary="Local stdio MCP bridge with five bounded tools.",
-        capabilities=("search", "get", "context", "propose", "status"),
+        summary="Local stdio MCP bridge for scoped memory and learning.",
+        capabilities=("search", "get", "context", "propose", "status", "learn", "forget"),
         resource_budget={"network": False, "child_processes": 0, "persistent": False},
     )
 
@@ -35,6 +35,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
+                    "scope": {"type": "string", "default": "global"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 5},
                 },
                 "required": ["query"],
@@ -48,6 +49,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "memory_id": {"type": "string"},
+                    "scope": {"type": "string", "default": "global"},
                     "max_chars": {"type": "integer", "minimum": 256, "maximum": 50000, "default": 20000},
                 },
                 "required": ["memory_id"],
@@ -61,6 +63,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
+                    "scope": {"type": "string", "default": "global"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
                     "max_chars": {"type": "integer", "minimum": 256, "maximum": 20000, "default": 4000},
                 },
@@ -79,6 +82,40 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "memory.learn",
+            "description": "Record scoped learning with explicit provenance. Inferences remain provisional; use a stable key to correct a fact.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"}, "content": {"type": "string"},
+                    "scope": {"type": "string"}, "event_id": {"type": "string"},
+                    "key": {"type": "string"}, "supersedes": {"type": "string"},
+                    "provisional": {"type": "boolean", "default": False},
+                    "source": {
+                        "type": "object",
+                        "properties": {
+                            "provider": {"type": "string"}, "session": {"type": "string"},
+                            "turn": {"type": "string"}, "excerpt": {"type": "string"},
+                            "evidence_kind": {"type": "string", "enum": ["user_statement", "verified_outcome", "inference"]},
+                        },
+                        "required": ["provider", "session", "turn", "excerpt", "evidence_kind"],
+                        "additionalProperties": False,
+                    },
+                },
+                "required": ["title", "content", "scope", "source", "event_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "memory.forget",
+            "description": "Forget a memory in its exact scope. Undoing a current correction restores its predecessor.",
+            "inputSchema": {
+                "type": "object", "properties": {
+                    "memory_id": {"type": "string"}, "scope": {"type": "string", "default": "global"},
+                }, "required": ["memory_id"], "additionalProperties": False,
+            },
+        },
+        {
             "name": "memory.status",
             "description": "Report vault, index, proposal and resource state.",
             "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -86,24 +123,30 @@ def tool_definitions() -> list[dict[str, Any]]:
     ]
 
 
+def _validate(value: Any, schema: dict[str, Any], label: str = "arguments") -> None:
+    expected = {"object": dict, "string": str, "integer": int, "boolean": bool}[schema["type"]]
+    if type(value) is not expected:
+        raise ValueError(f"{label} must be {schema['type']}")
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        if set(value) - set(properties):
+            raise ValueError(f"{label} contains unknown fields")
+        if set(schema.get("required", [])) - set(value):
+            raise ValueError(f"{label} is missing required fields")
+        for key, item in value.items():
+            _validate(item, properties[key], f"{label}.{key}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise ValueError(f"{label} has an unsupported value")
+    if "minimum" in schema and not schema["minimum"] <= value <= schema["maximum"]:
+        raise ValueError(f"{label} is outside the supported range")
+
+
 def call_tool(services: CoreServices, name: str, arguments: dict[str, Any]) -> Any:
-    if name == "memory.search":
-        return services.search(str(arguments.get("query", "")), int(arguments.get("limit", 5)))
-    if name == "memory.get":
-        return services.get(
-            str(arguments.get("memory_id", "")), int(arguments.get("max_chars", 20_000))
-        )
-    if name == "memory.context":
-        return services.context(
-            str(arguments.get("query", "")),
-            int(arguments.get("limit", 5)),
-            int(arguments.get("max_chars", 4000)),
-        )
-    if name == "memory.propose":
-        return services.propose(str(arguments.get("title", "")), str(arguments.get("content", "")))
-    if name == "memory.status":
-        return services.status()
-    raise ValueError(f"Unknown MCP tool: {name}")
+    definition = next((tool for tool in tool_definitions() if tool["name"] == name), None)
+    if definition is None:
+        raise ValueError(f"Unknown MCP tool: {name}")
+    _validate(arguments, definition["inputSchema"])
+    return getattr(services, name.removeprefix("memory."))(**arguments)
 
 
 def _response(request_id: Any, result: Any = None, error: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -139,7 +182,7 @@ def handle_request(services: CoreServices, request: dict[str, Any]) -> dict[str,
             return _response(
                 request_id, error={"code": -32602, "message": "params must be an object"}
             )
-        arguments = params.get("arguments") or {}
+        arguments = params.get("arguments", {})
         if not isinstance(arguments, dict):
             return _response(
                 request_id, error={"code": -32602, "message": "arguments must be an object"}

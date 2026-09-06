@@ -37,3 +37,6 @@ version = { attr = "ai_dememory.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["ai_dememory*"]
+
+[tool.setuptools.package-data]
+ai_dememory = ["static/*.html", "static/*.css", "static/*.js"]

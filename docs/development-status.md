@@ -1,85 +1,100 @@
 # Development status
 
-Updated: 2026-09-01
+Updated: 2026-09-07
 
 ## Current line
 
-- Branch: `codex/product-reset-v3`
-- Public base: `origin/main` at `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3`
-- Source version: `3.0.0a1`, unpublished
-- Published stable: `2.1.1`, retained only as historical public evidence
-- Migration/compatibility: deliberately none
+- Worktree: `working/worktrees/product-reset-v3` under the historical checkout.
+- Branch: `codex/v3-learning-workbench`, based on V3 alpha head
+  `a04a0cdeb21ece09727bf242a2c2c2e8c6a54280`.
+- Public base for the reset: `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3`.
+- Source: `3.0.0a1`, still unpublished. No version, release tag or package publication.
+- PR #58 is the previous alpha baseline, not an updated readiness receipt for
+  this branch. No merge or new hosted CI is claimed for this local slice.
+- The large dirty historical V2 checkout was not merged or cleaned wholesale.
+- No V2 migration or compatibility work.
 
-## Implemented in the working slice
+## Implemented local alpha
 
-- New self-contained `src/ai_dememory` package with no runtime dependencies.
-- Saved default vault usable from any working directory.
-- First vertical MVP: `remember` atomically writes canonical Markdown, reads it
-  back and reports success only after the stored fields match exactly.
-- Saving is independent from SQLite; `recall` builds the disposable index only
-  when search is requested.
-- Second vertical MVP: `recall` works from the saved vault in any directory,
-  reports an explicit match count and returns a clear empty result.
-- Third vertical MVP: `review` exposes readable list/show/accept/reject results;
-  acceptance saves verified Markdown without eagerly building SQLite.
-- Fourth vertical MVP: the optional MCP module is enabled explicitly, serves
-  read/proposal tools in one foreground process and exits cleanly on stdin EOF.
-- Fifth vertical MVP: `status` reports useful vault state in readable text or
-  JSON without building the disposable index or starting anything.
-- Sixth vertical MVP: `module create` explains its next steps and its generated
-  package completes install, disabled discovery, enable, foreground run and
-  disable; deterministic tests use a temporary entry-point fixture.
-- Seventh vertical MVP: setup finishes with a readable summary and one valid
-  next action; `--no-select` no longer implies a default vault exists.
-- `setup`, `remember`, `recall`, `review`, `status`, `module` and `serve`.
-- Canonical Markdown, incremental SQLite FTS and review proposals.
-- Lazy optional modules plus module scaffolding.
-- Foreground MCP module with exactly five tools and no child process or socket.
-- Focused V3 CI and cross-platform test matrix.
+- Existing save/readback, lazy Unicode FTS, review, default vault and module
+  scaffold remain. Seven top-level commands; no default daemon or model call.
+- Scoped evidenced learning, provisional inference, keyed replacement and undo.
+  Retrieval includes global plus requested scope, excluding inactive records.
+- MCP now has seven tools including learn/forget; strict typed input and
+  query-relevant context excerpts fix reproduced baseline defects.
+- Optional loopback workbench: memory/source management, provider and route
+  forms, ordered fallbacks, daily budgets, metadata activity, consolidation UI.
+- Responses/OpenAI-compatible adapters; environment credential references only.
+  Durable reservations count fallback attempts. No hardcoded model catalog.
+- Bounded conversation extraction, no model-controlled correction keys.
+- Conservative unkeyed duplicate cleanup; optional global summary proposals.
+- Persisted hourly interval controls, manual runs and global foreground schedule.
+- One active plan: [roadmap](roadmap.md). [Workbench guide](workbench.md) separates
+  delivered operations from future remote/harness features.
 
-## Evidence
+## Evidence for this slice
 
-- Local compile passed with the bundled Python 3.12 runtime.
-- The focused suite runs 61 tests: 58 pass locally and three symlink tests are
-  skipped because this Windows account cannot create them. A real Windows
-  junction containment test passes; hosted Linux CI executes the portable
-  symlink cases.
-- Hosted [CI run 33546224216](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33546224216)
-  passed on Linux 3.11/3.13, macOS 3.12 and Windows 3.12. The preceding run
-  exposed a Windows short-path assertion in the new test; `fa3eb19` normalized
-  the expected path and the exact rerun passed.
-- Hosted [CI run 33557863730](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33557863730)
-  passed the current five-slice alpha on Linux 3.11/3.13, macOS 3.12 and Windows
-  3.12 at exact pushed head `5cae0ae`.
-- Hosted [CI run 33559046205](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559046205)
-  passed the six-slice modular alpha on the same matrix at exact pushed head
-  `04e2c10`.
-- Hosted [CI run 33559917823](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559917823)
-  passed the seven-slice alpha on the same matrix at exact pushed head
-  `0474dc9`.
-- Clean `3.0.0a1` artifacts were rebuilt from local product head `e45fced` and
-  installed without dependencies into a new virtual environment outside the
-  checkout. The installed CLI completed setup, save, recall, readable status,
-  module discovery, real MCP search/proposal, review acceptance and disable.
-  Final installed state was two memories, zero proposals, zero background
-  processes and zero model calls.
-- The same installed core created a community package in a path containing
-  spaces; that package installed editable, appeared disabled, enabled, ran in
-  the foreground, and disabled cleanly.
-- Artifact evidence: wheel 29,101 bytes, SHA-256
-  `db28023f85081837f6cc6adc588389ff0f5c4406d1476766807f6ddd45c38176`;
-  sdist 26,922 bytes, SHA-256
-  `bf35343a2053ac87df6390fc50b8b51740587bcb569f8375dbfde7dfc4fe75ed`.
-- Fresh review found and fixed one status-side-effect bug: inspection now opens
-  an existing generated index as immutable read-only data and reports `invalid`
-  instead of repairing it. The security reread found no P0-P3 issue.
-- Residual risk: atomic file replacement does not fsync the parent directory
-  against sudden power loss.
+- Full V3 suite: 104 tests; 101 passed, three Windows symlink cases skipped.
+  Independent review reran the same suite. Compilation and diff whitespace checks pass.
+- Focused tests cover source/scope/undo, relevant context, null MCP input,
+  generated-key rejection, correction-safe dedupe, 429/timeout fallback,
+  concurrent budget reservations, credentials isolation and malformed responses.
+- HTTP tests exercise real loopback requests, Host/Origin/token rejection,
+  Unicode saves, settings persistence, scheduling, scoped writes/forget and
+  extraction through a mocked provider. Test server threads are joined.
+- Real browser QA at 1440x1080 and 390x844: provider/route/budget persistence,
+  unsaved-settings preservation, scoped save/correct/undo, schedule/run-now,
+  responsive forms and dialogs. Fixed modern HTML pattern syntax and mobile
+  overflow; final inspected pages have no document overflow or console errors.
+- Visual comparison retained the white/emerald reference hierarchy, left
+  navigation, route rows and restrained controls. Mobile intentionally wraps
+  navigation and stacks forms. Empty provider state is real, not sample data.
+- Wheel built and installed without runtime dependencies into an isolated venv.
+  Installed CLI executed setup/save/recall/enable from outside the checkout;
+  installed workbench HTML/JS/CSS rendered and retrieved that synthetic memory.
+  Wheel: 56,444 bytes, SHA-256
+  `815dabe6ad15da7c95a1e777ef516254b7eb52d7e6702298d9e88e21305c2444`.
+- Fresh read-only reviewer found three learning-integrity blockers; all fixed
+  with regressions. Final assessment: no remaining blocker for local opt-in
+  alpha, not a remote-service or harness-integration certification.
+- No real paid/local model call, provider credential read, private-vault write
+  or OS service installation was performed. Provider behavior is mocked evidence.
 
-## Next
+## Limits and next vertical slice
 
-Seven vertical slices, the full regression, current installed-package flow,
-fresh product/security review and exact-head hosted CI are complete. The PR is
-ready for its separate merge decision; no further feature belongs in this PR.
-The excluded V2 tree remains inert. Tag and package publication remain later
-explicit gates.
+1. Add extraction occurrence receipts before automatic retries/ingestion.
+   Stable core identities reuse their result, but changed candidate indexes and
+   cross-event dedupe aliases are not fully retry-idempotent yet.
+2. Deliver one real Codex episode: recall, learn a scoped lesson, reuse it in a
+   second session, correct it and verify no feedback recapture. Then Hermes and
+   Claude adapters; identify DSH before promising its compatibility.
+3. Validate one configured local model and one selected cloud fallback, with
+   visible budget accounting. Current adapters use API credentials, not a
+   Codex/ChatGPT subscription or an assumed model alias.
+4. Extend scoped summary handling and procedural skill tests based on actual
+   examples. Current model summaries are global review proposals only.
+5. Plan remote auth/TLS/API-key administration and two-host operation separately.
+   Never expose the current loopback listener through a public port mapping.
+
+Known alpha limits: synchronous jobs block dashboard requests while running;
+only 100 active memories are inspected per consolidation pass; automatic
+scheduling processes global scope only. Evidence labels from trusted MCP
+clients are not truth verification. Power loss between two correction-file
+replacements may need reconciliation. Budget prices are configured estimates,
+not provider invoice enforcement. These are documented, not hidden by fake metrics.
+
+## Historical baseline evidence
+
+The previous seven-slice alpha had 61 tests (58 passing locally, three Windows
+symlink skips) and successful cross-platform CI, including
+[run 33559917823](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33559917823)
+at `0474dc9`. Earlier install/scaffold and read-only status fixes are preserved
+in Git history. Those results do not certify the newer learning workbench.
+
+## Integration boundary
+
+Local review and tests are complete for this slice. Before a PR is marked ready,
+refresh exact base/head and hosted CI. Merge, tag and publish remain separate
+actions; no historical release evidence is reused. Rollback is disabling/stopping
+workbench and reverting this feature branch; keep canonical memory and durable
+operational receipts backed up, never delete them as a search rebuild.

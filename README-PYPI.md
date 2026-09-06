@@ -15,9 +15,18 @@ Markdown file has been read back successfully. Saving does not build SQLite;
 default runtime has no daemon, network, model calls, Node dependency or child
 processes.
 
-AI integrations are optional modules and create review proposals instead of
-writing canonical memory. The bundled foreground-only MCP module exposes five
-tools when explicitly enabled.
+AI integrations are optional. The foreground MCP module exposes seven tools,
+including scoped learning with provenance and reversible forgetting. Inference
+stays provisional. The optional local workbench manages memory, provider routes,
+fallbacks, budgets and foreground consolidation schedules in a browser.
+
+```bash
+ai-dememory module enable workbench
+ai-dememory serve workbench
+```
+
+Open `http://127.0.0.1:8765`. Models and scheduling remain unconfigured/off until
+you choose them. Provider credentials use environment-variable references.
 
 V3 is a clean format with no 2.x migration or compatibility layer. Keep secrets
 and credentials out of memory. Full source and documentation:

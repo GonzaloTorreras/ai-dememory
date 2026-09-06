@@ -30,9 +30,10 @@ Discovery reads package metadata without importing disabled modules. Enabling a
 module imports it once to validate the manifest. `serve` loads only the named,
 enabled module and runs it in the foreground.
 
-Modules should accept `CoreServices`, which permits canonical reads, bounded
-context, proposals and status but no direct canonical writes. A person promotes
-a proposal with `ai-dememory review accept`.
+Modules should accept `CoreServices`, which permits scoped reads, bounded
+context, evidenced `learn`, reversible `forget`, listing, proposals and status.
+Inference is provisional; explicit sourced statements may be admitted directly.
+A person promotes a generated summary with `ai-dememory review accept`.
 
 This is the supported interface, not a security boundary. Enabled Python code
 can still import other package objects or access process-local state; review it
@@ -62,22 +63,32 @@ privilege but cannot prevent malicious code from opening files or processes.
 Install only reviewed packages. Resource budgets are descriptive until a real
 need justifies an external sandbox or supervisor.
 
-Disabling stops runtime imports, tools and processes; it does not uninstall the
-third-party package or its dependencies. A stale enabled id can still be
+Disabling prevents future module starts/imports; stop an already-running foreground
+service separately with Ctrl+C. It does not uninstall the third-party package or
+its dependencies. A stale enabled id can still be
 disabled after its package has been removed.
 
 ## Bundled MCP module
 
 `mcp` is installed with the package but disabled by default. When enabled,
 `ai-dememory serve mcp` runs a synchronous stdio server with no socket or child
-process and exactly five tools:
+process and exactly seven tools:
 
 - `memory.search`
 - `memory.get`
 - `memory.context`
 - `memory.propose`
+- `memory.learn`
+- `memory.forget`
 - `memory.status`
 
 Point an MCP client at command `ai-dememory` with arguments `serve`, `mcp`.
 The saved default vault removes the need to embed a private path in client
 configuration.
+
+## Bundled workbench module
+
+`workbench` is disabled by default. Enable it and run `ai-dememory serve workbench`
+for the [local dashboard](workbench.md). Its HTTP listener is loopback-only and
+cannot be configured for LAN or internet access. Provider calls are optional
+outbound requests to configured endpoints, not a remote memory service.

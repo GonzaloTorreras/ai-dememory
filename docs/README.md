@@ -4,6 +4,7 @@ The active V3 documentation is intentionally small:
 
 - [Architecture](architecture.md): what runs and where data lives.
 - [Modules](modules.md): how optional capabilities are enabled and created.
+- [Local workbench](workbench.md): memory, providers, budgets and schedules in UI.
 - [Roadmap](roadmap.md): the only active Now / Next / Later plan.
 - [Development status](development-status.md): current branch and evidence.
 - [Development guide](../DEVELOPMENT.md): contributor workflow.

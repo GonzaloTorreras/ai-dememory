@@ -1,69 +1,116 @@
-# Roadmap
+# V3 development plan
 
-This is the only active product plan. It is intentionally not a large DAG.
+This is the single active product plan. Updated 2026-09-07 after the V2/V3
+audit and the request for autonomous, modular, multi-harness memory.
 
-## Completed
+## Product outcome
 
-- First vertical MVP: setup once, save one human-approved memory from
-  any directory, atomically read it back and return an understandable result.
-- Saving remains independent from search, modules, MCP, network, models and
-  background processes.
-- Second vertical MVP: recall a saved memory from any directory with a clear
-  match count and an explicit empty result.
-- SQLite remains lazy and disposable; ranking stays unchanged until retrieval
-  failures are measured.
-- Third vertical MVP: list and inspect an AI proposal, then explicitly accept or
-  reject it. Acceptance creates verified Markdown without building SQLite;
-  rejection creates no canonical memory.
-- Fourth vertical MVP: enable the bundled MCP module, retrieve one canonical
-  memory, create one pending proposal and stop cleanly on stdin EOF.
-- Fifth vertical MVP: inspect the selected vault in readable text or compact
-  JSON without building the index, starting processes or calling a model.
-- Consolidated alpha: full regression, clean wheel/sdist installation, complete
-  installed CLI/MCP/review smoke and exact-head cross-platform CI.
-- Sixth vertical MVP: scaffold a community module outside the repository,
-  install it, discover it as disabled, enable it, run it in the foreground and
-  disable it again.
-- Seventh vertical MVP: finish setup with a readable location, selected/default
-  state, lazy-index state, zero-resource facts and one valid next action while
-  preserving JSON for automation.
+One conversation teaches a scoped lesson; another retrieves it accurately;
+a correction replaces it; unrelated projects remain isolated. Routine learning
+does not require a human approval queue. A local UI controls memory, model
+routes, fallback, consolidation and budgets. The same core will later serve
+several hosts.
 
-## Now
+## Keep / change
 
-- Hold the seven-slice alpha stable for its merge decision; do not add another
-  feature to this already reviewed PR.
-- Keep setup to one location decision; do not reintroduce the V2 questionnaire,
-  intensity profiles or future-feature switches.
+- Keep Python, canonical Markdown, disposable search indexes, atomic writes,
+  one selected vault, lazy modules and a small public CLI.
+- Replace universal proposal-only integration with evidence-aware admission,
+  provenance, scoped retrieval and reversible corrections. Inferences remain
+  provisional; explicit user corrections need no second approval.
+- Package installation stays passive. An enabled workbench is an explicit
+  foreground process with local web UI and optional scheduled jobs.
+- Keep operational cursors, budget reservations and job receipts outside the
+  disposable index. They must survive an index rebuild.
+- No V2 migration, new gate DAG, per-function ADRs, adaptive ranking reward,
+  default vectors or separate Node runtime.
 
-## Next
+## Delivery sequence
 
-- Test the completed save/recall/review/status/MCP flow in one real client
-  session.
-- Test the alpha in real Codex, Claude and Hermes sessions using the same MCP
-  module, beginning read-only/proposal-only.
-- Measure startup time, RSS, index growth and recall usefulness on a real but
-  private vault.
-- Add import/export only for a demonstrated source and keep it an optional
-  module.
-- Improve search or ranking only from reviewed misses.
+Every row is a complete user-visible slice, not empty interfaces.
 
-## Later
+| Slice | Outcome | Acceptance |
+| --- | --- | --- |
+| Local learning workbench (implemented alpha) | Configure providers and ordered fallback, learn a scoped fact, retrieve its relevant passage, inspect activity, set consolidation interval and budgets in UI | Settings survive restart; mocked provider failure selects fallback within budget; invalid input creates no memory; inference stays provisional. Live model acceptance remains pending |
+| Correction and hygiene (implemented core; ingestion receipts next) | Explicit keyed replacement, exact unkeyed dedupe, undo and inactive-state filtering | Stable core occurrence retries reuse their result; correction wins only in its scope; history remains inspectable. Full extraction retry receipts remain next |
+| Codex integration | MCP tools, bounded recall hook and incremental learning input | Two real sessions share a useful scoped lesson; ignored prompts add no clutter; failure does not block Codex |
+| Hermes and Claude | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Cross-harness recall works; native caches do not reenter as new evidence |
+| Incremental ingestion | Authorized conversation deltas, occurrence receipts, cursor/retry only where needed, grouped extraction | Changed model indexes/cardinality and cross-event dedupe aliases remain idempotent; rotation/retries preserve attribution; budgets and backlog remain visible |
+| Consolidation and skills | Reversible cleanup, evidence-backed procedural knowledge and tested skill export | Repeated runs converge; recipes work in a second case; executable capabilities have policy, tests and rollback |
+| Remote service/admin (later) | HTTP MCP/event service on PC/Raspberry, LAN/Internet, admin UI | Identity-based scopes, TLS, revocation, two-host restart/replay and restore tested before exposure |
 
-- A small local dashboard for browsing and reviewing, as an optional module.
-- Provider-specific hooks only after the core works without them.
-- Deterministic consolidation candidates only after enough real proposals exist
-  to measure usefulness.
-- Vector or model-assisted retrieval only if FTS has a measured gap.
+DSH requires identifying the product/repository before assigning an adapter.
 
-## Not planned without evidence
+## Model routing
 
-Daemon, cloud sync, multi-user service, autonomous canonical writes, automatic
-chat ingestion, graph database, default Node runtime, model synthesis, another
-admin CLI, or compatibility with the unused V2 design.
+Named provider/model profiles select routes independently for extraction,
+consolidation, a hook (e.g. `hook:codex.Stop`) or a skill
+(e.g. `skill:weekly-review`). Each route has a primary, ordered fallbacks
+and output limit. An absent override inherits the operation's route.
+Profiles may use different providers, models, reasoning settings and local or
+hosted endpoints. Local FTS recall needs no model; optional semantic retrieval
+is a later processor.
 
-## Release gates
+Fallback is finite and logged. Provider quotas, server errors and connection
+failures may select the next configured profile. Application budget exhaustion
+stops work across profiles. No unconfigured provider receives data, and invalid
+model IDs are not silently replaced by hardcoded defaults.
 
-- Replace remaining active V2 packaging/documentation references with V3 truth.
-- Physically remove the inert V2 tree only as a separately approved cleanup.
-- Publish `3.0.0a1` only after fresh review, green CI and explicit release
-  authorization.
+The UI edits these settings. Credentials initially use local environment
+references; secret storage, password login, API-key creation/revocation and
+remote access belong to the later administration slice. Credentials must not
+appear in status, logs or configuration readback.
+
+Daily calls/tokens cover all attempts. Currency caps need configured prices
+and conservative reservations. Missing usage is not zero cost. Display the
+difference between estimated and measured usage. Tests use mock providers;
+live paid calls are not required to validate fallback.
+
+## UI, scheduling and network
+
+The optional local workbench provides Memory, Providers, Consolidation and
+Activity views. Ordinary configuration must not require editing JSON or
+running admin CLI commands. Empty, disabled and error states must be truthful.
+
+The UI selects consolidation interval, enables/disables it, runs it now and
+shows last/next execution and budget state. Initially scheduled work runs only
+while the foreground workbench is open. Say so directly. Later OS-service
+installation can keep it running after reboot.
+
+Remote networking is planned, not part of this slice: remain loopback-only.
+Later add per-client scopes, LAN/private-network deployment, Internet TLS with
+OAuth/API keys, credentials rotation/revocation, access logs, backup/retention
+controls and connection diagnostics. Use a maintained MCP HTTP SDK as an
+optional dependency. The server owns its vault on local disk; clients do not
+mount SQLite over the network.
+
+## Admission and memory quality
+
+Records carry scope, source, status and optional key/supersession. Stable core
+occurrence IDs reuse their first result. Extraction retries are not yet fully
+idempotent when generated source indexes change or a different event was deduped
+onto an older record; add durable occurrence receipts before automatic retries.
+A confidence number cannot grant authority. User statements and
+verified outcomes may be admitted automatically; inference, disputed and
+superseded content is excluded from default factual context. A source excerpt
+supports traceability but does not prove a paraphrased claim.
+
+A decision in one project is not universal. Shared recipes need scope-aware
+abstraction. Recalled memories, exported skills and generated summaries are
+derivative evidence and cannot corroborate themselves. Conflicts depend on
+project, subject, conditions and date. Human review is reserved for exceptions.
+
+## Verification
+
+- Fix reproduced null-to-None MCP input and irrelevant context clipping.
+- Test learn/recall/correct/forget episodes instead of fixed tool counts.
+- Test finite fallback, malformed response, reservations and budget exhaustion.
+- Test UI in desktop/mobile, persistence and unsafe cross-origin writes.
+- Run V3 regression and installed-package smoke before integration.
+- Verify real Codex/Hermes/Claude sessions before advertising support.
+- Measure usefulness, intervention, duplicates, p50/p95, RSS, disk growth,
+  calls/tokens and processes on representative hardware.
+
+Code and `docs/development-status.md` distinguish delivered behavior from this
+plan. PR #58 is the original alpha baseline; this work is on
+`codex/v3-learning-workbench`. Fresh review replaces earlier readiness claims.

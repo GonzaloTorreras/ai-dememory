@@ -13,6 +13,7 @@ from .vault import (
     Vault,
     VaultError,
     _atomic_write,
+    _exclusive_write_lock,
     _slug,
     parse_markdown,
     utc_now,
@@ -37,6 +38,8 @@ class ProposalStore:
             clean_title = validate_title(title, "Proposal title")
         except VaultError as exc:
             raise ProposalError(str(exc)) from exc
+        if not isinstance(content, str):
+            raise ProposalError("Proposal content must be a string")
         clean_content = content.strip()
         if not clean_content:
             raise ProposalError("Proposal title and content are required")
@@ -130,6 +133,10 @@ class ProposalStore:
         return matches[0] if matches else None
 
     def decide(self, proposal_id: str, accept: bool) -> tuple[Proposal, Memory | None]:
+        with _exclusive_write_lock(self.vault.root / ".ai-dememory.proposals.lock"):
+            return self._decide(proposal_id, accept)
+
+    def _decide(self, proposal_id: str, accept: bool) -> tuple[Proposal, Memory | None]:
         proposal = self.get(proposal_id)
         if proposal is None:
             raise ProposalError(f"Proposal not found: {proposal_id}")

@@ -9,10 +9,10 @@ import tempfile
 import tomllib
 import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from .models import Memory
 from .policy import reject_high_confidence_secrets
@@ -118,6 +118,8 @@ def _default_title(content: str) -> str:
 
 
 def validate_title(value: str, subject: str) -> str:
+    if not isinstance(value, str):
+        raise VaultError(f"{subject} must be a string")
     title = value.strip()
     if not title:
         raise VaultError(f"{subject} cannot be empty")
@@ -131,9 +133,31 @@ def validate_title(value: str, subject: str) -> str:
 
 
 def validate_memory_id(value: str) -> str:
-    if not _MEMORY_ID.fullmatch(value):
+    if not isinstance(value, str) or not _MEMORY_ID.fullmatch(value):
         raise VaultError("Memory id must be exactly 32 lowercase hexadecimal characters")
     return value
+
+
+def validate_scope(value: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}", value):
+        raise VaultError("scope must be 1-128 letters, digits, dots, hyphens, underscores or colons")
+    return value
+
+
+def validate_source(value: Any) -> dict[str, str]:
+    fields = {"provider", "session", "turn", "evidence_kind", "excerpt"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise VaultError("source requires provider, session, turn, evidence_kind and excerpt")
+    if any(not isinstance(item, str) or not item.strip() for item in value.values()):
+        raise VaultError("source fields must be non-empty strings")
+    source = {key: item.strip() for key, item in value.items()}
+    if source["evidence_kind"] not in {"user_statement", "verified_outcome", "inference"}:
+        raise VaultError("Unsupported source evidence_kind")
+    encoded = json.dumps(source, ensure_ascii=False)
+    if len(encoded.encode("utf-8")) > MAX_METADATA_VALUE_BYTES:
+        raise VaultError("source exceeds the 1024-byte limit; provide a short evidence excerpt")
+    reject_high_confidence_secrets(encoded)
+    return source
 
 
 def parse_markdown(path: Path) -> tuple[dict[str, str], str]:
@@ -310,6 +334,17 @@ class Vault:
     def remember(
         self, content: str, title: str | None = None, *, memory_id: str | None = None
     ) -> Memory:
+        with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
+            return self._remember(content, title, memory_id=memory_id)
+
+    def _remember(
+        self, content: str, title: str | None = None, *, memory_id: str | None = None,
+        scope: str = "global", source: dict[str, str] | None = None,
+        status: str = "active", key: str | None = None, supersedes: str | None = None,
+    ) -> Memory:
+        """Write while the caller holds the vault lock."""
+        if not isinstance(content, str):
+            raise VaultError("Memory content must be a string")
         clean_content = content.strip()
         if not clean_content:
             raise VaultError("Memory content cannot be empty")
@@ -320,59 +355,144 @@ class Vault:
         reject_high_confidence_secrets(clean_title)
         supplied_id = memory_id is not None
         memory_id = validate_memory_id(memory_id or uuid.uuid4().hex)
+        if supplied_id:
+            existing = self.get(memory_id)
+            if existing:
+                if existing.title == clean_title and existing.content == clean_content:
+                    return existing
+                raise VaultError(f"Memory id already exists with different content: {memory_id}")
+        if self.memory_count() >= MAX_MEMORY_FILES:
+            raise VaultError(f"Vault has reached the {MAX_MEMORY_FILES}-memory limit")
+        created_at = utc_now()
+        filename = f"{created_at[:10]}-{_slug(clean_title)}-{memory_id}.md"
+        path = self.memories_dir / filename
+        if path.exists():
+            raise VaultError(f"Memory path already exists: {path}")
+        memory = Memory(memory_id, clean_title, clean_content, created_at, path,
+                        scope, source or {}, status, key, supersedes)
+        self._write_memory(memory)
+        try:
+            saved = self.read_memory(path)
+        except VaultError as exc:
+            raise _rollback_unverified_write(path, exc) from exc
+        if saved != memory:
+            raise _rollback_unverified_write(path, "stored fields did not match the request")
+        return saved
+
+    def _write_memory(self, memory: Memory) -> None:
+        fields = {"id": memory.memory_id, "title": memory.title,
+                  "created_at": memory.created_at, "scope": memory.scope,
+                  "status": memory.status}
+        if memory.source:
+            fields["source"] = json.dumps(memory.source, ensure_ascii=False)
+        if memory.key:
+            fields["key"] = memory.key
+        if memory.supersedes:
+            fields["supersedes"] = memory.supersedes
+        lines = ["---", *(f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in fields.items()),
+                 "---", "", memory.content, ""]
+        _atomic_write(memory.path, "\n".join(lines))
+
+    def learn(
+        self, title: str, content: str, scope: str, source: dict[str, str], event_id: str,
+        key: str | None = None, supersedes: str | None = None, provisional: bool = False,
+    ) -> dict[str, Any]:
+        scope = validate_scope(scope)
+        source = validate_source(source)
+        title = validate_title(title, "Memory title")
+        if not isinstance(content, str) or not content.strip():
+            raise VaultError("Memory content must be a non-empty string")
+        content = content.strip()
+        if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 256:
+            raise VaultError("event_id must be a non-empty string of at most 256 characters")
+        if not isinstance(provisional, bool):
+            raise VaultError("provisional must be a boolean")
+        if key is not None:
+            key = validate_scope(key)
+        if supersedes is not None:
+            supersedes = validate_memory_id(supersedes)
+        provisional = provisional or source["evidence_kind"] == "inference"
+        if provisional and supersedes:
+            raise VaultError("Provisional learning cannot replace an active memory")
+        seed = json.dumps([scope, source["provider"], source["session"], source["turn"],
+                           event_id], ensure_ascii=False)
+        memory_id = uuid.uuid5(uuid.NAMESPACE_URL, seed).hex
         with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
-            if supplied_id:
-                existing = self.get(memory_id)
-                if existing:
-                    if existing.title == clean_title and existing.content == clean_content:
-                        return existing
-                    raise VaultError(f"Memory id already exists with different content: {memory_id}")
-            if self.memory_count() >= MAX_MEMORY_FILES:
-                raise VaultError(f"Vault has reached the {MAX_MEMORY_FILES}-memory limit")
-            created_at = utc_now()
-            filename = f"{created_at[:10]}-{_slug(clean_title)}-{memory_id}.md"
-            memories = self.memories_dir
-            path = memories / filename
-            if path.parent.resolve(strict=True) != memories:
-                raise VaultError(f"Memory path escapes the vault: {path}")
-            if path.exists():
-                raise VaultError(f"Memory path already exists: {path}")
-            payload = "\n".join(
-                (
-                    "---",
-                    f"id: {json.dumps(memory_id)}",
-                    f"title: {json.dumps(clean_title)}",
-                    f"created_at: {json.dumps(created_at)}",
-                    "---",
-                    "",
-                    clean_content,
-                    "",
-                )
-            )
-            _atomic_write(path, payload)
-            try:
-                saved = self.read_memory(path)
-            except VaultError as exc:
-                raise _rollback_unverified_write(path, exc) from exc
-            if (
-                saved.memory_id != memory_id
-                or saved.title != clean_title
-                or saved.content != clean_content
-                or saved.created_at != created_at
-            ):
-                raise _rollback_unverified_write(path, "stored fields did not match the request")
-            return saved
+            memories = [self.read_memory(path) for path in self.iter_memory_paths()]
+            for memory in memories:
+                if memory.memory_id == memory_id:
+                    return {**memory.to_dict(), "admission": "duplicate"}
+                if memory.scope == scope and memory.content == content and memory.key == key:
+                    if memory.status == "active" or (memory.status == "provisional" and provisional):
+                        return {**memory.to_dict(), "admission": "duplicate"}
+            prior = next((memory for memory in memories if memory.memory_id == supersedes), None)
+            if supersedes and (prior is None or prior.scope != scope or prior.status != "active"):
+                raise VaultError("supersedes must reference an active memory in the same scope")
+            if not provisional and key and prior is None:
+                prior = next((memory for memory in memories
+                              if memory.scope == scope and memory.key == key and memory.status == "active"), None)
+            saved = self._remember(content, title, memory_id=memory_id, scope=scope, source=source,
+                                   status="provisional" if provisional else "active", key=key,
+                                   supersedes=prior.memory_id if prior else None)
+            if prior:
+                try:
+                    self._write_memory(replace(prior, status="superseded"))
+                except OSError:
+                    saved.path.unlink()
+                    raise
+            return {**saved.to_dict(), "admission": "created"}
+
+    def forget(self, memory_id: str, scope: str = "global") -> dict[str, Any]:
+        validate_scope(scope)
+        validate_memory_id(memory_id)
+        with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
+            memory = self.get(memory_id)
+            if memory is None or memory.scope != scope:
+                raise VaultError("Memory not found in the requested scope")
+            if memory.status == "forgotten":
+                return {**memory.to_dict(), "restored_memory_id": None}
+            prior = self.get(memory.supersedes) if memory.supersedes and memory.status == "active" else None
+            updated = replace(memory, status="forgotten")
+            self._write_memory(updated)
+            if prior and prior.scope == scope and prior.status == "superseded":
+                try:
+                    self._write_memory(replace(prior, status="active"))
+                except OSError:
+                    self._write_memory(memory)
+                    raise
+            else:
+                prior = None
+            return {**updated.to_dict(), "restored_memory_id": prior.memory_id if prior else None}
 
     def read_memory(self, path: Path) -> Memory:
+        try:
+            canonical = path.resolve(strict=True)
+            canonical.relative_to(self.memories_dir)
+        except (OSError, ValueError) as exc:
+            raise VaultError("Memory path escapes the vault memories directory") from exc
+        if canonical != path.absolute() or not canonical.is_file():
+            raise VaultError("Linked or non-file memory paths are not allowed")
         metadata, content = parse_markdown(path)
         raw_memory_id = metadata.get("id", "").strip()
         if not raw_memory_id:
             raise VaultError(f"Memory {path.name} requires id and title")
         memory_id = validate_memory_id(raw_memory_id)
         title = validate_title(metadata.get("title", ""), f"Memory {path.name} title")
-        return Memory(memory_id, title, content, metadata.get("created_at", ""), path)
+        scope = validate_scope(metadata.get("scope", "global"))
+        status = metadata.get("status", "active")
+        if status not in {"active", "provisional", "superseded", "forgotten"}:
+            raise VaultError(f"Memory {path.name} has invalid status")
+        try:
+            source = validate_source(json.loads(metadata["source"])) if "source" in metadata else {}
+        except json.JSONDecodeError as exc:
+            raise VaultError(f"Memory {path.name} has invalid source") from exc
+        key = validate_scope(metadata["key"]) if "key" in metadata else None
+        supersedes = validate_memory_id(metadata["supersedes"]) if "supersedes" in metadata else None
+        return Memory(memory_id, title, content, metadata.get("created_at", ""), path,
+                      scope, source, status, key, supersedes)
 
     def get(self, memory_id: str) -> Memory | None:
+        validate_memory_id(memory_id)
         for path in self.iter_memory_paths():
             memory = self.read_memory(path)
             if memory.memory_id == memory_id:

@@ -38,13 +38,20 @@ _BUILTINS = {
     "mcp": ModuleDescriptor(
         module_id="mcp",
         version="1",
-        summary="Local stdio MCP bridge with five bounded tools.",
+        summary="Local stdio MCP bridge with seven scoped memory tools.",
         entrypoint="ai_dememory.builtin_modules.mcp",
-        capabilities=("search", "get", "context", "propose", "status"),
+        capabilities=("search", "get", "context", "propose", "status", "learn", "forget"),
         resource_budget={"network": False, "child_processes": 0, "persistent": False},
         builtin=True,
         enabled=False,
-    )
+    ),
+    "workbench": ModuleDescriptor(
+        module_id="workbench", version="1", summary="Local memory, provider and consolidation dashboard.",
+        entrypoint="ai_dememory.builtin_modules.workbench",
+        capabilities=("memory", "settings", "activity", "consolidation"),
+        resource_budget={"network": "loopback UI; configured providers", "child_processes": 0, "persistent": False},
+        builtin=True, enabled=False,
+    ),
 }
 
 

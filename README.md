@@ -1,10 +1,10 @@
 # ai DeMemory
 
 ai DeMemory gives people and AI tools a small, local memory that remains easy
-to inspect and edit. Markdown is the source of truth. SQLite is only a generated
-search index.
+to inspect and edit. Markdown is the memory source of truth. Search SQLite is
+disposable; optional provider budgets and job receipts are separate durable state.
 
-The current `main` line is being rebuilt as V3. The source version is
+The current development branch is rebuilding the product as V3. The source version is
 `3.0.0a1`; it is not published yet. V3 deliberately does not migrate or emulate
 2.x because there are no known production vaults to preserve.
 
@@ -41,19 +41,24 @@ ai-dememory status
 ```
 
 `status` is a read-only summary of the selected vault: canonical memories,
-pending proposals, generated index state, enabled modules, background processes
-and model calls. It does not build the index or start anything. Use
+pending proposals, generated index state and enabled modules. Its zero-call and
+zero-process fields describe the core only, not running optional modules. It
+does not build the index or start anything. Use
 `ai-dememory status --json` for scripts.
 
 Use `--vault <path>` only when deliberately overriding the saved default.
 
-## Human writes, AI proposes
+## Learning without approving every fact
 
-`remember` is a direct human action and writes canonical Markdown. Optional AI
-integrations can only create proposals through the public module API. A person
-then decides. `review` shows a readable pending list; accepting reports the
-verified Markdown path without building SQLite, while rejecting creates no
-memory:
+`remember` saves your explicit input. Enabled integrations can also call
+`memory.learn` with scope and provenance: explicit statements and verified
+outcomes become active, while inferences remain provisional and out of recall.
+Trusted clients supply that evidence; this is not automatic truth verification.
+Keys allow explicit corrections and forgetting the latest correction restores
+its predecessor. This is not general semantic contradiction detection.
+
+Optional model-generated summaries still use proposals. `review` shows them;
+accepting saves verified Markdown and rejecting creates no memory:
 
 ```bash
 ai-dememory review
@@ -77,8 +82,8 @@ ai-dememory serve mcp
 `module list` shows enabled/disabled state and capabilities. Enabling a module
 prints its foreground `serve` command; disabling it starts no cleanup process.
 
-The bundled MCP module runs in the foreground over stdio and exposes exactly
-five tools: search, get, context, propose and status. It opens no network port
+The bundled MCP module runs in the foreground over stdio and exposes seven
+tools: search, get, context, propose, learn, forget and status. It opens no network port
 and starts no subprocess. Disable it with `ai-dememory module disable mcp`.
 
 Create a community module without copying this repository:
@@ -92,6 +97,23 @@ install, enable and run it. The generated package is deliberately small: one
 manifest, one foreground function and one test.
 
 See [modules](docs/modules.md) for the trust and resource contract.
+
+## Local dashboard
+
+```bash
+ai-dememory module enable workbench
+ai-dememory serve workbench
+```
+
+Open `http://127.0.0.1:8765`. Manage memory, providers, per-operation or hook/skill
+routes, fallback order, budgets and a consolidation schedule in the browser.
+No model is selected and no schedule is enabled by default. Credentials are
+environment-variable references, never pasted keys. Scheduled jobs run only
+while the foreground service runs; one job runs at a time and the UI waits
+during provider calls. Remote access and automatic harness ingestion are next,
+not implemented by enabling the dashboard.
+
+See [the workbench guide](docs/workbench.md) and [the V3 plan](docs/roadmap.md).
 
 ## Product boundaries
 

@@ -14,6 +14,11 @@ class Memory:
     content: str
     created_at: str
     path: Path
+    scope: str = "global"
+    source: dict[str, str] = field(default_factory=dict)
+    status: str = "active"
+    key: str | None = None
+    supersedes: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

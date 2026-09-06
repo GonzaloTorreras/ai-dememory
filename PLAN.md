@@ -1,5 +1,9 @@
 # ai DeMemory Future Research Appendix
 
+> Historical research, superseded for V3 execution by [docs/roadmap.md](docs/roadmap.md).
+> The old DAG, proposal-only rule and product exclusions below are retained as
+> historical context, not current requirements. See [current status](docs/development-status.md).
+
 This is a non-normative future research appendix for `ai-dememory`. It is separate from
 `ai-dememory roadmap status`, which reports current v2 implementation evidence.
 The [governed learning loop handoff](docs/governed-learning-loop-handoff.md)

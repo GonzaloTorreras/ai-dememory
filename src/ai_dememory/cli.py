@@ -324,8 +324,8 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
                 f"({index['rows']} rows, {index['bytes']} bytes)"
             )
             print(f"Enabled modules: {modules}")
-            print(f"Background processes: {status['background_processes']}")
-            print(f"Model calls: {status['model_calls']}")
+            print(f"Background processes: {status['background_processes']} (core policy, not host telemetry)")
+            print(f"Model calls: {status['model_calls']} (core only; see workbench for provider usage)")
         return 0
     if args.command == "review":
         store = ProposalStore(vault)

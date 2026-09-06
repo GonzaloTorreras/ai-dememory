@@ -20,13 +20,16 @@ local selector files and generated indexes must never be committed.
 - V3 is a clean format. Do not add V2 readers, migrations, aliases or tests.
 - Keep fewer than ten public top-level commands and no maintainer/release tools
   in the installed CLI.
-- Markdown is canonical; SQLite is generated and disposable.
+- Markdown memory is canonical; search SQLite is generated and disposable.
+  Operational budget/job state is durable and separate from the search index.
 - The default install has no daemon, network, model call, Node dependency or
   child process.
 - Disabled modules contribute zero runtime imports, tools and processes;
   installed third-party distribution dependencies remain installed.
-- Human CLI actions may write canonical memory. Integrations use read and
-  proposal services; durable promotion requires explicit human review.
+- Integrations use evidence-aware scoped admission. Explicit user statements
+  and verified outcomes may be stored automatically with provenance and undo.
+  Inferences stay provisional; ambiguous protected-value changes require input.
+  An enabled local workbench may run scheduled jobs and configured model calls.
 - Python modules are trusted installed code, not sandboxes. Never claim module
   manifests or resource budgets are OS-enforced.
 

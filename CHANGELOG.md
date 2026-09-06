@@ -7,6 +7,23 @@ accepted by the release identity guard.
 
 ## [3.0.0a1] - Unreleased
 
+### Added
+
+- Optional loopback workbench: scoped memory, source inspection, reversible
+  corrections, provider profiles, hook/skill route overrides, budgets and
+  foreground consolidation schedules.
+- Responses/OpenAI-compatible provider adapters with ordered fallback,
+  environment credential references and durable budget/metadata receipts.
+- Bounded conversation extraction with literal evidence, provisional inference
+  and no model-controlled correction keys. Automatic harness ingestion is next.
+- Conservative duplicate cleanup; optional global summary proposals for review.
+
+### Fixed
+
+- Reject null/coerced MCP input, retrieve query-relevant passages, serialize
+  proposal decisions and make stable source occurrences replay-safe.
+- Preserve correction ancestry during duplicate cleanup and bound UI excerpts.
+
 ### Changed
 
 - Rebuild the product around seven public commands, canonical Markdown,
@@ -14,7 +31,7 @@ accepted by the release identity guard.
 - Replace the monolithic CLI/admin runtime with a dependency-free
   `src/ai_dememory` package and lazy optional modules.
 - Replace 74 MCP tools with a disabled-by-default foreground module exposing
-  search, get, context, propose and status.
+  search, get, context, propose, learn, forget and status.
 - Replace the normative task DAG with one small Now / Next / Later roadmap and
   focused product tests.
 

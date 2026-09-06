@@ -35,11 +35,11 @@ class McpModuleTests(unittest.TestCase):
         self.environment.stop()
         self.temporary.cleanup()
 
-    def test_surface_is_exactly_five_tools(self) -> None:
+    def test_surface_is_exactly_seven_tools(self) -> None:
         names = [tool["name"] for tool in mcp.tool_definitions()]
         self.assertEqual(
             names,
-            ["memory.search", "memory.get", "memory.context", "memory.propose", "memory.status"],
+            ["memory.search", "memory.get", "memory.context", "memory.propose", "memory.learn", "memory.forget", "memory.status"],
         )
 
     def test_mcp_proposal_never_writes_canonical_memory(self) -> None:
@@ -72,7 +72,7 @@ class McpModuleTests(unittest.TestCase):
         self.assertEqual(mcp.serve(self.services, input_stream=io.StringIO(requests), output_stream=output), 0)
         responses = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual(responses[0]["result"]["serverInfo"]["name"], "ai-dememory")
-        self.assertEqual(len(responses[1]["result"]["tools"]), 5)
+        self.assertEqual(len(responses[1]["result"]["tools"]), 7)
 
     def test_malformed_tool_call_does_not_stop_stdio_server(self) -> None:
         requests = "\n".join(
