@@ -39,7 +39,10 @@ Every row is a complete user-visible slice, not empty interfaces.
 | Consolidation and skills | Reversible cleanup, evidence-backed procedural knowledge and tested skill export | Repeated runs converge; recipes work in a second case; executable capabilities have policy, tests and rollback |
 | Remote service/admin (later) | HTTP MCP/event service on PC/Raspberry, LAN/Internet, admin UI | Identity-based scopes, TLS, revocation, two-host restart/replay and restore tested before exposure |
 
-DSH requires identifying the product/repository before assigning an adapter.
+DSH is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+The optional manual sources module now previews its plain JSONL, Codex/Claude/Pi
+exports and checkpointed Hermes snapshots. Compressed DSH and active Hermes WAL
+remain explicit gaps, not delivered unattended ingestion.
 
 ## Model routing
 
@@ -57,9 +60,13 @@ stops work across profiles. No unconfigured provider receives data, and invalid
 model IDs are not silently replaced by hardcoded defaults.
 
 The UI edits these settings. Credentials use local environment references or
-keys held only for the workbench session, with OpenAI/Claude/local presets.
-OAuth is not a generic replacement for API keys; only documented provider
-flows may be added. Persistent OS key storage, password login, key creation/revocation and
+keys held only for the workbench session, with OpenAI/Claude/local presets and
+live model discovery. The optional Codex subscription module now implements
+official managed browser/device login with a separate account directory;
+authenticated generation acceptance is still pending. Enabled trusted modules
+can contribute provider presets using the documented provider contract.
+OAuth is not a generic replacement for API keys. Persistent OS key storage,
+password login, key creation/revocation and
 remote access belong to the later administration slice. Credentials must not
 appear in status, logs or configuration readback.
 
@@ -71,7 +78,7 @@ live paid calls are not required to validate fallback.
 ## UI, scheduling and network
 
 The optional local workbench provides Memory, Providers, Consolidation and
-Activity views. Ordinary configuration must not require editing JSON or
+Activity, Local sources and Modules views. Ordinary configuration must not require editing JSON or
 running admin CLI commands. Empty, disabled and error states must be truthful.
 
 The UI selects consolidation interval, enables/disables it, runs it now and

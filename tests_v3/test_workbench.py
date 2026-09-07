@@ -7,7 +7,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from ai_dememory.builtin_modules.workbench import MAX_BODY, WorkbenchServer
 from ai_dememory.core import CoreServices
@@ -17,6 +17,70 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_model_discovery_uses_draft_and_never_returns_key(self):
+        profile = {"kind":"responses", "base_url":"https://api.example.test/v1", "model":"catalog", "auth":"session", "api_key_env":""}
+        with patch("ai_dememory.providers.list_provider_models", return_value=["model-a", "model-b"]) as models:
+            code, body, _ = self.request("/api/provider-models", {"profile":profile,"api_key":"synthetic-catalog-key"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["models"], ["model-a","model-b"])
+        self.assertNotIn(b"synthetic-catalog-key", body)
+        models.assert_called_once_with(profile, "synthetic-catalog-key")
+        self.assertEqual(self.state()["settings"]["providers"], {})
+
+    def test_sources_are_opt_in_and_preview_is_the_extraction_boundary(self):
+        from ai_dememory.settings import DEFAULT_SETTINGS, save_settings
+        profile = {"kind":"openai_compatible","base_url":"http://localhost:11434/v1","model":"test","auth":"none","api_key_env":""}
+        save_settings(self.services.vault, {**DEFAULT_SETTINGS,"providers":{"local":profile}, "routes":{"extract":{"primary":"local","fallback":[],"max_output_tokens":100}}})
+        root = Path(self.temp.name) / "conversations"
+        root.mkdir()
+        source = root / "session.json"
+        source.write_text(json.dumps({"messages":[{"role":"user","content":"Synthetic deployment window Thursday."},{"role":"assistant","content":"Untrusted assistant prose."}]}), encoding="utf-8")
+        payload = {"root":str(root),"format":"generic","file":"session.json","scope":"project:test"}
+        code, _, _ = self.request("/api/sources/preview", payload)
+        self.assertEqual(code, 400)
+        self.assertEqual(self.request("/api/modules", {"id":"sources","enabled":True})[0], 200)
+        code, body, _ = self.request("/api/sources/preview", payload)
+        self.assertEqual(code, 200, body)
+        preview = json.loads(body)
+        self.assertEqual(preview["destinations"], ["local"])
+        self.assertNotIn("Untrusted assistant", body.decode())
+        source.write_text('{"messages":[{"role":"user","content":"Changed after preview"}]}', encoding="utf-8")
+        request = {"preview_token":preview["preview_token"],"confirmed":True}
+        with patch.object(self.server.jobs, "extract", return_value={"learned":[]}) as extract:
+            self.assertEqual(self.request("/api/sources/extract", request)[0], 200)
+            self.assertEqual(extract.call_args.args[0], preview["messages"])
+            self.assertEqual(extract.call_args.args[1], "project:test")
+        self.assertEqual(self.request("/api/sources/extract", {"preview_token":preview["preview_token"]})[0], 400)
+        self.request("/api/modules", {"id":"sources","enabled":False})
+        self.assertEqual(self.server._previews, {})
+        self.assertEqual(self.request("/api/sources/extract", request)[0], 400)
+
+    def test_source_preview_rejects_changed_provider_routes_and_expiry(self):
+        from ai_dememory.settings import load_settings, save_settings
+        token = "preview-test"
+        self.server._previews[token] = {"created":0,"messages":[],"scope":"global","routing":[{},{}]}
+        self.request("/api/modules", {"id":"sources","enabled":True})
+        self.assertEqual(self.request("/api/sources/extract", {"preview_token":token,"confirmed":True})[0], 400)
+        import time
+        self.server._previews[token] = {"created":time.monotonic(),"messages":[],"scope":"global","routing":[{},{}]}
+        settings = load_settings(self.services.vault)
+        settings["providers"]["added"] = {"kind":"responses","base_url":"https://api.example.test/v1","model":"test","api_key_env":""}
+        save_settings(self.services.vault, settings)
+        with patch.object(self.server.jobs, "extract") as extract:
+            self.assertEqual(self.request("/api/sources/extract", {"preview_token":token,"confirmed":True})[0], 400)
+            extract.assert_not_called()
+
+    def test_codex_login_is_explicit_and_module_gated(self):
+        self.assertEqual(self.request("/api/codex/status", {})[0], 400)
+        fake = Mock()
+        fake.start_login.return_value = {"verification_url":"https://auth.openai.com/codex/device","user_code":"SYNTHETIC"}
+        with patch("ai_dememory.builtin_modules.workbench.load_enabled_module", return_value=fake):
+            code, body, _ = self.request("/api/codex/login", {"method":"device"})
+            self.assertEqual(code, 200, body)
+            fake.start_login.assert_called_once_with("device")
+            self.assertEqual(self.request("/api/codex/cancel", {})[0], 200)
+            fake.cancel_login.assert_called_once()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -117,7 +181,12 @@ class WorkbenchTests(unittest.TestCase):
 
     def test_bad_input_is_rejected_without_stopping_server(self):
         self.assertEqual(self.request("/api/learn", {"title": None, "content": None})[0], 400)
-        self.assertEqual(self.request("/api/learn", {}, {"Content-Length": str(MAX_BODY + 1)})[0], 413)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        try:
+            connection.request("POST", "/api/learn", headers={"Content-Length": str(MAX_BODY + 1)})
+            self.assertEqual(connection.getresponse().status, 413)
+        finally:
+            connection.close()
         self.assertEqual(self.request("/api/learn", {}, {"Content-Type": "text/plain"})[0], 415)
         self.assertEqual(self.state()["memories"], [])
 
@@ -163,8 +232,22 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(self.request("/api/credentials", {"provider": "cloud", "api_key": ""})[0], 200)
         self.assertFalse(self.state()["credentials"]["cloud"]["configured"])
         self.request("/api/credentials", payload)
-        self.server.server_close()
+        self.stop()
         self.assertEqual(self.server._credentials, {})
+
+    def test_denied_post_consumes_bounded_body_without_parsing_or_action(self):
+        with patch.object(self.server.RequestHandlerClass, "_action") as action:
+            for _ in range(20):
+                for headers in ({"Origin":"https://evil.example"}, {"X-DeMemory-Token":"wrong"}):
+                    self.assertEqual(self.request("/api/learn", {"content":"denied synthetic text"}, headers)[0], 403)
+            connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+            try:
+                connection.request("POST", "/api/learn", body="not-json", headers={"Content-Type":"application/json", "X-DeMemory-Token":"wrong"})
+                self.assertEqual(connection.getresponse().status, 403)
+            finally:
+                connection.close()
+            action.assert_not_called()
+        self.assertEqual(self.state()["memories"], [])
 
     def test_environment_status_removal_and_external_profile_edit(self):
         settings = self.session_settings()

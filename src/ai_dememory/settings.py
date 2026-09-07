@@ -66,7 +66,9 @@ def validate_settings(data: dict) -> dict:
             raise ValueError("Invalid provider id")
         _shape(provider, {"kind", "base_url", "api_key_env", "model"},
                {"auth", "reasoning_effort", "input_cost_per_million", "output_cost_per_million"})
-        if provider["kind"] not in ("openai_compatible", "responses", "anthropic"):
+        kind = provider["kind"]
+        if not isinstance(kind, str) or (kind not in ("openai_compatible", "responses", "anthropic", "codex")
+                and not re.fullmatch(r"plugin:[a-z][a-z0-9-]{1,48}", kind)):
             raise ValueError("Unsupported provider kind")
         for field in ("base_url", "api_key_env", "model"):
             if not isinstance(provider[field], str) or len(provider[field]) > 512 or any(ord(c) < 32 for c in provider[field]):
@@ -76,7 +78,9 @@ def validate_settings(data: dict) -> dict:
         if provider["api_key_env"] and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", provider["api_key_env"]):
             raise ValueError("Use an environment variable name, never a raw API key")
         mode = auth_mode(provider)
-        if mode not in ("environment", "session", "none"):
+        if kind == "codex" and (mode != "chatgpt" or provider["base_url"] or provider["api_key_env"]):
+            raise ValueError("Codex requires ChatGPT authentication and empty URL/environment fields")
+        if mode not in (("chatgpt",) if kind == "codex" else ("environment", "session", "none")):
             raise ValueError("Authentication must be environment, session or none")
         if bool(provider["api_key_env"]) != (mode == "environment"):
             raise ValueError("Only environment authentication requires an environment variable name")
@@ -85,7 +89,7 @@ def validate_settings(data: dict) -> dict:
             url.port
         except ValueError as exc:
             raise ValueError("Invalid provider URL port") from exc
-        if (url.scheme not in ("http", "https") or not url.hostname or url.username is not None
+        if kind != "codex" and (url.scheme not in ("http", "https") or not url.hostname or url.username is not None
                 or url.password is not None or url.query or url.fragment or "\\" in provider["base_url"]
                 or (url.scheme == "http" and not is_local_url(provider["base_url"]))):
             raise ValueError("Provider URL needs HTTPS or loopback HTTP, without credentials, query or fragment")

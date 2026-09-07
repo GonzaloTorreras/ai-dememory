@@ -16,6 +16,8 @@
   <nav aria-label="Workbench">
     <a href="#memory"><span aria-hidden="true">◎</span>Memory</a>
     <a href="#providers"><span aria-hidden="true">▤</span>Providers</a>
+    <a href="#sources"><span aria-hidden="true">▧</span>Local sources</a>
+    <a href="#modules"><span aria-hidden="true">◇</span>Modules</a>
     <a href="#consolidation"><span aria-hidden="true">↻</span>Consolidation</a>
     <a href="#activity"><span aria-hidden="true">⌁</span>Activity</a>
   </nav>
@@ -35,6 +37,20 @@
       <form id="extract-form" class="form-stack"><label>Conversation text<textarea name="content" rows="5" required maxlength="24000"></textarea></label><label>Hook or skill route <span class="optional">optional</span><input name="route_key" placeholder="e.g. hook:codex-stop" pattern="(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}"></label><div class="actions"><button class="primary" type="submit">Extract learnings</button></div></form>
     </details>
   </section>
+  <section id="sources" class="page" aria-labelledby="page-title" hidden>
+    <p class="hint">Read only a folder you choose. Listing and preview stay local and do not call a model. Nothing is watched or imported in the background.</p>
+    <button id="enable-sources" type="button">Enable local conversation reader</button>
+    <div id="source-controls" hidden>
+      <form id="source-form" class="form-stack"><label>Conversation folder<input name="root" required placeholder="Absolute path to a sessions folder" maxlength="1024"></label>
+        <label>Format<select name="format"><option value="codex">Codex sessions</option><option value="claude">Claude Code sessions</option><option value="pi">Pi sessions (active branch)</option><option value="hermes">Hermes (checkpointed state.db)</option><option value="dsh">DeepSeek Harness (plain JSONL)</option><option value="generic">Generic JSON / JSONL export</option></select></label>
+        <p class="hint">Select the harness's conversation folder, not the whole home directory. For another harness, use a compatible export; additional native readers can extend the sources module. Only user text is extracted; tool results, assistant replies and system instructions are excluded.</p>
+        <div class="actions"><button type="submit">Find conversations</button></div>
+      </form>
+      <div id="source-files" class="memory-list section"></div>
+      <section id="source-preview" class="section" hidden><h2>Preview before sending</h2><p id="source-summary" class="hint"></p><pre id="source-text" class="conversation-preview"></pre><p id="source-destination" class="hint"></p><button id="extract-source" type="button" class="primary">Send this preview to extractor</button></section>
+    </div>
+  </section>
+  <section id="modules" class="page" aria-labelledby="page-title" hidden><p class="hint">Optional modules can be enabled or disabled independently. Installed community plugins are trusted Python code, not sandboxes. Disabling stops future calls; it does not uninstall a package or erase memory.</p><div id="module-list" class="memory-list"></div><p class="hint">Install reviewed provider plugins as Python packages registering ai_dememory.modules. A plugin can add a provider or replace the dashboard through its own foreground service; this UI does not install arbitrary packages or execute uploaded code.</p></section>
   <section id="providers" class="page" aria-labelledby="page-title" hidden>
     <section class="section first"><h2>Providers</h2><div class="table-wrap"><table><thead><tr><th>Name</th><th>API</th><th>Model</th><th>Credential</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="provider-rows"></tbody></table></div><div class="actions"><button id="add-provider" class="outline" type="button">＋ Add provider</button></div></section>
     <section class="section"><h2>Operation routes</h2><div id="operation-routes" class="routes"></div><p class="hint">Fallbacks run in order when a provider fails. Enter provider IDs separated by commas. Every attempt counts toward the budget.</p></section>
@@ -56,24 +72,27 @@
 <dialog id="provider-dialog" aria-labelledby="provider-title">
   <form id="provider-form" class="form-stack" autocomplete="off">
     <h2 id="provider-title">Add provider</h2>
-    <label>Provider preset<select name="preset"><option value="openai">OpenAI</option><option value="anthropic">Anthropic / Claude</option><option value="local">Local model (OpenAI compatible)</option><option value="custom">Other / custom endpoint</option></select></label>
+    <label>Provider preset<select name="preset"><option value="codex">OpenAI via Codex / ChatGPT subscription</option><option value="openai">OpenAI API — usage billed separately</option><option value="anthropic">Anthropic / Claude API</option><option value="local">Local model (OpenAI compatible)</option><option value="custom">Other / custom endpoint</option></select></label>
     <p class="hint">The dashboard stays on this PC. Remote providers receive text only when you run a configured learning job.</p>
-    <div class="two-columns"><label>Provider ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="e.g. openai-extract" maxlength="64"></label><label>Model<input name="model" required placeholder="Exact model ID from your provider" maxlength="512"></label></div>
-    <label>Authentication<select name="auth"><option value="session">API key — this workbench session</option><option value="environment">API key — environment variable</option><option value="none">No authentication</option></select></label>
+    <label>Profile name (Provider ID)<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="e.g. weekly-local or codex-learning" maxlength="64"></label>
+    <p class="hint">Your own short name for this configuration, not an ID from OpenAI or Anthropic. Routes refer to this name. Create separate profiles for different models or jobs; use letters, numbers, dots or dashes.</p>
+    <div id="codex-login" hidden><p class="hint">Uses the official Codex CLI with an isolated ChatGPT login. No API key or automatic paid API fallback. Subscription limits still apply; purchased Codex credits may be consumed according to your account settings. This is not unlimited free usage.</p><div class="actions"><button id="enable-codex" type="button">Enable Codex subscription module</button><button id="codex-device" type="button">Sign in with device code</button><button id="codex-browser" type="button">Sign in with browser</button><button id="codex-check" type="button">Check sign-in</button><button id="codex-cancel" type="button">Cancel pending sign-in</button></div><p id="codex-auth-status" class="hint" role="status"></p><a id="codex-auth-link" target="_blank" rel="noopener noreferrer" hidden>Open official sign-in page</a><p id="codex-user-code" class="hint"></p></div>
+    <label id="provider-auth-field">Authentication<select name="auth"><option value="session">API key — this workbench session</option><option value="environment">API key — environment variable</option><option value="none">No authentication</option><option value="chatgpt" hidden>ChatGPT via Codex</option></select></label>
     <label id="session-key-field">API key<input name="api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="Paste a provider API key"></label>
     <p id="session-key-help" class="hint">Kept only in this server process, never saved in the vault or browser storage. Re-enter after restarting the workbench. Closing this tab does not clear it.</p>
     <p id="credential-status" class="hint"></p>
     <button id="clear-provider-key" type="button" hidden>Clear session key now</button>
     <label id="environment-key-field" hidden>Environment variable name<input name="api_key_env" placeholder="OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" maxlength="128" autocomplete="off"></label>
     <p id="environment-key-help" class="hint" hidden>Enter the variable name, not its value. Set it before starting the workbench. This works for unattended scheduled jobs after restart.</p>
-    <p class="hint">OAuth / subscription login is not available here. ChatGPT and Claude app sign-ins are not interchangeable with API credentials. You can still use those apps with the MCP integration, without giving DeMemory their login tokens.</p>
-    <details><summary>Endpoint and model options</summary><div class="form-stack">
-      <label>API type<select name="kind"><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option><option value="openai_compatible">OpenAI compatible (Chat Completions)</option></select></label>
-      <label>Base URL<input name="base_url" type="url" required placeholder="https://api.openai.com/v1" maxlength="512"></label>
-      <p class="hint">HTTPS for remote providers; HTTP is allowed only for localhost. Include /v1, not the final /messages or /responses path. Changing the endpoint clears its saved session key.</p>
+    <div class="actions"><button id="load-models" type="button">Load available models</button></div>
+    <label>Model<input name="model" list="provider-models" required placeholder="Load the provider list or enter an exact model ID" maxlength="512"><datalist id="provider-models"></datalist></label><p id="models-status" class="hint" role="status">Models are fetched from the selected provider, not a fixed list. Loading lists makes no generation request. Custom endpoints may require manual entry.</p>
+    <details id="provider-advanced"><summary>Advanced model options</summary><div class="form-stack">
+      <div id="custom-endpoint-fields" class="form-stack"><label>API type<select name="kind"><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option><option value="openai_compatible">OpenAI compatible (Chat Completions)</option><option value="codex" hidden>Codex subscription</option></select></label>
+      <label>Base URL<input name="base_url" type="url" required placeholder="https://api.openai.com/v1" maxlength="512"></label><p class="hint">API type is the wire format your server speaks, not its model. Responses calls /responses; Anthropic calls /messages; Chat Completions calls /chat/completions. Base URL is the prefix before that path, usually ending in /v1. Choose exactly what your server documents. HTTPS is required remotely; localhost can use HTTP.</p></div>
+      <p id="preset-endpoint-help" class="hint">This preset supplies the protocol and endpoint automatically. Choose Other / custom endpoint only for a proxy or a different service.</p>
       <label>Reasoning effort<select name="reasoning_effort"><option value="">Provider default</option><option>none</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label>
       <p id="reasoning-help" class="hint" hidden>Claude uses a different thinking contract; this adapter currently uses its default.</p>
-      <div class="two-columns"><label>Input USD / million tokens<input name="input_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label><label>Output USD / million tokens<input name="output_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label></div>
+      <div id="provider-prices" class="two-columns"><label>Input USD / million tokens<input name="input_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label><label>Output USD / million tokens<input name="output_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label></div>
     </div></details>
     <p class="hint">Saving also saves your current routes and budget edits. It does not make a model call or verify the key with the provider.</p>
     <p id="provider-error" class="form-error" role="alert" hidden></p>

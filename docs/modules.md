@@ -111,3 +111,48 @@ client limitations and rollback. Hooks run only when invoked by the host.
 for the [local dashboard](workbench.md). Its HTTP listener is loopback-only and
 cannot be configured for LAN or internet access. Provider calls are optional
 outbound requests to configured endpoints, not a remote memory service.
+
+## Sources and subscription access
+
+`sources` adds explicit local-folder preview and extraction to the workbench.
+`codex-subscription` adds official Codex managed login, model listing and
+subscription-backed generation. Both are disabled by default and can be toggled
+in the Modules page. See [formats, account storage and limits](workbench.md).
+Neither adds a default background watcher. Codex alone uses bounded owned child
+processes; enabling the module does not itself start login or generation.
+
+## Custom provider plugins
+
+Reuse the same installed module entry-point and manifest; no second plugin
+registry is needed. Add `get_provider()` returning an object with:
+
+```python
+def describe(self):
+    return {"label": "My provider", "base_url": "https://example.com/v1",
+            "auth": "session"}  # session, environment, or none
+
+def validate(self, profile):
+    pass  # Reject unsupported model/configuration before sending data.
+
+def list_models(self, profile, credential):
+    return ["actual-model-id"]  # Query your service; never return credentials.
+
+def generate(self, profile, prompt, max_output_tokens, credential):
+    # Implement the provider request with finite deadlines and output bounds.
+    return {"text": "...", "usage": {"input_tokens": 10, "output_tokens": 5}}
+```
+
+This illustrates signatures, not a working model adapter. An enabled provider
+appears in the form as a preset; profiles store `kind: "plugin:<module-id>"`.
+Generation shares the existing route, fallback and budget engine. Missing usage
+keeps an estimated reservation. Disabled plugins are not imported or executable,
+even if a saved profile still refers to one. Removing a profile does not uninstall
+the module. Disable/uninstall the package separately when appropriate.
+
+## Custom dashboards
+
+The bundled UI is ordinary packaged HTML/CSS/JavaScript. A community module may
+provide a replacement foreground `serve(services, argv)` dashboard using the
+same core, without a core fork. Injecting arbitrary scripts into the existing
+dashboard or a visual dashboard editor is not implemented. Keep custom servers
+loopback-only until their own remote authentication and deployment are reviewed.

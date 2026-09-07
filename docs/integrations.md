@@ -67,7 +67,10 @@ not a sandbox against another local process with access to the same vault.
 Automated protocol tests and generated settings are not proof that every
 client/version runs the native hook. Current acceptance and client limitations
 are recorded in [development status](development-status.md). Hermes and DSH are
-not installed adapters yet; DSH still needs an exact product identity.
+not installed live adapters yet. DSH is DeepSeek Harness. The optional
+[sources module](workbench.md#local-conversation-sources) can manually preview
+its plain JSONL and checkpointed Hermes snapshots; that does not install hooks,
+watch directories or provide unattended native integration.
 
 ## Activity and rollback
 

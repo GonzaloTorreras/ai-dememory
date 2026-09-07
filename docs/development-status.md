@@ -16,6 +16,42 @@ Updated: 2026-09-07
 
 ## Implemented local alpha
 
+### Latest local slice: guided providers and optional sources
+
+- Based on local commit `e549c15`; source remains unpublished `3.0.0a1`.
+- Guided presets, live provider model discovery, explained profile aliases and
+  conditional protocol fields; no hardcoded catalog or implicit generation.
+- Optional Codex managed browser/device login with isolated account storage,
+  ephemeral tool-disabled generation, advertised reasoning validation and owned
+  child cleanup. Subscription-to-remote-API fallback is blocked; local fallback
+  remains available. USD accounting does not represent purchased Codex credits.
+- Optional bounded source preview: Codex/Claude/Pi, generic exports, raw DSH and
+  checkpointed Hermes snapshots. No background ingestion, active Hermes WAL or
+  DSH compression support. Preview-to-extract binds exact text, scope and routes.
+- Existing trusted modules can provide model adapters and dashboard alternatives.
+  No arbitrary dashboard script injection or visual extension editor.
+- Final full suite: 169 tests, 165 passed and four Windows symlink skips. Node
+  syntax and diff whitespace checks passed. Earlier repeated Windows TCP aborts
+  on denied POSTs were reproduced and fixed by consuming bounded request bytes
+  before authorization, without parsing JSON or executing actions beforehand.
+  Forty denied POSTs and invalid JSON rejection pass; a premature socket close
+  in the credential test was also corrected to stop and join the server thread.
+- Browser QA: synthetic loopback model catalog returned two IDs; selected model
+  and route saved; user-only folder preview extracted one evidenced memory end
+  to end. OpenAI preset hid protocol fields; mobile/desktop showed no document
+  overflow or console errors. No real conversation, API credential or paid call.
+- Codex native no-login probe verified isolated account/config and model catalog;
+  child and reader stopped. Thirteen subprocess fixture tests cover managed login,
+  timeout cleanup and generation. Live authenticated generation remains pending.
+- Fresh independent read-only review: 49 focused tests, one Windows skip; no
+  remaining blocker found. Earlier test/wheel receipts below are historical.
+- Updated isolated installation from an 86,082-byte wheel, SHA-256
+  `e47321776faeb8fcc5ecf6b3de19a7dbec14cd144b629369abaa56fad9943d59`.
+  Installed imports/version verified outside both source checkouts (`3.0.0a1`).
+  The idle test workbench alone was stopped and restarted on loopback port 8765;
+  its test-vault binding and previously enabled modules were preserved. New
+  sources/subscription modules remain disabled. No shared Codex account changed.
+
 - Existing save/readback, lazy Unicode FTS, review, default vault and module
   scaffold remain. Seven top-level commands; no default daemon or model call.
 - Scoped evidenced learning, provisional inference, keyed replacement and undo.
@@ -129,10 +165,10 @@ Latest provider-config slice (after `bb226ec`):
    available; review and trust the exact generated hook via the client.
 2. Deliver one real Codex episode: recall, learn a scoped lesson, reuse it in a
    second session, correct it and verify no feedback recapture. Then Hermes and
-   Claude adapters; identify DSH before promising its compatibility.
+   Claude adapters; DSH is identified, but compressed session acceptance is pending.
 3. Validate one configured local model and one selected cloud fallback, with
-   visible budget accounting. Current adapters use API credentials, not a
-   Codex/ChatGPT subscription or an assumed model alias.
+   visible budget accounting, then complete explicit Codex subscription login
+   and one synthetic authenticated extraction. Do not substitute an assumed alias.
 4. Extend scoped summary handling and procedural skill tests based on actual
    examples. Current model summaries are global review proposals only.
 5. Plan remote auth/TLS/API-key administration and two-host operation separately.

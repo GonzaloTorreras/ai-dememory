@@ -35,6 +35,16 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    "sources": ModuleDescriptor(
+        module_id="sources", version="1", summary="Preview explicitly selected local conversation folders.",
+        entrypoint="ai_dememory.builtin_modules.sources", capabilities=("conversation-preview",),
+        resource_budget={"network": False, "child_processes": 0, "persistent": False}, builtin=True, enabled=False,
+    ),
+    "codex-subscription": ModuleDescriptor(
+        module_id="codex-subscription", version="1", summary="Optional Codex account login and subscription-backed extraction.",
+        entrypoint="ai_dememory.builtin_modules.codex_subscription", capabilities=("provider", "device-login"),
+        resource_budget={"network": True, "child_processes": "bounded Codex app-server", "persistent": "isolated Codex account"}, builtin=True, enabled=False,
+    ),
     "harness": ModuleDescriptor(
         module_id="harness", version="1", summary="Project-local Codex and Claude MCP/recall integration.",
         entrypoint="ai_dememory.builtin_modules.harness",

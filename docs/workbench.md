@@ -9,7 +9,8 @@ ai-dememory serve workbench
 ```
 
 Open `http://127.0.0.1:8765`. Use `--port 8766` after `workbench` if the default
-port is occupied. Ctrl+C stops this service; it creates no child processes.
+port is occupied. Ctrl+C stops this service. Only the optional Codex subscription
+module starts a bounded child process for explicit login, catalog or generation.
 
 ## Memory
 
@@ -37,9 +38,18 @@ commit remains a recovery limit; these are not one transactional store.
 
 ## Providers and routing
 
-Choose **Add provider**, then OpenAI, Anthropic / Claude, local, or custom.
-The preset fills the API protocol and base URL; enter your own profile ID and
-the exact model ID available to your account. OpenAI uses Responses at
+Choose **Add provider**, then Codex / ChatGPT subscription, OpenAI API,
+Anthropic / Claude API, local, custom, or an enabled provider plugin.
+The **profile name (Provider ID)** is your own short alias, such as
+`fast-extractor`; routes refer to it. It is not an ID issued by a vendor.
+**Load available models** reads the provider's catalog without generating text.
+Choose a supported text model or enter its exact ID when discovery is unavailable.
+Catalogs may include unsuitable models; discovery is not a generation test.
+
+Named presets fill and hide protocol/endpoint details. Local/custom profiles
+expose them under Advanced: Responses uses `/responses`, Messages uses
+`/messages`, and OpenAI-compatible uses `/chat/completions`. Enter the API base,
+not the final generation URL. OpenAI API uses Responses at
 `https://api.openai.com/v1`; Claude uses Messages at
 `https://api.anthropic.com/v1`. A local OpenAI-compatible server can use
 `http://127.0.0.1:11434/v1`; remote endpoints require HTTPS. The dashboard's
@@ -64,12 +74,12 @@ Assign the profile to Extract or Consolidate, choose ordered fallbacks and save.
 Session credentials are scoped to this workbench process; another MCP/CLI
 process does not inherit them. OS keychain persistence remains future work.
 
-No model catalog, inferred prices or fictional model alias is built in. Use the
-ID supported by your endpoint. Configure reasoning effort only if it supports it;
+There is no hardcoded model catalog, inferred price or fictional model alias.
+Configure reasoning effort only if the selected model supports it;
 the Claude adapter currently uses provider-default thinking rather than mapping
 OpenAI's reasoning options incorrectly.
-The current adapters do not log into your Codex/ChatGPT subscription and cannot
-spend its credits. They use the endpoint's credentials/billing.
+Direct API profiles use separate API billing, not a ChatGPT or Claude subscription.
+Use the distinct Codex subscription profile for that path.
 
 - `extract`: model that reads a bounded conversation window and proposes facts.
 - `consolidate`: independently chosen model for optional summary proposals.
@@ -88,7 +98,31 @@ fallback. Redirects and environment proxy routing are disabled.
 
 ### OAuth and app subscriptions
 
-There is no generic OAuth/subscription login in this configurator. The direct
+The optional **codex-subscription** module uses the official Codex AppServer's
+managed ChatGPT browser or device-code login. Enable it in the provider form or
+Modules, start sign-in, open the official link, then choose **Check sign-in**.
+A native `codex` executable must be on PATH, or set `AI_DEMEMORY_CODEX_BIN` to
+its absolute path. Shell wrapper scripts are not used.
+The account is isolated in `codex-account` under DeMemory's user config directory,
+outside the vault. Codex manages its credential file there; DeMemory does not
+copy your existing Codex account or place tokens in vault/UI readback. Disabling
+the module cancels pending login but does not erase this saved account.
+
+Catalog and generation use subscription limits and may consume purchased Codex
+credits; this is not unlimited or guaranteed free access. After a Codex attempt,
+automatic remote API fallback is blocked to avoid switching to separate API
+billing. A configured local fallback is allowed. Custom plugins are trusted code
+and must document their own billing behavior.
+
+Generation uses an ephemeral, tool-disabled turn with bounded output and deadline.
+Incompatible clients fail closed. Pending login expires after ten minutes;
+completed requests close and reap the owned child. The route output setting is
+not a server-enforced Codex token ceiling. Live authenticated generation remains
+a separate acceptance check. See the official
+[AppServer contract](https://learn.chatgpt.com/docs/app-server) and
+[authentication guide](https://learn.chatgpt.com/docs/auth).
+
+There is no generic OAuth bridge for arbitrary subscriptions. The direct
 [OpenAI API](https://developers.openai.com/api/reference/overview#authentication)
 supports API keys and workload identity access tokens; this adapter implements
 API keys, not workload identity federation. Anthropic directs third-party apps
@@ -99,8 +133,32 @@ subscription login in another application. See its
 Your Codex/Claude client can still authenticate using its own supported login
 and use the [DeMemory MCP integration](integrations.md). That does not export
 its OAuth tokens or turn its subscription into a direct extraction API key.
-An OAuth integration will require an officially supported provider flow; no
-login-token scraping, placeholder button or automatic token refresh is shipped.
+No login-token scraping or Claude subscription token reuse is implemented.
+
+## Local conversation sources
+
+Enable **sources** in Modules or Local sources. Select one absolute folder and
+format, find conversations, and preview one. Only user text is retained;
+assistant/tool/system output and recognized secret canaries are discarded.
+Inspect the scope and extraction route, then explicitly send the preview.
+Listing and preview make no model calls. Previews stay in RAM for at most 15
+minutes; extraction uses that snapshot, not a file silently reread later.
+Changing provider routes requires a new preview. Disabling clears previews.
+
+| Format | Current support |
+| --- | --- |
+| Codex | Native JSONL human messages; duplicate event/response capture excluded |
+| Claude Code | JSONL human messages, excluding tool results |
+| Pi | Latest branch ancestry, not all alternative branches concatenated |
+| Hermes | One selected session in a checkpointed `state.db` snapshot; active WAL refused |
+| DeepSeek Harness (DSH) | Highest-generation plain JSONL; `.zstd` reported unsupported |
+| Generic | User-role JSON/JSONL exports |
+
+Scanning is bounded to 100 files, depth four and 5,000 directory entries. JSON
+input is limited to 2 MB; a Hermes snapshot to 256 MB with bounded query work.
+Previews retain at most 20 user messages / 24,000 characters. Path escapes,
+symlinks and junctions are rejected. This is not a background watcher,
+full-history importer or comprehensive PII filter.
 
 ## Budget and activity
 
@@ -108,6 +166,8 @@ Calls and tokens are daily UTC limits across all operations, including fallback
 attempts. USD is optional: zero disables only the currency cap. With a currency
 cap, remote profiles require explicit input/output prices per million tokens.
 Price accuracy is your responsibility, so this is not a provider invoice limit.
+Codex subscription calls count toward local call/token budgets but record zero
+API USD; that field does not measure or cap purchased Codex credit consumption.
 
 Every attempt reserves budget before sending; concurrent processes share the
 same durable receipt database. Successful reported usage reconciles estimates;

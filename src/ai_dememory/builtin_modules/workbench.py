@@ -15,8 +15,10 @@ from uuid import uuid4
 
 from ai_dememory.jobs import LearningJobs
 from ai_dememory.models import ModuleManifest
+from ai_dememory.modules import discover_modules, enable_module, disable_module, load_enabled_module
 from ai_dememory.providers import ProviderEngine, activity, usage_summary
 from ai_dememory.settings import auth_mode, load_settings, save_settings
+from ai_dememory.vault import validate_scope
 
 MAX_BODY = 256_000
 ASSETS = {"/": ("index.html", "text/html"), "/app.css": ("app.css", "text/css"),
@@ -34,6 +36,8 @@ class WorkbenchServer(HTTPServer):
     def __init__(self, services, port=8765, jobs=None):
         self.services = services
         self._credentials = {}
+        self._previews = {}
+        self._codex_module = None
         self.jobs = jobs or LearningJobs(services, engine_factory=lambda vault: ProviderEngine(
             vault, credential_resolver=self.resolve_credential))
         self.token = secrets.token_urlsafe(32)
@@ -60,6 +64,7 @@ class WorkbenchServer(HTTPServer):
     def credential_status(self, settings):
         self.prune_credentials(settings)
         return {name: {"mode": auth_mode(profile), "configured":
+                None if auth_mode(profile) == "chatgpt" else
                 bool(self._credentials.get(name)) if auth_mode(profile) == "session" else
                 bool(os.environ.get(profile["api_key_env"])) if auth_mode(profile) == "environment" else True}
                 for name, profile in settings["providers"].items()}
@@ -88,12 +93,73 @@ class WorkbenchServer(HTTPServer):
 
     def server_close(self):
         self._credentials.clear()
+        self._previews.clear()
+        if self._codex_module is not None:
+            self._codex_module.cancel_login()
         super().server_close()
+
+    def codex(self):
+        self._codex_module = load_enabled_module("codex-subscription")
+        self._codex_module.validate_vault(self.services.vault.root)
+        return self._codex_module
+
+    def draft_models(self, data):
+        from ai_dememory.providers import list_provider_models
+        from ai_dememory.settings import DEFAULT_SETTINGS, validate_settings
+        profile = data.get("profile")
+        validated = validate_settings({**DEFAULT_SETTINGS, "providers": {"catalog": profile}})["providers"]["catalog"]
+        if validated["kind"] == "codex":
+            self.codex()
+        mode = auth_mode(validated)
+        key = data.get("api_key", "")
+        if not isinstance(key, str) or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
+            raise ValueError("Invalid API key format")
+        if mode == "environment":
+            key = os.environ.get(validated["api_key_env"], "")
+        elif mode == "session" and not key:
+            name = data.get("provider", "")
+            if not isinstance(name, str):
+                raise ValueError("Invalid provider name")
+            key = self.resolve_credential(name, validated)
+        elif mode in ("none", "chatgpt"):
+            key = ""
+        return {"models": list_provider_models(validated, key), "generation_calls": 0}
+
+    def source_action(self, action, data):
+        reader = load_enabled_module("sources")
+        if action == "list":
+            return reader.list_sources(Path(data.get("root", "")), data.get("format", "generic"))
+        now = time.monotonic()
+        self._previews = {key: value for key, value in self._previews.items() if now - value["created"] < 900}
+        if action == "preview":
+            scope = data.get("scope", "global")
+            validate_scope(scope)
+            preview = reader.preview_source(Path(data.get("root", "")), data.get("file", ""), data.get("format", "generic"), data.get("session_id"))
+            settings = load_settings(self.services.vault)
+            token = uuid4().hex
+            if len(self._previews) >= 10:
+                del self._previews[next(iter(self._previews))]
+            self._previews[token] = {"created": now, "messages": preview["messages"], "scope": scope,
+                                     "routing": [settings["routes"], settings["providers"]]}
+            route = settings["routes"].get("extract", {})
+            return {**preview, "preview_token": token, "scope": scope,
+                    "destinations": [route["primary"], *route["fallback"]] if route else []}
+        if action == "extract":
+            token = data.get("preview_token")
+            if not isinstance(token, str) or token not in self._previews or data.get("confirmed") is not True:
+                raise ValueError("Preview expired or not confirmed. Preview the conversation again.")
+            preview = self._previews[token]
+            settings = load_settings(self.services.vault)
+            if preview["routing"] != [settings["routes"], settings["providers"]]:
+                raise ValueError("Provider routes changed. Preview again before sending conversation text.")
+            return self.jobs.extract(preview["messages"], preview["scope"], event_id="source-" + token)
+        raise ValueError("Unknown source action")
 
     def service_actions(self):
         if time.monotonic() - self.last_tick < 1:
             return
         self.last_tick = time.monotonic()
+        self._previews = {key: value for key, value in self._previews.items() if self.last_tick - value["created"] < 900}
         try:
             self.jobs.run_due()
         except (ValueError, OSError, sqlite3.Error):
@@ -148,6 +214,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 query = parse_qs(url.query)
                 scope = query.get("scope", ["global"])[0]
                 settings = load_settings(self.server.services.vault)
+                from ai_dememory.provider_plugins import provider_descriptions
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
@@ -156,6 +223,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "schedule": self.server.jobs.schedule_status(),
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
+                    "modules": [item.to_dict() for item in discover_modules().values()],
+                    "provider_extensions": provider_descriptions(),
                 })
             else:
                 self._send(404, {"error": "Not found"})
@@ -165,20 +234,24 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             self._send(500, {"error": "Local storage unavailable. Check vault access."})
 
     def do_POST(self):
-        if not self._local_request():
-            return
-        if not secrets.compare_digest(self.headers.get("X-DeMemory-Token", ""), self.server.token):
-            self._send(403, {"error": "Session expired. Reload the dashboard."})
-            return
-        if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
-            self._send(415, {"error": "JSON required"})
-            return
         try:
             size = int(self.headers.get("Content-Length", "0"))
             if not 0 < size <= MAX_BODY or self.headers.get("Transfer-Encoding"):
                 self._send(413, {"error": "Request body exceeds the limit"})
                 return
-            data = json.loads(self.rfile.read(size))
+            # Consume only the bounded body before rejecting a normal request.
+            # Closing with unread bytes can reset the connection on Windows,
+            # hiding the 403. No JSON parsing or action precedes authorization.
+            raw = self.rfile.read(size)
+            if not self._local_request():
+                return
+            if not secrets.compare_digest(self.headers.get("X-DeMemory-Token", ""), self.server.token):
+                self._send(403, {"error": "Session expired. Reload the dashboard."})
+                return
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                self._send(415, {"error": "JSON required"})
+                return
+            data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError("Expected a JSON object")
             self._send(200, self._action(urlsplit(self.path).path, data))
@@ -195,6 +268,35 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return settings
         if path == "/api/credentials":
             return self.server.set_credential(data)
+        if path == "/api/provider-models":
+            return self.server.draft_models(data)
+        if path == "/api/modules":
+            name, enabled = data.get("id"), data.get("enabled")
+            if not isinstance(name, str) or type(enabled) is not bool:
+                raise ValueError("Choose a module and enabled state")
+            if name == "workbench":
+                raise ValueError("Stop the workbench process to disable this dashboard")
+            if enabled:
+                enable_module(name)
+            else:
+                if name == "codex-subscription" and self.server._codex_module is not None:
+                    self.server._codex_module.cancel_login()
+                if name == "sources":
+                    self.server._previews.clear()
+                disable_module(name)
+            return {"id": name, "enabled": enabled}
+        if path == "/api/codex/login":
+            method = data.get("method", "device")
+            if method not in ("device", "browser"):
+                raise ValueError("Choose device or browser login")
+            return self.server.codex().start_login(method)
+        if path == "/api/codex/status":
+            return self.server.codex().login_status()
+        if path == "/api/codex/cancel":
+            self.server.codex().cancel_login()
+            return {"cancelled": True}
+        if path.startswith("/api/sources/"):
+            return self.server.source_action(path.rsplit("/", 1)[-1], data)
         scope = data.get("scope", "global")
         if path == "/api/learn":
             event = uuid4().hex

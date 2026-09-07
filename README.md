@@ -86,6 +86,12 @@ The bundled MCP module runs in the foreground over stdio and exposes seven
 tools: search, get, context, propose, learn, forget and status. It opens no network port
 and starts no subprocess. Disable it with `ai-dememory module disable mcp`.
 
+The [workbench](docs/workbench.md) also provides live provider model discovery,
+optional official Codex browser/device login, and manual local-conversation
+previews. Its Modules page toggles these extensions. API billing and subscription
+usage are distinct. [Provider plugins and replacement dashboards](docs/modules.md)
+reuse the existing trusted Python module contract.
+
 Create a community module without copying this repository:
 
 ```bash
