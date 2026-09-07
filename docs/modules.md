@@ -93,6 +93,14 @@ unscoped proposal store is unavailable on bound connections.
 
 ## Bundled harness module
 
+New setups use independently enabled `harness-codex` and `harness-claude`.
+For example, `ai-dememory serve harness-codex install --project <path> --scope
+project:demo` always selects Codex; the Claude module always selects Claude.
+The dashboard shows separate switches. Toggling one replaces a previously
+enabled common switch while preserving the other client's state. The old
+`harness` entrypoint remains a small installation helper, not a third provider.
+Hermes/Pi/DSH currently have source readers, not installed native hook modules.
+
 `harness` is disabled by default. It installs project-local MCP and prompt-hook
 configuration for Codex or Claude Code, without changing global client settings.
 It needs installation arguments, not a long-running service:

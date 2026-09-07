@@ -17,6 +17,19 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_batch_preflight_and_independent_harness_switches(self):
+        self.request('/api/modules',{'id':'sources','enabled':True})
+        with patch.object(self.server.jobs,'extract') as extract:
+            code, _, _ = self.request('/api/sources/validate',{'tokens':['expired']})
+            self.assertEqual(code,400)
+            extract.assert_not_called()
+        self.request('/api/modules',{'id':'harness','enabled':True})
+        self.request('/api/modules',{'id':'harness-codex','enabled':False})
+        modules={m['module_id']:m['enabled'] for m in self.state()['modules']}
+        self.assertFalse(modules['harness'])
+        self.assertFalse(modules['harness-codex'])
+        self.assertTrue(modules['harness-claude'])
+
     def test_model_discovery_uses_draft_and_never_returns_key(self):
         profile = {"kind":"responses", "base_url":"https://api.example.test/v1", "model":"catalog", "auth":"session", "api_key_env":""}
         with patch("ai_dememory.providers.list_provider_models", return_value=["model-a", "model-b"]) as models:

@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', preview: null };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', sources: [] };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -12,7 +12,7 @@ function profileAuth(profile) { return profile.auth || (profile.api_key_env ? 'e
 const pages = {
   memory: ['Memory', 'Useful knowledge, with its source and scope.'],
   providers: ['Providers & routing', 'Choose how learning and consolidation run.'],
-  sources: ['Local conversation sources', 'Select, inspect, then extract. Never a background disk scan.'],
+  sources: ['Local conversation sources', 'Your conversations, organized by workspace.'],
   modules: ['Modules', 'Keep only the capabilities you need.'],
   consolidation: ['Consolidation', 'Keep memory useful, on your schedule.'],
   activity: ['Activity', 'Understand what ran and what it consumed.'],
@@ -67,7 +67,7 @@ async function perform(action) {
   finally {
     state.busy = false;
     controls.forEach((control, index) => { control.disabled = (hadSettings && disabled[index]) || (!state.settings && control.id !== 'refresh'); });
-    $('#extract-source').disabled = !state.preview || !state.previewAllowed;
+    updateSourceSelection();
     if ($('#provider-dialog').open) { updateProviderFields(); $('#provider-form').elements.id.disabled = Boolean($('#provider-form').dataset.editId); }
   }
 }
@@ -219,17 +219,19 @@ function renderModules(data) {
   state.modules = data.modules || [];
   const list = $('#module-list'); list.replaceChildren();
   for (const item of state.modules) {
+    if (item.module_id === 'harness') continue;
     const card = element('article', undefined, 'memory-card');
-    card.append(element('h2', item.module_id), element('p', item.summary), element('p', item.enabled ? 'Enabled' : 'Disabled', 'hint'));
-    if (item.module_id !== 'workbench') card.append(button(item.enabled ? 'Disable' : 'Enable', () => {
+    const enabled = item.enabled || (item.module_id.startsWith('harness-') && moduleEnabled('harness'));
+    card.append(element('h2', item.module_id), element('p', item.summary), element('p', enabled ? 'Enabled' : 'Disabled', 'hint'));
+    if (item.module_id !== 'workbench') card.append(button(enabled ? 'Disable' : 'Enable', () => {
       if (!item.enabled && !item.builtin && !confirm('Enable this installed Python plugin? It can access files and the network as your user.')) return;
-      perform(async () => { await request('/api/modules', { id: item.module_id, enabled: !item.enabled }); await refresh(); notify('Module state saved.'); });
+      perform(async () => { await request('/api/modules', { id: item.module_id, enabled: !enabled }); await refresh(); notify('Module state saved.'); });
     }));
     list.append(card);
   }
   const enabled = moduleEnabled('sources');
   $('#enable-sources').hidden = enabled; $('#source-controls').hidden = !enabled;
-  if (!enabled) { state.preview = null; $('#source-preview').hidden = true; $('#source-text').textContent = ''; $('#source-files').replaceChildren(); }
+  if (!enabled) { state.sources = []; $('#source-files').replaceChildren(); }
   const form = $('#provider-form'), selected = form.elements.preset.value, selectedKind = form.elements.kind.value;
   document.querySelectorAll('#provider-form option[data-plugin]').forEach((option) => option.remove());
   for (const key of Object.keys(providerPresets)) if (key.startsWith('plugin:')) delete providerPresets[key];
@@ -279,6 +281,12 @@ async function refresh() {
   const data = await request(`/api/state?${query}`);
   state.credentials = data.credentials || {};
   renderModules(data);
+  const scopes = [...new Set([...(data.scopes || ['global']), state.scope])];
+  $('#scope-selector').replaceChildren(...scopes.map(name => new Option(name, name)));
+  $('#scope-selector').value = state.scope;
+  $('#scope-options').replaceChildren(...scopes.map(name => new Option(name, name)));
+  renderSourceSchedules(data.source_schedules || []);
+  state.codexRoot = data.codex_sessions_root;
   if (!state.dirty) { state.settings = data.settings; renderSettings(); }
   renderMemories(data.memories || []); renderOperational(data);
 }
@@ -379,7 +387,13 @@ for (const id of ['providers', 'consolidation']) $( `#${id}`).addEventListener('
 $('#add-provider').addEventListener('click', () => openProvider());
 $('#add-override').addEventListener('click', () => openOverride());
 $('#refresh').addEventListener('click', () => perform(async () => { await refresh(); notify(state.dirty ? 'Activity and memory refreshed. Your unsaved settings are preserved.' : 'Up to date.'); }));
-$('#scope-form').addEventListener('submit', (event) => { event.preventDefault(); state.scope = $('#scope').value.trim(); perform(refresh); });
+function changeScope(value) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) { notify('Use a short scope name, such as global or project:your-project.', true); return; }
+  state.scope = value; $('#scope').value = value;
+  state.sources.forEach(item => { item.preview = null; item.result = ''; item.open = false; }); renderSources(); perform(refresh);
+}
+$('#scope-form').addEventListener('submit', (event) => { event.preventDefault(); changeScope($('#scope').value.trim()); });
+$('#scope-selector').addEventListener('change', event => changeScope(event.target.value));
 $('#inactive').addEventListener('change', () => perform(refresh));
 $('#remember-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget;
@@ -395,37 +409,80 @@ $('#extract-form').addEventListener('submit', (event) => {
 });
 $('#source-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget, root = form.elements.root.value.trim(), format = form.elements.format.value;
-  state.preview = null; $('#source-preview').hidden = true; $('#source-text').textContent = '';
   perform(async () => {
-    const result = await request('/api/sources/list', {root, format}), list = $('#source-files'); list.replaceChildren();
-    for (const file of result.files) {
-      const card = element('article', undefined, 'memory-card');
-      card.append(element('h2', file.path + (file.session_id ? ` · ${file.session_id}` : '')));
-      card.append(button('Preview user messages', () => perform(async () => {
-        const preview = await request('/api/sources/preview', {root, format, file:file.path, session_id:file.session_id, scope:state.scope});
-        state.preview = preview.preview_token;
-        state.previewAllowed = Boolean(preview.messages.length && preview.destinations.length);
-        $('#source-preview').hidden = false;
-        $('#source-summary').textContent = `${preview.messages.length} bounded user messages · scope ${preview.scope}. Only the preview below can be sent; excluded roles and sensitive text are not forwarded.`;
-        $('#source-text').textContent = preview.messages.map((message, i) => `${i+1}. ${message.content}`).join('\n\n');
-        $('#source-destination').textContent = preview.destinations.length ? `Extraction route: ${preview.destinations.join(' → ')}. Clicking Send authorizes this text to be processed by that route. API providers may charge.` : 'No extraction route configured. Set one in Providers and preview again.';
-        $('#extract-source').disabled = !preview.messages.length || !preview.destinations.length;
-        if (preview.notice) $('#source-summary').textContent += ' ' + preview.notice;
-        if (preview.truncated) $('#source-summary').textContent += ' Preview is limited to the latest bounded messages.';
-        if (preview.counts) $('#source-summary').textContent += ' Reader counts: ' + Object.entries(preview.counts).map(([key,value]) => `${key.replaceAll('_',' ')} ${value}`).join(' · ') + '.';
-      })));
-      list.append(card);
-    }
-    if (!result.files.length) list.append(element('p', 'No supported conversations found. Check the folder and format.'));
-    for (const notice of result.notices || []) list.append(element('p', notice, 'notice'));
+    const result = await request('/api/sources/list', {root, format});
+    state.sources = result.files.map(file => ({...file, root, format, selected:false, preview:null}));
+    renderSources();
+    for (const notice of result.notices || []) $('#source-files').append(element('p', notice, 'hint'));
     notify(`${result.files.length} conversations found${result.truncated ? ' (bounded scan; select a narrower folder for more)' : ''}. No content sent to a model.`);
   });
 });
+function updateSourceSelection() {
+  const selected = state.sources.filter(item => item.selected);
+  const ready = selected.length > 0 && selected.every(item => item.preview?.messages.length && item.preview.destinations.length);
+  $('#extract-source').disabled = state.busy || !ready;
+  $('#preview-selected').disabled = state.busy || !selected.length;
+  $('#source-selection').textContent = `${selected.length} selected · destination ${state.scope}. Preview each selected conversation before extracting. Each conversation uses its own bounded model call.`;
+}
+async function previewItem(item) {
+  item.preview = await request('/api/sources/preview', {root:item.root,format:item.format,file:item.path,session_id:item.session_id,scope:state.scope});
+  item.open = true; renderSources();
+}
+function renderSources() {
+  const list = $('#source-files'); list.replaceChildren();
+  const query = $('#source-search').value.toLowerCase();
+  for (const item of state.sources) {
+    const title = item.title || `Conversation · ${new Date(item.modified_at*1000).toLocaleDateString()}`;
+    if (![title,item.workspace || '',item.path].join(' ').toLowerCase().includes(query)) continue;
+    const card = element('article', undefined, 'source-card');
+    const check = element('input'); check.type = 'checkbox'; check.checked = item.selected; check.setAttribute('aria-label', `Select ${title}`);
+    check.onchange = () => { if (check.checked && state.sources.filter(row => row.selected).length >= 10) { check.checked = false; notify('Select up to ten conversations per batch.',true); return; } item.selected = check.checked; updateSourceSelection(); };
+    const details = element('details'); details.open = Boolean(item.open);
+    const summary = element('summary'); summary.append(element('strong',title),element('span',`${new Date(item.modified_at*1000).toLocaleString()} · ${item.workspace || item.format}`, 'hint'));
+    details.append(summary);
+    details.ontoggle = () => { item.open = details.open; if(details.open && !item.preview && !state.busy) perform(()=>previewItem(item)); };
+    details.append(element('p',item.path,'source-path'),button(item.preview ? 'Refresh preview' : 'Preview user messages',()=>perform(()=>previewItem(item))));
+    if (item.preview) {
+      const p = item.preview;
+      details.append(element('p',`${p.messages.length} user messages → ${p.scope} · ${p.destinations.join(' → ') || 'No extraction route configured'}`, 'hint'));
+      details.append(element('pre',p.messages.map((message,i)=>`${i+1}. ${message.content}`).join('\n\n') || 'No eligible human messages.', 'conversation-preview'));
+      if (p.truncated || p.notice) details.append(element('p',[p.truncated?'Latest bounded window; older messages are not included.':'',p.notice || ''].join(' '),'hint'));
+      const diagnostics = element('details'); diagnostics.append(element('summary','Reader details'),element('p',Object.entries(p.counts || {}).map(([k,v])=>`${k.replaceAll('_',' ')}: ${v}`).join(' · '),'hint')); details.append(diagnostics);
+    }
+    if (item.result) details.append(element('p',item.result,'notice'));
+    card.append(check,details); list.append(card);
+  }
+  if (!list.children.length) list.append(element('p','No matching conversations. Choose a folder or change the filter.','hint'));
+  updateSourceSelection();
+}
+$('#source-search').addEventListener('input', renderSources);
+$('#codex-default-root').addEventListener('click',()=>{const form=$('#source-form');form.elements.root.value=state.codexRoot || '';form.elements.format.value='codex';state.sources=[];renderSources();});
+for(const field of ['root','format']) $('#source-form').elements[field].addEventListener('change',()=>{state.sources=[];renderSources();});
+$('#preview-selected').addEventListener('click',()=>perform(async()=>{for (const item of state.sources.filter(item=>item.selected)) await previewItem(item);}));
 $('#extract-source').addEventListener('click', () => perform(async () => {
-  if (!state.preview) throw new Error('Preview a conversation first.');
-  const result = await request('/api/sources/extract', {preview_token:state.preview, confirmed:true});
-  await refresh(); notify(`${(result.learned || []).length} learnings saved from the selected preview. Repeating this preview reuses its extraction receipt.`);
+  await request('/api/sources/validate',{tokens:state.sources.filter(item=>item.selected).map(item=>item.preview?.preview_token)});
+  for (const item of state.sources.filter(item=>item.selected)) {
+    if (!item.preview) throw new Error('Preview all selected conversations first.');
+    try { const result = await request('/api/sources/extract',{preview_token:item.preview.preview_token,confirmed:true}); item.result = `${(result.learned || []).length} learnings saved to ${item.preview.scope}`; item.selected = false; }
+    catch (error) { item.result = error.message; renderSources(); throw error; }
+  }
+  renderSources(); await refresh(); notify('Selected conversations processed. Results are shown inline.');
 }));
+$('#source-schedule-form').addEventListener('submit', event=>{
+  event.preventDefault(); const form = event.currentTarget, source = $('#source-form');
+  perform(async()=>{await request('/api/source-schedules/save',{root:source.elements.root.value.trim(),format:source.elements.format.value,scope:state.scope,interval_hours:Number(form.elements.interval_hours.value),enabled:form.elements.enabled.checked,confirmed:form.elements.enabled.checked}); await refresh(); notify('Source schedule saved. No extraction was started.');});
+});
+function renderSourceSchedules(rules) {
+  const list=$('#source-schedules'); list.replaceChildren();
+  for (const rule of rules) {
+    const card=element('article',undefined,'memory-card');
+    card.append(element('h3',`${rule.format} → ${rule.scope}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
+    card.append(button('Run now',()=>{if(confirm('Send one changed conversation window to this harness extraction route? Provider charges may apply.')) perform(async()=>{await request('/api/source-schedules/run',{id:rule.id,confirmed:true}); await refresh();});}));
+    if(rule.enabled) card.append(button('Pause',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'pause'}); await refresh();})));
+    else card.append(button('Resume',()=>{if(confirm('Enable automatic extraction from this folder into this scope using the configured route and fallbacks?')) perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'resume',confirmed:true}); await refresh();});}));
+    card.append(button('Remove schedule',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'delete'}); await refresh();}))); list.append(card);
+  }
+}
 $('#run-consolidation').addEventListener('click', () => perform(async () => { notify('Running consolidation…'); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
 window.addEventListener('hashchange', showPage);
 window.addEventListener('beforeunload', (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });

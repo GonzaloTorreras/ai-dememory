@@ -35,6 +35,11 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    **{f"harness-{client}": ModuleDescriptor(
+        module_id=f"harness-{client}", version="1", summary=f"Independent {client} project MCP and recall hooks.",
+        entrypoint=f"ai_dememory.builtin_modules.harness_{client}", capabilities=("install", "recall-hook"),
+        resource_budget={"network":False,"child_processes":0,"persistent":False}, builtin=True, enabled=False,
+    ) for client in ("codex", "claude")},
     "sources": ModuleDescriptor(
         module_id="sources", version="1", summary="Preview explicitly selected local conversation folders.",
         entrypoint="ai_dememory.builtin_modules.sources", capabilities=("conversation-preview",),

@@ -143,7 +143,7 @@ def main(argv=None):
     output = {}
     try:
         os.environ["AI_DEMEMORY_CONFIG_DIR"] = args.config_dir
-        if "harness" in load_config().enabled_modules:
+        if "harness" in load_config().enabled_modules or f"harness-{args.client}" in load_config().enabled_modules:
             raw = sys.stdin.buffer.read(MAX_INPUT + 1)
             if len(raw) <= MAX_INPUT:
                 output = recall_hook(Vault.open(args.vault), json.loads(raw), args.scope, args.client)

@@ -16,6 +16,37 @@ Updated: 2026-09-07
 
 ## Implemented local alpha
 
+### Current increment: conversation browser and source schedules
+
+- Based on local `4189345`; no version/publication change.
+- Codex sessions folder and adjacent title-index schema verified locally without
+  exposing conversation text in diagnostic output. Bounded listing returned 100
+  recent conversations, 96 with readable titles; no model call or memory write.
+- Recent-first scan, titles/workspaces, subagent/guardian exclusion, native user
+  event preference, complete bounded provenance metadata and large-log tail windows.
+- Inline accordion previews, ten-item checkbox batches with expiry preflight,
+  shared scope selector and scope-change invalidation. Results remain per item.
+- Independent Codex/Claude module switches preserve the other existing client.
+- Opt-in source rules store explicit folder/harness/scope/interval, support manual
+  run/pause/resume/removal and reuse provider routes/budgets/receipts. One changed
+  human window per run; assistant-only appends do not spend another model call.
+- No live automatic extraction was enabled on personal sessions. Browser tests
+  use synthetic conversations and a fixture model; real provider acceptance is
+  still distinct. This does not implement exhaustive historical backfill.
+- Final suite: 177 tests, 173 passed and four Windows symlink skips. Node syntax
+  and whitespace checks pass. Fresh read-only review validated parser provenance,
+  schedule deduplication, scope/route boundaries and batch preflight. Schedule
+  state now has 128 fixed-size fingerprints per rule and a checked 1 MB writer cap.
+- Browser acceptance at 1440x1080 and 390x844: titled list, inline preview,
+  two-conversation extraction to `project:qa`, scope-change invalidation and paused
+  schedule creation. No overflow; one early fixture-engine schema error was
+  corrected in the QA fixture, with subsequent extraction passing.
+- Installation artifact: 93,011 bytes; SHA-256
+  `a0e5846ce5e65dc5d1a35a5ad4112736ae7be22b13656d29e2ee98f68d474e00`.
+  Installed into the existing isolated runtime and verified outside the repo;
+  workbench restarted on 127.0.0.1:8765. Existing vault/config preserved; no
+  personal-history schedule enabled. Synthetic QA server stopped.
+
 ### Latest local slice: guided providers and optional sources
 
 - Based on local commit `e549c15`; source remains unpublished `3.0.0a1`.

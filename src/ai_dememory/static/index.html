@@ -27,8 +27,9 @@
   <header class="page-header"><div><h1 id="page-title">Memory</h1><p id="page-description">Useful knowledge, with its source and scope.</p></div><button id="refresh" type="button"><span aria-hidden="true">↻</span> Refresh</button></header>
   <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
   <p id="dirty-notice" class="notice" hidden>Settings have unsaved changes. Refresh keeps your edits.</p>
+  <form id="scope-form" class="scope-bar"><label>Current scope<select id="scope-selector"><option>global</option></select></label><label>New scope<input id="scope" value="global" required maxlength="128" placeholder="project:my-project" list="scope-options"><datalist id="scope-options"></datalist></label><button type="submit">Use scope</button><p class="hint">Shared across memory, manual extraction and run-now consolidation. Select a project to keep its learnings separate.</p></form>
   <section id="memory" class="page" aria-labelledby="page-title">
-    <form id="scope-form" class="scope-bar"><label>Scope<input id="scope" value="global" required maxlength="128"></label><button type="submit">Load memories</button><label class="check"><input id="inactive" type="checkbox"> Include inactive</label></form>
+    <label class="check"><input id="inactive" type="checkbox"> Include inactive</label>
     <div id="memory-list" class="memory-list"></div>
     <section class="section"><h2>Remember something</h2><p class="hint">Save an explicit fact or decision in the current scope. A matching key replaces the previous version; you can undo it.</p>
       <form id="remember-form" class="form-stack"><div class="two-columns"><label>Title<input name="title" required maxlength="200"></label><label>Key <span class="optional">optional</span><input name="key" placeholder="e.g. preferred-language" maxlength="128"></label></div><label>Memory<textarea name="content" rows="3" required maxlength="4000"></textarea></label><div class="actions"><button class="primary" type="submit">Save memory</button></div></form>
@@ -38,16 +39,18 @@
     </details>
   </section>
   <section id="sources" class="page" aria-labelledby="page-title" hidden>
-    <p class="hint">Read only a folder you choose. Listing and preview stay local and do not call a model. Nothing is watched or imported in the background.</p>
+    <p class="hint">Browse conversations by title, date and workspace. Listing and previews stay local. Extraction sends only selected user messages to your configured route.</p>
     <button id="enable-sources" type="button">Enable local conversation reader</button>
     <div id="source-controls" hidden>
       <form id="source-form" class="form-stack"><label>Conversation folder<input name="root" required placeholder="Absolute path to a sessions folder" maxlength="1024"></label>
         <label>Format<select name="format"><option value="codex">Codex sessions</option><option value="claude">Claude Code sessions</option><option value="pi">Pi sessions (active branch)</option><option value="hermes">Hermes (checkpointed state.db)</option><option value="dsh">DeepSeek Harness (plain JSONL)</option><option value="generic">Generic JSON / JSONL export</option></select></label>
         <p class="hint">Select the harness's conversation folder, not the whole home directory. For another harness, use a compatible export; additional native readers can extend the sources module. Only user text is extracted; tool results, assistant replies and system instructions are excluded.</p>
-        <div class="actions"><button type="submit">Find conversations</button></div>
+        <div class="actions"><button id="codex-default-root" type="button">Use Codex sessions folder</button><button type="submit">Find conversations</button></div>
       </form>
+      <div class="source-toolbar section"><label>Filter conversations<input id="source-search" type="search" placeholder="Title, workspace or date"></label><button id="preview-selected" type="button">Preview selected (max 10)</button><button id="extract-source" type="button" class="primary" disabled>Extract selected previews</button><p id="source-selection" class="hint">Select conversations, inspect their inline previews, then extract.</p></div>
       <div id="source-files" class="memory-list section"></div>
-      <section id="source-preview" class="section" hidden><h2>Preview before sending</h2><p id="source-summary" class="hint"></p><pre id="source-text" class="conversation-preview"></pre><p id="source-destination" class="hint"></p><button id="extract-source" type="button" class="primary">Send this preview to extractor</button></section>
+      <details class="section"><summary>Automate this source</summary><p class="hint">Optional: one changed conversation window per run, only while this workbench runs. Uses skill:source-&lt;harness&gt; when configured, otherwise Extract. Normal provider budgets apply. This is bounded recent-history extraction, not a full archive import.</p><form id="source-schedule-form" class="form-stack"><label>Every (hours)<input name="interval_hours" type="number" min="1" max="8760" value="24" required></label><label class="check"><input name="enabled" type="checkbox"> Enable automatic extraction from the folder above into the current scope. I authorize sending its user messages to the configured route and fallbacks.</label><button type="submit">Save source schedule</button></form></details>
+      <div id="source-schedules" class="memory-list section"></div>
     </div>
   </section>
   <section id="modules" class="page" aria-labelledby="page-title" hidden><p class="hint">Optional modules can be enabled or disabled independently. Installed community plugins are trusted Python code, not sandboxes. Disabling stops future calls; it does not uninstall a package or erase memory.</p><div id="module-list" class="memory-list"></div><p class="hint">Install reviewed provider plugins as Python packages registering ai_dememory.modules. A plugin can add a provider or replace the dashboard through its own foreground service; this UI does not install arbitrary packages or execute uploaded code.</p></section>

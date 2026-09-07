@@ -43,6 +43,9 @@ class WorkbenchServer(HTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.session = uuid4().hex
         self.last_tick = 0.0
+        self.last_source_tick = 0.0
+        from ai_dememory.source_jobs import SourceJobs
+        self.source_jobs = SourceJobs(services.vault, self.jobs)
         super().__init__(("127.0.0.1", port), WorkbenchHandler)
 
     @staticmethod
@@ -131,6 +134,14 @@ class WorkbenchServer(HTTPServer):
             return reader.list_sources(Path(data.get("root", "")), data.get("format", "generic"))
         now = time.monotonic()
         self._previews = {key: value for key, value in self._previews.items() if now - value["created"] < 900}
+        if action == "validate":
+            tokens = data.get("tokens")
+            if not isinstance(tokens, list) or not 1 <= len(tokens) <= 10 or any(not isinstance(t,str) for t in tokens):
+                raise ValueError("Select between one and ten previews")
+            settings = load_settings(self.services.vault)
+            if any(t not in self._previews or self._previews[t]["routing"] != [settings["routes"],settings["providers"]] for t in tokens):
+                raise ValueError("A preview expired or its route changed. Use Preview selected again before extracting.")
+            return {"valid":True}
         if action == "preview":
             scope = data.get("scope", "global")
             validate_scope(scope)
@@ -140,8 +151,9 @@ class WorkbenchServer(HTTPServer):
             if len(self._previews) >= 10:
                 del self._previews[next(iter(self._previews))]
             self._previews[token] = {"created": now, "messages": preview["messages"], "scope": scope,
-                                     "routing": [settings["routes"], settings["providers"]]}
-            route = settings["routes"].get("extract", {})
+                                     "routing": [settings["routes"], settings["providers"]],
+                                     "route_key":"skill:source-"+data.get("format","generic")}
+            route = settings["routes"].get(self._previews[token]["route_key"], settings["routes"].get("extract", {}))
             return {**preview, "preview_token": token, "scope": scope,
                     "destinations": [route["primary"], *route["fallback"]] if route else []}
         if action == "extract":
@@ -152,8 +164,16 @@ class WorkbenchServer(HTTPServer):
             settings = load_settings(self.services.vault)
             if preview["routing"] != [settings["routes"], settings["providers"]]:
                 raise ValueError("Provider routes changed. Preview again before sending conversation text.")
-            return self.jobs.extract(preview["messages"], preview["scope"], event_id="source-" + token)
+            return self.jobs.extract(preview["messages"], preview["scope"], route_key=preview.get("route_key"), event_id="source-" + token)
         raise ValueError("Unknown source action")
+
+    def scopes(self):
+        from itertools import islice
+        values = {"global"}
+        for path in islice(self.services.vault.iter_memory_paths(), 1000):
+            values.add(self.services.vault.read_memory(path).scope)
+        values.update(rule["scope"] for rule in self.source_jobs.public())
+        return sorted(values)
 
     def service_actions(self):
         if time.monotonic() - self.last_tick < 1:
@@ -162,6 +182,9 @@ class WorkbenchServer(HTTPServer):
         self._previews = {key: value for key, value in self._previews.items() if self.last_tick - value["created"] < 900}
         try:
             self.jobs.run_due()
+            if self.last_tick - self.last_source_tick >= 60:
+                self.last_source_tick = self.last_tick
+                self.source_jobs.run()
         except (ValueError, OSError, sqlite3.Error):
             # Job failures have their own safe status; never stop serving the UI.
             pass
@@ -224,6 +247,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
                     "modules": [item.to_dict() for item in discover_modules().values()],
+                    "scopes": self.server.scopes(),
+                    "source_schedules": self.server.source_jobs.public(),
+                    "codex_sessions_root": str(Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex"))) / "sessions"),
                     "provider_extensions": provider_descriptions(),
                 })
             else:
@@ -276,6 +302,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 raise ValueError("Choose a module and enabled state")
             if name == "workbench":
                 raise ValueError("Stop the workbench process to disable this dashboard")
+            if name in ("harness-codex", "harness-claude") and discover_modules()["harness"].enabled:
+                # Replace the old common switch while preserving the other client.
+                enable_module("harness-claude" if name == "harness-codex" else "harness-codex")
+                disable_module("harness")
             if enabled:
                 enable_module(name)
             else:
@@ -295,6 +325,16 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if path == "/api/codex/cancel":
             self.server.codex().cancel_login()
             return {"cancelled": True}
+        if path == "/api/source-schedules/save":
+            return self.server.source_jobs.save(data)
+        if path == "/api/source-schedules/run":
+            if data.get("confirmed") is not True:
+                raise ValueError("Confirm sending this source to its configured model route")
+            return self.server.source_jobs.run(data.get("id"))
+        if path == "/api/source-schedules/change":
+            if data.get("action") == "resume" and data.get("confirmed") is not True:
+                raise ValueError("Confirm automatic extraction before resuming")
+            return self.server.source_jobs.change(data.get("id"), data.get("action"))
         if path.startswith("/api/sources/"):
             return self.server.source_action(path.rsplit("/", 1)[-1], data)
         scope = data.get("scope", "global")

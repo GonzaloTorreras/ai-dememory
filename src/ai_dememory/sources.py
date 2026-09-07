@@ -9,6 +9,7 @@ import sqlite3
 import stat
 import time
 from collections import deque
+from itertools import islice
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -75,7 +76,7 @@ def _file(root: Path, relative: str, format: str) -> tuple[Path, os.stat_result]
         candidate.resolve(strict=True).relative_to(root)
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("Conversation source must be a regular file")
-        limit = MAX_DATABASE_BYTES if format == "hermes" else MAX_FILE_BYTES
+        limit = MAX_DATABASE_BYTES if format in ("hermes", "codex") else MAX_FILE_BYTES
         if info.st_size > limit:
             raise ValueError(f"Conversation file exceeds the {limit // 1_000_000} MB preview limit; export a smaller selection")
         return candidate, info
@@ -100,7 +101,8 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
         try:
             _root(directory).relative_to(root)
             with os.scandir(directory) as entries:
-                for entry in entries:
+                ordered = sorted(islice(entries, MAX_ENTRIES + 1), key=lambda entry: entry.name, reverse=True)
+                for entry in ordered:
                     scanned += 1
                     if scanned > MAX_ENTRIES:
                         truncated = True
@@ -126,7 +128,7 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
                             notices.add("DSH .zstd sessions need a plain JSONL export; compressed sessions are not supported.")
                     if path.suffix.lower() not in _suffixes(selected_format):
                         continue
-                    limit = MAX_DATABASE_BYTES if selected_format == "hermes" else MAX_FILE_BYTES
+                    limit = MAX_DATABASE_BYTES if selected_format in ("hermes", "codex") else MAX_FILE_BYTES
                     if info.st_size > limit:
                         discarded += 1
                         continue
@@ -136,10 +138,6 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
                     except UnsafeContentError:
                         discarded += 1
                         continue
-                    if len(files) >= MAX_FILES:
-                        truncated = True
-                        exhausted = True
-                        break
                     item = {"path": relative, "bytes": info.st_size, "modified_at": info.st_mtime}
                     if selected_format == "hermes":
                         try:
@@ -162,9 +160,107 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
         files = [item for item in files if not (generation := _DSH_GENERATION.fullmatch(Path(item["path"]).name))
                  or int(generation[1]) == generations[Path(item["path"]).parent.as_posix()]]
     files.sort(key=lambda item: (-item["modified_at"], item["path"], -item.get("latest_message_id", 0)))
+    if selected_format == "codex":
+        titles = _codex_titles(root)
+        visible = []
+        for item in files:
+            metadata = _codex_metadata(root / item["path"])
+            if metadata.pop("internal", False):
+                discarded += 1
+                continue
+            item.update(metadata)
+            if item.get("conversation_id") in titles:
+                item["title"] = titles[item["conversation_id"]]
+            visible.append(item)
+            if len(visible) >= MAX_FILES:
+                break
+        truncated = truncated or (len(visible) >= MAX_FILES and len(files) > MAX_FILES)
+        files = visible
+        notices.add("Codex internal/subagent sessions are excluded. Titles use the local index when available; otherwise a bounded first-message excerpt. Large logs preview only their latest window.")
+    truncated = truncated or len(files) > MAX_FILES
+    files = files[:MAX_FILES]
     return {"format": selected_format, "files": files, "truncated": truncated,
             "scanned_entries": min(scanned, MAX_ENTRIES), "discarded_files": discarded,
             "notices": sorted(notices)}
+
+
+def _safe_label(value, limit=160):
+    if not isinstance(value, str):
+        return ""
+    text = " ".join(value.split())
+    try:
+        reject_high_confidence_secrets(text)
+    except UnsafeContentError:
+        return ""
+    return text[:limit]
+
+
+def _codex_metadata(path):
+    result = {}
+    try:
+        with path.open("rb") as stream:
+            first = stream.readline(524_289)
+            if len(first) > 524_288:
+                return {"internal":True}  # Cannot verify provenance within the metadata budget.
+            head = (first + stream.read(65_536)).decode("utf-8", errors="replace")
+        try:
+            json.loads(first)
+        except ValueError:
+            return {"internal":True}
+        for line in head.splitlines():
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(record, dict):
+                continue
+            payload = record.get("payload", {}) if isinstance(record, dict) else {}
+            if record.get("type") == "session_meta" and isinstance(payload, dict):
+                source = payload.get("source", "")
+                result["internal"] = (isinstance(source, dict) and "subagent" in source) or str(source).lower().startswith("subagent")
+                result["conversation_id"] = _safe_label(payload.get("id") or payload.get("session_id"), 128)
+                result["workspace"] = _safe_label(payload.get("cwd"), 512)
+                result["origin"] = _safe_label(source)
+            found = _user_message(record, "codex")
+            if found and not _synthetic(found[0]) and not result.get("title"):
+                result["title"] = _safe_label(found[0])
+    except OSError:
+        pass
+    return result
+
+
+def _codex_titles(root):
+    # Explicit sessions-root selection authorizes its adjacent title index only.
+    if root.name != "sessions":
+        return {}
+    index = root.parent / "session_index.jsonl"
+    if not index.is_file() or _is_link(index, index.lstat()):
+        return {}
+    titles = {}
+    try:
+        with index.open("rb") as stream:
+            size = stream.seek(0, 2)
+            stream.seek(max(0, size - MAX_FILE_BYTES))
+            if size > MAX_FILE_BYTES:
+                stream.readline()
+            lines = stream.read(MAX_FILE_BYTES).decode("utf-8", errors="replace").splitlines()
+        for line in lines:
+            try:
+                row = json.loads(line)
+                title = _safe_label(row.get("thread_name"))
+                if isinstance(row.get("id"), str) and title:
+                    titles[row["id"]] = title
+            except (ValueError, AttributeError):
+                continue
+    except OSError:
+        pass
+    return titles
+
+
+def _synthetic(text):
+    return text.lstrip().startswith(("The following is the Codex agent history", "# AGENTS.md instructions",
+                                    "<environment_context>", "<permissions instructions>", "<subagent_notification>",
+                                    "You are a reviewer", "You are reviewing a proposed"))
 
 
 def _text(content: Any) -> str:
@@ -362,6 +458,8 @@ def preview_source(root: Path, relative: str, format: str, session_id: str | Non
     selected_format = _format(format)
     root = _root(root)
     path, expected = _file(root, relative, selected_format)
+    if selected_format == "codex" and _codex_metadata(path).get("internal"):
+        raise ValueError("Internal Codex/subagent sessions are not human conversation sources")
     window_limited = False
     discarded_branch = 0
     if selected_format == "hermes":
@@ -371,7 +469,8 @@ def preview_source(root: Path, relative: str, format: str, session_id: str | Non
             raise ValueError("session_id applies only to Hermes snapshots")
         if selected_format == "dsh":
             _check_dsh_generation(path)
-        records, malformed = _read_json(path, expected)
+        records, malformed = _read_json(path, expected, tail=selected_format == "codex")
+        window_limited = selected_format == "codex" and expected.st_size > MAX_FILE_BYTES
         if selected_format == "pi":
             if malformed:
                 raise ValueError("Pi export has malformed records; active branch cannot be verified")
@@ -387,13 +486,16 @@ def preview_source(root: Path, relative: str, format: str, session_id: str | Non
     return result
 
 
-def _read_json(path: Path, expected: os.stat_result) -> tuple[list[Any], int]:
+def _read_json(path: Path, expected: os.stat_result, tail=False) -> tuple[list[Any], int]:
     try:
         descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0))
         with os.fdopen(descriptor, "rb") as handle:
             actual = os.fstat(handle.fileno())
             if not stat.S_ISREG(actual.st_mode) or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
                 raise ValueError("Conversation file changed during selection; select it again")
+            if tail and actual.st_size > MAX_FILE_BYTES:
+                handle.seek(actual.st_size - MAX_FILE_BYTES)
+                handle.readline(MAX_FILE_BYTES)
             raw = handle.read(MAX_FILE_BYTES + 1)
         if len(raw) > MAX_FILE_BYTES:
             raise ValueError("Conversation file exceeds the 2 MB preview limit; export a smaller selection")
@@ -407,8 +509,11 @@ def _preview_messages(relative: str, selected_format: str, records: list[Any], m
                       window_limited: bool) -> dict[str, Any]:
     counts = {"records": len(records) + malformed, "malformed_records": malformed,
               "discarded_non_user": 0, "discarded_empty": 0, "discarded_sensitive": 0,
-              "discarded_duplicate": 0, "discarded_limit": 0}
+              "discarded_duplicate": 0, "discarded_limit": 0, "discarded_internal": 0}
     candidates: list[tuple[str, str, int]] = []
+    native_events = selected_format == "codex" and any(
+        isinstance(row, dict) and row.get("type") == "event_msg" and isinstance(row.get("payload"), dict)
+        and row["payload"].get("type") == "user_message" for row in records)
     for index, record in enumerate(records):
         if isinstance(record, dict) and record.get("_source_oversize") is True:
             counts["discarded_limit"] += 1
@@ -418,6 +523,12 @@ def _preview_messages(relative: str, selected_format: str, records: list[Any], m
             counts["discarded_non_user"] += 1
             continue
         content, kind = found
+        if native_events and kind == "response_item":
+            counts["discarded_duplicate"] += 1
+            continue
+        if selected_format == "codex" and _synthetic(content):
+            counts["discarded_internal"] += 1
+            continue
         if not content:
             counts["discarded_empty"] += 1
             continue

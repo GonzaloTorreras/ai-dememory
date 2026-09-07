@@ -55,6 +55,45 @@ class ConversationSourceTests(unittest.TestCase):
             result = sources.preview_source(self.root, name, format)
             self.assertEqual(result["messages"], [{"role": "user", "content": "user"}])
 
+    def test_codex_titles_and_internal_sessions_are_not_filename_identity(self):
+        sessions = self.root / "sessions"
+        rows = [{"type":"session_meta","payload":{"id":"human-id","source":"vscode","cwd":"project-folder"}},
+                {"type":"event_msg","payload":{"type":"user_message","message":"Human preference"}}]
+        self.fixture(rows, "sessions/2026/09/07/rollout-human.jsonl")
+        self.fixture([{"type":"session_meta","payload":{"id":"review-id","source":{"subagent":{"other":"guardian"}}}}], "sessions/2026/09/07/rollout-review.jsonl")
+        self.fixture([{"id":"human-id","thread_name":"Readable conversation title"}], "session_index.jsonl")
+        result = sources.list_sources(sessions,"codex")
+        self.assertEqual(len(result["files"]),1)
+        self.assertEqual(result["files"][0]["title"],"Readable conversation title")
+        with self.assertRaisesRegex(ValueError,"Internal Codex"):
+            sources.preview_source(sessions,"2026/09/07/rollout-review.jsonl","codex")
+
+    def test_codex_native_events_exclude_scaffolding_and_nonadjacent_mirrors(self):
+        rows = [{"type":"response_item","payload":{"type":"message","role":"user","content":"# AGENTS.md instructions bootstrap"}},
+                {"type":"event_msg","payload":{"type":"user_message","message":"A real preference"}},
+                {"type":"event_msg","payload":{"type":"token_count"}},
+                {"type":"response_item","payload":{"type":"message","role":"user","content":"A real preference"}},
+                {"type":"event_msg","payload":{"type":"user_message","message":"The following is the Codex agent history added since your last approval assessment."}}]
+        self.fixture(rows)
+        result=sources.preview_source(self.root,"conversation.jsonl","codex")
+        self.assertEqual(result["messages"],[{"role":"user","content":"A real preference"}])
+
+    def test_large_internal_metadata_cannot_bypass_source_exclusion(self):
+        for size in (80_000,600_000):
+            self.fixture([{"type":"session_meta","payload":{"base_instructions":"x"*size,"source":{"subagent":{"other":"guardian"}}}},
+                          {"type":"event_msg","payload":{"type":"user_message","message":"Internal review data"}}])
+            self.assertEqual(sources.list_sources(self.root,"codex")["files"],[])
+            with self.assertRaises(ValueError): sources.preview_source(self.root,"conversation.jsonl","codex")
+
+    def test_listing_selects_recent_files_beyond_first_hundred(self):
+        for index in range(110):
+            path=self.fixture([],f"file-{index:03}.jsonl")
+            os.utime(path,(index+100,index+100))
+        result=sources.list_sources(self.root,"generic")
+        self.assertEqual(len(result["files"]),100)
+        self.assertEqual(result["files"][0]["path"],"file-109.jsonl")
+        self.assertTrue(result["truncated"])
+
     def test_generic_messages_export_and_same_text_distinct_turns(self):
         self.fixture({"messages": [{"role": "user", "content": "Repeated"}] * 2}, "export.json")
         result = sources.preview_source(self.root, "export.json", "generic")

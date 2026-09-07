@@ -138,27 +138,71 @@ No login-token scraping or Claude subscription token reuse is implemented.
 ## Local conversation sources
 
 Enable **sources** in Modules or Local sources. Select one absolute folder and
-format, find conversations, and preview one. Only user text is retained;
+format, find conversations, and open an inline accordion. Select up to ten with
+checkboxes, preview the selection, then extract. Results stay next to each
+conversation; a failed batch preserves completed results. Preview expiry or
+route changes are checked before the first call. Only user text is retained;
 assistant/tool/system output and recognized secret canaries are discarded.
 Inspect the scope and extraction route, then explicitly send the preview.
 Listing and preview make no model calls. Previews stay in RAM for at most 15
 minutes; extraction uses that snapshot, not a file silently reread later.
 Changing provider routes requires a new preview. Disabling clears previews.
+The scope selector is shared across dashboard pages; you can select an existing
+scope or enter a new one. Changing scope clears previews rather than silently
+changing an already-approved destination.
+
+For Codex, use **Use Codex sessions folder** or select `$CODEX_HOME/sessions`
+(normally `~/.codex/sessions`). The adjacent optional `session_index.jsonl`
+supplies titles via `id`/`thread_name`; `session_meta` supplies project/origin.
+The filename is secondary technical information, not a conversation name.
+This is a bounded local-file adapter, not a promise of stable undocumented file
+schemas. Official [AppServer](https://learn.chatgpt.com/docs/app-server) separately
+exposes thread names, previews, source kinds, workspace filters and pagination.
+No AppServer, account login or model call is started to browse local files.
+
+Codex browsing excludes internal/subagent sessions, including guardian reviews.
+Extraction prefers native human-message events; older response-only exports
+use filtered fallback. Known bootstrap/review wrappers are excluded. Provenance
+that cannot be parsed within the metadata limit is refused, not guessed.
 
 | Format | Current support |
 | --- | --- |
-| Codex | Native JSONL human messages; duplicate event/response capture excluded |
+| Codex | Titles, workspace, recent-first JSONL; native human events preferred over response mirrors |
 | Claude Code | JSONL human messages, excluding tool results |
 | Pi | Latest branch ancestry, not all alternative branches concatenated |
 | Hermes | One selected session in a checkpointed `state.db` snapshot; active WAL refused |
 | DeepSeek Harness (DSH) | Highest-generation plain JSONL; `.zstd` reported unsupported |
 | Generic | User-role JSON/JSONL exports |
 
-Scanning is bounded to 100 files, depth four and 5,000 directory entries. JSON
-input is limited to 2 MB; a Hermes snapshot to 256 MB with bounded query work.
+Scanning retains up to 100 recent conversations across at most 5,000 directory
+entries and depth four, not the first arbitrary 100 files. JSON input is limited
+to 2 MB; Codex logs up to 256 MB use only their latest complete 2 MB window and
+bounded metadata. Hermes snapshots are limited to 256 MB with bounded query work.
 Previews retain at most 20 user messages / 24,000 characters. Path escapes,
-symlinks and junctions are rejected. This is not a background watcher,
-full-history importer or comprehensive PII filter.
+symlinks and junctions are rejected. This is not a full-history importer or
+comprehensive PII filter.
+
+### Per-harness source schedules
+
+Under **Automate this source**, save the selected folder, format, scope and
+interval. Automatic extraction requires its explicit opt-in checkbox; saving
+does not immediately call a model. Each rule can run now, pause, resume or be
+removed. Rules are independent and use `skill:source-codex`, `skill:source-hermes`,
+etc. when configured under Providers; otherwise they inherit Extract. Manual
+source extraction uses the same harness-specific route.
+
+While the foreground workbench runs, an enabled rule processes at most one
+changed eligible conversation window per interval. Existing provider budgets
+and durable extraction receipts apply. Assistant-only activity does not trigger
+another model call for the same user window. Unreadable files are counted and
+skipped; provider failures stop that run. There is no OS task, extra watcher or
+default scan. Disable sources to stop all source rules.
+
+`source-jobs.json` is local durable operational state: at most 16 rules, with
+128 bounded file/window fingerprints each, not raw conversation copies. Back it
+up with the vault. Recent-window scheduling is not an exhaustive cursor-based
+archive importer: older windows and histories outside the scan limit remain a
+future increment. Run a single workbench writer per vault for this alpha.
 
 ## Budget and activity
 

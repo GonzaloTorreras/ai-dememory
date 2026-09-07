@@ -27,6 +27,13 @@ several hosts.
 
 ## Delivery sequence
 
+Latest local increment: readable Codex conversation titles/workspaces, internal
+session filtering, accordion previews, multi-selection, shared scope selector,
+independent Codex/Claude module switches and per-harness recent-window schedules.
+Next ingestion work should be driven by measured gaps: cursor-based older-window
+backfill, active Hermes WAL/DSH compressed input and native cross-harness episodes.
+Do not describe the bounded scheduler as exhaustive historical consolidation.
+
 Every row is a complete user-visible slice, not empty interfaces.
 
 | Slice | Outcome | Acceptance |
