@@ -83,8 +83,14 @@ acceptance; protocol tests alone cannot prove proactive learning.
 Jobs call a provider protocol, never a harness-specific model class. Named
 routes select an extraction/consolidation profile or a hook/skill override.
 Fallbacks are ordered; each attempt reserves daily budget first. The initial
-wire adapters support Responses and OpenAI-compatible JSON APIs. New protocols
+wire adapters support Responses, Anthropic Messages and OpenAI-compatible JSON APIs. New protocols
 belong behind this boundary, not in vault writes or retrieval.
+
+Provider settings contain authentication mode and optional environment variable
+names, never raw keys. The workbench can alternatively hold a key only in its
+own process, bound to the expected provider identity. Manual and scheduled jobs
+share that resolver; another process does not inherit session keys. These are
+outbound credentials, not a remote-access login for the local dashboard.
 
 The dashboard is loopback-only, same-origin, session-token protected for writes,
 with no CORS. It is not remote MCP or a multi-user server. One synchronous job

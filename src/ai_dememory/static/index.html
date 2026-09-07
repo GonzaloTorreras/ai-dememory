@@ -53,7 +53,33 @@
     <p class="hint">Remote access planned; this workbench is local only.</p>
   </section>
 </main>
-<dialog id="provider-dialog" aria-labelledby="provider-title"><form id="provider-form" class="form-stack"><h2 id="provider-title">Add provider</h2><label>Provider ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="e.g. local" maxlength="64"></label><label>API type<select name="kind"><option value="openai_compatible">OpenAI compatible</option><option value="responses">Responses API</option></select></label><label>Base URL<input name="base_url" type="url" required placeholder="http://localhost:11434/v1" maxlength="512"></label><label>Model<input name="model" required placeholder="Model ID supported by this provider" maxlength="512"></label><label>API key environment variable <span class="optional">optional</span><input name="api_key_env" placeholder="e.g. OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" maxlength="128" autocomplete="off"></label><p class="hint">Enter the variable name, never the key itself. Set its value in the environment that starts the workbench. Leave blank for a local provider without authentication.</p><label>Reasoning effort<select name="reasoning_effort"><option value="">Provider default</option><option>none</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label><div class="two-columns"><label>Input USD / million tokens<input name="input_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label><label>Output USD / million tokens<input name="output_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label></div><p id="provider-error" class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close="provider-dialog">Cancel</button><button type="submit" class="primary">Apply provider</button></div></form></dialog>
+<dialog id="provider-dialog" aria-labelledby="provider-title">
+  <form id="provider-form" class="form-stack" autocomplete="off">
+    <h2 id="provider-title">Add provider</h2>
+    <label>Provider preset<select name="preset"><option value="openai">OpenAI</option><option value="anthropic">Anthropic / Claude</option><option value="local">Local model (OpenAI compatible)</option><option value="custom">Other / custom endpoint</option></select></label>
+    <p class="hint">The dashboard stays on this PC. Remote providers receive text only when you run a configured learning job.</p>
+    <div class="two-columns"><label>Provider ID<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="e.g. openai-extract" maxlength="64"></label><label>Model<input name="model" required placeholder="Exact model ID from your provider" maxlength="512"></label></div>
+    <label>Authentication<select name="auth"><option value="session">API key — this workbench session</option><option value="environment">API key — environment variable</option><option value="none">No authentication</option></select></label>
+    <label id="session-key-field">API key<input name="api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="Paste a provider API key"></label>
+    <p id="session-key-help" class="hint">Kept only in this server process, never saved in the vault or browser storage. Re-enter after restarting the workbench. Closing this tab does not clear it.</p>
+    <p id="credential-status" class="hint"></p>
+    <button id="clear-provider-key" type="button" hidden>Clear session key now</button>
+    <label id="environment-key-field" hidden>Environment variable name<input name="api_key_env" placeholder="OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" maxlength="128" autocomplete="off"></label>
+    <p id="environment-key-help" class="hint" hidden>Enter the variable name, not its value. Set it before starting the workbench. This works for unattended scheduled jobs after restart.</p>
+    <p class="hint">OAuth / subscription login is not available here. ChatGPT and Claude app sign-ins are not interchangeable with API credentials. You can still use those apps with the MCP integration, without giving DeMemory their login tokens.</p>
+    <details><summary>Endpoint and model options</summary><div class="form-stack">
+      <label>API type<select name="kind"><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option><option value="openai_compatible">OpenAI compatible (Chat Completions)</option></select></label>
+      <label>Base URL<input name="base_url" type="url" required placeholder="https://api.openai.com/v1" maxlength="512"></label>
+      <p class="hint">HTTPS for remote providers; HTTP is allowed only for localhost. Include /v1, not the final /messages or /responses path. Changing the endpoint clears its saved session key.</p>
+      <label>Reasoning effort<select name="reasoning_effort"><option value="">Provider default</option><option>none</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label>
+      <p id="reasoning-help" class="hint" hidden>Claude uses a different thinking contract; this adapter currently uses its default.</p>
+      <div class="two-columns"><label>Input USD / million tokens<input name="input_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label><label>Output USD / million tokens<input name="output_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label></div>
+    </div></details>
+    <p class="hint">Saving also saves your current routes and budget edits. It does not make a model call or verify the key with the provider.</p>
+    <p id="provider-error" class="form-error" role="alert" hidden></p>
+    <div class="actions"><button type="button" data-close="provider-dialog">Cancel</button><button type="submit" class="primary">Save provider &amp; settings</button></div>
+  </form>
+</dialog>
 <dialog id="override-dialog" aria-labelledby="override-title"><form id="override-form" class="form-stack"><h2 id="override-title">Add override</h2><label>Hook or skill ID<input name="id" required pattern="(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="hook:codex-stop"></label><label>Primary provider<select name="primary" required></select></label><label>Fallback provider IDs<input name="fallback" placeholder="local, backup"></label><label>Max output tokens<input name="max_output_tokens" type="number" min="16" max="16384" value="1024" required></label><p id="override-error" class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close="override-dialog">Cancel</button><button class="primary" type="submit">Apply override</button></div></form></dialog>
 </body>
 </html>

@@ -111,8 +111,11 @@ ai-dememory serve workbench
 
 Open `http://127.0.0.1:8765`. Manage memory, providers, per-operation or hook/skill
 routes, fallback order, budgets and a consolidation schedule in the browser.
-No model is selected and no schedule is enabled by default. Credentials are
-environment-variable references, never pasted keys. Scheduled jobs run only
+No model is selected and no schedule is enabled by default. Choose OpenAI,
+Anthropic / Claude or a local/custom endpoint. API keys can be entered for the
+current workbench session or loaded from environment-variable references;
+neither is saved as plaintext in the vault. OAuth login is not implemented.
+Scheduled jobs run only
 while the foreground service runs; one job runs at a time and the UI waits
 during provider calls. Remote access and automatic harness ingestion are next,
 not implemented by enabling the dashboard.

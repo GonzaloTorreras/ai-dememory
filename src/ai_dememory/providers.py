@@ -11,7 +11,7 @@ import urllib.request
 from contextlib import closing
 from datetime import datetime, timezone
 
-from .settings import is_local_url, load_settings, local_file, resolve_route, validate_settings
+from .settings import auth_mode, is_local_url, load_settings, local_file, resolve_route, validate_settings
 from .vault import Vault
 
 MAX_PROMPT_BYTES = 64_000
@@ -110,10 +110,11 @@ def _cost(provider, inputs, outputs):
 
 
 class ProviderEngine:
-    def __init__(self, vault: Vault, settings: dict | None = None, transport=None):
+    def __init__(self, vault: Vault, settings: dict | None = None, transport=None, credential_resolver=None):
         self.vault = vault
         self.settings = validate_settings(settings) if settings is not None else load_settings(vault)
         self.transport = transport or http_transport
+        self.credential_resolver = credential_resolver
 
     def _reserve(self, operation, route_key, name, provider, inputs, outputs):
         budgets = self.settings["budgets"]
@@ -160,13 +161,18 @@ class ProviderEngine:
             started = time.monotonic()
             try:
                 headers = {"Content-Type": "application/json"}
-                if provider["api_key_env"]:
-                    key = os.environ.get(provider["api_key_env"], "")
+                mode = auth_mode(provider)
+                anthropic = provider["kind"] == "anthropic"
+                if mode != "none":
+                    key = (os.environ.get(provider["api_key_env"], "") if mode == "environment" else
+                           self.credential_resolver(name, provider) if self.credential_resolver else "")
                     if not key:
                         raise ProviderError("missing_credentials")
-                    if any(ord(c) < 32 for c in key):
+                    if not isinstance(key, str) or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
                         raise ProviderError("invalid_credentials")
-                    headers["Authorization"] = "Bearer " + key
+                    headers["x-api-key" if anthropic else "Authorization"] = key if anthropic else "Bearer " + key
+                if anthropic:
+                    headers["anthropic-version"] = "2023-06-01"
                 response_api = provider["kind"] == "responses"
                 payload = {"model": provider["model"], "stream": False}
                 if response_api:
@@ -177,9 +183,12 @@ class ProviderEngine:
                     payload.update(messages=[{"role": "user", "content": prompt}], max_tokens=outputs)
                     if "reasoning_effort" in provider:
                         payload["reasoning_effort"] = provider["reasoning_effort"]
-                url = provider["base_url"].rstrip("/") + ("/responses" if response_api else "/chat/completions")
+                endpoint = "/messages" if anthropic else "/responses" if response_api else "/chat/completions"
+                url = provider["base_url"].rstrip("/") + endpoint
                 data = self.transport(url, payload, headers, TIMEOUT_SECONDS)
-                if response_api:
+                if anthropic:
+                    text = "".join(part["text"] for part in data["content"] if part.get("type") == "text")
+                elif response_api:
                     text = "".join(part["text"] for item in data.get("output", []) if item.get("type") == "message"
                                    for part in item.get("content", []) if part.get("type") == "output_text")
                 else:
@@ -187,8 +196,11 @@ class ProviderEngine:
                 if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > MAX_RESPONSE_BYTES:
                     raise ProviderError("invalid_response")
                 raw_usage = data.get("usage") or {}
-                in_count = raw_usage.get("input_tokens" if response_api else "prompt_tokens")
-                out_count = raw_usage.get("output_tokens" if response_api else "completion_tokens")
+                in_count = raw_usage.get("input_tokens" if response_api or anthropic else "prompt_tokens")
+                out_count = raw_usage.get("output_tokens" if response_api or anthropic else "completion_tokens")
+                if anthropic:
+                    counts = [in_count, raw_usage.get("cache_creation_input_tokens", 0), raw_usage.get("cache_read_input_tokens", 0)]
+                    in_count = sum(counts) if all(type(count) is int and count >= 0 for count in counts) else None
                 usage = None
                 if type(in_count) is int and type(out_count) is int and in_count >= 0 and out_count >= 0:
                     usage = {"input_tokens": in_count, "output_tokens": out_count}

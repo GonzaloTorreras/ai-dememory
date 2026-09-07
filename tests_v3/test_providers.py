@@ -112,6 +112,50 @@ class ProviderTests(unittest.TestCase):
         self.assertFalse(result["usage"]["estimated"])
         self.assertEqual(usage_summary(self.vault)["tokens"], 6)
 
+    def test_anthropic_native_headers_content_and_cache_usage(self):
+        self.settings["providers"]["cloud"].update(kind="anthropic", base_url="https://api.anthropic.com/v1")
+        def transport(url, payload, headers, timeout):
+            self.assertEqual(url, "https://api.anthropic.com/v1/messages")
+            self.assertEqual(headers["x-api-key"], "unit-test-only")
+            self.assertEqual(headers["anthropic-version"], "2023-06-01")
+            self.assertNotIn("Authorization", headers)
+            self.assertEqual(payload["messages"], [{"role": "user", "content": "test"}])
+            self.assertEqual(payload["max_tokens"], 128)
+            return {"content": [{"type": "thinking", "thinking": "private"},
+                                {"type": "text", "text": "One"}, {"type": "text", "text": " two"}],
+                    "usage": {"input_tokens": 4, "output_tokens": 2,
+                              "cache_creation_input_tokens": 10, "cache_read_input_tokens": 20}}
+        result = ProviderEngine(self.vault, self.settings, transport).run("extract", "test")
+        self.assertEqual(result["text"], "One two")
+        self.assertEqual(result["usage"]["input_tokens"], 34)
+        self.assertEqual(usage_summary(self.vault)["tokens"], 36)
+        self.settings["providers"]["cloud"]["reasoning_effort"] = "medium"
+        with self.assertRaisesRegex(ValueError, "Anthropic"):
+            save_settings(self.vault, self.settings)
+
+    def test_session_auth_uses_only_resolver_and_never_environment(self):
+        profile = self.settings["providers"]["cloud"]
+        profile.update(auth="session", api_key_env="")
+        self.settings["routes"]["extract"]["fallback"] = []
+        calls = []
+        def transport(url, payload, headers, timeout):
+            calls.append(headers)
+            return {"output": [{"type": "message", "content": [{"type": "output_text", "text": "OK"}]}]}
+        with self.assertRaisesRegex(ProviderError, "missing_credentials"):
+            ProviderEngine(self.vault, self.settings, transport).run("extract", "test")
+        self.assertEqual(calls, [])
+        engine = ProviderEngine(self.vault, self.settings, transport,
+                                credential_resolver=lambda name, profile: "session-only-canary")
+        engine.run("extract", "test")
+        self.assertEqual(calls[0]["Authorization"], "Bearer session-only-canary")
+        self.assertNotIn("session-only-canary", json.dumps(activity(self.vault)))
+        profile["api_key_env"] = "TEST_MEMORY_API_KEY"
+        with self.assertRaises(ValueError):
+            save_settings(self.vault, self.settings)
+        profile.update(auth="environment", api_key_env="")
+        with self.assertRaises(ValueError):
+            save_settings(self.vault, self.settings)
+
     def test_missing_usage_preserves_conservative_reservation(self):
         response = chat_response()
         response.pop("usage")
@@ -164,11 +208,12 @@ class ProviderTests(unittest.TestCase):
             calls.append(args)
             return {} if len(calls) == 1 else chat_response()
         self.assertEqual(ProviderEngine(self.vault, self.settings, transport).run("extract", "test")["provider"], "local")
-        def rejected(url, *args):
-            raise urllib.error.HTTPError(url, 400, "secret details", {}, io.BytesIO())
-        with self.assertRaisesRegex(ProviderError, "provider_http_error"):
-            ProviderEngine(self.vault, self.settings, rejected).run("extract", "test")
-        self.assertEqual(usage_summary(self.vault)["calls"], 3)
+        for code in (400, 401):
+            def rejected(url, *args):
+                raise urllib.error.HTTPError(url, code, "secret details", {}, io.BytesIO())
+            with self.assertRaisesRegex(ProviderError, "provider_http_error"):
+                ProviderEngine(self.vault, self.settings, rejected).run("extract", "test")
+        self.assertEqual(usage_summary(self.vault)["calls"], 4)
 
     def test_transport_bounds_response_and_disables_redirects(self):
         with patch("ai_dememory.providers.urllib.request.build_opener") as factory:

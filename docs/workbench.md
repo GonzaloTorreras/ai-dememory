@@ -30,21 +30,44 @@ Exact user quotes are active; paraphrases and assistant assertions stay
 provisional. This establishes traceability, not universal truth or contradiction
 detection. Model-generated keys cannot rewrite existing records.
 
-Core calls with the same stable occurrence reuse the original result. Extraction
-does not yet preserve a complete receipt for changing candidate indexes or
-cross-event deduplication aliases; do not automate blind retries of extraction.
-Occurrence receipts are required in the upcoming ingestion slice.
+Core calls with the same stable occurrence reuse the original result. Completed
+extraction receipts also preserve original admissions and deduplication aliases
+without another provider call. A crash between a Markdown write and receipt
+commit remains a recovery limit; these are not one transactional store.
 
 ## Providers and routing
 
-Add a profile with a provider ID, endpoint, exact model ID and optional
-credential environment-variable name. The initial adapters support Responses
-and OpenAI-compatible APIs. They are wire protocols, not a promise that every
-provider supports every option. A local OpenAI-compatible server can use
-`http://127.0.0.1:11434/v1`; remote endpoints require HTTPS.
+Choose **Add provider**, then OpenAI, Anthropic / Claude, local, or custom.
+The preset fills the API protocol and base URL; enter your own profile ID and
+the exact model ID available to your account. OpenAI uses Responses at
+`https://api.openai.com/v1`; Claude uses Messages at
+`https://api.anthropic.com/v1`. A local OpenAI-compatible server can use
+`http://127.0.0.1:11434/v1`; remote endpoints require HTTPS. The dashboard's
+loopback-only listener does not restrict outbound model calls to local servers.
+
+Choose an authentication mode:
+
+- **API key — this workbench session:** paste the key in the password field.
+  It is sent only to the local workbench, retained in that process and used for
+  the selected endpoint. It is not written to settings, memory, SQLite, browser
+  storage or API readback. Closing the tab does not clear it; clearing the key,
+  changing the endpoint or restarting the workbench does. Re-enter after restart.
+- **API key — environment variable:** enter a name such as `OPENAI_API_KEY` or
+  `ANTHROPIC_API_KEY`, not its value. Set it in the environment before starting
+  the workbench; use this mode for scheduled work that must survive a restart.
+- **No authentication:** for a local or custom service that does not require it.
+
+**Save provider & settings** saves the profile and current route/budget edits.
+It does not validate the key against the provider or make a model call. The
+table says whether a credential is present, not whether authentication succeeds.
+Assign the profile to Extract or Consolidate, choose ordered fallbacks and save.
+Session credentials are scoped to this workbench process; another MCP/CLI
+process does not inherit them. OS keychain persistence remains future work.
 
 No model catalog, inferred prices or fictional model alias is built in. Use the
-ID supported by your endpoint. Configure reasoning effort only if it supports it.
+ID supported by your endpoint. Configure reasoning effort only if it supports it;
+the Claude adapter currently uses provider-default thinking rather than mapping
+OpenAI's reasoning options incorrectly.
 The current adapters do not log into your Codex/ChatGPT subscription and cannot
 spend its credits. They use the endpoint's credentials/billing.
 
@@ -63,9 +86,21 @@ try the next profile. Invalid requests and exhausted application budgets stop.
 Keys are resolved independently for each profile and never forwarded to a
 fallback. Redirects and environment proxy routing are disabled.
 
-Enter only a variable name such as `OPENAI_API_KEY`, not its value. Set the value
-in the environment that launches the foreground process. Browser password entry,
-OS credential-store integration and key administration are later work.
+### OAuth and app subscriptions
+
+There is no generic OAuth/subscription login in this configurator. The direct
+[OpenAI API](https://developers.openai.com/api/reference/overview#authentication)
+supports API keys and workload identity access tokens; this adapter implements
+API keys, not workload identity federation. Anthropic directs third-party apps
+to API keys or supported cloud providers and does not permit offering Claude.ai
+subscription login in another application. See its
+[credential policy](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).
+
+Your Codex/Claude client can still authenticate using its own supported login
+and use the [DeMemory MCP integration](integrations.md). That does not export
+its OAuth tokens or turn its subscription into a direct extraction API key.
+An OAuth integration will require an officially supported provider flow; no
+login-token scraping, placeholder button or automatic token refresh is shipped.
 
 ## Budget and activity
 

@@ -1,6 +1,13 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, dirty: false, busy: false, scope: 'global' };
+const state = { settings: null, credentials: {}, dirty: false, busy: false, scope: 'global' };
+const providerPresets = {
+  openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
+  anthropic: { kind: 'anthropic', base_url: 'https://api.anthropic.com/v1', auth: 'session', api_key_env: 'ANTHROPIC_API_KEY' },
+  local: { kind: 'openai_compatible', base_url: 'http://localhost:11434/v1', auth: 'none', api_key_env: '' },
+  custom: { kind: 'openai_compatible', base_url: '', auth: 'environment', api_key_env: '' },
+};
+function profileAuth(profile) { return profile.auth || (profile.api_key_env ? 'environment' : 'none'); }
 const pages = {
   memory: ['Memory', 'Useful knowledge, with its source and scope.'],
   providers: ['Providers & routing', 'Choose how learning and consolidation run.'],
@@ -114,7 +121,9 @@ function renderSettings() {
   providers.replaceChildren(); overrides.replaceChildren();
   for (const [id, profile] of Object.entries(settings.providers)) {
     const row = element('tr');
-    [id, profile.kind === 'responses' ? 'Responses' : 'OpenAI compatible', profile.model, profile.api_key_env || 'Not required'].forEach((text) => row.append(element('td', text)));
+    const auth = profileAuth(profile), credential = state.credentials[id];
+    const label = auth === 'session' ? (credential?.configured ? 'Session key set (not verified)' : 'Session key needed') : auth === 'environment' ? `${profile.api_key_env} (${credential?.configured ? 'set' : 'missing'})` : 'No authentication';
+    [id, { responses: 'OpenAI Responses', anthropic: 'Anthropic Messages', openai_compatible: 'OpenAI compatible' }[profile.kind], profile.model, label].forEach((text) => row.append(element('td', text)));
     const cell = element('td'), actions = element('div', undefined, 'row-actions');
     actions.append(button('Edit', () => openProvider(id)), button('Remove', () => removeProvider(id)));
     cell.append(actions); row.append(cell); providers.append(row);
@@ -148,8 +157,33 @@ function openProvider(id = '') {
   collectSettings(); const form = $('#provider-form'); form.reset(); form.dataset.editId = id;
   $('#provider-error').hidden = true; $('#provider-title').textContent = id ? 'Edit provider' : 'Add provider';
   form.elements.id.value = id; form.elements.id.disabled = Boolean(id);
-  if (id) Object.entries(state.settings.providers[id]).forEach(([field, value]) => { if (form.elements[field]) form.elements[field].value = value; });
+  if (id) {
+    const profile = state.settings.providers[id];
+    Object.entries(profile).forEach(([field, value]) => { if (form.elements[field]) form.elements[field].value = value; });
+    form.elements.auth.value = profileAuth(profile);
+    form.elements.preset.value = Object.keys(providerPresets).find((name) => providerPresets[name].kind === profile.kind && providerPresets[name].base_url === profile.base_url) || 'custom';
+  } else applyProviderPreset();
+  updateProviderFields();
   $('#provider-dialog').showModal();
+}
+function applyProviderPreset() {
+  const form = $('#provider-form'), preset = providerPresets[form.elements.preset.value];
+  Object.entries(preset).forEach(([field, value]) => { form.elements[field].value = value; });
+  form.elements.api_key.value = ''; form.elements.model.value = ''; form.elements.reasoning_effort.value = '';
+  updateProviderFields();
+}
+function updateProviderFields() {
+  const form = $('#provider-form'), auth = form.elements.auth.value, anthropic = form.elements.kind.value === 'anthropic';
+  $('#session-key-field').hidden = $('#session-key-help').hidden = auth !== 'session';
+  $('#environment-key-field').hidden = $('#environment-key-help').hidden = auth !== 'environment';
+  form.elements.api_key.disabled = auth !== 'session';
+  if (auth !== 'session') form.elements.api_key.value = '';
+  form.elements.api_key_env.disabled = auth !== 'environment'; form.elements.api_key_env.required = auth === 'environment';
+  form.elements.reasoning_effort.disabled = anthropic; $('#reasoning-help').hidden = !anthropic;
+  if (anthropic) form.elements.reasoning_effort.value = '';
+  const id = form.dataset.editId, credential = state.credentials[id];
+  $('#credential-status').textContent = auth === 'session' && credential?.mode === 'session' && credential.configured ? 'A session key is set. Leave blank to keep it, or paste a replacement. Endpoint changes require a new key.' : '';
+  $('#clear-provider-key').hidden = !(auth === 'session' && credential?.mode === 'session' && credential.configured);
 }
 function removeProvider(id) {
   collectSettings();
@@ -186,6 +220,7 @@ function renderOperational(data) {
 async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
+  state.credentials = data.credentials || {};
   if (!state.dirty) { state.settings = data.settings; renderSettings(); }
   renderMemories(data.memories || []); renderOperational(data);
 }
@@ -194,11 +229,41 @@ $('#provider-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget, id = form.elements.id.value.trim();
   if (!form.dataset.editId && state.settings.providers[id]) { dialogError('#provider-error', 'This provider ID already exists.'); return; }
   const profile = {};
-  for (const field of ['kind', 'base_url', 'api_key_env', 'model']) profile[field] = form.elements[field].value.trim();
+  for (const field of ['kind', 'base_url', 'api_key_env', 'model', 'auth']) profile[field] = form.elements[field].value.trim();
+  if (profile.auth !== 'environment') profile.api_key_env = '';
   if (form.elements.reasoning_effort.value) profile.reasoning_effort = form.elements.reasoning_effort.value;
   for (const field of ['input_cost_per_million', 'output_cost_per_million']) if (form.elements[field].value !== '') profile[field] = Number(form.elements[field].value);
-  state.settings.providers[id] = profile; markDirty(); renderSettings(); $('#provider-dialog').close(); notify('Provider applied. Save settings to use it.');
+  let key = form.elements.api_key.value;
+  const previous = state.settings.providers[id];
+  const keepsKey = state.credentials[id]?.mode === 'session' && state.credentials[id].configured && previous?.kind === profile.kind && previous?.base_url === profile.base_url && profileAuth(previous) === profile.auth;
+  if (profile.auth === 'session' && !key && !keepsKey) { dialogError('#provider-error', 'Enter an API key for this session, or choose an environment variable.'); return; }
+  state.settings.providers[id] = profile; markDirty();
+  form.elements.api_key.value = '';
+  perform(async () => {
+    let saved = false;
+    try {
+      await request('/api/settings', state.settings); saved = true;
+      if (profile.auth === 'session' && key) await request('/api/credentials', { provider: id, api_key: key, expected: { kind: profile.kind, base_url: profile.base_url, auth: profile.auth } });
+      markDirty(false); await refresh(); $('#provider-dialog').close(); notify('Provider and settings saved. No model call was made.');
+    } catch (error) {
+      if (saved) {
+        form.dataset.editId = id; markDirty(false); delete state.credentials[id];
+        $('#provider-title').textContent = 'Edit provider';
+      } else if (previous) state.settings.providers[id] = previous;
+      else delete state.settings.providers[id];
+      renderSettings();
+      dialogError('#provider-error', `${saved ? 'Provider settings saved. Finish credential setup or refresh: ' : ''}${error.message}`);
+    } finally { key = ''; }
+  }).then(() => { form.elements.id.disabled = Boolean(form.dataset.editId); updateProviderFields(); });
 });
+$('#provider-form').elements.preset.addEventListener('change', applyProviderPreset);
+$('#provider-form').elements.auth.addEventListener('change', updateProviderFields);
+$('#provider-form').elements.kind.addEventListener('change', updateProviderFields);
+$('#provider-dialog').addEventListener('close', () => { $('#provider-form').elements.api_key.value = ''; });
+$('#clear-provider-key').addEventListener('click', () => perform(async () => {
+  await request('/api/credentials', { provider: $('#provider-form').dataset.editId, api_key: '' });
+  await refresh(); updateProviderFields(); notify('Session key cleared.');
+}));
 $('#override-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget, id = form.elements.id.value.trim();
   if (!form.dataset.editId && state.settings.routes[id]) { dialogError('#override-error', 'This override already exists.'); return; }

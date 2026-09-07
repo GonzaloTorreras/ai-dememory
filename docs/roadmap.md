@@ -56,8 +56,10 @@ failures may select the next configured profile. Application budget exhaustion
 stops work across profiles. No unconfigured provider receives data, and invalid
 model IDs are not silently replaced by hardcoded defaults.
 
-The UI edits these settings. Credentials initially use local environment
-references; secret storage, password login, API-key creation/revocation and
+The UI edits these settings. Credentials use local environment references or
+keys held only for the workbench session, with OpenAI/Claude/local presets.
+OAuth is not a generic replacement for API keys; only documented provider
+flows may be added. Persistent OS key storage, password login, key creation/revocation and
 remote access belong to the later administration slice. Credentials must not
 appear in status, logs or configuration readback.
 

@@ -49,6 +49,10 @@ def is_local_url(url: str) -> bool:
         return False
 
 
+def auth_mode(provider: dict) -> str:
+    return provider.get("auth", "environment" if provider["api_key_env"] else "none")
+
+
 def validate_settings(data: dict) -> dict:
     _shape(data, DEFAULT_SETTINGS)
     reject_high_confidence_secrets(json.dumps(data))
@@ -61,8 +65,8 @@ def validate_settings(data: dict) -> dict:
         if not isinstance(name, str) or not _ID.fullmatch(name):
             raise ValueError("Invalid provider id")
         _shape(provider, {"kind", "base_url", "api_key_env", "model"},
-               {"reasoning_effort", "input_cost_per_million", "output_cost_per_million"})
-        if provider["kind"] not in ("openai_compatible", "responses"):
+               {"auth", "reasoning_effort", "input_cost_per_million", "output_cost_per_million"})
+        if provider["kind"] not in ("openai_compatible", "responses", "anthropic"):
             raise ValueError("Unsupported provider kind")
         for field in ("base_url", "api_key_env", "model"):
             if not isinstance(provider[field], str) or len(provider[field]) > 512 or any(ord(c) < 32 for c in provider[field]):
@@ -71,6 +75,11 @@ def validate_settings(data: dict) -> dict:
             raise ValueError("Provider model is required")
         if provider["api_key_env"] and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", provider["api_key_env"]):
             raise ValueError("Use an environment variable name, never a raw API key")
+        mode = auth_mode(provider)
+        if mode not in ("environment", "session", "none"):
+            raise ValueError("Authentication must be environment, session or none")
+        if bool(provider["api_key_env"]) != (mode == "environment"):
+            raise ValueError("Only environment authentication requires an environment variable name")
         url = urlsplit(provider["base_url"])
         try:
             url.port
@@ -82,6 +91,8 @@ def validate_settings(data: dict) -> dict:
             raise ValueError("Provider URL needs HTTPS or loopback HTTP, without credentials, query or fragment")
         if "reasoning_effort" in provider and provider["reasoning_effort"] not in ("none", "minimal", "low", "medium", "high", "xhigh"):
             raise ValueError("Unsupported reasoning effort")
+        if provider["kind"] == "anthropic" and "reasoning_effort" in provider:
+            raise ValueError("Reasoning effort is not configured for Anthropic providers yet")
         for field in ("input_cost_per_million", "output_cost_per_million"):
             if field in provider:
                 _number(provider[field], 0, 100_000)

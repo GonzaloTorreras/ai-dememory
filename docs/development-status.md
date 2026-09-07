@@ -24,7 +24,8 @@ Updated: 2026-09-07
   query-relevant context excerpts fix reproduced baseline defects.
 - Optional loopback workbench: memory/source management, provider and route
   forms, ordered fallbacks, daily budgets, metadata activity, consolidation UI.
-- Responses/OpenAI-compatible adapters; environment credential references only.
+- Responses, Anthropic Messages and OpenAI-compatible adapters; credential
+  environment references or workbench-session-only API keys, never vault secrets.
   Durable reservations count fallback attempts. No hardcoded model catalog.
 - Bounded conversation extraction, no model-controlled correction keys.
 - Durable extraction occurrence receipts: completed retries avoid provider
@@ -39,7 +40,7 @@ Updated: 2026-09-07
 
 ## Evidence for this slice
 
-- Full V3 suite: 123 tests; 120 passed, three Windows symlink cases skipped.
+- Full V3 suite: 130 tests; 127 passed, three Windows symlink cases skipped.
   Compilation and diff whitespace checks pass. The final CLI-help regression
   verifies that enabling the installer points to usable installation help.
 - Focused tests cover source/scope/undo, relevant context, null MCP input,
@@ -95,6 +96,34 @@ Updated: 2026-09-07
   isolated local-alpha testing. Do not interpret this as native client certification.
 
 ## Limits and next vertical slice
+
+Latest provider-config slice (after `bb226ec`):
+
+- Cloud HTTPS was already allowed, but the generic localhost-oriented form
+  obscured it and Anthropic's protocol was missing. Added OpenAI/Claude/local/
+  custom presets, native Messages requests, explicit auth modes and safe UI retry.
+- Session keys remain in RAM and are bound to exact provider kind, endpoint and
+  auth mode. Submissions carry the expected identity so an intervening edit
+  cannot rebind a key. Changes/removal/shutdown invalidate them; state reports
+  presence only. Environment credentials still support restartable scheduling.
+- Direct OAuth login, workload federation and OS keychain persistence are not
+  implemented. MCP clients keep their own supported subscription authentication.
+- 24 focused provider/HTTP tests passed; fresh read-only review's two concrete
+  blockers were fixed and re-reviewed. Full suite and JS syntax/compile/diff
+  checks passed. No real credentials or live model requests were used.
+- Playwright at loopback port 8872 verified OpenAI session-key save, Claude env
+  config, custom HTTPS, refresh persistence, clearing a key, invalid-key retry
+  and invalid-endpoint retry. 1440x1080 and 390x844 had no horizontal overflow;
+  desktop/mobile captures were inspected in memory. Browser plugin skill was
+  unavailable, so the Playwright connector was used. Expected 400 responses
+  exercised validation; clean reload had no console errors or error overlays.
+- Updated isolated PC wheel: 65,136 bytes, SHA-256
+  `747be3fb2bc787759ecee86f278522084d417070d1865ef8761304e8802d0abb`.
+  Installed asset/import smoke passed. Windows initially blocked its running
+  launcher; the old package was restored, the exact idle test-vault workbench
+  processes were verified/stopped, then reinstall succeeded. No unrelated
+  processes or vault settings were changed. Restart workbench to use this build.
+  QA server/browser were stopped; no package publication or hosted CI claimed.
 
 1. Complete native Codex acceptance once a compatible client/model route is
    available; review and trust the exact generated hook via the client.

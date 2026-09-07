@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import sqlite3
 import time
@@ -14,8 +15,8 @@ from uuid import uuid4
 
 from ai_dememory.jobs import LearningJobs
 from ai_dememory.models import ModuleManifest
-from ai_dememory.providers import activity, usage_summary
-from ai_dememory.settings import load_settings, save_settings
+from ai_dememory.providers import ProviderEngine, activity, usage_summary
+from ai_dememory.settings import auth_mode, load_settings, save_settings
 
 MAX_BODY = 256_000
 ASSETS = {"/": ("index.html", "text/html"), "/app.css": ("app.css", "text/css"),
@@ -32,11 +33,62 @@ def get_manifest():
 class WorkbenchServer(HTTPServer):
     def __init__(self, services, port=8765, jobs=None):
         self.services = services
-        self.jobs = jobs or LearningJobs(services)
+        self._credentials = {}
+        self.jobs = jobs or LearningJobs(services, engine_factory=lambda vault: ProviderEngine(
+            vault, credential_resolver=self.resolve_credential))
         self.token = secrets.token_urlsafe(32)
         self.session = uuid4().hex
         self.last_tick = 0.0
         super().__init__(("127.0.0.1", port), WorkbenchHandler)
+
+    @staticmethod
+    def _identity(profile):
+        return profile["kind"], profile["base_url"], auth_mode(profile)
+
+    def prune_credentials(self, settings):
+        profiles = settings["providers"]
+        for name, (identity, _key) in list(self._credentials.items()):
+            if name not in profiles or identity != self._identity(profiles[name]):
+                del self._credentials[name]
+
+    def resolve_credential(self, name, profile):
+        settings = load_settings(self.services.vault)
+        self.prune_credentials(settings)
+        entry = self._credentials.get(name)
+        return entry[1] if entry and entry[0] == self._identity(profile) else ""
+
+    def credential_status(self, settings):
+        self.prune_credentials(settings)
+        return {name: {"mode": auth_mode(profile), "configured":
+                bool(self._credentials.get(name)) if auth_mode(profile) == "session" else
+                bool(os.environ.get(profile["api_key_env"])) if auth_mode(profile) == "environment" else True}
+                for name, profile in settings["providers"].items()}
+
+    def set_credential(self, data):
+        if not {"provider", "api_key"} <= data.keys() or data.keys() - {"provider", "api_key", "expected"}:
+            raise ValueError("Expected provider, api_key and optional expected identity fields")
+        name, key = data["provider"], data["api_key"]
+        if not isinstance(name, str) or not isinstance(key, str) or len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key):
+            raise ValueError("API key must be at most 4096 printable characters without spaces")
+        settings = load_settings(self.services.vault)
+        self.prune_credentials(settings)
+        profile = settings["providers"].get(name)
+        if profile is None or auth_mode(profile) != "session":
+            raise ValueError("Save a provider with session authentication first")
+        if key:
+            expected = data.get("expected")
+            if (not isinstance(expected, dict) or set(expected) != {"kind", "base_url", "auth"}
+                    or any(not isinstance(value, str) for value in expected.values())
+                    or (expected["kind"], expected["base_url"], expected["auth"]) != self._identity(profile)):
+                raise ValueError("Provider configuration changed. Reload it before adding an API key.")
+            self._credentials[name] = (self._identity(profile), key)
+        else:
+            self._credentials.pop(name, None)
+        return {"provider": name, **self.credential_status(settings)[name]}
+
+    def server_close(self):
+        self._credentials.clear()
+        super().server_close()
 
     def service_actions(self):
         if time.monotonic() - self.last_tick < 1:
@@ -95,10 +147,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             elif url.path == "/api/state":
                 query = parse_qs(url.query)
                 scope = query.get("scope", ["global"])[0]
+                settings = load_settings(self.server.services.vault)
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
-                    "settings": load_settings(self.server.services.vault),
+                    "settings": settings,
+                    "credentials": self.server.credential_status(settings),
                     "schedule": self.server.jobs.schedule_status(),
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
@@ -136,7 +190,11 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _action(self, path, data):
         services, jobs = self.server.services, self.server.jobs
         if path == "/api/settings":
-            return save_settings(services.vault, data)
+            settings = save_settings(services.vault, data)
+            self.server.prune_credentials(settings)
+            return settings
+        if path == "/api/credentials":
+            return self.server.set_credential(data)
         scope = data.get("scope", "global")
         if path == "/api/learn":
             event = uuid4().hex
