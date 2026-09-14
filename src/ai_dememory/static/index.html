@@ -43,7 +43,7 @@
     <button id="enable-sources" type="button">Enable local conversation reader</button>
     <div id="source-controls" hidden>
       <form id="source-form" class="form-stack"><label>Conversation folder<input name="root" required placeholder="Absolute path to a sessions folder" maxlength="1024"></label>
-        <label>Format<select name="format"><option value="codex">Codex sessions</option><option value="claude">Claude Code sessions</option><option value="pi">Pi sessions (active branch)</option><option value="hermes">Hermes (checkpointed state.db)</option><option value="dsh">DeepSeek Harness (plain JSONL)</option><option value="generic">Generic JSON / JSONL export</option></select></label>
+        <label>Format<select name="format"><option value="codex">Codex sessions</option><option value="claude">Claude Code sessions</option><option value="pi">Pi sessions (active branch)</option><option value="hermes">Hermes state.db (live or snapshot)</option><option value="dsh">DeepSeek Harness (plain JSONL)</option><option value="generic">Generic JSON / JSONL export</option></select></label>
         <p class="hint">Select the harness's conversation folder, not the whole home directory. For another harness, use a compatible export; additional native readers can extend the sources module. Only user text is extracted; tool results, assistant replies and system instructions are excluded.</p>
         <div class="actions"><button id="codex-default-root" type="button">Use Codex sessions folder</button><button type="submit">Find conversations</button></div>
       </form>
@@ -55,7 +55,7 @@
           <label>What to read<select name="mode"><option value="recent">Recent activity — latest user messages</option><option value="history">Codex history — from the beginning, then new messages</option></select></label>
           <p id="source-mode-help" class="hint">Recent activity reads the latest bounded window, not the entire conversation.</p>
           <label>Every (hours)<input name="interval_hours" type="number" min="1" max="8760" value="24" required></label>
-          <p class="hint">Each conversation window reads up to 2 MB of log records and sends at most 20 user messages / 24,000 characters. Folder discovery and title metadata are separate reads. A daily interval means one window per day, not the whole archive. Run now advances another window.</p>
+          <p class="hint">Each run sends at most 20 user messages / 24,000 characters. Log readers inspect up to 2 MB of records; Hermes uses a bounded SQLite transaction over the latest 100 eligible user rows. Folder discovery and title metadata are separate reads. A daily interval means one window per day, not the whole archive.</p>
           <label class="check"><input name="enabled" type="checkbox"> Enable automatic extraction from the folder above into the current scope. I authorize sending its user messages to the configured route and fallbacks.</label><button type="submit">Save source schedule</button>
         </form>
       </details>

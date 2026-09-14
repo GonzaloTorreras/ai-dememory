@@ -170,17 +170,44 @@ that cannot be parsed within the metadata limit is refused, not guessed.
 | Codex | Titles, workspace, recent-first JSONL; native human events preferred over response mirrors |
 | Claude Code | JSONL human messages, excluding tool results |
 | Pi | Latest branch ancestry, not all alternative branches concatenated |
-| Hermes | One selected session in a checkpointed `state.db` snapshot; active WAL refused |
+| Hermes | One selected root session from local live `state.db` or a checkpointed snapshot; titles/workspace/date use session metadata when available |
 | DeepSeek Harness (DSH) | Highest-generation plain JSONL; `.zstd` reported unsupported |
 | Generic | User-role JSON/JSONL exports |
 
 Scanning retains up to 100 recent conversations across at most 5,000 directory
 entries and depth four, not the first arbitrary 100 files. JSON input is limited
 to 2 MB; Codex logs up to 256 MB use only their latest complete 2 MB window and
-bounded metadata. Hermes snapshots are limited to 256 MB with bounded query work.
+bounded metadata. Hermes databases and sidecars share a 256 MB limit, with bounded query work.
 Previews retain at most 20 user messages / 24,000 characters. Path escapes,
 symlinks and junctions are rejected. This is not a full-history importer or
 comprehensive PII filter.
+
+For Hermes, select the folder containing `state.db`, not the file itself.
+Keep Hermes open when reading its live database: both its existing `-wal` and
+`-shm` files must be present, regular and readable. DeMemory uses a short SQLite
+read transaction, including committed WAL messages but not pending writer
+changes. It does not issue conversation writes, checkpoints or repairs. SQLite
+may coordinate transient SHM read marks/locks; live reading does **not** promise
+byte-immutable sidecars. No full database copy or extra process is needed.
+
+The database plus sidecars must fit within 256 MB. Lock waits are disabled and
+SQL work has a 250 ms progress deadline per connection, not a whole-folder
+wall-clock guarantee. An incomplete sidecar pair, busy/inconsistent database,
+unsafe path or exhausted query budget is reported as unreadable: retry, or
+select a checkpointed snapshot. Live WAL must be on local disk on the same host,
+not a LAN mount. Snapshots without sidecars keep the immutable reader and refuse
+detected changes during preview.
+
+UNC live paths are rejected; mapped network drives and POSIX network mounts are
+not automatically detected. File checks are safeguards against ordinary unsafe
+paths, not an adversarial path-swap sandbox.
+
+Hermes previews exclude inactive/summary messages, hidden display rows and
+hidden/child sessions when those metadata columns exist. Root-session-only
+reading intentionally does not reconstruct compressed or branched lineage;
+export that history separately. Titles, workspace paths and conversation IDs
+help local browsing, but only the previewed user text reaches the configured
+extraction route. This is a source reader, not a native Hermes memory provider.
 
 ### Per-harness source schedules
 

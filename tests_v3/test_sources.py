@@ -232,7 +232,7 @@ class ConversationSourceTests(unittest.TestCase):
         self.assertEqual({item.name for item in self.root.iterdir()}, {"state.db"})
         self.assertIn("snapshot", result["notice"])
 
-    def test_native_hermes_rejects_active_wal_and_unknown_schema(self):
+    def test_native_hermes_live_wal_reads_committed_user_rows_only(self):
         path = self.hermes_fixture()
         writer = sqlite3.connect(path)
         try:
@@ -240,13 +240,109 @@ class ConversationSourceTests(unittest.TestCase):
             writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','Live',6)")
             writer.commit()
             self.assertGreater(Path(str(path) + "-wal").stat().st_size, 0)
-            with self.assertRaisesRegex(ValueError, "active WAL"):
-                sources.preview_source(self.root, "state.db", "hermes")
-            self.assertIn("active WAL", sources.list_sources(self.root, "hermes")["notices"][0])
+            before = {name: (self.root / name).read_bytes() for name in ('state.db', 'state.db-wal')}
+            names = {p.name for p in self.root.iterdir()}
+            result = sources.preview_source(self.root, "state.db", "hermes")
+            self.assertEqual(result['messages'][-1]['content'], 'Live')
+            self.assertEqual(len(sources.list_sources(self.root, "hermes")['files']), 2)
+            self.assertEqual({p.name for p in self.root.iterdir()}, names)
+            self.assertEqual({name: (self.root / name).read_bytes() for name in before}, before)
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','Not committed',7)")
+            self.assertNotIn('Not committed', str(sources.preview_source(self.root, 'state.db', 'hermes')))
+            writer.rollback()
         finally:
             writer.close()
+
+    def test_native_hermes_rejects_unknown_schema(self):
         unknown = sqlite3.connect(self.root / "unknown.db")
         unknown.execute("CREATE TABLE other(value TEXT)")
         unknown.close()
         with self.assertRaisesRegex(ValueError, "supported Hermes"):
             sources.preview_source(self.root, "unknown.db", "hermes")
+
+    def test_hermes_live_read_is_one_snapshot_and_never_allows_sql_writes(self):
+        path = self.hermes_fixture()
+        writer = sqlite3.connect(path)
+        try:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','Before',6)")
+            writer.commit()
+            with sources._hermes_connection(path) as (reader, filters):
+                count = reader.execute('SELECT count(*) FROM messages WHERE ' + filters).fetchone()[0]
+                writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','After',7)")
+                writer.commit()
+                self.assertEqual(reader.execute('SELECT count(*) FROM messages WHERE ' + filters).fetchone()[0], count)
+                with self.assertRaises(sqlite3.OperationalError):
+                    reader.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('bad','user','No',9)")
+            self.assertEqual(sources.preview_source(self.root, 'state.db', 'hermes')['messages'][-1]['content'], 'After')
+        finally:
+            writer.close()
+
+    def test_hermes_requires_complete_safe_bounded_sidecars(self):
+        path = self.hermes_fixture()
+        wal = self.root / 'state.db-wal'
+        shm = self.root / 'state.db-shm'
+        wal.write_bytes(b'fixture')
+        with self.assertRaisesRegex(ValueError, 'existing WAL and SHM'):
+            sources.preview_source(self.root, 'state.db', 'hermes')
+        shm.mkdir()
+        with self.assertRaisesRegex(ValueError, 'special files'):
+            sources.preview_source(self.root, 'state.db', 'hermes')
+        shm.rmdir(); shm.write_bytes(b'fixture')
+        with patch.object(sources, 'MAX_DATABASE_BYTES', path.stat().st_size + 1):
+            with self.assertRaisesRegex(ValueError, 'source limit'):
+                sources.preview_source(self.root, 'state.db', 'hermes')
+        wal.unlink(); shm.unlink()
+        (self.root / 'state.db-journal').write_bytes(b'fixture')
+        with self.assertRaisesRegex(ValueError, 'rollback journal'):
+            sources.preview_source(self.root, 'state.db', 'hermes')
+
+    def test_hermes_sidecar_links_are_rejected(self):
+        self.hermes_fixture()
+        target = self.root / 'outside'; target.write_bytes(b'fixture')
+        wal = self.root / 'state.db-wal'
+        try:
+            wal.symlink_to(target)
+        except OSError:
+            self.skipTest('Symlinks unavailable on this Windows host')
+        with self.assertRaisesRegex(ValueError, 'symbolic links'):
+            sources.preview_source(self.root, 'state.db', 'hermes')
+        self.assertEqual(target.read_bytes(), b'fixture')
+
+    def test_hermes_query_timeout_closes_reader_and_writer_remains_usable(self):
+        path = self.hermes_fixture()
+        writer = sqlite3.connect(path)
+        try:
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','Live',6)")
+            writer.commit()
+            with patch.object(sources.time, 'monotonic', side_effect=[0, 1, 1, 1]):
+                with self.assertRaisesRegex(ValueError, 'query limits'):
+                    with sources._hermes_connection(path) as (reader, _):
+                        reader.execute('WITH RECURSIVE x(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM x WHERE n<100000) SELECT sum(n) FROM x').fetchone()
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('session-b','user','Still usable',7)")
+            writer.commit()
+            self.assertEqual(sources.preview_source(self.root, 'state.db', 'hermes')['messages'][-1]['content'], 'Still usable')
+        finally:
+            writer.close()
+
+    def test_hermes_titles_and_hidden_or_child_evidence(self):
+        path = self.hermes_fixture()
+        with contextlib.closing(sqlite3.connect(path)) as db, db:
+            db.execute('CREATE TABLE sessions(id TEXT PRIMARY KEY, title TEXT, cwd TEXT, hidden INTEGER DEFAULT 0, parent_session_id TEXT)')
+            db.executemany('INSERT INTO sessions(id,title,cwd,hidden,parent_session_id) VALUES(?,?,?,?,?)', [
+                ('session-a', 'Python design decisions', 'synthetic-project', 0, None),
+                ('session-b', 'Release checklist', 'synthetic-project', 0, None),
+                ('child', 'Internal review', None, 0, 'session-b'),
+                ('hidden', 'Hidden run', None, 1, None)])
+            db.execute('ALTER TABLE messages ADD COLUMN display_kind TEXT')
+            db.executemany('INSERT INTO messages(session_id,role,content,timestamp,display_kind) VALUES(?,?,?,?,?)', [
+                ('child', 'user', 'Child instructions', 8, None),
+                ('hidden', 'user', 'Hidden session prompt', 9, None),
+                ('session-b', 'user', 'Hidden scaffolding', 10, 'hidden')])
+        result = sources.list_sources(self.root, 'hermes')
+        self.assertEqual([f['title'] for f in result['files']], ['Release checklist', 'Python design decisions'])
+        self.assertEqual(result['files'][0]['workspace'], 'synthetic-project')
+        self.assertEqual(result['files'][0]['last_message_at'], 5)
+        self.assertEqual(sources.preview_source(self.root, 'state.db', 'hermes', 'child')['messages'], [])
+        self.assertNotIn('Hidden scaffolding', str(sources.preview_source(self.root, 'state.db', 'hermes', 'session-b')))

@@ -432,13 +432,14 @@ function renderSources() {
   const list = $('#source-files'); list.replaceChildren();
   const query = $('#source-search').value.toLowerCase();
   for (const item of state.sources) {
-    const title = item.title || `Conversation · ${new Date(item.modified_at*1000).toLocaleDateString()}`;
+    const modified = item.last_message_at ?? item.modified_at;
+    const title = item.title || `Conversation · ${new Date(modified*1000).toLocaleDateString()}`;
     if (![title,item.workspace || '',item.path].join(' ').toLowerCase().includes(query)) continue;
     const card = element('article', undefined, 'source-card');
     const check = element('input'); check.type = 'checkbox'; check.checked = item.selected; check.setAttribute('aria-label', `Select ${title}`);
     check.onchange = () => { if (check.checked && state.sources.filter(row => row.selected).length >= 10) { check.checked = false; notify('Select up to ten conversations per batch.',true); return; } item.selected = check.checked; updateSourceSelection(); };
     const details = element('details'); details.open = Boolean(item.open);
-    const summary = element('summary'); summary.append(element('strong',title),element('span',`${new Date(item.modified_at*1000).toLocaleString()} · ${item.workspace || item.format}`, 'hint'));
+    const summary = element('summary'); summary.append(element('strong',title),element('span',`${new Date(modified*1000).toLocaleString()} · ${item.workspace || item.format}`, 'hint'));
     details.append(summary);
     details.ontoggle = () => { item.open = details.open; if(details.open && !item.preview && !state.busy) perform(()=>previewItem(item)); };
     details.append(element('p',item.path,'source-path'),button(item.preview ? 'Refresh preview' : 'Preview user messages',()=>perform(()=>previewItem(item))));
@@ -497,6 +498,7 @@ function renderSourceSchedules(rules) {
       const d = p.last_discards;
       if (d) card.append(element('p',`Last window skipped: ${d.malformed} malformed records, ${d.sensitive} sensitive messages, ${d.oversize} oversized messages; ${d.ignored} non-user/internal records ignored.`,'hint'));
     } else card.append(element('p','Recent activity · latest bounded windows only','hint'));
+    if (rule.source_warning) card.append(element('p',rule.source_warning,'hint'));
     card.append(button('Run now',()=>{if(confirm('Send one changed conversation window to this harness extraction route? Provider charges may apply.')) perform(async()=>{await request('/api/source-schedules/run',{id:rule.id,confirmed:true}); await refresh();});}));
     if(rule.enabled) card.append(button('Pause',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'pause'}); await refresh();})));
     else card.append(button('Resume',()=>{if(confirm('Enable automatic extraction from this folder into this scope using the configured route and fallbacks?')) perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'resume',confirmed:true}); await refresh();});}));

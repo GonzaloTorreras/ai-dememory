@@ -9,7 +9,7 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; previous local increment `d667f96`.
+- This line builds on V3 baseline `a04a0cd`; previous local increment `47eee14`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
 - Source and isolated installed runtime: `3.0.0a1`, unpublished. No version,
   release tag, package publication or merge in this cycle.
@@ -35,7 +35,7 @@ Earlier implementation/install receipts remain in Git history.
 - Opt-in per-harness recent-window schedules reuse existing budgets/receipts.
   Pausing/disabling prevents future runs; no OS task or extra watcher.
 
-## This cycle: Codex history that resumes
+## Previous cycle: Codex history that resumes (`47eee14`)
 
 - Optional **Codex history** mode reads native human JSONL events from the
   beginning; default recent-window behavior remains unchanged.
@@ -56,27 +56,49 @@ Earlier implementation/install receipts remain in Git history.
   current-file bytes remaining and discard/limit warnings. Unsupported harnesses
   cannot select history mode. Removing a rule removes cursors, not memories.
 
+## This cycle: useful Hermes reading while Hermes is open
+
+- Local live `state.db` is readable through SQLite read-only WAL transactions;
+  the immutable reader remains for checkpointed snapshots without sidecars.
+  Existing regular WAL/SHM files are required; no checkpoint, repair, database
+  copy, model call or child process is used by reading.
+- Each preview has one coherent read transaction. Committed user messages are
+  visible, uncommitted changes are not. Database/WAL writes are prohibited;
+  SQLite may coordinate transient SHM read marks and locks.
+- Bounded session titles, workspace labels and message dates replace opaque
+  identifiers where metadata exists. Hidden messages, hidden sessions and child
+  sessions are excluded when those columns exist; lineage is not reconstructed.
+- Recent-window rules detect user commits held only in WAL; assistant-only
+  activity does not repeat extraction. Refused Hermes databases now appear in
+  rule unreadable counts and a visible warning instead of looking like no work.
+- The UI and source help distinguish live Hermes reading from JSONL limits and
+  native integration. No new API, top-level command or dependency was added.
+
 ## Reproducible evidence
 
 - Baseline: 177 tests; 173 passed / four Windows symlink skips.
-- Current full suite: 188 tests; 184 passed / the same four skips. Compilation,
+- Previous cycle: 188 tests; 184 passed / four Windows symlink skips.
+- Current full suite: 196 tests; 191 passed / five Windows symlink skips. Compilation,
   JavaScript syntax and `git diff --check` pass.
-- Focused source/HTTP tests: 49 tests; 48 passed / one Windows symlink skip.
-  Cases include 131 conversations, 45-message chronological coverage, independent
-  identical occurrences, append during failed retry, partial lines, bounds,
-  source replacement/truncation, module opt-in, scope and confirmation gates.
-- Fresh read-only review found starvation of later conversations and an
-  inaccurate I/O claim. Both fixed and re-reviewed; no remaining local-commit
-  blocker. This is not a full-branch hosted release review.
-- Browser QA at `127.0.0.1:18765`, 1440x1080 and 390x844: create paused rule,
-  process 25 synthetic messages in two windows into `project:history-qa`, inspect
-  progress and reload persistence. No horizontal overflow, application console
-  errors, blank page or error overlay. Browser plugin unavailable; Playwright
-  connector used. Screenshots retained outside the repository.
-- Wheel: 97,305 bytes, SHA-256
-  `a6bbb155352f51448737fb5268a44e1119cabfc838cc49093cdde5fbcb4bce98`.
-  Reinstalled in the existing isolated V3 runtime. Installed reader, UI assets
-  and CLI help verified from outside both source checkouts.
+- Focused source/schedule tests: 28 tests; 26 passed / two symlink skips.
+  Synthetic SQLite tests cover committed/uncommitted WAL, concurrent commits,
+  coherent snapshots, read-only SQL, deadline cleanup, sidecar validation,
+  combined size limits, metadata filtering and WAL-only schedule changes.
+- Fresh independent read-only review reran those focused tests and reviewed the
+  final runtime/UI/docs deltas: no local-commit blocker. This is not a full-branch
+  hosted release/security certification.
+- Browser QA at `127.0.0.1:18766`, 1440x1080 and 390x844: list two titled live
+  Hermes conversations, select both, inspect inline previews and extract two
+  synthetic lessons into `project:hermes-qa`. Hidden/internal/assistant canaries
+  did not appear. A paused rule over an unreadable database showed one unreadable
+  file and persisted its warning on reload. No horizontal overflow, console
+  errors/warnings, blank page or error overlay. Browser plugin unavailable;
+  Playwright connector used. Screenshots are outside the repository.
+- Wheel: 98,627 bytes, SHA-256
+  `41a145c4f996c32fb351e1ac03a51f5fed2ef64093c5fe834fb0375ef3c03947`.
+  Reinstalled in the existing isolated V3 runtime. Live-WAL reader, titles,
+  preview, UI assets and `ai-dememory serve sources --help` were verified from
+  outside both source checkouts.
 - No personal-history extraction or automatic schedule enabled by this cycle.
   The previous installed workbench was not listening on port 8765; package
   installation did not start it or change its settings.
@@ -110,8 +132,9 @@ Earlier implementation/install receipts remain in Git history.
 
 1. Complete native trusted-hook acceptance; keep direct MCP, fixture-only hooks
    and optional DeMemory-managed login/generation evidence distinct.
-2. Deliver Hermes/Claude cross-harness recall using one extraction owner per
-   origin, then active Hermes WAL and DSH compressed input driven by examples.
+2. Deliver Hermes/Claude native cross-harness recall using one extraction owner
+   per origin. Live Hermes source WAL is now implemented; DSH compressed input
+   and Hermes lineage remain example-driven reader gaps.
 3. Extend scoped consolidation/procedural memory with one working second-case
    skill export. Current model summaries are global review proposals only.
 4. Complete real selected-provider/fallback acceptance with visible budgets.
@@ -119,6 +142,15 @@ Earlier implementation/install receipts remain in Git history.
    two-host restart/restore acceptance before any non-loopback exposure.
 
 ## Known limits and rollback
+
+Hermes live reading is same-host/local-disk only and limited to root-session
+recent windows, not exhaustive history. Database plus sidecars must fit 256 MB;
+the 250 ms SQL deadline is per transaction, not per folder. UNC paths are rejected,
+but mapped/POSIX network mounts are not detected. Filesystem prechecks do not
+claim an adversarial path-swap sandbox. Busy/unsafe databases are skipped visibly.
+The implementation follows official [SQLite WAL](https://www.sqlite.org/wal.html)
+and [read-only URI semantics](https://www.sqlite.org/uri.html), with optional
+session fields from the [Hermes schema](https://github.com/NousResearch/hermes-agent/blob/main/hermes_state_common.py).
 
 History expects append-only native Codex JSONL; response-only exports need manual
 preview. Discovery is limited to 5,000 entries and depth four; 256 MB source-file
@@ -132,7 +164,7 @@ global scope. Budget prices are estimates, not provider invoice enforcement.
 Trusted MCP evidence labels are not independent truth verification. No remote
 listener, new runtime dependency, daemon or automatic publication was added.
 
-Rollback: pause/delete the new history rule or disable sources; canonical
+Rollback: pause/delete affected source rules or disable sources; canonical
 memories and receipts remain. For code rollback, revert the scoped feature
 commit and reinstall the previous local wheel. Back up durable operational
 state with the vault; never remove it as part of an index rebuild.

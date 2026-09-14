@@ -32,8 +32,10 @@ session filtering, accordion previews, multi-selection, shared scope selector,
 independent Codex/Claude module switches and per-harness source schedules.
 Codex now also has opt-in chronological history windows, persistent retry cursors,
 folder pagination and UI progress. This remains bounded discovery, not exhaustive
-historical consolidation. Next ingestion work should be driven by measured gaps:
-active Hermes WAL/DSH compressed input and native cross-harness episodes.
+historical consolidation. Hermes source reading also supports local live WAL,
+session titles and bounded read transactions; it is not a native memory provider.
+Next ingestion work should be driven by measured gaps: DSH compressed input,
+Hermes conversation lineage and native cross-harness episodes.
 
 Every row is a complete user-visible slice, not empty interfaces.
 
@@ -49,8 +51,9 @@ Every row is a complete user-visible slice, not empty interfaces.
 
 DSH is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 The optional manual sources module now previews its plain JSONL, Codex/Claude/Pi
-exports and checkpointed Hermes snapshots. Compressed DSH and active Hermes WAL
-remain explicit gaps, not delivered unattended ingestion.
+exports and Hermes databases (live local WAL or checkpointed snapshots).
+Compressed DSH and Hermes lineage remain explicit gaps. The Hermes reader is
+bounded recent-window extraction, not exhaustive unattended ingestion.
 
 ## Model routing
 

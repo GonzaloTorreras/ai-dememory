@@ -69,7 +69,8 @@ client/version runs the native hook. Current acceptance and client limitations
 are recorded in [development status](development-status.md). Hermes and DSH are
 not installed live adapters yet. DSH is DeepSeek Harness. The optional
 [sources module](workbench.md#local-conversation-sources) can manually preview
-its plain JSONL and checkpointed Hermes snapshots; that does not install hooks,
+its plain JSONL and local Hermes databases, including live WAL with existing
+safe sidecars; that does not install hooks,
 watch directories or provide unattended native integration.
 
 ## Activity and rollback

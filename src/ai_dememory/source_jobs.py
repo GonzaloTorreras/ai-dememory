@@ -112,6 +112,11 @@ class SourceJobs:
     def _run_recent(self, reader, rule):
         result = {"processed":0, "learned":0, "skipped":0}
         listing = reader.list_sources(Path(rule["root"]), rule["format"])
+        # Other readers also discard intentional internal sessions; those are
+        # not read errors. Hermes discarded files are refused database sources.
+        result["skipped"] = listing.get("discarded_files", 0) if rule["format"] == "hermes" else 0
+        rule["source_warning"] = ("Some files were excluded or unreadable. Find conversations to inspect source notices."
+                                  if result["skipped"] else None)
         for file in listing["files"]:
             identity = hashlib.sha256((file["path"] + ":" + str(file.get("session_id", ""))).encode()).hexdigest()
             stamp = str(file.get("latest_message_id", file["modified_at"])) + ":" + str(file["bytes"])

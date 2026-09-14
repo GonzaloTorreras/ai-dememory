@@ -16,8 +16,9 @@ def serve(services, argv=None):
     parser = argparse.ArgumentParser(
         prog="ai-dememory serve sources",
         description="Use the Workbench conversation reader to select an explicit local folder and preview "
-                    "Codex, Claude, Pi, DSH plain JSONL, generic JSON/JSONL exports, or checkpointed "
-                    "Hermes SQLite snapshots. Live Hermes WAL and DSH .zstd sessions are not supported. "
+                    "Codex, Claude, Pi, DSH plain JSONL, generic JSON/JSONL exports, or Hermes "
+                    "SQLite databases. Live Hermes needs existing WAL/SHM files on the same host. "
+                    "DSH .zstd sessions are not supported. "
                     "Preview reads user text only; extraction is a separate action. "
                     "This module does not scan your home directory, start a daemon, or call a model.",
     )

@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,3 +60,42 @@ class SourceJobTests(unittest.TestCase):
         self.assertEqual(result['processed'],0)
         self.assertEqual(result['skipped'],1)
         self.jobs.extract.assert_called_once()
+
+    def test_hermes_live_wal_schedule_tracks_user_commits_without_main_file_changes(self):
+        enable_module('sources')
+        path = self.sources / 'state.db'
+        writer = sqlite3.connect(path)
+        try:
+            writer.execute('CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, timestamp REAL)')
+            writer.commit()
+            writer.execute('PRAGMA journal_mode=WAL')
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('qa','user','First preference',1)")
+            writer.commit()
+            baseline = (path.stat().st_mtime_ns, path.stat().st_size)
+            id = self.manager.save({**self.payload, 'format': 'hermes'})['saved']
+            self.manager.run(id)
+            self.assertEqual(self.jobs.extract.call_args.kwargs['route_key'], 'skill:source-hermes')
+            self.assertEqual(self.jobs.extract.call_args.args[1], 'project:test')
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('qa','assistant','Only assistant',2)")
+            writer.commit()
+            self.assertEqual(self.manager.run(id)['processed'], 0)
+            self.jobs.extract.assert_called_once()
+            writer.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES('qa','user','Second preference',3)")
+            writer.commit()
+            self.assertEqual((path.stat().st_mtime_ns, path.stat().st_size), baseline)
+            self.assertEqual(self.manager.run(id)['processed'], 1)
+            self.assertEqual(self.jobs.extract.call_count, 2)
+            self.assertEqual(self.jobs.extract.call_args.args[0][-1]['content'], 'Second preference')
+            self.assertEqual(self.manager.run(id)['processed'], 0)
+        finally:
+            writer.close()
+
+    def test_unreadable_hermes_listing_is_visible_in_schedule(self):
+        enable_module('sources')
+        (self.sources / 'state.db').write_bytes(b'not a database')
+        id = self.manager.save({**self.payload, 'format': 'hermes'})['saved']
+        result = self.manager.run(id)
+        self.assertEqual(result['skipped'], 1)
+        self.assertIn('unreadable', self.manager.public()[0]['source_warning'])
+        self.assertIn('1 unreadable', self.manager.public()[0]['last_result'])
+        self.jobs.extract.assert_not_called()

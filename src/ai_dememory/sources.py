@@ -338,13 +338,33 @@ def _records(text: str, suffix: str) -> tuple[list[Any], int]:
 
 @contextmanager
 def _hermes_connection(path: Path):
-    """Read-only official Hermes schema; never create SQLite sidecars."""
-    wal = Path(str(path) + "-wal")
-    if wal.exists() and wal.stat().st_size:
-        raise ValueError("Hermes has an active WAL. Select a checkpointed database snapshot or a generic JSON export; live WAL reading is not supported")
+    """Short read transaction, with live WAL coordination but no SQL writes."""
+    expected = path.lstat()
+    if _is_link(path, expected) or not stat.S_ISREG(expected.st_mode):
+        raise ValueError("Hermes database must be a regular local file")
+    sidecars = {}
+    for suffix in ("-wal", "-shm", "-journal"):
+        candidate = Path(str(path) + suffix)
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        if _is_link(candidate, info) or not stat.S_ISREG(info.st_mode):
+            raise ValueError("Hermes sidecars cannot be symbolic links, junctions or special files")
+        sidecars[suffix] = info
+    live = "-wal" in sidecars or "-shm" in sidecars
+    if live and not {"-wal", "-shm"} <= sidecars.keys():
+        raise ValueError("Hermes live reading needs existing WAL and SHM files; retry while Hermes is open or select a checkpointed snapshot")
+    if expected.st_size + sum(info.st_size for info in sidecars.values()) > MAX_DATABASE_BYTES:
+        raise ValueError("Hermes database and sidecars exceed the 256 MB source limit")
+    if "-journal" in sidecars and sidecars["-journal"].st_size:
+        raise ValueError("Hermes rollback journal is active; select a checkpointed snapshot")
+    if live and path.drive.startswith("\\\\"):
+        raise ValueError("Live Hermes WAL requires a local disk on the same host, not a network share")
     connection = None
     try:
-        connection = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=0)
+        connection = sqlite3.connect(path.as_uri() + ("?mode=ro" if live else "?mode=ro&immutable=1"),
+                                     uri=True, timeout=0)
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA trusted_schema=OFF")
         if hasattr(connection, "enable_load_extension"):
@@ -352,6 +372,7 @@ def _hermes_connection(path: Path):
         deadline = time.monotonic() + 0.25
         connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1_000)
         connection.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_FILE_BYTES)
+        connection.execute("BEGIN")
         table = connection.execute("SELECT type FROM sqlite_master WHERE name='messages'").fetchone()
         columns = {row[1] for row in connection.execute("PRAGMA table_info(messages)")}
         if table != ("table",) or not {"id", "session_id", "role", "content", "timestamp"} <= columns:
@@ -361,36 +382,74 @@ def _hermes_connection(path: Path):
             filters.append("active=1")
         if "_compressed_summary" in columns:
             filters.append("_compressed_summary=0")
+        if "display_kind" in columns:
+            filters.append("COALESCE(display_kind,'')<>'hidden'")
+        session_columns = _hermes_session_columns(connection)
+        if "id" in session_columns:
+            visible = ["s.id=messages.session_id"]
+            if "hidden" in session_columns:
+                visible.append("COALESCE(s.hidden,0)=0")
+            if "parent_session_id" in session_columns:
+                visible.append("s.parent_session_id IS NULL")
+            filters.append("EXISTS (SELECT 1 FROM sessions s WHERE " + " AND ".join(visible) + ")")
         yield connection, " AND ".join(filters)
-        if wal.exists() and wal.stat().st_size:
-            raise ValueError("Hermes changed during preview. Select a checkpointed database snapshot or a generic JSON export")
+        actual = path.lstat()
+        if _is_link(path, actual) or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+            raise ValueError("Hermes database changed during preview; select it again")
+        if not live and ((actual.st_mtime_ns, actual.st_size) != (expected.st_mtime_ns, expected.st_size)
+                         or Path(str(path) + "-wal").exists()):
+            raise ValueError("Hermes snapshot changed during preview; retry after the writer settles")
     except (sqlite3.Error, OSError) as exc:
-        raise ValueError("Cannot preview this Hermes snapshot within the read-only query limits") from exc
+        raise ValueError("Cannot read this Hermes database within the read-only query limits; retry or use a checkpointed snapshot") from exc
     finally:
         if connection is not None:
             connection.close()
 
 
+def _hermes_session_columns(connection):
+    table = connection.execute("SELECT type FROM sqlite_master WHERE name='sessions'").fetchone()
+    if table is None:
+        return set()  # Older minimal exports have messages only.
+    if table != ("table",):
+        raise ValueError("Hermes sessions metadata must be a table")
+    return {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
+
+
 def _hermes_sessions(path: Path) -> tuple[list[dict[str, Any]], bool]:
     with _hermes_connection(path) as (connection, filters):
         rows = connection.execute(
-            "SELECT session_id, id FROM messages WHERE " + filters + " ORDER BY id DESC LIMIT 1001"
+            "SELECT session_id, id, timestamp FROM messages WHERE " + filters + " ORDER BY id DESC LIMIT 1001"
         ).fetchall()
-    sessions = []
-    seen = set()
-    limited = len(rows) > 1000
-    for session_id, latest in rows[:1000]:
-        if not isinstance(session_id, str) or session_id in seen:
-            continue
-        try:
-            reject_high_confidence_secrets(session_id)
-        except UnsafeContentError:
-            continue
-        seen.add(session_id)
-        if len(sessions) >= MAX_FILES:
-            limited = True
-            break
-        sessions.append({"session_id": session_id, "latest_message_id": latest})
+        sessions = []
+        seen = set()
+        limited = len(rows) > 1000
+        columns = _hermes_session_columns(connection)
+        labels = [name for name in ("title", "cwd") if name in columns and "id" in columns]
+        for session_id, latest, timestamp in rows[:1000]:
+            if not isinstance(session_id, str) or session_id in seen:
+                continue
+            try:
+                reject_high_confidence_secrets(session_id)
+            except UnsafeContentError:
+                continue
+            seen.add(session_id)
+            if len(sessions) >= MAX_FILES:
+                limited = True
+                break
+            item = {"session_id": session_id, "latest_message_id": latest,
+                    "title": "Hermes · " + session_id[:12]}
+            if isinstance(timestamp, (int, float)) and 0 <= timestamp <= 253402300799:
+                item["last_message_at"] = timestamp
+            if labels:
+                # Column names are fixed above; values remain parameters. Bound
+                # labels before loading them and exclude all other account data.
+                select = ",".join(f"CASE WHEN length(CAST({name} AS BLOB))<=1024 THEN {name} END" for name in labels)
+                metadata = connection.execute("SELECT " + select + " FROM sessions WHERE id=?", (session_id,)).fetchone()
+                for name, value in zip(labels, metadata or ()):
+                    label = _safe_label(value, 160 if name == "title" else 512)
+                    if label:
+                        item["title" if name == "title" else "workspace"] = label
+            sessions.append(item)
     return sessions, limited
 
 
@@ -461,7 +520,10 @@ def _check_dsh_generation(path: Path) -> None:
 
 
 def preview_source(root: Path, relative: str, format: str, session_id: str | None = None) -> dict[str, Any]:
-    """Return bounded user text only. No model calls, imports or file writes occur."""
+    """Return bounded user text only, without model calls or conversation writes.
+
+    Live Hermes reads may coordinate SQLite SHM read marks and locks.
+    """
     selected_format = _format(format)
     root = _root(root)
     path, expected = _file(root, relative, selected_format)
@@ -565,7 +627,7 @@ def _preview_messages(relative: str, selected_format: str, records: list[Any], m
     result = {"path": relative, "format": selected_format,
               "messages": messages, "counts": counts, "truncated": window_limited or bool(counts["discarded_limit"])}
     if selected_format == "hermes":
-        result["notice"] = "Checkpointed Hermes snapshot: latest 100 active user rows only; live WAL databases and compressed summaries are excluded."
+        result["notice"] = "Hermes read-only snapshot: latest 100 active user rows in one session. Live WAL is supported on the same host with existing WAL/SHM files. Hidden rows, compressed summaries and child sessions are excluded when metadata is available; branches/lineage need a separate export."
     if selected_format == "dsh":
         result["notice"] = "Plain DSH JSONL export only; compressed .zstd sessions are not supported."
     return result
