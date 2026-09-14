@@ -28,6 +28,9 @@ Documentation = "https://github.com/GonzaloTorreras/ai-dememory/tree/main/docs"
 [project.scripts]
 ai-dememory = "ai_dememory.cli:main"
 
+[project.entry-points."hermes_agent.memory_providers"]
+dememory = "ai_dememory.hermes_provider:register"
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 

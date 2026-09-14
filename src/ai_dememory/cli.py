@@ -230,7 +230,7 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             "capabilities": list(manifest.capabilities),
             "resource_budget": manifest.resource_budget,
             "next": ("ai-dememory module enable workbench" if manifest.module_id in ("sources", "codex-subscription")
-                     else f"ai-dememory serve {manifest.module_id} --help" if manifest.module_id.startswith("harness")
+                     else f"ai-dememory serve {manifest.module_id} --help" if manifest.module_id.startswith("harness") or manifest.module_id == "hermes-memory"
                      else f"ai-dememory serve {manifest.module_id}"),
         }
         if json_output:

@@ -107,6 +107,9 @@ See [modules](docs/modules.md) for the trust and resource contract.
 For project-local Codex or Claude Code MCP settings and optional prompt recall,
 follow [local harness integrations](docs/integrations.md). These adapters are
 alpha: consult the acceptance status before assuming native client support.
+Hermes has a separate opt-in [native memory provider](docs/integrations.md#native-hermes-provider-local-alpha)
+using the same scoped vault. Its installed contract smoke is verified; a full
+Hermes client/model episode is still pending.
 
 ## Local dashboard
 
@@ -120,11 +123,14 @@ routes, fallback order, budgets and a consolidation schedule in the browser.
 No model is selected and no schedule is enabled by default. Choose OpenAI,
 Anthropic / Claude or a local/custom endpoint. API keys can be entered for the
 current workbench session or loaded from environment-variable references;
-neither is saved as plaintext in the vault. OAuth login is not implemented.
+neither is saved as plaintext in the vault. An optional `codex-subscription`
+module provides isolated managed login; its authenticated generation acceptance
+is still pending. It is not generic OAuth for other providers.
 Scheduled jobs run only
 while the foreground service runs; one job runs at a time and the UI waits
-during provider calls. Remote access and automatic harness ingestion are next,
-not implemented by enabling the dashboard.
+during provider calls. Optional source schedules require separate explicit
+opt-in; enabling the dashboard alone does not import conversations. Remote
+access remains a later slice.
 
 See [the workbench guide](docs/workbench.md) and [the V3 plan](docs/roadmap.md).
 

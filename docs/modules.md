@@ -99,7 +99,16 @@ project:demo` always selects Codex; the Claude module always selects Claude.
 The dashboard shows separate switches. Toggling one replaces a previously
 enabled common switch while preserving the other client's state. The old
 `harness` entrypoint remains a small installation helper, not a third provider.
-Hermes/Pi/DSH currently have source readers, not installed native hook modules.
+Hermes has a separate `hermes-memory` provider module, not a prompt-hook installer.
+Pi/DSH currently have source readers, not installed native hook modules.
+
+`hermes-memory` is disabled by default and uses Hermes's own packaged provider
+entry point. Enable/install it in the Python environment that runs Hermes; see
+the [isolated profile setup and limits](integrations.md#native-hermes-provider-local-alpha).
+It imports neither Hermes nor the memory core during ordinary DeMemory module
+discovery. Hermes itself may import its small entry-point wrapper while listing
+providers; that wrapper does not open a vault, write files or start workers.
+Module enablement and a profile-local vault/scope binding are required before use.
 
 `harness` is disabled by default. It installs project-local MCP and prompt-hook
 configuration for Codex or Claude Code, without changing global client settings.

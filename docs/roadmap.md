@@ -34,6 +34,9 @@ Codex now also has opt-in chronological history windows, persistent retry cursor
 folder pagination and UI progress. This remains bounded discovery, not exhaustive
 historical consolidation. Hermes source reading also supports local live WAL,
 session titles and bounded read transactions; it is not a native memory provider.
+The separate opt-in `hermes-memory` adapter now implements Hermes's native
+provider contract, fixed scope and literal-evidence learning using the same core.
+Its installed contract smoke passes; full Hermes client acceptance is still next.
 Next ingestion work should be driven by measured gaps: DSH compressed input,
 Hermes conversation lineage and native cross-harness episodes.
 
@@ -44,7 +47,7 @@ Every row is a complete user-visible slice, not empty interfaces.
 | Local learning workbench (implemented alpha) | Configure providers and ordered fallback, learn a scoped fact, retrieve its relevant passage, inspect activity, set consolidation interval and budgets in UI | Settings survive restart; mocked provider failure selects fallback within budget; invalid input creates no memory; inference stays provisional. Live model acceptance remains pending |
 | Correction and hygiene (implemented alpha) | Explicit keyed replacement, exact unkeyed dedupe, undo, inactive-state filtering and durable extraction receipts | Completed extraction retries return original admissions without another provider call; correction wins only in its scope; history remains inspectable. Interrupted two-store writes remain a documented limit |
 | Codex integration (native MCP episode verified; hook acceptance pending) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions learned, recalled, corrected and undid a scoped synthetic lesson through the installed MCP. CLI compatibility is verified; automatic trusted-hook injection remains separate |
-| Hermes and Claude | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Cross-harness recall works; native caches do not reenter as new evidence |
+| Hermes and Claude (Hermes adapter implemented alpha) | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Synthetic Hermes-adapter → MCP correction → Hermes undo passes; transcript/mirror callbacks are no-op. Full native Hermes/Claude episodes remain pending |
 | Incremental ingestion (Codex history implemented alpha) | Authorized native Codex deltas, occurrence receipts, durable byte cursors, bounded folder pagination and visible progress | Failed windows retain their exact range across append/restart; separate positions remain separate occurrences; no re-extraction on assistant-only activity. Native rotation/rewrite and other harnesses remain incomplete |
 | Consolidation and skills | Reversible cleanup, evidence-backed procedural knowledge and tested skill export | Repeated runs converge; recipes work in a second case; executable capabilities have policy, tests and rollback |
 | Remote service/admin (later) | HTTP MCP/event service on PC/Raspberry, LAN/Internet, admin UI | Identity-based scopes, TLS, revocation, two-host restart/replay and restore tested before exposure |

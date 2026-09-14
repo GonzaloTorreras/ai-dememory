@@ -66,12 +66,76 @@ not a sandbox against another local process with access to the same vault.
 
 Automated protocol tests and generated settings are not proof that every
 client/version runs the native hook. Current acceptance and client limitations
-are recorded in [development status](development-status.md). Hermes and DSH are
-not installed live adapters yet. DSH is DeepSeek Harness. The optional
+are recorded in [development status](development-status.md). Hermes now has the
+optional native provider described below; full-client acceptance remains pending.
+DSH is DeepSeek Harness and has no native adapter yet. The optional
 [sources module](workbench.md#local-conversation-sources) can manually preview
 its plain JSONL and local Hermes databases, including live WAL with existing
 safe sidecars; that does not install hooks,
 watch directories or provide unattended native integration.
+
+## Native Hermes provider (local alpha)
+
+Install the V3 wheel **in the same Python environment that runs Hermes**, then:
+
+```bash
+ai-dememory module enable hermes-memory
+ai-dememory serve hermes-memory install --home <new-empty-hermes-home> --scope project:demo
+```
+
+The command binds the selected DeMemory vault and scope in `dememory.json` and
+prepares `config.yaml` in a new, empty Hermes home. It refuses an existing
+non-empty profile. It does not install/run Hermes, copy credentials or history,
+modify a global client configuration or enable a source schedule. Start Hermes
+normally with `HERMES_HOME` pointing to that new home, using its ordinary
+authentication flow. Set `AI_DEMEMORY_CONFIG_DIR` too if using an isolated
+DeMemory selector; it must match the one where this module was enabled.
+
+The package registers Hermes's `hermes_agent.memory_providers` entry point. There
+is no MCP child, HTTP listener, provider API call or separate extraction model
+inside this adapter. The host model uses `dememory_context`, `dememory_learn` and
+`dememory_forget`; their vault/scope cannot be supplied by model arguments.
+Prompt recall uses local FTS (three results / 2,000 characters); explicit context
+uses five results / 4,000 characters. A large index rebuild can still be slow;
+these are result limits, not wall-clock guarantees. Hermes owns its own workers.
+
+Learning is tied to Hermes's current session and human turn. A short literal
+excerpt must occur in the normalized user instruction; skill bodies, bots and
+cron/subagent/flush contexts cannot authorize writes. Only content matching the
+excerpt can be active; paraphrases/inferences remain provisional. Keyed explicit
+corrections and undo use the same core as Codex/Claude MCP. This is evidence
+traceability, not a guarantee that a model understands every fact correctly.
+Turn provenance includes a fresh lifecycle-binding nonce because Hermes may
+reuse turn numbers after resume/rewind. Retries within the live turn are stable;
+ordinary restart repeats use content/key deduplication, not a durable event ledger
+or a guarantee of exact occurrence idempotency across client restarts.
+
+Full transcripts, native memory mirrors, compression and session-end callbacks
+are **not** ingestion paths. Do not also schedule extraction of the same origins
+unless intentionally reviewing that separate import. One learning owner per
+conversation avoids duplicate extraction and derived-memory feedback.
+
+Hermes external providers are additive by default. The **new isolated profile**
+sets `memory.provider: dememory`, `memory.memory_enabled: false` and
+`memory.user_profile_enabled: false`, so DeMemory replaces its built-in
+MEMORY.md/USER.md stores. Do not disable the `memory` toolset: that also hides
+external-provider tools. Hermes still stores its own conversation history.
+Existing profiles are never changed automatically. The provider exposes vault
+and scope fields to Hermes's memory setup wizard; rebinding requires restart.
+
+Disable `hermes-memory` in DeMemory to stop adapter recall/writes, then restart
+Hermes. To restore Hermes's own memory, separately change its provider/flags in
+the intended profile; disabling DeMemory does not silently create another writer
+or erase the vault. Neither the module nor backup hooks copy a vault into Hermes
+backups: back up canonical Markdown and operational state with DeMemory.
+
+Contract checks use the official
+[provider interface](https://github.com/NousResearch/hermes-agent/blob/1ad89ac018f26a4f21817ebf37bb09f508656d63/agent/memory_provider.py),
+[loader](https://github.com/NousResearch/hermes-agent/blob/1ad89ac018f26a4f21817ebf37bb09f508656d63/plugins/memory/__init__.py)
+and [built-in-memory flags](https://github.com/NousResearch/hermes-agent/blob/1ad89ac018f26a4f21817ebf37bb09f508656d63/tests/agent/test_builtin_memory_disabled_surface.py).
+Installed entry-point/ABC/normalizer smoke and synthetic cross-adapter episodes
+pass; the complete native Hermes loader/manager/model session is **not yet
+accepted**. See the current handoff before advertising client support.
 
 ## Activity and rollback
 

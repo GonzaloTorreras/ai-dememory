@@ -35,6 +35,11 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    "hermes-memory": ModuleDescriptor(
+        module_id="hermes-memory", version="1", summary="Native Hermes memory provider; shared vault, fixed scope, no extra model.",
+        entrypoint="ai_dememory.builtin_modules.hermes_memory", capabilities=("install", "memory-provider"),
+        resource_budget={"network":False,"child_processes":0,"persistent":False}, builtin=True, enabled=False,
+    ),
     **{f"harness-{client}": ModuleDescriptor(
         module_id=f"harness-{client}", version="1", summary=f"Independent {client} project MCP and recall hooks.",
         entrypoint=f"ai_dememory.builtin_modules.harness_{client}", capabilities=("install", "recall-hook"),
