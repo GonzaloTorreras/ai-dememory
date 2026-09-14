@@ -17,6 +17,31 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_history_schedule_progress_through_confirmed_http_flow(self):
+        self.request('/api/modules', {'id': 'sources', 'enabled': True})
+        root = Path(self.temp.name) / 'history'; root.mkdir()
+        rows = [{'type': 'session_meta', 'payload': {'id': 'http-test', 'source': 'vscode'}}]
+        rows += [{'type': 'event_msg', 'payload': {'type': 'user_message', 'message': f'Synthetic preference {i}'}} for i in range(25)]
+        (root / 'session.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+        payload = {'root': str(root), 'format': 'codex', 'mode': 'history', 'scope': 'project:test',
+                   'interval_hours': 1, 'enabled': False}
+        code, body, _ = self.request('/api/source-schedules/save', payload)
+        self.assertEqual(code, 200, body)
+        id = json.loads(body)['saved']
+        with patch.object(self.server.jobs, 'extract', return_value={'learned': []}) as extract:
+            self.assertEqual(self.request('/api/source-schedules/run', {'id': id})[0], 400)
+            extract.assert_not_called()
+            for size in (20, 5):
+                code, body, _ = self.request('/api/source-schedules/run', {'id': id, 'confirmed': True})
+                self.assertEqual(code, 200, body)
+                self.assertEqual(len(extract.call_args.args[0]), size)
+                self.assertEqual(extract.call_args.args[1], 'project:test')
+        rule = self.state()['source_schedules'][0]
+        self.assertEqual(rule['mode'], 'history')
+        self.assertEqual(rule['progress']['messages'], 25)
+        self.assertFalse(rule['enabled'])
+        self.assertNotIn('scan_after', rule)
+
     def test_batch_preflight_and_independent_harness_switches(self):
         self.request('/api/modules',{'id':'sources','enabled':True})
         with patch.object(self.server.jobs,'extract') as extract:

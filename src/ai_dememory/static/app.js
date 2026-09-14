@@ -456,7 +456,7 @@ function renderSources() {
   updateSourceSelection();
 }
 $('#source-search').addEventListener('input', renderSources);
-$('#codex-default-root').addEventListener('click',()=>{const form=$('#source-form');form.elements.root.value=state.codexRoot || '';form.elements.format.value='codex';state.sources=[];renderSources();});
+$('#codex-default-root').addEventListener('click',()=>{const form=$('#source-form');form.elements.root.value=state.codexRoot || '';form.elements.format.value='codex';state.sources=[];renderSources();updateSourceMode();});
 for(const field of ['root','format']) $('#source-form').elements[field].addEventListener('change',()=>{state.sources=[];renderSources();});
 $('#preview-selected').addEventListener('click',()=>perform(async()=>{for (const item of state.sources.filter(item=>item.selected)) await previewItem(item);}));
 $('#extract-source').addEventListener('click', () => perform(async () => {
@@ -470,13 +470,33 @@ $('#extract-source').addEventListener('click', () => perform(async () => {
 }));
 $('#source-schedule-form').addEventListener('submit', event=>{
   event.preventDefault(); const form = event.currentTarget, source = $('#source-form');
-  perform(async()=>{await request('/api/source-schedules/save',{root:source.elements.root.value.trim(),format:source.elements.format.value,scope:state.scope,interval_hours:Number(form.elements.interval_hours.value),enabled:form.elements.enabled.checked,confirmed:form.elements.enabled.checked}); await refresh(); notify('Source schedule saved. No extraction was started.');});
+  perform(async()=>{await request('/api/source-schedules/save',{root:source.elements.root.value.trim(),format:source.elements.format.value,mode:form.elements.mode.value,scope:state.scope,interval_hours:Number(form.elements.interval_hours.value),enabled:form.elements.enabled.checked,confirmed:form.elements.enabled.checked}); await refresh(); notify('Source schedule saved. No extraction was started.');});
 });
+function updateSourceMode() {
+  const select = $('#source-schedule-form').elements.mode, codex = $('#source-form').elements.format.value === 'codex';
+  select.querySelector('[value="history"]').disabled = !codex;
+  if (!codex) select.value = 'recent';
+  $('#source-mode-help').textContent = select.value === 'history'
+    ? 'Reads native Codex human events in order, saves progress across restarts, and revisits files for new messages. Mirrored messages and internal sessions are excluded. Older response-only exports require manual preview. Discovery is bounded to 5,000 entries / four directory levels; choose a smaller dated folder if a limit is reported.'
+    : 'Recent activity reads the latest bounded window in the 100 most recent conversations, not the entire history.';
+}
+$('#source-form').elements.format.addEventListener('change', updateSourceMode);
+$('#source-schedule-form').elements.mode.addEventListener('change', updateSourceMode);
+updateSourceMode();
 function renderSourceSchedules(rules) {
   const list=$('#source-schedules'); list.replaceChildren();
   for (const rule of rules) {
     const card=element('article',undefined,'memory-card');
     card.append(element('h3',`${rule.format} → ${rule.scope}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
+    if (rule.mode === 'history') {
+      const p = rule.progress || {};
+      card.append(element('p',`History and new messages · ${p.messages || 0} user messages in ${p.windows || 0} windows · ${p.tracked_conversations || 0} conversations tracked · ${p.passes || 0} discovery passes completed`));
+      card.append(element('p',p.waiting_for_newline ? 'Waiting for a complete final line; other conversations can still advance.' : p.bytes_remaining ? `${p.bytes_remaining.toLocaleString()} bytes remain in the current conversation.` : 'Progress saved. Next run continues discovery and checks for new messages.','hint'));
+      if (p.scan_limited) card.append(element('p','Discovery limit reached. This is not the whole archive; choose a smaller dated folder.','hint'));
+      if (p.source_warning) card.append(element('p',p.source_warning,'hint'));
+      const d = p.last_discards;
+      if (d) card.append(element('p',`Last window skipped: ${d.malformed} malformed records, ${d.sensitive} sensitive messages, ${d.oversize} oversized messages; ${d.ignored} non-user/internal records ignored.`,'hint'));
+    } else card.append(element('p','Recent activity · latest bounded windows only','hint'));
     card.append(button('Run now',()=>{if(confirm('Send one changed conversation window to this harness extraction route? Provider charges may apply.')) perform(async()=>{await request('/api/source-schedules/run',{id:rule.id,confirmed:true}); await refresh();});}));
     if(rule.enabled) card.append(button('Pause',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'pause'}); await refresh();})));
     else card.append(button('Resume',()=>{if(confirm('Enable automatic extraction from this folder into this scope using the configured route and fallbacks?')) perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'resume',confirmed:true}); await refresh();});}));

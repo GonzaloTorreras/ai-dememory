@@ -33,13 +33,16 @@ class SourceJobs:
         _atomic_write(local_file(self.vault, "source-jobs.json"), encoded)
 
     def public(self):
-        return [{k:v for k,v in rule.items() if k != "seen"} for rule in self.load()["rules"]]
+        return [{k:v for k,v in rule.items() if k not in ("seen", "scan_after")} for rule in self.load()["rules"]]
 
     def save(self, data):
         load_enabled_module("sources")
         from .sources import FORMATS, _root
         root = str(_root(Path(data.get("root", ""))))
         format = data.get("format")
+        mode = data.get("mode", "recent")
+        if mode not in ("recent", "history") or (mode == "history" and format != "codex"):
+            raise ValueError("Incremental history is available for Codex; other harnesses use recent windows")
         scope = data.get("scope")
         validate_scope(scope)
         if format not in FORMATS or type(data.get("enabled")) is not bool:
@@ -52,7 +55,7 @@ class SourceJobs:
         stored = self.load()
         if len(stored["rules"]) >= 16:
             raise ValueError("At most 16 source schedules; remove an unused one first")
-        rule = {"id":uuid4().hex, "root":root, "format":format, "scope":scope,
+        rule = {"id":uuid4().hex, "root":root, "format":format, "scope":scope, "mode":mode,
                 "interval_hours":hours, "enabled":data["enabled"], "next_run":time.time()+hours*3600,
                 "last_result":"Not run", "seen":{}}
         stored["rules"].append(rule)
@@ -65,6 +68,9 @@ class SourceJobs:
         if rule is None:
             raise ValueError("Source schedule not found")
         if action == "delete":
+            if rule.get("mode") == "history":
+                from .source_history import remove_cursors
+                remove_cursors(self.vault, id)
             stored["rules"].remove(rule)
         elif action == "pause":
             rule["enabled"] = False
@@ -90,36 +96,45 @@ class SourceJobs:
         self._write(stored)
         result = {"processed":0, "learned":0, "skipped":0}
         try:
-            listing = reader.list_sources(Path(rule["root"]), rule["format"])
-            for file in listing["files"]:
-                identity = hashlib.sha256((file["path"] + ":" + str(file.get("session_id", ""))).encode()).hexdigest()
-                stamp = str(file.get("latest_message_id", file["modified_at"])) + ":" + str(file["bytes"])
-                previous = rule["seen"].get(identity, {})
-                if previous.get("file") == stamp:
-                    continue
-                try:
-                    preview = reader.preview_source(Path(rule["root"]), file["path"], rule["format"], file.get("session_id"))
-                except (ValueError, OSError):
-                    result["skipped"] += 1
-                    continue
-                window = hashlib.sha256(json.dumps(preview["messages"],ensure_ascii=False).encode()).hexdigest()
-                if previous.get("window") == window:
-                    rule["seen"][identity] = {"file":stamp,"window":window}
-                    continue
-                event = hashlib.sha256((rule["id"]+identity+window).encode()).hexdigest()
-                if preview["messages"]:
-                    extracted = self.jobs.extract(preview["messages"], rule["scope"],
-                                                  route_key="skill:source-"+rule["format"], event_id="source-job-"+event)
-                    result["learned"] = len(extracted.get("learned", []))
-                rule["seen"][identity] = {"file":stamp,"window":window}
-                rule["seen"] = dict(list(rule["seen"].items())[-128:])
-                result["processed"] = 1
-                break  # One conversation window per run, using normal provider budgets.
-            rule["seen"] = dict(list(rule["seen"].items())[-128:])
+            if rule.get("mode") == "history":
+                from .source_history import run_history
+                result = run_history(self.vault, self.jobs, reader, rule)
+            else:
+                result = self._run_recent(reader, rule)
             rule["last_result"] = f"{result['processed']} conversation window; {result['learned']} memories; {result['skipped']} unreadable"
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError):
             rule["last_result"] = "Failed; check source access, route and provider budget"
             result = {"failed":True}
         rule["last_run"] = now
         self._write(stored)
+        return result
+
+    def _run_recent(self, reader, rule):
+        result = {"processed":0, "learned":0, "skipped":0}
+        listing = reader.list_sources(Path(rule["root"]), rule["format"])
+        for file in listing["files"]:
+            identity = hashlib.sha256((file["path"] + ":" + str(file.get("session_id", ""))).encode()).hexdigest()
+            stamp = str(file.get("latest_message_id", file["modified_at"])) + ":" + str(file["bytes"])
+            previous = rule["seen"].get(identity, {})
+            if previous.get("file") == stamp:
+                continue
+            try:
+                preview = reader.preview_source(Path(rule["root"]), file["path"], rule["format"], file.get("session_id"))
+            except (ValueError, OSError):
+                result["skipped"] += 1
+                continue
+            window = hashlib.sha256(json.dumps(preview["messages"],ensure_ascii=False).encode()).hexdigest()
+            if previous.get("window") == window:
+                rule["seen"][identity] = {"file":stamp,"window":window}
+                continue
+            event = hashlib.sha256((rule["id"]+identity+window).encode()).hexdigest()
+            if preview["messages"]:
+                extracted = self.jobs.extract(preview["messages"], rule["scope"],
+                                              route_key="skill:source-"+rule["format"], event_id="source-job-"+event)
+                result["learned"] = len(extracted.get("learned", []))
+            rule["seen"][identity] = {"file":stamp,"window":window}
+            rule["seen"] = dict(list(rule["seen"].items())[-128:])
+            result["processed"] = 1
+            break  # One conversation window per run, using normal provider budgets.
+        rule["seen"] = dict(list(rule["seen"].items())[-128:])
         return result

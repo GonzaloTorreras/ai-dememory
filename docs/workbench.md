@@ -198,11 +198,40 @@ another model call for the same user window. Unreadable files are counted and
 skipped; provider failures stop that run. There is no OS task, extra watcher or
 default scan. Disable sources to stop all source rules.
 
-`source-jobs.json` is local durable operational state: at most 16 rules, with
-128 bounded file/window fingerprints each, not raw conversation copies. Back it
-up with the vault. Recent-window scheduling is not an exhaustive cursor-based
-archive importer: older windows and histories outside the scan limit remain a
-future increment. Run a single workbench writer per vault for this alpha.
+Choose **Recent activity** for the latest bounded windows (the default for all
+harnesses), or **Codex history** to read native Codex JSONL from the beginning
+and then follow new messages. The history mode:
+
+- Reads complete `event_msg/user_message` events in chronological file order,
+  excluding mirrors, internal sessions and synthetic review wrappers. Older
+  response-only exports still need manual preview; they are not native history.
+- Advances at most one 2 MB window per run, with up to 20 user messages /
+  24,000 characters sent to Extract. A daily interval means one window per day;
+  **Run now** advances another window without changing the interval.
+- Pages beyond the browser's 100-conversation display cap and revisits files
+  after each discovery pass. The existing 5,000-entry/four-directory-level scan
+  boundary still applies. A displayed limit means choose a smaller dated folder,
+  not that the entire archive was imported.
+- Waits for the final newline of an in-progress record. Assistant-only windows
+  advance without a model call. Oversized user messages, sensitive text and
+  malformed lines are counted; an individual record over 2 MB is unsupported.
+- Preserves the exact pending byte range across provider failure and restart;
+  later appends cannot change that retry. Completed extraction receipts avoid
+  another call after a crash before the cursor commit. Common replacement or
+  truncation is skipped with a warning; this mode expects append-only native
+  logs, not arbitrary in-place rewrites.
+
+Cards show windows/messages inspected, conversations tracked, discovery passes,
+remaining bytes for the current file and discard/limit warnings. These are
+reading progress, not evidence of memory usefulness or whole-archive completion.
+
+`source-jobs.json` stores at most 16 rules and recent-mode fingerprints (128 per
+rule). History cursors live in the existing durable `runtime.sqlite`, separately
+from the disposable search index; they contain file hashes/identity and byte
+offsets, not raw conversation copies. Back up both with the vault. Removing a
+history schedule removes its cursors, not its memories or extraction receipts.
+Run a single workbench writer per vault for this alpha. The known Markdown/
+admission-receipt crash gap is not made transactional by these cursors.
 
 ## Budget and activity
 

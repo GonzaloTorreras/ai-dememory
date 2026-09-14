@@ -84,9 +84,11 @@ def _file(root: Path, relative: str, format: str) -> tuple[Path, os.stat_result]
         raise ValueError("Cannot access the selected conversation file") from exc
 
 
-def list_sources(root: Path, format: str) -> dict[str, Any]:
+def list_sources(root: Path, format: str, *, after: str | None = None) -> dict[str, Any]:
     """List at most 100 eligible files under an explicitly selected directory."""
     selected_format = _format(format)
+    if after is not None and (selected_format != "codex" or not isinstance(after, str)):
+        raise ValueError("History pages are available for Codex only")
     root = _root(root)
     files: list[dict[str, Any]] = []
     pending = deque([(root, 0)])
@@ -160,6 +162,10 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
         files = [item for item in files if not (generation := _DSH_GENERATION.fullmatch(Path(item["path"]).name))
                  or int(generation[1]) == generations[Path(item["path"]).parent.as_posix()]]
     files.sort(key=lambda item: (-item["modified_at"], item["path"], -item.get("latest_message_id", 0)))
+    scan_limited = truncated
+    if after is not None:
+        files = sorted((item for item in files if item["path"] > after and item["path"].endswith(".jsonl")),
+                       key=lambda item: item["path"])
     if selected_format == "codex":
         titles = _codex_titles(root)
         visible = []
@@ -180,6 +186,7 @@ def list_sources(root: Path, format: str) -> dict[str, Any]:
     truncated = truncated or len(files) > MAX_FILES
     files = files[:MAX_FILES]
     return {"format": selected_format, "files": files, "truncated": truncated,
+            "scan_limited": scan_limited,
             "scanned_entries": min(scanned, MAX_ENTRIES), "discarded_files": discarded,
             "notices": sorted(notices)}
 

@@ -49,7 +49,16 @@
       </form>
       <div class="source-toolbar section"><label>Filter conversations<input id="source-search" type="search" placeholder="Title, workspace or date"></label><button id="preview-selected" type="button">Preview selected (max 10)</button><button id="extract-source" type="button" class="primary" disabled>Extract selected previews</button><p id="source-selection" class="hint">Select conversations, inspect their inline previews, then extract.</p></div>
       <div id="source-files" class="memory-list section"></div>
-      <details class="section"><summary>Automate this source</summary><p class="hint">Optional: one changed conversation window per run, only while this workbench runs. Uses skill:source-&lt;harness&gt; when configured, otherwise Extract. Normal provider budgets apply. This is bounded recent-history extraction, not a full archive import.</p><form id="source-schedule-form" class="form-stack"><label>Every (hours)<input name="interval_hours" type="number" min="1" max="8760" value="24" required></label><label class="check"><input name="enabled" type="checkbox"> Enable automatic extraction from the folder above into the current scope. I authorize sending its user messages to the configured route and fallbacks.</label><button type="submit">Save source schedule</button></form></details>
+      <details class="section"><summary>Automate this source</summary>
+        <p class="hint">Optional: one conversation window per run, only while this workbench runs. Uses skill:source-&lt;harness&gt; when configured, otherwise Extract. Normal provider budgets apply.</p>
+        <form id="source-schedule-form" class="form-stack">
+          <label>What to read<select name="mode"><option value="recent">Recent activity — latest user messages</option><option value="history">Codex history — from the beginning, then new messages</option></select></label>
+          <p id="source-mode-help" class="hint">Recent activity reads the latest bounded window, not the entire conversation.</p>
+          <label>Every (hours)<input name="interval_hours" type="number" min="1" max="8760" value="24" required></label>
+          <p class="hint">Each conversation window reads up to 2 MB of log records and sends at most 20 user messages / 24,000 characters. Folder discovery and title metadata are separate reads. A daily interval means one window per day, not the whole archive. Run now advances another window.</p>
+          <label class="check"><input name="enabled" type="checkbox"> Enable automatic extraction from the folder above into the current scope. I authorize sending its user messages to the configured route and fallbacks.</label><button type="submit">Save source schedule</button>
+        </form>
+      </details>
       <div id="source-schedules" class="memory-list section"></div>
     </div>
   </section>
