@@ -9,7 +9,7 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; previous local increment `e4388a1`.
+- This line builds on V3 baseline `a04a0cd`; latest runtime increment `6ce1e0a`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
 - Source and isolated installed runtime: `3.0.0a1`, unpublished. No version,
   release tag, package publication or merge in this cycle.
@@ -48,7 +48,7 @@ Earlier implementation/install receipts remain in Git history.
   visible unreadable-source warnings. WAL-only user commits trigger schedules;
   assistant-only activity does not. No full-copy/checkpoint/repair is performed.
 
-## This cycle: native Hermes memory-provider adapter
+## Retained increment: native Hermes memory-provider adapter
 
 - Disabled-by-default `hermes-memory` module registers the official packaged
   `dememory` provider entry point. Ordinary DeMemory discovery/enablement does
@@ -95,7 +95,8 @@ Earlier implementation/install receipts remain in Git history.
 - Browser QA of the installed package at `127.0.0.1:18767`, 1440x1080 / 390x844:
   enable Hermes, reload persisted state, disable it, preserve the other harness
   switches. No blank page, overlay, overflow or console warnings/errors. Browser
-  plugin unavailable; Playwright connector used. Screenshots stay outside Git.
+  plugin was not exposed to that QA turn; Playwright connector used. The later
+  installation check below verified the built-in Browser. Screenshots stay outside Git.
 - No real Hermes/Claude process, new model call, personal-profile extraction,
   credential copy or installed personal automation was started. Full Hermes
   loader/manager/authenticated-model acceptance remains **unverified**; contract
@@ -125,6 +126,30 @@ Earlier implementation/install receipts remain in Git history.
   and [MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
   Existing host subscription authentication stayed separate from the temporary
   memory/config directories.
+
+## Latest local installation: Codex (2026-09-14)
+
+- At the user's explicit request, installed the existing V3 Codex integration
+  in the historical checkout and active V3 worktree. Both use one new, empty
+  private V3 vault and `project:ai-dememory`; the test vault, V2 memories and
+  global Codex settings remain unchanged. The separate local selector enables
+  only `harness-codex`, `mcp` and `workbench`.
+- Generated client files contain machine-local paths and are excluded through
+  shared Git `info/exclude`, not committed. The native CLI reads both scoped MCP
+  configurations successfully in the normal host context.
+- All 23 focused harness/MCP tests passed. Direct invocation of each installed
+  hook returned valid scoped context (891 / 328 ms including process startup);
+  both installed MCP processes initialized and exposed seven tools (265 / 234
+  ms). These single-run timings are smoke observations, not latency benchmarks.
+  No model calls or transcript reads; zero memories created; all smoke processes
+  exited. A fresh independent read-only review found no installation blocker.
+- **Activation gate remains:** review/trust the exact hook through Codex `/hooks`
+  and demonstrate injection from a native prompt in a fresh session. No trust
+  bypass or trust-store edits were used. Check that each task shows exactly one
+  DeMemory UserPromptSubmit handler; matching hook sources accumulate.
+- Browser is included in the current desktop app, not a missing separately
+  installed dependency. Opened its official documentation in the built-in browser
+  and inspected the rendered page successfully. No extra browser package was added.
 
 ## Next development cycle
 
