@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from itertools import islice
 from urllib.parse import urlsplit
 
 from .config import config_dir, load_config
@@ -82,6 +83,57 @@ def _account_home():
     return home
 
 
+def _native_binary(value):
+    if not value:
+        return False
+    path = Path(value)
+    return path.is_absolute() and path.is_file() and path.suffix.lower() not in {".cmd", ".bat", ".ps1"}
+
+
+def _windows_native_codex():
+    """Known user installs only; no shell launchers, recursive scan or probes."""
+    def local_root(value):
+        return bool(value) and Path(value).is_absolute() and not str(value).startswith(("\\\\", "//"))
+
+    def candidate(root, path):
+        try:
+            resolved = path.resolve()
+            if resolved.is_relative_to(root.resolve()) and _native_binary(resolved):
+                return resolved
+        except (OSError, RuntimeError):
+            pass
+        return None
+
+    install = os.environ.get("CODEX_INSTALL_DIR")
+    local = os.environ.get("LOCALAPPDATA")
+    roots = [Path(install)] if local_root(install) else []
+    if local_root(local):
+        roots.append(Path(local) / "Programs" / "OpenAI" / "Codex" / "bin")
+    for root in roots:
+        found = candidate(root, root / "codex.exe")
+        if found:
+            return str(found)
+    if not local_root(local):
+        return None
+    desktop = Path(local) / "OpenAI" / "Codex" / "bin"
+    try:
+        with os.scandir(desktop) as entries:
+            children = list(islice(entries, 65))
+        if len(children) > 64:
+            return None
+        found = []
+        for child in children:
+            path = candidate(desktop, Path(child.path) / "codex.exe")
+            if path:
+                try:
+                    found.append((path.stat().st_mtime_ns, str(path)))
+                except OSError:
+                    continue
+        return max(found)[1] if found else None
+    except OSError:
+        return None
+
+
 def _command():
     configured = os.environ.get("AI_DEMEMORY_CODEX_BIN")
     # Windows PATH may contain a shell launcher before the native CLI. Never
@@ -90,10 +142,12 @@ def _command():
     if not executable:
         executable = shutil.which("codex.exe") if sys.platform == "win32" else None
         executable = executable or shutil.which("codex")
+        if sys.platform == "win32" and not _native_binary(executable):
+            executable = _windows_native_codex() or executable
     if not executable:
         raise CodexSubscriptionError("codex_not_installed")
     path = Path(executable)
-    if not path.is_absolute() or not path.is_file() or path.suffix.lower() in {".cmd", ".bat", ".ps1"}:
+    if not _native_binary(executable):
         raise CodexSubscriptionError("codex_binary_required")
     command = [str(path), "app-server"]
     for key, value in _CONFIG.items():

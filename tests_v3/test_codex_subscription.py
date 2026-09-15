@@ -86,7 +86,9 @@ class CodexSubscriptionTests(unittest.TestCase):
         self.script = self.root / "server.py"
         self.script.write_text(_SERVER, encoding="utf-8")
         self.log = self.root / "protocol.jsonl"
-        self.env = patch.dict(os.environ, {"AI_DEMEMORY_CONFIG_DIR": str(self.root / "config")})
+        self.env = patch.dict(os.environ, {"AI_DEMEMORY_CONFIG_DIR": str(self.root / "config"),
+                                          "LOCALAPPDATA": str(self.root / "local"),
+                                          "CODEX_INSTALL_DIR": ""})
         self.env.start()
 
     def tearDown(self):
@@ -263,6 +265,87 @@ class CodexSubscriptionTests(unittest.TestCase):
                                  "error": error.reason, "message": str(raised.exception)})
         self.assertIsNone(codex._pending)
         self.assertFalse((self.root / "config").exists())
+
+    def native_install(self, relative):
+        path = self.root / "local" / relative / "codex.exe"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+        return path.resolve()
+
+    def test_windows_desktop_discovery_without_native_path_starts_no_child(self):
+        native = self.native_install("OpenAI/Codex/bin/installed-build")
+        wrapper = self.root / "codex.cmd"
+        wrapper.touch()
+        for found in (None, str(wrapper)):
+            with self.subTest(found=found), patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": ""}), \
+                    patch.object(sys, "platform", "win32"), patch.object(codex.shutil, "which", return_value=found), \
+                    patch.object(codex.subprocess, "Popen") as spawn:
+                self.assertEqual(codex._command()[0], str(native))
+                spawn.assert_not_called()
+
+    def test_known_installer_paths_precede_desktop_and_custom_install_precedes_default(self):
+        self.native_install("OpenAI/Codex/bin/desktop")
+        standalone = self.native_install("Programs/OpenAI/Codex/bin")
+        self.assertEqual(codex._windows_native_codex(), str(standalone))
+        custom = self.native_install("custom-bin")
+        with patch.dict(os.environ, {"CODEX_INSTALL_DIR": str(custom.parent)}):
+            self.assertEqual(codex._windows_native_codex(), str(custom))
+
+    def test_desktop_chooses_modification_time_not_hash_name_with_stable_ties(self):
+        older = self.native_install("OpenAI/Codex/bin/zzz-hash")
+        newer = self.native_install("OpenAI/Codex/bin/aaa-hash")
+        os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+        self.assertEqual(codex._windows_native_codex(), str(newer))
+        os.utime(older, ns=(2_000_000_000, 2_000_000_000))
+        self.assertEqual(codex._windows_native_codex(), max(str(older), str(newer)))
+        older.unlink()
+        self.assertEqual(codex._windows_native_codex(), str(newer))
+
+    def test_desktop_discovery_is_bounded_and_not_recursive(self):
+        nested = self.native_install("OpenAI/Codex/bin/build/nested")
+        self.assertIsNone(codex._windows_native_codex())
+        root = nested.parents[2]
+        for index in range(64):
+            (root / f"extra-{index}").mkdir()
+        self.native_install("OpenAI/Codex/bin/build")
+        self.assertIsNone(codex._windows_native_codex())
+        with patch.object(codex.os, "scandir", side_effect=PermissionError):
+            self.assertIsNone(codex._windows_native_codex())
+
+    def test_relative_and_network_discovery_roots_are_not_scanned(self):
+        for value in ("relative", "//server/share", "\\\\server\\share"):
+            with self.subTest(value=value), patch.dict(os.environ, {"LOCALAPPDATA": value, "CODEX_INSTALL_DIR": value}), \
+                    patch.object(codex.os, "scandir") as scan:
+                self.assertIsNone(codex._windows_native_codex())
+                scan.assert_not_called()
+
+    def test_explicit_override_and_native_path_never_scan_install_folders(self):
+        native = self.native_install("somewhere")
+        with patch.object(codex, "_windows_native_codex") as scan:
+            with patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": str(self.root / "missing.exe")}), \
+                    self.assertRaises(codex.CodexSubscriptionError):
+                codex._command()
+            with patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": ""}), \
+                    patch.object(sys, "platform", "win32"), patch.object(codex.shutil, "which", return_value=str(native)):
+                self.assertEqual(codex._command()[0], str(native))
+            scan.assert_not_called()
+
+    def test_desktop_candidate_cannot_resolve_outside_install_root(self):
+        native = self.native_install("OpenAI/Codex/bin/build")
+        outside = self.native_install("elsewhere")
+        resolve = Path.resolve
+        with patch.object(Path, "resolve", lambda path, *args, **kwargs: outside if path == native else resolve(path, *args, **kwargs)):
+            self.assertIsNone(codex._windows_native_codex())
+
+    def test_link_to_wrapper_does_not_mask_a_valid_later_install(self):
+        standalone = self.native_install("Programs/OpenAI/Codex/bin")
+        wrapper = standalone.with_suffix(".cmd")
+        wrapper.touch()
+        desktop = self.native_install("OpenAI/Codex/bin/build")
+        resolve = Path.resolve
+        with patch.object(Path, "resolve", lambda path, *args, **kwargs: wrapper if path == standalone else resolve(path, *args, **kwargs)):
+            self.assertEqual(codex._windows_native_codex(), str(desktop))
 
 
 if __name__ == "__main__":

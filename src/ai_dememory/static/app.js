@@ -391,7 +391,8 @@ $('#add-override').addEventListener('click', () => openOverride());
 $('#refresh').addEventListener('click', () => perform(async () => { await refresh(); notify(state.dirty ? 'Activity and memory refreshed. Your unsaved settings are preserved.' : 'Up to date.'); }));
 function changeScope(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) { notify('Use a short scope name, such as global or project:your-project.', true); return; }
-  state.scope = value; $('#scope').value = value;
+  state.scope = value; $('#scope').value = '';
+  notify('');
   state.sources.forEach(item => { item.preview = null; item.result = ''; item.open = false; }); renderSources(); perform(refresh);
 }
 $('#scope-form').addEventListener('submit', (event) => { event.preventDefault(); changeScope($('#scope').value.trim()); });

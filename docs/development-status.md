@@ -9,7 +9,7 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `6d9e717`.
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `ae0f30a`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
 - Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now
   includes the global Codex integration recorded below. The default selector and
@@ -341,6 +341,46 @@ rolling back runtime code. Remove a Windows selector junction only as a link,
 never recursively delete its target. Vaults and credentials are not uninstall
 targets. The installed readme metadata predates this cycle's documentation-only
 clarifications; release packaging must rebuild and refresh exact artifact evidence.
+
+## Follow-up: user-terminal selector and workbench fixes
+
+- The initial Windows selector junction worked in Codex-run probes but the
+  user's PowerShell returned no default vault. Binding the supported
+  `AI_DEMEMORY_CONFIG_DIR` user environment variable to the existing V3 selector
+  and reloading it in the open terminal restored status, confirmed by the user.
+  No duplicate vault/configuration or credential move. The underlying junction
+  visibility difference was not established; do not treat agent-shell success
+  alone as user-terminal acceptance.
+- New scope is now blank plain text, without a datalist arrow or current-scope
+  copy. Scope changes clear its draft and stale validation notices; ordinary
+  refresh preserves a draft. The existing selector and schedule suggestions
+  remain independent. The UI explains direct MCP writes versus provider jobs.
+- Windows provider discovery now also checks known native installation folders
+  when PATH contains only a wrapper or no Codex. Explicit overrides remain
+  authoritative; discovery runs no probes/scripts and scans no recursive tree.
+  With the actual machine/user PATH, the old lookup found only `codex.CMD`;
+  the corrected lookup selected the installed Desktop executable and returned
+  unauthenticated account status without error. Login completion is still the
+  user's action; no credentials were copied and no model generation was tested.
+- Regression: 246 tests, 241 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. Focused independent
+  review identified one wrapper-link masking edge, fixed with a regression test.
+  Rendered Edge/Playwright checks at 1280x900 and 390x844 cover empty/plain-text
+  scope, existing selection, draft refresh, submit/reset, validation, no mobile
+  overflow and no console errors. Browser skill/plugin was unavailable; the
+  uncached Playwright CLI was not installed; bundled Playwright was used instead.
+  Native isolated-account status and browser-login start/cancel passed; completed
+  OAuth and authenticated generation are not claimed. Temporary test vaults
+  contain only synthetic fixtures, never personal memories.
+- Installed replacement wheel: 112,360 bytes, SHA-256
+  `ba265e9e89fe3ea02aeb0ea64c9a19bfd7653e7797489d2623c281a5f44b009b`.
+  Built in a clean temporary copy, then installed in an isolated runtime for
+  CLI save/recall and the same rendered desktop/mobile plus login start/cancel
+  checks with the normal user PATH. That exact artifact replaced the global
+  runtime; installed native discovery/account-status and default-vault readback
+  passed. Personal memory stayed at three records; account/hook settings were
+  preserved. The existing user-started workbench must restart to load Python
+  changes; its unsaved UI state was not interrupted. No tag or publication.
 
 ## Known limits and rollback
 

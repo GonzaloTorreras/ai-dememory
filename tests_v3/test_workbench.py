@@ -6,6 +6,7 @@ import os
 import tempfile
 import threading
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import patch, Mock
 
@@ -184,6 +185,33 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(self.request("/api/state", headers={"Origin": "https://evil.example"})[0], 403)
         self.assertEqual(self.request("/api/learn", {}, {"X-DeMemory-Token": ""})[0], 403)
         self.assertEqual(self.services.vault.memory_count(), 0)
+
+    def test_new_scope_is_blank_plain_text_separate_from_existing_options(self):
+        class Inputs(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.fields = {}
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if "id" in attributes:
+                    self.fields[attributes["id"]] = (tag, attributes)
+
+        code, body, _ = self.request("/")
+        self.assertEqual(code, 200)
+        parsed = Inputs()
+        parsed.feed(body.decode())
+        tag, field = parsed.fields["scope"]
+        self.assertEqual(tag, "input")
+        self.assertEqual(field["type"], "text")
+        self.assertEqual(field.get("value", ""), "")
+        self.assertEqual(field["autocomplete"], "off")
+        self.assertNotIn("list", field)
+        self.assertTrue(field["placeholder"])
+        self.assertEqual(parsed.fields["scope-selector"][0], "select")
+        self.assertEqual(parsed.fields["schedule-scope"][1]["list"], "scope-options")
+        self.assertEqual(parsed.fields["scope-options"][0], "datalist")
+        self.assertIn(b"needs no DeMemory model provider", body)
 
     def test_complete_scoped_save_and_forget(self):
         payload = {"title": "Preference", "content": "Use readable examples. " * 200, "scope": "project:demo"}

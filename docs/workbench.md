@@ -15,6 +15,9 @@ module starts a bounded child process for explicit login, catalog or generation.
 ## Memory
 
 Start with scope `global`. Use `project:my-project` for project-only information.
+**Current scope** selects an existing scope. **New scope** is a blank text field
+with an example placeholder; selecting or applying a scope clears that field.
+It is not a second selector and does not copy the current scope.
 The management list shows the exact selected scope; retrieval returns that
 scope plus global, never another project's records. These labels are routing,
 not user authentication or tenant isolation.
@@ -101,11 +104,17 @@ fallback. Redirects and environment proxy routing are disabled.
 The optional **codex-subscription** module uses the official Codex AppServer's
 managed ChatGPT browser or device-code login. Enable it in the provider form or
 Modules, start sign-in, open the official link, then choose **Check sign-in**.
-A native `codex` executable must be on PATH, or set `AI_DEMEMORY_CODEX_BIN` to
-its absolute path **before starting the workbench**. Windows checks for
-`codex.exe` before a generic `codex` launcher, so a `.cmd` wrapper earlier in
-PATH does not hide a native executable later in PATH. Shell wrapper scripts
-are not run; wrapper-only installations still need a native CLI executable.
+A native `codex` executable is required. Windows checks for `codex.exe` before
+generic `codex` on PATH. If neither supplies a native executable, discovery checks
+`CODEX_INSTALL_DIR`, the [official standalone installer location](https://learn.chatgpt.com/docs/config-file/environment-variables)
+under `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`, then the observed Desktop layout
+under `%LOCALAPPDATA%\OpenAI\Codex\bin\<build>`. The Desktop fallback examines
+at most 64 immediate entries and selects the most recently modified executable
+(with a deterministic path tie-break), not a verified newest release. It does
+not recurse, inspect running processes or run shell wrappers/version probes.
+Other layouts can set `AI_DEMEMORY_CODEX_BIN` to the native executable's absolute
+path **before starting the workbench**. Wrapper-only installations still need
+the native CLI installed; no script launcher is executed.
 An explicit override is authoritative: a missing, moved or script path produces
 an actionable error, never a silent switch to another executable. Restart the
 workbench after installing/updating Codex or changing its path. **Check sign-in**
