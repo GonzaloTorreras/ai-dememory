@@ -49,10 +49,24 @@ does not build the index or start anything. Use
 
 Use `--vault <path>` only when deliberately overriding the saved default.
 
-Installing V3 does not yet connect every Codex project. The current harness
-installer is project-local with an explicit scope; [global project-aware
-installation is the next priority](docs/roadmap.md#now-one-global-v3-installation-isolated-projects).
-Use this branch's built package or source, not historical V2 scripts, when testing V3.
+Connect Codex across local projects with one optional user-level installation:
+
+```bash
+ai-dememory module enable harness-codex
+ai-dememory serve harness-codex install --user
+```
+
+Restart Codex and trust the generated UserPromptSubmit command in `/hooks`.
+Each task receives its own project scope; Git worktrees share their project.
+The hook recalls relevant memory without reading transcripts or calling another
+model. The host assistant can learn useful facts through the same scoped MCP.
+Normal Codex tool-approval settings still apply. See [integration setup and
+rollback](docs/integrations.md). Use this branch's built package or source,
+not historical V2 scripts, when testing V3.
+
+Manual `remember` and `recall` default to shared global memory. Add `--scope auto`
+to use the current project, or `--scope project:NAME` for an explicit scope.
+`status` shows the runtime, selected configuration and current project scope.
 
 ## Learning without approving every fact
 

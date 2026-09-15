@@ -1,19 +1,88 @@
 # Local harness integrations
 
-The optional `harness` module connects the existing memory core to a client.
-It installs project-local MCP settings and one prompt-recall hook. It does not
-import transcripts, start a daemon, or select another model. The host assistant
+The optional harness modules connect the existing memory core to a client.
+Codex supports user-wide project-aware installation; Claude remains project-local.
+Each uses MCP settings and one prompt-recall hook. Neither integration
+imports transcripts, starts a daemon, or selects another model. The host assistant
 uses its own model to decide when to call the evidenced learning tools.
 
-## Current installation boundary
+## Codex: install once for local projects
 
-Installing the package does not connect every project. The current installer
-creates a fixed-scope, project-local connection; installing it globally with that
-same scope would mix unrelated projects. Global hooks also accumulate with
-project hooks, so copying the generated files can cause duplicate recall.
-Project-aware global installation is the [next planned slice](roadmap.md#now-one-global-v3-installation-isolated-projects),
-not a shipped option. Until it is verified, use the explicit project binding below.
-Do not repair V3 by running historical V2 scripts or installing V2 dependencies.
+After installing the V3 package and selecting a vault with `ai-dememory setup`:
+
+```bash
+ai-dememory module enable harness-codex
+ai-dememory serve harness-codex install --user
+```
+
+Restart Codex, open `/hooks` and trust **DeMemory V3: recall this project's memory**.
+Trust is per exact definition; it is never bypassed. Package installation alone
+does not trust a hook, and no transcript watcher or extra model is enabled.
+Existing host tool-approval policy still applies to learning/forgetting; a client
+configured to reject all approval requests can recall but may refuse writes.
+
+The installer uses the native Python executable and selected configuration,
+adds one owned MCP block to `~/.codex/config.toml` and one UserPromptSubmit hook
+to `~/.codex/hooks.json` (`CODEX_HOME` is respected). Other settings are preserved.
+Its private receipt is beside the DeMemory selector. Reinstalling is a no-op;
+edits to owned definitions cause a conflict instead of silently being overwritten.
+Do not copy a fixed-scope project config globally: Codex hooks from different
+sources [all run](https://learn.chatgpt.com/docs/hooks).
+
+To replace an existing exact DeMemory-generated project connection, add
+`--retire-project <path>` to the user install (repeat for other known projects).
+Its explicit scope is retained in the local project mapping; unrelated/edited
+project settings are not automatically adopted. The installer does not scan all
+repositories. If you already have other project-local DeMemory handlers, retire
+them explicitly before using global recall in those projects.
+
+### Project scopes and controls
+
+Native Codex CLI and AppServer were tested with separate MCP processes launched
+in each task's directory. Auto mode fixes that scope at startup and binds the
+first native caller thread ID; another thread cannot reuse that process. Learning
+provenance takes session/turn identity from native transport metadata, not model
+guesses. Missing metadata fails with a correlated error, not an unscoped fallback.
+This is a local native-client contract, not authentication against another process
+owned by the same OS user. Other clients retain explicit scope bindings.
+
+- Explicit folder aliases win; Git worktrees otherwise share their local common
+  Git directory. Different clones and same-name folders stay separate.
+- Projectless task folders have independent scopes. A bare home/filesystem root
+  requires explicit binding; it never silently becomes a global writer.
+- Automatic IDs are deterministic from local identity, with no discovery daemon
+  or auto-written registry. Rebind a moved project explicitly to retain its scope.
+- Reads include genuinely shared `global` memories. Project connections cannot
+  write global memory. Use the manual CLI/workbench for intentional global facts.
+
+The existing harness command supports explicit local controls:
+
+```bash
+ai-dememory serve harness-codex bind --project <path> --scope project:my-project
+ai-dememory serve harness-codex exclude --project <path>
+ai-dememory serve harness-codex include --project <path>
+```
+
+Exclusion/re-enablement applies to aliases sharing that project scope, including
+known worktrees. Already-running auto-scope MCP calls check it again. A changed
+scope requires reconnecting the client. These controls do not disable separately
+authorized source-ingestion schedules. The existing Modules UI can disable Codex
+independently; project alias/exclusion UI is not implemented yet.
+
+`ai-dememory status --json` shows actual runtime/config and resolved project.
+Manual save/search support `--scope auto`; their default remains explicit shared
+CLI behavior (`global`), not automatic project detection.
+
+### Remove the global connection
+
+```bash
+ai-dememory serve harness-codex uninstall --user
+```
+
+Restart Codex afterwards. Removal changes only still-owned global entries and
+restores unchanged retired project configs. Later user edits are preserved.
+Vaults, module settings and project aliases remain. Never remove a vault or run
+historical V2 scripts to repair an integration.
 
 ## Try it in an empty project
 

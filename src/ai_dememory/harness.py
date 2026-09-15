@@ -18,7 +18,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from .config import config_dir, load_config, set_module_enabled
+from .config import config_dir, harness_enabled, set_module_enabled
 from .core import CoreServices
 from .policy import reject_high_confidence_secrets
 from .providers import _database
@@ -30,11 +30,20 @@ SERVER_NAME = "dememory_v3"
 
 def install_parser():
     parser = argparse.ArgumentParser(prog="ai-dememory serve harness")
-    parser.add_argument("action", choices=["install"])
-    parser.add_argument("--project", required=True, type=Path)
+    parser.add_argument("action", choices=["install", "uninstall", "bind", "exclude", "include"])
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--project", type=Path)
+    target.add_argument("--user", action="store_true", help="Install once for this user's Codex projects")
+    parser.add_argument("--retire-project", action="append", default=[], type=Path, help="Retire an exact generated project-local connection")
     parser.add_argument("--client", choices=["codex", "claude"], default="codex")
-    parser.add_argument("--scope", required=True)
+    parser.add_argument("--scope")
     return parser
+
+
+def _shell_command(args):
+    if os.name == "nt" and any(any(c in value for c in '&|<>^%!;()$`\"\'\r\n') for value in args):
+        raise ValueError("Windows hook paths cannot contain shell metacharacters; choose a plain path")
+    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
 
 
 def project_files(vault, project, client, scope):
@@ -49,9 +58,7 @@ def project_files(vault, project, client, scope):
     args = ["-m", "ai_dememory", "--vault", str(vault.root), "serve", "mcp", "--scope", scope]
     hook_args = [interpreter, "-m", "ai_dememory.harness", "--vault", str(vault.root),
                  "--config-dir", selector, "--scope", scope, "--client", client]
-    if os.name == "nt" and any(any(c in value for c in '&|<>^%!;()$`\"\'\r\n') for value in hook_args):
-        raise ValueError("Windows hook paths cannot contain shell metacharacters; choose a plain path")
-    command = subprocess.list2cmdline(hook_args) if os.name == "nt" else shlex.join(hook_args)
+    command = _shell_command(hook_args)
     hook = {"type": "command", "command": command, "timeout": 3}
     if client == "codex":
         hook["additionalContextLimit"] = 1200
@@ -137,16 +144,27 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--vault", required=True, type=Path)
     parser.add_argument("--config-dir", required=True)
-    parser.add_argument("--scope", required=True)
+    scopes = parser.add_mutually_exclusive_group(required=True)
+    scopes.add_argument("--scope")
+    scopes.add_argument("--auto-scope", action="store_true")
     parser.add_argument("--client", choices=["codex", "claude"], default="codex")
     args = parser.parse_args(argv)
     output = {}
     try:
         os.environ["AI_DEMEMORY_CONFIG_DIR"] = args.config_dir
-        if "harness" in load_config().enabled_modules or f"harness-{args.client}" in load_config().enabled_modules:
+        if harness_enabled(args.client):
             raw = sys.stdin.buffer.read(MAX_INPUT + 1)
             if len(raw) <= MAX_INPUT:
-                output = recall_hook(Vault.open(args.vault), json.loads(raw), args.scope, args.client)
+                payload = json.loads(raw)
+                scope = args.scope
+                if args.auto_scope:
+                    from .projects import project_enabled, resolve_project
+                    cwd = payload.get("cwd") if isinstance(payload, dict) else None
+                    if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
+                        print("{}")
+                        return 0
+                    scope = resolve_project(cwd)["scope"]
+                output = recall_hook(Vault.open(args.vault), payload, scope, args.client)
     except (ValueError, TypeError, OSError, sqlite3.Error, RecursionError):
         # Never exit 2, block a prompt or print a sensitive exception in a hook.
         output = {}

@@ -56,10 +56,12 @@ def _parser() -> argparse.ArgumentParser:
     remember = commands.add_parser("remember", help="Write one human-approved Markdown memory.")
     remember.add_argument("content")
     remember.add_argument("--title")
+    remember.add_argument("--scope", default="global", help="Memory scope, or auto for the current project (default: global).")
 
     recall = commands.add_parser("recall", help="Search canonical memories with local SQLite FTS.")
     recall.add_argument("query")
     recall.add_argument("--limit", type=int, default=5)
+    recall.add_argument("--scope", default="global", help="Memory scope, or auto for the current project (default: global).")
 
     commands.add_parser("status", help="Show useful state and resource use.")
 
@@ -278,8 +280,11 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         return 0
 
     vault = _resolve_vault(explicit_vault)
+    if getattr(args, "scope", None) == "auto":
+        from .projects import resolve_project
+        args.scope = resolve_project(Path.cwd())["scope"]
     if args.command == "remember":
-        memory = vault.remember(args.content, args.title)
+        memory = vault.remember(args.content, args.title, scope=args.scope)
         result = memory.to_dict()
         result.update({"saved": True, "verified": True})
         if json_output:
@@ -289,7 +294,7 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             print(f"  {memory.path}")
         return 0
     if args.command == "recall":
-        hits = SearchIndex(vault).search(args.query, args.limit)
+        hits = SearchIndex(vault).search(args.query, args.limit, args.scope)
         if json_output:
             _emit(
                 {
@@ -311,6 +316,13 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         return 0
     if args.command == "status":
         status = CoreServices(vault).status()
+        from .projects import resolve_project
+        status["installation"] = {"version": __version__, "python": sys.executable,
+                                  "package": str(Path(__file__).parent), "config": str(config_path())}
+        try:
+            status["project"] = resolve_project(Path.cwd())
+        except ValueError as exc:
+            status["project"] = {"scope": None, "reason": str(exc)}
         if json_output:
             _emit(status, True)
         else:
@@ -319,6 +331,9 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             modules = ", ".join(status["enabled_modules"]) or "none"
             print(f"Vault: {status['name']}")
             print(f"Location: {status['vault']}")
+            print(f"Runtime: {__version__} ({sys.executable})")
+            print(f"Configuration: {config_path()}")
+            print(f"Current project scope: {status['project']['scope'] or 'not bound'}")
             print(f"Memories: {status['memories']}")
             print(f"Pending proposals: {status['pending_proposals']}")
             print(

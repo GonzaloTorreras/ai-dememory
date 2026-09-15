@@ -9,12 +9,12 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this planning increment starts at `dc019d6`.
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `6d9e717`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now uses
-  the Windows provider-discovery fix recorded below, including the previous
-  scoped-scheduling increment. Configuration and credentials were not changed. No version,
-  release tag, package publication or merge in this cycle.
+- Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now
+  includes the global Codex integration recorded below. The default selector and
+  global client connection were configured; existing account state and unrelated
+  settings were preserved. No version, release tag, package publication or merge.
 - PR #58 remains the original V3 baseline, not a current workbench readiness
   receipt. No new hosted CI is claimed for these local changes.
 - GitHub search found no PR for `codex/v3-learning-workbench` on 2026-09-14.
@@ -27,8 +27,9 @@ Earlier implementation/install receipts remain in Git history.
   vault, seven top-level commands and lazy optional modules.
 - Scoped learn/recall/correct/forget; explicit user statements can be active,
   inference remains provisional, keyed corrections and undo preserve history.
-- Scope-bound stdio MCP, project-local Codex/Claude installers and optional
-  fail-open UserPromptSubmit recall. No default daemon or model call.
+- Scope-bound stdio MCP, user-wide project-aware Codex installation, explicit
+  project-local Codex/Claude connections and fail-open UserPromptSubmit recall.
+  No default daemon or model call.
 - Local web UI for memory/scopes, providers, ordered fallback, budgets,
   consolidation, source conversations and independent module switches.
 - Provider presets, live model discovery, session/environment API keys, an
@@ -129,7 +130,7 @@ Earlier implementation/install receipts remain in Git history.
   Existing host subscription authentication stayed separate from the temporary
   memory/config directories.
 
-## Latest local installation: Codex (2026-09-14)
+## Prior local installation: Codex (2026-09-14)
 
 - At the user's explicit request, installed the existing V3 Codex integration
   in the historical checkout and active V3 worktree. Both use one new, empty
@@ -214,7 +215,7 @@ Earlier implementation/install receipts remain in Git history.
   acceptance boundary instead of repeating sign-in attempts. This optional
   provider check does not block local CLI/MCP integration development.
 
-## This cycle: V2 runtime retirement and global V3 plan
+## Previous cycle: V2 runtime retirement and global V3 plan (`6d9e717`)
 
 - The user's separate local acceptance invoked historical V2 scripts after
   launcher/dependency failures and created a review proposal, not a V3 memory.
@@ -228,8 +229,8 @@ Earlier implementation/install receipts remain in Git history.
   remaining tools. No manually constructed recursive delete was used.
 - The isolated V3 runtime, its selector and both V3/legacy vaults are preserved.
   Outside either checkout, the installed runtime reports `3.0.0a1` and selected
-  vault status successfully. The bare `ai-dememory` command is currently absent
-  from PATH; global V3 replacement is planned, not claimed installed.
+  vault status successfully. At that checkpoint the bare `ai-dememory` command
+  was absent from PATH; the global replacement is delivered in this cycle below.
 - A bounded host inventory found no matching legacy-script/runtime processes or
   DeMemory Windows scheduled tasks. Three relevant Codex automations were already
   paused and remain unchanged. Inspected global Codex config/hooks have no DeMemory
@@ -253,14 +254,93 @@ Earlier implementation/install receipts remain in Git history.
 
 ## Next development cycle
 
-1. Deliver the roadmap's global-command slice with the exact V3 artifact and one
-   selector; then prove native multi-project binding before installing global MCP.
-2. Complete the common scope resolver, owned integration merging/disablement and
-   two-project/worktree/projectless native acceptance. Keep provider login separate.
+1. Global Codex installation is delivered below. Next expose project aliases and
+   exclusions in the existing workbench, using the same small local mapping.
+2. Verify a native linked-worktree episode and task relocation/reconnect. Native
+   new-project and simultaneous-task checks pass; do not generalize them to every
+   client lifecycle/version. Keep provider login separate.
 3. Resume native Hermes/Claude episodes, evidence-backed advisory skill export,
    measured DSH/Hermes reader gaps and selected-provider/fallback acceptance.
 4. Remote service/admin remains later: identity scopes, TLS/key management and
    two-host restart/restore acceptance before any non-loopback exposure.
+
+## This cycle: installed global V3 and native project isolation
+
+- Added automatic local project identity shared by hook, CLI and Codex MCP:
+  Git common-directory identity groups worktrees; unrelated same-name folders
+  and projectless workspaces stay separate. Explicit aliases/exclusions live
+  beside the selector. No transcript read, registry daemon or Git subprocess.
+  Home/root context has no implicit global-write fallback. Alias/exclusion UI
+  is not implemented yet; current controls reuse the harness command.
+- The native CLI and one AppServer with two tasks were probed before binding
+  implementation: each starts its own MCP process in the task directory. Native
+  calls supply thread/turn metadata. Auto MCP fixes its project scope, latches
+  the caller thread and stamps learning identity from that metadata, rather than
+  model guesses. Reused-thread/missing-metadata errors preserve the request ID.
+  This is a tested local-client contract, not remote authentication.
+- Client toggles normalize the generic harness switch without importing the
+  sibling. Auto MCP rechecks module/project disablement and rebinding at every
+  call; exclusions apply across explicit aliases sharing the same project scope.
+  Manual remember/recall now accept `--scope auto` or an explicit scope; their
+  existing default is global. Status reports runtime, selector and project.
+- User installer merges one owned TOML block and hook, preserves unrelated
+  settings, rejects unowned conflicts and retains private ownership receipts.
+  Selector enablement participates in the same rollback transaction. Exact
+  generated local connections can be retired with their scopes retained;
+  uninstall restores only unchanged owned edits, never later user changes.
+- Full regression: 237 tests, 232 passed / five expected Windows symlink skips.
+  Compilation and diff checks pass. The fresh read-only reviewer reproduced
+  and helped close correlated-error, duplicate-hook, shared-exclusion and
+  selector-atomicity defects; independently reran 45 focused tests. This is a
+  functional/ownership review, not a completed formal security scan or release
+  certification. No UI asset changed; rendered browser QA was not repeated.
+- Installed wheel: 111,434 bytes, SHA-256
+  `ebcf99d3d47173b9ed583c342ddcded3dcfeaf5f459b3aa63c5b3ccafc4d1cde`.
+  Built from a disposable copy to preserve pre-existing `build/`. Isolated wheel
+  setup/save/recall/status, schedule/restart and packaged-asset smoke passed.
+  Subsequent documentation edits do not change its tested runtime code.
+- Five native Luna sessions against an installed-wheel disposable vault made
+  ten successful MCP calls: learn Tuesday, simultaneous A/B recall with B empty,
+  correct to Friday, then undo back to Tuesday. A separate projectless scope
+  remained empty. An initial `never` approval policy correctly refused a write;
+  the successful run used Codex's normal automatic approval review. Global
+  approval policy was not weakened and write tools are not labeled read-only.
+- Installed that exact wheel into the existing isolated runtime and exposed its
+  packaged entry point on the already configured user PATH. The previously absent
+  default Windows config directory is a junction to the existing V3 selector,
+  resolved canonically; no managed-login credentials were moved or copied.
+  From outside the checkout, the bare command resolves V3 and the selected vault.
+- Installed one global native Codex MCP plus UserPromptSubmit hook; retired the
+  two exact generated local connections, preserving `project:ai-dememory` in the
+  shared mapping. Normal-host Codex readback confirms enabled stdio, no fixed
+  cwd and `--auto-scope`. A restricted-shell readback did not see the personal
+  Codex config; normal-host verification succeeded without altering permissions.
+- The user trusted the new global hook. Two subsequent fresh native projects
+  using the actual global config each completed context/status calls and recorded
+  one hook receipt. Hook-internal lookup timings were 94/110 ms, not p95 or full
+  process-start latency benchmarks. No canonical memories were created in this
+  read-only check. All owned native test CLI processes exited.
+- Separately, the current task used native MCP learning to save one verified
+  installation outcome and retrieved it again in its bound project scope.
+  Native provenance was stamped correctly; no raw conversation was stored.
+- Post-test host inventory found eight retained MCP connections owned by Codex
+  AppServer processes: each had a small Windows venv launcher plus its Python
+  worker, about 25 MB combined working set per connection (202 MB summed across
+  all eight; shared pages may be counted repeatedly). No probe processes remained.
+  A live parent does not prove an active task, and this snapshot neither proves
+  nor rules out a client lifecycle leak. Global MCP is per loaded connection,
+  not one shared service; retained-connection lifecycle remains a measured gap.
+- Private V3/legacy vaults, account state, unrelated settings and the dirty parent
+  checkout remain intact. Existing client processes may retain their old MCP
+  connection until reconnect/restart; new tasks use the global configuration.
+  No daemon, network listener, history scan, version tag, publication or merge.
+
+Local rollback: run `ai-dememory serve harness-codex uninstall --user` before
+removing its module, then restart Codex. Reinstall the previous local wheel if
+rolling back runtime code. Remove a Windows selector junction only as a link,
+never recursively delete its target. Vaults and credentials are not uninstall
+targets. The installed readme metadata predates this cycle's documentation-only
+clarifications; release packaging must rebuild and refresh exact artifact evidence.
 
 ## Known limits and rollback
 

@@ -332,10 +332,11 @@ class Vault:
         yield from walk(memories)
 
     def remember(
-        self, content: str, title: str | None = None, *, memory_id: str | None = None
+        self, content: str, title: str | None = None, *, memory_id: str | None = None,
+        scope: str = "global",
     ) -> Memory:
         with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
-            return self._remember(content, title, memory_id=memory_id)
+            return self._remember(content, title, memory_id=memory_id, scope=validate_scope(scope))
 
     def _remember(
         self, content: str, title: str | None = None, *, memory_id: str | None = None,
@@ -358,7 +359,7 @@ class Vault:
         if supplied_id:
             existing = self.get(memory_id)
             if existing:
-                if existing.title == clean_title and existing.content == clean_content:
+                if existing.title == clean_title and existing.content == clean_content and existing.scope == scope:
                     return existing
                 raise VaultError(f"Memory id already exists with different content: {memory_id}")
         if self.memory_count() >= MAX_MEMORY_FILES:

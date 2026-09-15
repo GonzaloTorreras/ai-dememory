@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+from pathlib import Path
 import sqlite3
 import sys
 from typing import Any, BinaryIO, TextIO
@@ -16,6 +17,59 @@ from ai_dememory.vault import validate_scope
 
 
 MAX_REQUEST_BYTES = 1_048_576
+
+
+class ClientBinding:
+    """One native Codex stdio process, one launch project and one caller thread.
+
+    Current Codex CLI/AppServer launch an independent process in each task cwd.
+    Native request metadata prevents a pooled process silently crossing threads.
+    This is a local client contract, not authentication against local vault owners.
+    """
+    def __init__(self, cwd):
+        from ai_dememory.projects import resolve_project
+        self.cwd = Path(cwd).resolve()
+        self.scope = resolve_project(self.cwd)["scope"]
+        self.thread = None
+
+    def enabled(self):
+        from ai_dememory.config import load_config
+        from ai_dememory.projects import project_enabled, resolve_project
+        return ("mcp" in load_config().enabled_modules and project_enabled(self.cwd, "codex")
+                and resolve_project(self.cwd)["scope"] == self.scope)
+
+    def check(self, request):
+        if not self.enabled():
+            raise ValueError("DeMemory integration disabled or rebound; reconnect this project")
+        params = request.get("params", {})
+        if not isinstance(params, dict):
+            raise ValueError("params must be an object")
+        meta = params.get("_meta", {})
+        if not isinstance(meta, dict):
+            raise ValueError("Native Codex caller metadata is required")
+        thread = meta.get("threadId")
+        if not isinstance(thread, str) or not 1 <= len(thread) <= 128:
+            raise ValueError("Native Codex thread binding is required; use a project-local connection on other clients")
+        if self.thread is not None and self.thread != thread:
+            raise ValueError("MCP process cannot be shared across Codex threads; reconnect")
+        self.thread = thread
+        if params.get("name") == "memory.learn":
+            trace = meta.get("x-codex-turn-metadata")
+            try:
+                trace = json.loads(trace) if isinstance(trace, str) and len(trace) <= 16000 else trace
+            except ValueError:
+                trace = None
+            arguments = params.get("arguments", {})
+            source = arguments.get("source") if isinstance(arguments, dict) else None
+            if (not isinstance(trace, dict) or not isinstance(source, dict)
+                    or trace.get("thread_id") != thread or not isinstance(trace.get("turn_id"), str)
+                    or not 1 <= len(trace["turn_id"]) <= 128):
+                raise ValueError("Native Codex turn metadata and source evidence are required for learning")
+            # Identity comes from the transport, not a model's guess. Evidence
+            # excerpt/kind remain visible model inputs, validated by the core.
+            source = {**source, "provider": "codex", "session": thread, "turn": trace["turn_id"]}
+            return {**request, "params": {**params, "arguments": {**arguments, "source": source}}}
+        return request
 
 
 def get_manifest() -> ModuleManifest:
@@ -131,6 +185,9 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
                 scope.update({"default": bound_scope, "enum": [bound_scope]})
             if tool["name"] == "memory.propose":
                 tool["description"] = "Unavailable on a scope-bound server; use memory.learn with provisional=true for a scoped candidate."
+    for tool in tools:
+        tool["annotations"] = {"readOnlyHint": tool["name"] in {"memory.search", "memory.get", "memory.context", "memory.status"},
+                               "openWorldHint": False}
     return tools
 
 
@@ -244,13 +301,17 @@ def serve(
 ) -> int:
     parser = argparse.ArgumentParser(prog="ai-dememory serve mcp", exit_on_error=False)
     parser.add_argument("--scope", help="Bind all memory operations to this scope; reads also include global memory")
+    parser.add_argument("--auto-scope", action="store_true", help="Bind to the native Codex task directory and caller thread")
     try:
         options, unknown = parser.parse_known_args(argv or [])
     except argparse.ArgumentError as exc:
         raise ValueError(str(exc)) from exc
     if unknown:
         raise ValueError(f"Unknown mcp arguments: {' '.join(unknown)}")
-    bound_scope = validate_scope(options.scope) if options.scope is not None else None
+    if options.auto_scope and options.scope is not None:
+        raise ValueError("Choose either an explicit scope or native Codex auto scope")
+    binding = ClientBinding(Path.cwd()) if options.auto_scope else None
+    bound_scope = binding.scope if binding else validate_scope(options.scope) if options.scope is not None else None
     source = input_stream or getattr(sys.stdin, "buffer", sys.stdin)
     output = output_stream or getattr(sys.stdout, "buffer", sys.stdout)
     while True:
@@ -274,7 +335,19 @@ def serve(
                 request = json.loads(line)
                 if not isinstance(request, dict):
                     raise ValueError("Request must be a JSON object")
-                response = handle_request(services, request, bound_scope)
+                try:
+                    if binding and request.get("method") == "tools/call":
+                        request = binding.check(request)
+                    if binding and request.get("method") == "tools/list" and not binding.enabled():
+                        response = _response(request.get("id"), {"tools": []})
+                    else:
+                        response = handle_request(services, request, bound_scope)
+                        if binding and request.get("method") == "initialize" and response is not None:
+                            response["result"]["instructions"] += (
+                                " Native Codex binds source provider/session/turn from transport metadata; "
+                                "you may supply 'current' in those three fields. Supply genuine excerpt/evidence_kind yourself.")
+                except (ValueError, OSError, sqlite3.Error) as exc:
+                    response = _response(request.get("id"), error={"code": -32602, "message": str(exc)})
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
                 response = _response(None, error={"code": -32700, "message": str(exc)})
         if response is not None:

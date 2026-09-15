@@ -302,10 +302,6 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 raise ValueError("Choose a module and enabled state")
             if name == "workbench":
                 raise ValueError("Stop the workbench process to disable this dashboard")
-            if name in ("harness-codex", "harness-claude") and discover_modules()["harness"].enabled:
-                # Replace the old common switch while preserving the other client.
-                enable_module("harness-claude" if name == "harness-codex" else "harness-codex")
-                disable_module("harness")
             if enabled:
                 enable_module(name)
             else:

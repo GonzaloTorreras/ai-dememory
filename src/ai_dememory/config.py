@@ -26,7 +26,7 @@ def config_dir() -> Path:
         return Path(override).expanduser().resolve()
     if os.name == "nt":
         base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
-        return (Path(base) if base else Path.home() / "AppData" / "Roaming") / "ai-dememory"
+        return ((Path(base) if base else Path.home() / "AppData" / "Roaming") / "ai-dememory").resolve()
     if os.uname().sysname == "Darwin":
         return Path.home() / "Library" / "Application Support" / "ai-dememory"
     base = os.environ.get("XDG_CONFIG_HOME")
@@ -66,14 +66,18 @@ def load_config() -> AppConfig:
     return AppConfig(default_vault=default, enabled_modules=tuple(sorted(set(enabled))))
 
 
-def save_config(config: AppConfig) -> None:
-    path = config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+def config_text(config: AppConfig) -> str:
     lines = ["schema_version = 1"]
     if config.default_vault:
         lines.append(f"default_vault = {json.dumps(config.default_vault)}")
     lines.extend(("", "[modules]", f"enabled = {json.dumps(list(config.enabled_modules))}", ""))
-    payload = "\n".join(lines)
+    return "\n".join(lines)
+
+
+def save_config(config: AppConfig) -> None:
+    path = config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = config_text(config)
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -102,6 +106,9 @@ def select_vault(path: Path) -> AppConfig:
 def set_module_enabled(module_id: str, enabled: bool) -> AppConfig:
     config = load_config()
     modules = set(config.enabled_modules)
+    if module_id in {"harness-codex", "harness-claude"} and "harness" in modules:
+        modules.remove("harness")
+        modules.update({"harness-codex", "harness-claude"})
     if enabled:
         modules.add(module_id)
     else:
@@ -109,3 +116,8 @@ def set_module_enabled(module_id: str, enabled: bool) -> AppConfig:
     updated = replace(config, enabled_modules=tuple(sorted(modules)))
     save_config(updated)
     return updated
+
+
+def harness_enabled(client: str) -> bool:
+    modules = load_config().enabled_modules
+    return "harness" in modules or f"harness-{client}" in modules

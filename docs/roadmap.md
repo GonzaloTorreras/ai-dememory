@@ -2,7 +2,7 @@
 
 This is the single active product plan. Updated 2026-09-15 after the local
 V2 fallback incident and the request for global V3 installation. Global local
-usability now takes priority over procedural export and further ingestion features.
+usability takes priority over procedural export and further ingestion features.
 
 ## Product outcome
 
@@ -58,8 +58,8 @@ Every row is a complete user-visible slice, not empty interfaces.
 | --- | --- | --- |
 | Local learning workbench (implemented alpha) | Configure providers and ordered fallback, learn a scoped fact, retrieve its relevant passage, inspect activity, set consolidation interval and budgets in UI | Settings survive restart; mocked provider failure selects fallback within budget; invalid input creates no memory; inference stays provisional. Live model acceptance remains pending |
 | Correction and hygiene (implemented alpha) | Explicit keyed replacement, exact unkeyed dedupe, undo, inactive-state filtering and durable extraction receipts | Completed extraction retries return original admissions without another provider call; correction wins only in its scope; history remains inspectable. Interrupted two-store writes remain a documented limit |
-| Codex integration (project-local alpha verified) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions completed the MCP learning/correction/undo episode; current-task hook context is now observed. Global and simultaneous-project acceptance are not yet verified |
-| Global V3 installation (now, planned) | One V3 command and selector, project-aware client integration, no V2 fallback or duplicate recall | Installed-package episodes in two fresh projects, a worktree and a projectless task; restart/upgrade preserve scopes and settings. Complete the ordered slices below before claiming all-project support |
+| Codex integration (earlier project-local alpha evidence) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions completed the project-local MCP learning/correction/undo episode. This historical checkpoint is extended by the global acceptance below |
+| Global V3 installation (installed local alpha) | One V3 command and selector, native project-bound Codex MCP and one trusted prompt hook, no V2 fallback | Native installed learning/correction/undo and simultaneous project isolation pass; two new projects use the actual global configuration and trusted hooks. Worktree identity has deterministic tests; wider client/version and lifecycle cases remain below |
 | Hermes and Claude (Hermes adapter implemented alpha) | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Synthetic Hermes-adapter → MCP correction → Hermes undo passes; transcript/mirror callbacks are no-op. Full native Hermes/Claude episodes remain pending |
 | Incremental ingestion (Codex history implemented alpha) | Authorized native Codex deltas, occurrence receipts, durable byte cursors, bounded folder pagination and visible progress | Failed windows retain their exact range across append/restart; separate positions remain separate occurrences; no re-extraction on assistant-only activity. Native rotation/rewrite and other harnesses remain incomplete |
 | Consolidation and skills (scoped scheduling implemented alpha) | One saved scope/cadence, deterministic project cleanup and visible manual target; procedural knowledge and tested skill export follow global installation | Scope and cadence survive restart; other-scope manual runs do not postpone them; repeated cleanup converges without model calls. Future recipes must work in a second case with tests and rollback |
@@ -73,15 +73,19 @@ bounded recent-window extraction, not exhaustive unattended ingestion.
 
 ## Now: one global V3 installation, isolated projects
 
-The failed local acceptance found a V2 launcher and fell back to historical V2
-scripts. That is not V3 acceptance. The owned V2 tool installation has now been
-removed; the existing isolated V3 runtime and vault remain intact. The bare
-global command is temporarily absent, not silently redirected to another version.
-See [development status](development-status.md) for the verified local receipt.
+V2's owned tool installation is removed. The native V3 command now works outside
+the checkout through one selected configuration. `serve harness-codex install
+--user` installs an owned global MCP block and one prompt hook; exact known
+project connections can be retired without changing their scopes. The user's
+global installation and trusted hooks passed native read-only checks in two new
+projects. See [development status](development-status.md) for the exact receipt.
 
-These are planned changes, not currently supported installer options. Deliver
-each slice end to end, using the existing setup, harness, status and UI surfaces.
-Do not add a launcher framework, identity service, daemon or new top-level CLI.
+The original slices below remain the acceptance contract, not five new tasks.
+Runtime binding, installer ownership, scope controls and CLI diagnostics are
+implemented. Project-settings UI and broader lifecycle/client acceptance are
+still follow-up work; do not claim those from the local alpha receipt. Keep the
+existing setup, harness, status and UI surfaces, with no additional framework,
+daemon or top-level CLI.
 
 1. **One discoverable command and one selector.** Install the exact local V3 wheel
    into one stable per-user runtime and expose its packaged entry point on PATH.
@@ -107,15 +111,17 @@ Do not add a launcher framework, identity service, daemon or new top-level CLI.
 3. **One small shared project resolver.** Explicit local folder-to-scope mappings
    take precedence. Git worktrees share their Git common-directory identity by
    default; unrelated clones/folders do not merge by basename or remote URL.
-   Persist an opaque local project ID with an editable display name, so a rename
-   can be rebound deliberately without losing memory. Give projectless task
+   Derive an opaque ID deterministically from local identity; persist only
+   explicit aliases/exclusions, so a rename can be rebound deliberately without
+   losing memory. This avoids an automatically written discovery registry. Give projectless task
    workspaces their own identity. An unknown/home context must not silently write
    global memory: ask for a project binding or skip project recall with an
    actionable diagnostic. Use trusted hook cwd, never transcript contents, for
    hook resolution. Make global sharing explicit, preserve project-plus-global
    reads, and reuse the same resolver in each verified client adapter. Add scope
    selection to existing manual remember/recall and show resolution/reason in
-   status/UI. Prove same-name folder separation and intentional worktree sharing.
+   status (implemented); add project editing to UI next. Prove same-name folder
+   separation and intentional worktree sharing.
 4. **One owned integration per event.** Extend the existing installer with a user
    target and idempotent merge/uninstall of identifiable DeMemory entries. Parse
    and preserve unrelated TOML/JSON, keep local before/after rollback material
@@ -147,7 +153,13 @@ executing historical V2 scripts to repair V3. The old dirty checkout contains th
 active worktree and shared Git metadata: keep it until its edits are inventoried
 and V3 can be moved safely to a standalone checkout. Any later source cleanup is
 a reviewed change in the V3 branch, not recursive deletion of that parent or of
-private V2/test vaults. No V2 memory-format migration is being introduced.
+  private V2/test vaults. No V2 memory-format migration is being introduced.
+
+Next small usability slice: expose the existing aliases and per-project
+include/exclude controls in the workbench, without introducing another policy
+store. Then verify a native linked-worktree episode and task relocation/reconnect,
+before extending automatic bindings to other harnesses. The current global
+adapter is Codex-only; Claude/Hermes retain their documented local bindings.
 
 ## Model routing
 
