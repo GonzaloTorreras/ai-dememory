@@ -22,6 +22,10 @@ class VaultError(ValueError):
     pass
 
 
+class VaultBusyError(VaultError):
+    """A different writer holds the local lock; callers may retry later."""
+
+
 MAX_MEMORY_BYTES = 2_000_000
 MAX_MEMORY_CONTENT_BYTES = 1_900_000
 MAX_MEMORY_FILES = 10_000
@@ -81,7 +85,7 @@ def _exclusive_write_lock(path: Path) -> Iterator[None]:
 
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
-            raise VaultError("Another memory write is already in progress; retry the command") from exc
+            raise VaultBusyError("Another memory write is already in progress; retry the command") from exc
         try:
             yield
         finally:

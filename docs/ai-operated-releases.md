@@ -1,142 +1,55 @@
-# Agent-Operated, Approval-Gated Releases
+# V3 release workflow
 
-## Ownership model
+This is the current release runbook. V2 scripts, private-vault release receipts,
+`intent=recover` and the old task DAG do not apply to the clean V3 package.
 
-ai-dememory is operationally maintained by Codex and human-account-owned. Codex
-has standing authority to implement, test, prepare release PRs, update proposed
-versions and changelog entries, collect exact-artifact evidence, coordinate
-independent review and prepare fix-forward recovery.
+Implementation/PR work is separate from authorization to merge, tag and publish.
+Obtain user authorization for those gates and a fresh read-only review of the
+exact proposed head. Never weaken repository protection or OIDC to finish a run.
 
-Routine exact-head merge is covered by the owner's standing delegation after
-strict CI, a fresh read-only review, and the owner-account receipt. Immutable
-tag creation, trusted-publishing dispatch, and package publication remain
-important actions that require explicit user authorization. Automated gates
-establish technical readiness; they do not grant those release
-authorizations. Gonzalo's account or a future organization remains the legal
-GitHub and PyPI owner and the destructive break-glass authority.
+1. Update `src/ai_dememory/__init__.py` (dynamic package version) and add a dated,
+   nonempty `## [VERSION] - YYYY-MM-DD` changelog section. The date must be the
+   dispatch day's UTC date. Summarize the actual alpha limits, not just features.
+2. Run focused tests, the complete `tests_v3` suite, compilation and an isolated
+   wheel/CLI smoke. CI tests Windows/macOS/Linux, Python 3.11-3.13. The required
+   `verify` check aggregates all compatibility matrix jobs.
+3. Refresh the PR body with base/head, scope, evidence, tests, remaining risks,
+   rollback and approval. Obtain fresh exact-head review and green required CI;
+   merge only the reviewed head. Then require green **push CI on current main**.
+4. Dispatch `tag-release.yml` from main with `tag=vVERSION`, the exact 40-character
+   `approved_sha`, and `confirm=release-vVERSION@SHA`. It verifies current-main
+   identity, version/date and green push CI, then creates an immutable annotated
+   tag. Tagging alone does not publish.
+5. Dispatch `release.yml` from main with the same tag/SHA and
+   `confirm=publish-vVERSION@SHA`. There is no `intent` input. The publisher
+   rechecks identity and tests, builds once, checks wheel/sdist contents, runs
+   installed CLI smoke, records SHA-256 sums and creates artifact attestations.
+6. Under the current policy, alpha/beta/RC versions go to **TestPyPI**, final
+   versions to **PyPI**. The corresponding GitHub environment and Trusted Publisher
+   must authorize `GonzaloTorreras/ai-dememory`, workflow `release.yml`. No static
+   publishing token is stored. Changing the target policy requires a reviewed
+   workflow change and explicit release-channel choice.
+7. The workflow verifies an exact-version installation from that index, then
+   creates a GitHub release with the artifacts, checksums and generated notes.
+   The checked-in changelog retains the detailed product history.
 
-`release_ready`, `publish_ready`, and manual acceptance are local
-product-quality/sign-off evidence. The release handoff must disclose their
-remaining blockers, but `.github/workflows/release.yml` cannot read
-private-vault receipts and does not enforce those fields. Explicit owner
-authorization decides whether any disclosed residual gap is acceptable; the
-workflow's hard gates are immutable identity, ancestry, exact artifacts,
-tests, attestations, OIDC and post-index installation.
+`publish.yml` is an optional read-only build preflight (`confirm=preflight`),
+not an alternate upload or recovery workflow. No package publishing occurs on
+ordinary pushes or tag pushes.
 
-## Canonical flow
+## Verification and recovery
 
-1. Codex prepares a normal PR that changes `project.version` and adds one dated,
-   non-empty `CHANGELOG.md` section for that exact version. The section is the
-   canonical GitHub Release body; its checked-in comparison link keeps the
-   published history traceable. Product acceptance reports may accompany the
-   PR but do not gate package integrity.
-2. CI runs compile, schema, secret, MCP, release, unit, install, package and
-   Docker smokes. A fresh read-only reviewer checks the exact PR tuple.
-3. Codex presents the exact PR, head/base SHAs, CI and release evidence, obtains
-   a fresh `READY` review, posts the exact-tuple `codex-solo-review` receipt,
-   and merges with `expected_head_sha` under the standing repository
-   delegation. This merge does not authorize a tag or publication.
-4. After the reviewed merge and successful CI on `main`, the user explicitly
-   dispatches `tag-release.yml` with the exact `v<version>`, the exact
-   40-character current-main commit, and
-   `confirm=release-<tag>@<approved_sha>`. The workflow rechecks current
-   `main`, a successful push-CI run for that SHA, version/changelog identity,
-   and immutable-tag collisions before creating the annotated tag. The early
-   approval step validates only the exact confirmation and SHA; canonical tag
-   syntax is validated once by `ai_release_guard.py` after checkout and before
-   any tag mutation, avoiding a second regex that can drift from PEP 440.
-5. The tagger stops. It keeps Actions read-only and does not dispatch the
-   publisher. The user separately dispatches `release.yml` with `intent`, the
-   same exact tag and commit, and
-   `confirm=<intent>-<tag>@<approved_sha>`. This is the explicit publication
-   authorization and avoids relying on a tag `push` event that GitHub suppresses
-   when the tag was created with `GITHUB_TOKEN`.
-6. `release.yml` validates repository identity, the exact tag/commit tuple,
-   tag syntax, tag-version-changelog alignment and ancestry from `origin/main`.
-   The guard rejects a missing, duplicated or empty exact-version section. Its
-   deliberately strict release-note grammar accepts only column-zero ATX `##`
-   boundaries. Indented or Setext H2 forms, fenced code, HTML comments and raw
-   HTML blocks fail closed; nested headings must use H3. This avoids parser
-   differentials and prevents text from an adjacent release entering the
-   generated notes.
-7. The workflow builds wheel and sdist once, runs `twine check`, installs and
-   executes both exact artifacts in isolated environments, and extracts the
-   exact changelog section into a new, repository-contained
-   `RELEASE_NOTES.md` using exclusive creation. The release
-   bundle includes those notes and their SHA-256 checksum alongside the package
-   checksums and GitHub artifact attestations.
-8. PEP 440 prereleases publish to TestPyPI; final versions publish to PyPI.
-   Publishing uses the tag, workflow filename and GitHub environment as the
-   Trusted Publisher OIDC identity. No static package token is stored.
-9. The workflow installs the exact version from its target index, checks the
-   CLI and then creates the GitHub Release with artifacts and checksums. It
-   passes the bundled file through `gh release create --notes-file`; GitHub's
-   generated-note heuristics cannot replace or silently expand the reviewed
-   changelog section.
+Record the merged SHA, CI/tag/publish run URLs, target index/version, artifact
+hashes, installed-version readback and any unverified acceptance in the handoff.
+Do not call a run published merely because it was dispatched or built.
 
-## Release authorization
+An environment approval or Trusted Publisher mismatch is an external blocker;
+do not substitute credentials or bypass checks. If an upload partly succeeded,
+inspect index hashes before retrying; do not overwrite versions or add
+`skip-existing` to hide mismatches. Recovery after a successful upload may require
+an explicit reviewed fix-forward workflow or a new version, not a blind rerun.
 
-There is no repository variable that can convert every future green merge into
-a release. Before dispatching the manual tag workflow, all of these must be
-true:
-
-- `main` protection is active and the `v*` ruleset rejects deletion and
-  non-fast-forward updates, making every existing release tag immutable;
-- while the repository remains under a personal owner, GitHub does not accept
-  its native Actions integration as a repository-ruleset bypass actor. New tag
-  creation is therefore limited by repository write access plus the exact,
-  manual tagger. A direct tag does not trigger publication. If the repository
-  moves to an organization or installs a dedicated tagger App, add the
-  creation rule with only that installed integration as bypass before treating
-  creation as ruleset-enforced;
-- GitHub environments `testpypi` and `pypi` exist with the intended approval
-  policy and no alternate publisher identity;
-- PyPI and TestPyPI Trusted Publishers point exactly to
-  `GonzaloTorreras/ai-dememory`, `.github/workflows/release.yml`, and their
-  matching environment;
-- an RC tag has completed the TestPyPI and post-install path;
-- the recovery runbook has been exercised without uploading a duplicate;
-- the owner has approved the exact tag and commit tuple shown in the dispatch.
-
-A green CI run or reviewed merge with a new version is never tag or publication
-authorization by itself. Creating the approved tag does not trigger
-publication. Tag authorization and publication authorization are two separate
-manual dispatches, each bound to the same immutable tuple. `release.yml` is intentionally
-`workflow_dispatch`-only, so a direct `v*` push is not a publisher path.
-
-`.github/workflows/publish.yml` is not a recovery publisher. It is a retained
-manual, read-only readiness preflight with `confirm=preflight`. It has no OIDC,
-package environment, artifact-transfer, tag-push, release-creation, or upload
-capability. Both package-index Trusted Publisher identities must reference only
-`.github/workflows/release.yml`.
-
-## Recovery and rollback
-
-`release.yml` accepts `intent=recover` for an existing tag and requires the
-exact confirmation `recover-<tag>@<approved_sha>`. The dispatch itself requires
-explicit user approval. It checks out and republishes only that exact immutable
-identity. PyPI versions and tags are never overwritten or reused. If an
-artifact is already present, compare index hashes with `SHA256SUMS`; mismatch
-is an incident, not a reason to use `skip-existing`.
-
-For a bad release:
-
-1. preserve the tag, workflow run and attestation;
-2. yank the PyPI version with a public reason;
-3. annotate the GitHub Release and open an incident issue;
-4. fix forward with a new patch version and changelog entry;
-5. never delete the release as a substitute for provenance.
-
-Account recovery, legal or billing changes, trusted-publisher ownership changes,
-compromise and destructive break-glass remain separately human-controlled.
-
-## Lessons incorporated from Clawpatch
-
-- one canonical release workflow owns validation, publication and GitHub
-  Release creation;
-- tag-version-changelog alignment is checked before publishing;
-- the packed artifact is installed into an isolated temporary environment and
-  the installed CLI is exercised against a synthetic fixture;
-- release evidence includes package URLs, checksums, CI/run URLs and test proof;
-- workflow, documentation and agent-facing release instructions are changed
-  together so release skills cannot drift from the actual OIDC path.
+For a bad package, preserve its tag/evidence, obtain approval to yank with a public
+reason, annotate the release, and fix forward. Never delete/reuse a public tag or
+package version. Local rollback reinstalls the previous wheel; remove owned
+integrations first where necessary, never delete a user's memory/account data.

@@ -51,14 +51,14 @@ def _replace_block(text, old, new):
     return result
 
 
-def _replace_hook(text, old, new):
+def _replace_hook(text, old, new, event="UserPromptSubmit"):
     data = json.loads(text or "{}")
     if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
         raise ValueError("Invalid hooks.json")
     events = data.setdefault("hooks", {})
-    groups = events.setdefault("UserPromptSubmit", [])
+    groups = events.setdefault(event, [])
     if not isinstance(groups, list) or any(not isinstance(g, dict) or not isinstance(g.get("hooks", []), list) for g in groups):
-        raise ValueError("Invalid UserPromptSubmit hooks")
+        raise ValueError(f"Invalid {event} hooks")
     matches = sum(h == old for g in groups for h in g.get("hooks", [])) if old else 0
     if old and matches != 1:
         raise ValueError("Managed hook was edited or duplicated; review before reinstalling")
@@ -124,7 +124,12 @@ def install_user(vault, *, remove=False, projects=()):
         if "ai_dememory.harness" in json.dumps(inline):
             raise ValueError("Inline DeMemory hooks need explicit cleanup before global install")
         new_toml = _replace_block(old_toml or "", receipt.get("block"), "" if remove else block)
-        new_json = _replace_hook(old_json, receipt.get("hook"), None if remove else hook)
+        old_hooks = receipt.get("hooks", {"UserPromptSubmit": receipt.get("hook")})
+        hooks = {"UserPromptSubmit": hook, "SessionStart": {
+            **hook, "statusMessage": "DeMemory V3: prepare memory for this session"}}
+        new_json = old_json
+        for event in sorted(set(old_hooks) | set(hooks)):
+            new_json = _replace_hook(new_json, old_hooks.get(event), None if remove else hooks.get(event), event)
         changes = [(config_path, old_toml, new_toml), (hook_path, old_json, new_json)]
         retired = receipt.get("retired_project_files", [])
         if remove:
@@ -163,7 +168,7 @@ def install_user(vault, *, remove=False, projects=()):
             enabled = tuple(sorted(set(selected.enabled_modules) | {"mcp"}))
             changes.append((selector_path(), before, config_text(replace(selected, enabled_modules=enabled))))
             new_receipt = {"schema_version": 1, "home": str(home), "block": block,
-                           "hook": hook, "retired_project_files": retired}
+                           "hooks": hooks, "retired_project_files": retired}
             changes.append((receipt_path, receipt_raw, json.dumps(new_receipt, indent=2) + "\n"))
         # Everything, including restore targets, is parsed/preflighted before writes.
         _transaction(changes)

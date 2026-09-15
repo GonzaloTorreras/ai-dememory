@@ -1,8 +1,8 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-15 after the local
-V2 fallback incident and the request for global V3 installation. Global local
-usability takes priority over procedural export and further ingestion features.
+This is the single active product plan. Updated 2026-09-16 for first-run Codex
+hooks and opt-in Windows consolidation. Usable global installation takes priority
+over procedural export, remote networking and further ingestion frameworks.
 
 ## Product outcome
 
@@ -20,13 +20,23 @@ several hosts.
   provenance, scoped retrieval and reversible corrections. Inferences remain
   provisional; explicit user corrections need no second approval.
 - Package installation stays passive. An enabled workbench is an explicit
-  foreground process with local web UI and optional scheduled jobs.
+  foreground process with local web UI and optional scheduled jobs. An explicitly
+  installed Windows one-shot task checks consolidation without a resident worker;
+  source ingestion continues to require the foreground workbench.
 - Keep operational cursors, budget reservations and job receipts outside the
   disposable index. They must survive an index rebuild.
 - No V2 migration, new gate DAG, per-function ADRs, adaptive ranking reward,
   default vectors or separate Node runtime.
 
 ## Delivery sequence
+
+Current increment: `setup --with-codex --with-schedule --yes` installs the optional
+global Codex hooks/MCP and current-user Windows consolidation task. SessionStart
+restores brief guidance after resume/compact without a Stop continuation loop.
+The OS task shares the existing scope/cadence/budgets and job lock with the UI,
+has owned install/status/remove and does not enable history ingestion. See
+[automation](automation.md). Native task acceptance and publication receipts are
+recorded in development status, not inferred from this plan.
 
 Latest local fix: Codex provider startup prefers the native Windows executable
 over shell launchers, retains strict explicit overrides and gives actionable

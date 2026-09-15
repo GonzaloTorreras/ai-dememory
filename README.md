@@ -5,7 +5,8 @@ to inspect and edit. Markdown is the memory source of truth. Search SQLite is
 disposable; optional provider budgets and job receipts are separate durable state.
 
 The current development branch is rebuilding the product as V3. The source version is
-`3.0.0a1`; it is not published yet. V3 deliberately does not migrate or emulate
+`3.0.0a2` (alpha). See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
+for published artifacts and the target index. V3 deliberately does not migrate or emulate
 2.x. Existing historical/test vaults remain separate and must not be deleted
 when replacing the installed package.
 
@@ -19,9 +20,10 @@ ai-dememory setup
 ai-dememory remember "Markdown is the canonical memory." --title "Storage rule"
 ```
 
-`setup` explains one concrete action: where the vault will live, what it will
-create, and what it will not do. It creates no daemon, starts no child process,
-calls no model, and uses no network. The selected vault is saved in the user's
+`setup` explains where the vault will live and offers optional Codex integration
+and a Windows consolidation task. Declining both keeps the core passive: no
+daemon, child process, model call or network. Explicit extras register client/OS
+configuration but do not start a model or scan conversations. The selected vault is saved in the user's
 local configuration, so normal commands work from any directory. After setup it
 prints the selected location, index state and one next command instead of a raw
 configuration dump.
@@ -52,17 +54,21 @@ Use `--vault <path>` only when deliberately overriding the saved default.
 Connect Codex across local projects with one optional user-level installation:
 
 ```bash
-ai-dememory module enable harness-codex
-ai-dememory serve harness-codex install --user
+ai-dememory setup --with-codex --yes
 ```
 
-Restart Codex and trust the generated UserPromptSubmit command in `/hooks`.
+Restart Codex and trust the generated UserPromptSubmit and SessionStart commands in `/hooks`.
 Each task receives its own project scope; Git worktrees share their project.
 The hook recalls relevant memory without reading transcripts or calling another
 model. The host assistant can learn useful facts through the same scoped MCP.
 Normal Codex tool-approval settings still apply. See [integration setup and
 rollback](docs/integrations.md). Use this branch's built package or source,
 not historical V2 scripts, when testing V3.
+
+On Windows, add `--with-schedule` to that setup command for weekly consolidation
+without leaving the dashboard open. Existing cadence/scope are preserved; change
+them in the dashboard. This is one hourly check, not a resident service. See
+[setup, hooks and scheduled work](docs/automation.md) for costs, limits and removal.
 
 Manual `remember` and `recall` default to shared global memory. Add `--scope auto`
 to use the current project, or `--scope project:NAME` for an explicit scope.
@@ -146,9 +152,9 @@ current workbench session or loaded from environment-variable references;
 neither is saved as plaintext in the vault. An optional `codex-subscription`
 module provides isolated managed login; its authenticated generation acceptance
 is still pending. It is not generic OAuth for other providers.
-Scheduled jobs run only
-while the foreground service runs; one job runs at a time and the UI waits
-during provider calls. Optional source schedules require separate explicit
+Scheduled jobs run while the foreground service runs; an optional Windows task
+can check consolidation without it. One consolidation runs at a time, and the
+foreground UI waits during its own provider calls. Optional source schedules require separate explicit
 opt-in; enabling the dashboard alone does not import conversations. Remote
 access remains a later slice.
 

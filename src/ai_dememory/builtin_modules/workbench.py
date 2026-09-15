@@ -238,12 +238,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 scope = query.get("scope", ["global"])[0]
                 settings = load_settings(self.server.services.vault)
                 from ai_dememory.provider_plugins import provider_descriptions
+                from ai_dememory.scheduled import receipt_status
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
                     "settings": settings,
                     "credentials": self.server.credential_status(settings),
                     "schedule": self.server.jobs.schedule_status(),
+                    "scheduled_task": receipt_status(self.server.services.vault),
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
                     "modules": [item.to_dict() for item in discover_modules().values()],
@@ -355,7 +357,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 def serve(services, argv=None):
     parser = argparse.ArgumentParser(prog="ai-dememory serve workbench")
     parser.add_argument("--port", type=int, default=8765)
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--run-due", action="store_true", help="Check consolidation once and exit; no server or history ingestion.")
+    actions.add_argument("--task", choices=("install", "status", "remove"), help="Manage the opt-in Windows consolidation task.")
     args = parser.parse_args(argv)
+    if args.run_due or args.task:
+        from ai_dememory.scheduled import manage_task, run_due
+        result = manage_task(services.vault, args.task) if args.task else run_due(services.vault)
+        print(json.dumps(result, indent=2))
+        return 1 if result.get("error") else 0
     if not 1 <= args.port <= 65535:
         raise ValueError("Port must be between 1 and 65535")
     with WorkbenchServer(services, args.port) as server:

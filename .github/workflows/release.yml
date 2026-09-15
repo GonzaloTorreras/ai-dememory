@@ -64,6 +64,7 @@ jobs:
           test "$successful_runs" -ge 1
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" =~ [A-Za-z] ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          python -m pip install .
           python -m compileall -q src/ai_dememory
           python -m unittest discover -s tests_v3 -t .
 

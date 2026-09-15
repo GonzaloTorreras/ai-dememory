@@ -1,156 +1,57 @@
-# Installation
+# Install V3 and start using memory
 
-This repository distributes the `ai-dememory` tool. Personal memory belongs in
-a separate private vault, never in this public repository.
-
-**Release scope:** ai-dememory 2.1.1 is the current stable PyPI release.
-Source candidate: 2.1.2, unreleased; it is not installable from a package index
-until it is tagged and published.
-
-## Install And Run The Wizard
-
-Use `pipx` for normal CLI use: it keeps the Python application isolated while
-putting `ai-dememory` on your `PATH`.
+V3 is an alpha and deliberately does not migrate V2. Keep historical vaults
+separate. Use a versioned V3 wheel from [Releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
+or the V3 source checkout with Python 3.11 or newer:
 
 ```bash
-pipx install ai-dememory
-ai-dememory init ~/code/my-memory --wizard
+python -m pip install .
+ai-dememory setup
 ```
 
-This is the shortest first-run path for the stable package.
+The setup explains the vault location, then offers optional global Codex
+integration and, on Windows, scheduled consolidation. Decline both for a purely
+manual local vault. Package installation itself does not modify harness settings.
 
-`uv` users can replace the first command with
-`uv tool install ai-dememory`. On Windows, use a private path such as
-`D:\Memory\my-vault`.
+The default vault is saved in your user configuration. You can subsequently run
+`ai-dememory status`, `remember`, `recall` and `serve` from any directory; you do
+not need to enter the vault. `--vault PATH` is only an intentional override.
 
-The wizard previews the bounded operational setup, shows its limits and exact
-fingerprint, and asks once before it writes `.ai-dememory.toml`. It does not
-import chats, create personal memory, install hooks or schedules, or edit a
-client configuration. `balanced` is the recommended first-run intensity.
+## Codex and optional scheduled work
 
-The upcoming 2.1.2 correction then offers to remember the selected vault as
-this machine's local default. That is explicit opt-in and stores only the
-absolute path in per-user configuration outside the vault; it does not store,
-inspect, or move memory. `--root` and `AI_DEMEMORY_ROOT` remain available for
-another vault. Managing an existing default belongs in the
-[operations runbook](operations.md), not in first-run setup.
+```powershell
+ai-dememory setup --with-codex --with-schedule --yes
+ai-dememory serve workbench
+```
 
-The wizard is the only required first-run command after installation.
+`--with-schedule` is Windows-only; omit it on other systems. This reuses an
+existing selected vault and preserves configured provider routes and budgets.
+Restart Codex and trust the generated UserPromptSubmit and SessionStart hooks in
+`/hooks`. The dashboard is at `http://127.0.0.1:8765`; it remains local-only.
 
-Manual edits are not required. If you maintain an existing customized vault,
-the 2.1.2 candidate validates real TOML, known fields, and exact types before
-the wizard writes anything. See [Vault Configuration](configuration.md) for the
-contract and the short migration checklist.
+No provider login is needed for direct memory tools or recall hooks. A separately
+configured provider is only needed for extracting conversation lessons or model
+summary proposals. Configure those in the dashboard, not through a long chain
+of installation commands. See [the workbench guide](workbench.md).
 
-## Connect An AI Client (Optional)
+The optional Windows task checks the consolidation schedule hourly and exits.
+New schedules default to weekly/global; choose scope and cadence in the dashboard.
+It does not ingest history, wake the PC or run while logged out. Costs, credentials,
+task status and removal are explained in [automation](automation.md).
 
-Connecting Codex, Claude, or another client is deliberately separate: inspect
-the generated fragment before copying it into the host configuration.
-The wizard stops before this boundary because it cannot safely choose or edit a
-host application's configuration on your behalf.
+## Verify the basic loop
 
 ```bash
-ai-dememory --root ~/code/my-memory mcp-config --client codex
+ai-dememory remember "A useful fact I explicitly want to keep"
+ai-dememory recall "useful fact"
+ai-dememory status
 ```
 
-The generated runtime command contains the bound vault, a reduced `core`
-profile, and an idle lease. First-run users do not need to hand-assemble its
-internal runtime arguments.
+Manual commands default to global. Add `--scope auto` for the current project.
+Saving verifies the Markdown readback; searching lazily builds disposable SQLite.
 
-## Upgrade Or Diagnose
-
-Repair an existing pipx install with the current stable package. Use the
-standard `--version` output only when diagnosing a PATH or package issue.
-
-```bash
-pipx install --force ai-dememory
-ai-dememory --version
-```
-
-If `pipx` is unavailable, use a virtual environment or see the
-[distribution guide](distribution.md). Contributors should use a reviewed local
-checkout and the development instructions in `DEVELOPMENT.md`; local/editable
-installs are not a normal user path.
-
-## What The Published Wizard Configures
-
-The interactive wizard changes operational policy only. Personal values,
-preferences, recommendations, and project profiles stay in the separate,
-optional `onboard` review/apply flow. For automation, the machine-readable
-`setup plan --json` preview remains available, but it is not needed before an
-interactive first run.
-
-| Intensity | Recall per eligible turn | Potential cadence if you later install it | Provider candidates/run | File/scan ceilings |
-| --- | ---: | --- | ---: | --- |
-| `minimal` | manual only | weekly | 5 | 32 KiB / 500 entries |
-| `balanced` | up to 1,200 tokens | daily + weekly | 20 | 64 KiB / 2,500 entries |
-| `active` | up to 2,400 tokens | daily + weekly | 50 | 128 KiB / 10,000 entries |
-
-`active` is a maximum bounded envelope, not an unlimited mode. The table is a
-policy preview: the wizard leaves scheduling disabled, so no cadence begins
-until you separately review and install one. Host-AI policy is also separate:
-`off` permits deterministic local tools only, `advisory` lets an already active
-host agent recommend, and `proposals` lets it draft review-first inbox
-proposals. ai-dememory makes zero model and embedding calls in every option;
-any model consumption belongs to an agent you separately run, not to the
-wizard.
-
-## Optional Personal Baseline (`onboard`)
-
-The operational wizard deliberately does not collect personal values,
-preferences, recommendations, or project profiles. If you choose to create a
-reviewed durable baseline later, use the separate interactive preview:
-
-```bash
-ai-dememory --root ~/code/my-memory onboard
-```
-
-It explains every field, gives examples, and retries blank required answers.
-It creates no operational policy change; after preview you still review its
-fingerprint before a separate apply. Do not enter secrets, tokens, or private
-keys in either flow.
-
-To create a reusable private GitHub vault template instead of a single vault,
-use `ai-dememory vault-template export ~/code/ai-dememory-vault-template` and
-follow [Create A Memory Repo](create-memory-repo.md).
-
-## Start Using The Vault
-
-After a successful wizard, no further command is required. The actions below
-are optional: choose one only when its stated condition applies.
-
-The wizard is intentionally configuration-only. It does not scan a provider
-folder, create durable personal memory, or build an index. When you add
-reviewed Markdown that you want to recall, build the disposable local index:
-
-```bash
-ai-dememory --root ~/code/my-memory index
-```
-
-Run `ai-dememory --root ~/code/my-memory doctor` or
-`ai-dememory --root ~/code/my-memory setup health --json` only when you need a
-diagnostic; neither is a prerequisite for the first run.
-
-## Advanced Guides (Not Part Of Installation)
-
-These capabilities are deliberately separate from the wizard because they can
-connect another application, read optional provider data, start a local server,
-or create maintenance automation. Use the focused guide only when you choose
-that capability:
-
-- [Local MCP](local-mcp.md): inspectable client fragments and profiles; Docker
-  diagnostics are maintainer-only.
-- [MCP client configuration](mcp-client-config.md): Codex, Claude, and generic
-  host setup.
-- [Local REST API](local-api.md): localhost API and its network-binding
-  safeguards.
-- [Hook integrations](hooks.md): trust-gated lifecycle hooks.
-- [Scheduler and maintenance](scheduler.md): dry runs, provider imports, and
-  resource-bounded schedules.
-- [Operations runbook](operations.md): diagnostics, maintenance, and upgrade
-  procedures for an existing vault.
-- [Distribution guide](distribution.md): contributor, package, and release
-  procedures. Publishing is intentionally not an installation task.
-
-For repository development, use [DEVELOPMENT.md](../DEVELOPMENT.md) rather than
-the end-user installation path.
+If status cannot find the vault, inspect the Configuration path it uses, check
+an existing `AI_DEMEMORY_CONFIG_DIR` override, and run `ai-dememory setup PATH`
+once in the same normal user terminal. Do not create another vault just to work
+around a stale selector. `ai-dememory --version` must show V3; do not use old
+`setup wizard`, `--root`, `api`, or source-script commands from V2 documentation.

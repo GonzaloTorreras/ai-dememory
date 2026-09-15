@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 2026-09-15. This is the current handoff, not an accumulated backlog.
+Updated: 2026-09-16. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
 
 ## Checkout and release reality
@@ -9,12 +9,12 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `ae0f30a`.
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `0b45e42`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now
+- Source is prepared as `3.0.0a2`, not yet published at this checkpoint. The user's isolated V3 runtime now
   includes the global Codex integration recorded below. The default selector and
   global client connection were configured; existing account state and unrelated
-  settings were preserved. No version, release tag, package publication or merge.
+  settings were preserved. No release tag, package publication or merge yet.
 - PR #58 remains the original V3 baseline, not a current workbench readiness
   receipt. No new hosted CI is claimed for these local changes.
 - GitHub search found no PR for `codex/v3-learning-workbench` on 2026-09-14.
@@ -22,6 +22,50 @@ Earlier implementation/install receipts remain in Git history.
   historical input; there is no V2 migration or compatibility backlog.
 
 ## Delivered local product
+
+## Current increment: optional first-run hooks and Windows consolidation
+
+- Setup offers global Codex integration and optional Windows scheduled work;
+  explicit `--with-codex` / `--with-schedule` support repeatable installation.
+  Default noninteractive setup remains core-only. No provider account, source
+  scan, model call or resident service is started during setup.
+- Global Codex adds SessionStart guidance for startup/resume/clear/compact to
+  the unchanged prompt-recall handler. No Stop continuation loop. Existing V3
+  ownership receipts upgrade without adopting unrelated hook definitions.
+  Native trust for the new exact definition remains a user action.
+- One current-user Windows task checks the saved consolidation schedule hourly,
+  uses pythonw without a console, has a five-minute execution limit, no wake and
+  IgnoreNew overlap policy. It runs only while the installing user is logged in.
+  Cadence/scope/routes/budgets remain owned by the existing dashboard settings.
+  SourceJobs/history ingestion are deliberately not part of the OS runner.
+- Shared lock covers due-time selection and running work. A busy dashboard status
+  is read-only; structural lock errors are not silently treated as contention.
+  Exact task XML ownership is checked inside the same COM operation that writes;
+  receipt-write failure rolls back only unchanged owned task state.
+- Fresh independent functional review found normalized-XML idempotence and
+  setup-failure schedule-drift defects. Both corrected with tests. This is not a
+  formal security scan, nor a full-branch release certification.
+- Regression: 258 tests, 253 pass / five expected Windows symlink skips.
+  Compilation, JavaScript syntax and diff checks pass. Isolated installed-wheel
+  native task acceptance: repeated install is a no-op; due scoped dedup ran with
+  zero model calls, exit 0, retained inactive history; removal/absence verified.
+- Rendered installed-wheel Edge/Playwright at 1280x900 and 390x844: schedule scope,
+  cadence/save/reload/pause pass; no console warnings/errors or horizontal overflow.
+  Browser skill/plugin unavailable; bundled Playwright used without new browser
+  dependencies. Temporary server and native test task were closed/removed.
+- Release preparation restores the actual required aggregate `verify` check and
+  installs the package before clean-runner release/preflight tests. Installation
+  and release runbooks now describe V3 rather than obsolete V2 commands/gates.
+  Current workflow policy publishes prereleases to TestPyPI and stable to PyPI.
+
+Known boundaries: custom provider plugins are trusted code; five minutes is the
+Windows task execution limit, not a sandbox for arbitrary plugin descendants.
+Use a short fallback chain. Browser-session API keys do not exist in the external
+runner. An already-running job is not cancelled by removing its future task.
+Managed provider authentication and full native Hermes/Claude remain separate
+acceptance; no such model calls were made in this increment.
+
+## Retained local product
 
 - Small Python core: canonical Markdown, generated Unicode FTS, one selected
   vault, seven top-level commands and lazy optional modules.

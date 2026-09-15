@@ -5,7 +5,41 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
-## [3.0.0a1] - Unreleased
+## [3.0.0a2] - 2026-09-15
+
+### Added
+
+- Setup can install global Codex MCP, prompt recall and session-start guidance
+  in one opt-in flow, including restart/compact context. Exact hook trust remains
+  a native Codex user action; no Stop continuation loop or transcript watcher.
+- Optional current-user Windows task checks the saved consolidation schedule
+  hourly and exits. Reuses dashboard cadence, exact scope, provider routes and
+  budgets; five-minute OS limit, no wake, no resident worker or history ingestion.
+  Includes ownership-aware install/status/remove and shared cross-process locking.
+- Readable local conversation sources, accordion previews, scoped batches,
+  independent harness switches and opt-in foreground source schedules. Codex
+  history windows retain retry cursors; Hermes supports bounded live WAL reads.
+- Native Hermes memory-provider adapter, isolated Codex subscription login,
+  provider catalogs, custom provider extensions and ordered fallback.
+
+### Fixed
+
+- Blank New scope input, clearer memory provenance and native Codex executable
+  discovery on Windows even when PATH contains only a command wrapper.
+- Persisted default-vault selection and global project-aware Codex binding,
+  separate project identities, correction/undo and exact installer ownership.
+- Concurrent consolidation runners cannot consume one deadline twice; dashboard
+  polling does not overwrite running job receipts.
+- Restore the required aggregate CI check and install V3 before clean-runner
+  release/preflight tests. Keep alpha publishing separate from stable PyPI.
+
+### Release scope
+
+This first public V3 alpha includes the local 3.0.0a1 work below. V3 is a clean
+reset, not a V2 migration. Native Codex MCP has local acceptance evidence;
+full native Hermes/Claude acceptance and remote service remain future work.
+
+## [3.0.0a1] - Unreleased (local development only)
 
 ### Added
 

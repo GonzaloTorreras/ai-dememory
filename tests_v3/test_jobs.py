@@ -16,7 +16,7 @@ from ai_dememory.core import CoreServices
 from ai_dememory.jobs import LearningJobs
 from ai_dememory.proposals import ProposalStore
 from ai_dememory.settings import load_settings, save_settings
-from ai_dememory.vault import Vault
+from ai_dememory.vault import Vault, VaultError, _exclusive_write_lock
 
 
 class LearningJobsTests(unittest.TestCase):
@@ -373,6 +373,31 @@ class LearningJobsTests(unittest.TestCase):
             self.jobs.run_consolidation()
         with self.assertRaises(ValueError):
             self.jobs.schedule_status(datetime(2026, 9, 6))
+
+    def test_external_runner_and_dashboard_share_one_deadline(self):
+        self.schedule(hours=1)
+        self.jobs.schedule_status(self.now)
+        due = self.now + timedelta(hours=1)
+        other = LearningJobs(self.services, self.factory)
+        state_path = self.vault.root / "jobs.json"
+        with _exclusive_write_lock(self.vault.root / ".jobs.lock"):
+            before = state_path.read_bytes()
+            self.assertIsNone(other.run_due(due))
+            self.assertTrue(other.schedule_status(due)["busy"])
+            self.assertEqual(state_path.read_bytes(), before)
+        with patch.object(self.jobs, "consolidate", return_value={"no_op": True}) as first:
+            with patch.object(other, "consolidate") as second:
+                self.assertTrue(self.jobs.run_due(due)["no_op"])
+                self.assertIsNone(other.run_due(due))
+        first.assert_called_once()
+        second.assert_not_called()
+
+    def test_invalid_lock_is_not_silently_reported_as_busy(self):
+        with patch("ai_dememory.jobs._exclusive_write_lock", side_effect=VaultError("invalid lock")):
+            with self.assertRaisesRegex(VaultError, "invalid lock"):
+                self.jobs.run_due(self.now)
+            with self.assertRaisesRegex(VaultError, "invalid lock"):
+                self.jobs.schedule_status(self.now)
 
 
 if __name__ == "__main__":

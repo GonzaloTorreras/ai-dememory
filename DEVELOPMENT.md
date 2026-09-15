@@ -31,7 +31,9 @@ legacy task ID.
 - Modules use evidence-aware scoped `CoreServices` admission. Routine explicit
   learning may be automatic and reversible; inference remains provisional.
 - The optional local workbench provides UI settings, activity and scheduling.
-  Jobs run while its foreground process runs. Remote networking is a later slice.
+  Jobs run while its foreground process runs; an explicitly installed Windows
+  one-shot task can check consolidation without it. Source ingestion still needs
+  the foreground workbench. Remote networking is a later slice.
 - Community Python modules are trusted installed code, not sandboxes. Do not
   claim their manifest budgets are OS-enforced.
 

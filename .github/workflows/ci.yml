@@ -53,3 +53,14 @@ jobs:
           ai-dememory remember "CI remembers deterministic local state" --title "CI memory"
           ai-dememory recall deterministic
           ai-dememory status --json
+
+  verify:
+    name: verify
+    needs: compatibility
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every compatibility job to pass
+        env:
+          RESULT: ${{ needs.compatibility.result }}
+        run: test "$RESULT" = success

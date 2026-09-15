@@ -52,6 +52,10 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--name", help="Human-readable vault name.")
     setup.add_argument("--yes", action="store_true", help="Apply without an interactive confirmation.")
     setup.add_argument("--no-select", action="store_true", help="Do not make this the default vault.")
+    setup.add_argument("--with-codex", action="store_true", help="Install global Codex MCP and recall/session hooks; enable the local dashboard.")
+    setup.add_argument("--with-schedule", action="store_true", help="Install an opt-in Windows one-shot consolidation task; no history ingestion.")
+    setup.add_argument("--schedule-scope", help="Exact consolidation scope (new schedule: global; existing: preserved).")
+    setup.add_argument("--schedule-hours", type=int, help="Consolidation interval, 1-8760 hours (new schedule: 168; existing: preserved).")
 
     remember = commands.add_parser("remember", help="Write one human-approved Markdown memory.")
     remember.add_argument("content")
@@ -139,6 +143,13 @@ def _emit(value: Any, json_output: bool) -> None:
 
 
 def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
+    if (args.schedule_scope is not None or args.schedule_hours is not None) and not args.with_schedule:
+        raise CliError("Schedule options need --with-schedule")
+    if args.schedule_scope is not None:
+        from .vault import validate_scope
+        validate_scope(args.schedule_scope)
+    if args.schedule_hours is not None and not 1 <= args.schedule_hours <= 8760:
+        raise CliError("Schedule interval must be between 1 and 8760 hours")
     try:
         existing = load_config().default_vault
     except ConfigError:
@@ -166,9 +177,27 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
         answer = input("Create/select this vault? [Y/n] ").strip().lower()
         if answer not in ("", "y", "yes"):
             raise CliError("Setup cancelled")
+        if not args.with_codex:
+            print("Optional Codex: project-aware memory tools, recall before prompts and guidance at session start.")
+            print("No provider login or history scan; you must trust the hooks in Codex /hooks.")
+            args.with_codex = input("Install global Codex integration and enable the dashboard? [y/N] ").strip().lower() in ("y", "yes")
+        if not args.with_schedule:
+            import os
+            if os.name == "nt":
+                print("Optional Windows task: hourly checks, weekly consolidation by default, only while logged in.")
+                print("No resident worker. Uses the dashboard schedule, scope and budgets; does not read conversations.")
+                print("Local duplicate cleanup needs no model; a configured global consolidation route may make paid model calls.")
+                args.with_schedule = input("Install and enable scheduled consolidation? [y/N] ").strip().lower() in ("y", "yes")
     vault = Vault.create(target, args.name)
     if not args.no_select:
         select_vault(vault.root)
+    if args.with_codex or args.with_schedule:
+        from .setup_options import install_extras
+        try:
+            plan["integrations"] = install_extras(vault, codex=args.with_codex, schedule=args.with_schedule,
+                                                   scope=args.schedule_scope, hours=args.schedule_hours)
+        except ValueError as exc:
+            raise CliError(f"Vault is ready; an optional integration failed: {exc}") from exc
     plan.update(
         {
             "name": vault.name,
@@ -188,6 +217,10 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
             ],
         }
     )
+    if args.with_codex:
+        plan["next"] = ["Restart Codex, then trust UserPromptSubmit and SessionStart in /hooks."]
+    if args.with_codex or args.with_schedule:
+        plan["optional_later"] = ["ai-dememory serve workbench"]
     return plan
 
 
@@ -206,6 +239,15 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             print(f"Background processes: {result['background_processes']}")
             print(f"Model calls: {result['model_calls']}")
             print(f"Network: {'on' if result['network'] else 'off'}")
+            if "codex" in result.get("integrations", {}):
+                print("Codex: global project-aware MCP + UserPromptSubmit and SessionStart hooks installed.")
+            if "consolidation" in result.get("integrations", {}):
+                task = result["integrations"]["consolidation"]
+                print(f"Windows task: {task['name']} (hourly check; five-minute maximum; logged-in user only).")
+                print(f"Consolidation: every {task['schedule']['interval_hours']} hours in {task['schedule']['scope']}.")
+                print("Future runs use your configured route and budgets; provider charges may apply. No history ingestion.")
+            if result.get("integrations"):
+                print("Dashboard: ai-dememory serve workbench")
             print(f"Next: {result['next'][0]}")
         return 0
     if args.command == "module" and args.module_command == "list":

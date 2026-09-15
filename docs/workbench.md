@@ -320,9 +320,16 @@ Project-scope cleanup is deterministic and makes no model calls, even when a
 global consolidation route is configured. Retired duplicates remain in memory
 history; cleanup does not delete their Markdown files.
 
-The foreground server must remain running; closing the browser tab is fine.
-There is no hidden daemon or OS scheduled task. This alpha runs one job
-synchronously, so requests wait during model calls. Each attempt has a socket
+The foreground server runs due jobs; closing the browser tab is fine. An
+[optional Windows task](automation.md) checks consolidation hourly without the
+server, while you are logged in. The task does not ingest conversation sources.
+The UI distinguishes its installation receipt from live OS status; pause the
+saved schedule to stop future consolidation in either runner. Browser-session
+keys are unavailable to the task; environment credentials must exist for its
+scheduled user. No key is copied into task XML.
+
+There is no resident worker. This alpha runs each foreground job synchronously,
+so requests wait during its model calls. Each attempt has a socket
 timeout and bounded response/read deadline; multiple fallbacks can take longer.
 Use a short fallback chain. Nonblocking progress is a later measured improvement.
 
@@ -334,6 +341,7 @@ Use a short fallback chain. Nonblocking progress is a later measured improvement
 - `settings.json`: non-secret provider/routing/budget/schedule configuration.
 - `runtime.sqlite`: durable budget and metadata receipts; do not delete to rebuild search.
 - `jobs.json`: durable last/next-run information; no conversation content.
+- `windows-task.json`: optional private OS task ownership receipt, not live telemetry.
 
 Back up durable files with the vault. Local profiles do not by themselves
 guarantee that a chosen model server has no telemetry. High-confidence secret

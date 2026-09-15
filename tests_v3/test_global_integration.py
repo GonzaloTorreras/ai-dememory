@@ -145,6 +145,27 @@ class GlobalIntegrationTests(unittest.TestCase):
         self.assertEqual(config.read_text(), "# user config\n")
         self.assertFalse((self.config / "integrations" / "codex-global.json").exists())
 
+    def test_single_hook_receipt_upgrades_and_preserves_foreign_session_hook(self):
+        install_user(self.vault)
+        receipt_path = self.config / "integrations" / "codex-global.json"
+        receipt = json.loads(receipt_path.read_text())
+        prompt = receipt["hooks"]["UserPromptSubmit"]
+        receipt["hook"] = prompt
+        del receipt["hooks"]
+        receipt_path.write_text(json.dumps(receipt))
+        path = self.home / "hooks.json"
+        data = json.loads(path.read_text())
+        foreign = {"hooks": [{"type": "command", "command": "unrelated-session-hook"}]}
+        data["hooks"]["SessionStart"] = [foreign]
+        path.write_text(json.dumps(data))
+        self.assertTrue(install_user(self.vault)["changed"])
+        after = json.loads(path.read_text())["hooks"]
+        self.assertEqual(after["UserPromptSubmit"][0]["hooks"][0], prompt)
+        self.assertEqual(len(after["SessionStart"]), 2)
+        self.assertFalse(install_user(self.vault)["changed"])
+        install_user(self.vault, remove=True)
+        self.assertEqual(json.loads(path.read_text())["hooks"]["SessionStart"], [foreign])
+
     def test_unowned_project_style_global_hook_is_not_duplicated(self):
         path = self.home / "hooks.json"
         original = json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [

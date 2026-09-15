@@ -68,6 +68,22 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(recall_hook(self.vault, self.payload(""), "project:alpha"), {})
         self.assertEqual(self.vault.memory_count(), 0)
 
+    def test_session_start_guidance_is_bounded_and_never_reads_or_writes_memory(self):
+        for source in ("startup", "resume", "clear", "compact"):
+            payload = {**self.payload(), "hook_event_name": "SessionStart", "source": source}
+            with patch("ai_dememory.harness.CoreServices") as services:
+                result = recall_hook(self.vault, payload, "project:alpha", "codex")
+                services.assert_not_called()
+            context = result["hookSpecificOutput"]["additionalContext"]
+            self.assertEqual(result["hookSpecificOutput"]["hookEventName"], "SessionStart")
+            self.assertIn("project:alpha", context)
+            self.assertIn("memory.context", context)
+            self.assertLess(len(context), 1200)
+            self.assertNotIn("must-not-open", context)
+        self.assertEqual(self.vault.memory_count(), 0)
+        for source in (None, "unknown"):
+            self.assertEqual(recall_hook(self.vault, {"hook_event_name": "SessionStart", "source": source}, "global"), {})
+
     def test_secret_input_does_not_reach_hook_logs(self):
         secret = "sk-" + "x" * 30
         result = self.run_hook(json.dumps(self.payload("Please remember this token " + secret)).encode())

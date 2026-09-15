@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from contextlib import closing
+from contextlib import ExitStack, closing
 from datetime import datetime, timedelta, timezone
 
 from .policy import reject_high_confidence_secrets
 from .providers import ProviderEngine, _database
 from .settings import load_settings, local_file, resolve_route
-from .vault import _atomic_write, _exclusive_write_lock, validate_scope
+from .vault import VaultBusyError, _atomic_write, _exclusive_write_lock, validate_scope
 
 
 def _time(value=None):
@@ -234,8 +234,8 @@ class LearningJobs:
     def _save(self, state):
         _atomic_write(local_file(self.vault, "jobs.json"), json.dumps(state, indent=2) + "\n")
 
-    def schedule_status(self, now=None):
-        now, state = _time(now), self._state()
+    def _schedule_state(self, now, *, persist=True):
+        state = self._state()
         schedule = load_settings(self.vault)["schedule"]
         if state.get("schedule") != schedule:
             previous = state.get("schedule", {})
@@ -244,12 +244,25 @@ class LearningJobs:
                 anchor = _time(state.get("schedule_anchor_at") or now)
             state.update(schedule=schedule, schedule_anchor_at=_stamp(anchor), next_run_at=_stamp(
                 anchor + timedelta(hours=schedule["interval_hours"])) if schedule["enabled"] else None)
-            self._save(state)
+            if persist:
+                self._save(state)
+        return state
+
+    def schedule_status(self, now=None):
+        now = _time(now)
+        with ExitStack() as stack:
+            busy = False
+            try:
+                stack.enter_context(_exclusive_write_lock(local_file(self.vault, ".jobs.lock")))
+            except VaultBusyError:
+                busy = True
+            state = self._schedule_state(now, persist=not busy)
+        schedule = state["schedule"]
         return {**schedule, "running": self._running,
                 "last_run_at": state.get("last_run_at"), "next_run_at": state.get("next_run_at"),
                 "last_run_scope": state.get("last_run_scope"),
                 "last_result": state.get("last_result"), "last_error": state.get("last_error"),
-                "foreground_only": True}
+                "busy": busy, "execution": "foreground_or_one_shot"}
 
     def run_consolidation(self, scope="global", route_key=None, now=None):
         validate_scope(scope)
@@ -257,37 +270,46 @@ class LearningJobs:
             raise ValueError("Consolidation is already running")
         now = _time(now)
         with _exclusive_write_lock(local_file(self.vault, ".jobs.lock")):
-            self._running = True
+            return self._run_locked(scope, route_key, now)
+
+    def _run_locked(self, scope, route_key, now):
+        self._running = True
+        try:
+            state = self._schedule_state(now)
+            schedule = state["schedule"]
+            state.update(last_run_at=_stamp(now), last_run_scope=scope,
+                         last_error=None, last_result=None)
+            # A manual run for another project must not delay this schedule.
+            if scope == schedule["scope"] and schedule["enabled"]:
+                state.update(schedule_anchor_at=_stamp(now), next_run_at=_stamp(
+                    now + timedelta(hours=schedule["interval_hours"])))
+            self._save(state)  # A crash must not trigger a retry storm after restart.
             try:
-                self.schedule_status(now)
-                state = self._state()
-                schedule = state["schedule"]
-                state.update(last_run_at=_stamp(now), last_run_scope=scope,
-                             last_error=None, last_result=None)
-                # A manual run for another project must not delay this schedule.
-                if scope == schedule["scope"] and schedule["enabled"]:
-                    state.update(schedule_anchor_at=_stamp(now), next_run_at=_stamp(
-                        now + timedelta(hours=schedule["interval_hours"])))
-                self._save(state)  # A crash must not trigger a retry storm after restart.
-                try:
-                    result = {**self.consolidate(scope, route_key), "scope": scope}
-                except Exception:
-                    state["last_error"] = "consolidation_failed"
-                    self._save(state)
-                    raise
-                state["last_result"] = result
+                result = {**self.consolidate(scope, route_key), "scope": scope}
+            except Exception:
+                state["last_error"] = "consolidation_failed"
                 self._save(state)
-                return result
-            finally:
-                self._running = False
+                raise
+            state["last_result"] = result
+            self._save(state)
+            return result
+        finally:
+            self._running = False
 
     def run_due(self, now=None):
         now = _time(now)
-        status = self.schedule_status(now)
-        if (status["enabled"] and not self._running and status["next_run_at"]
-                and now >= _time(status["next_run_at"])):
+        with ExitStack() as stack:
+            # Check the deadline only AFTER claiming it, including across processes.
             try:
-                return self.run_consolidation(scope=status["scope"], now=now)
-            except Exception:
-                return {"error": "consolidation_failed"}
+                stack.enter_context(_exclusive_write_lock(local_file(self.vault, ".jobs.lock")))
+            except VaultBusyError:
+                return None
+            state = self._schedule_state(now)
+            schedule = state["schedule"]
+            if (schedule["enabled"] and not self._running and state["next_run_at"]
+                    and now >= _time(state["next_run_at"])):
+                try:
+                    return self._run_locked(schedule["scope"], None, now)
+                except Exception:
+                    return {"error": "consolidation_failed"}
         return None

@@ -2,7 +2,7 @@
 
 The optional harness modules connect the existing memory core to a client.
 Codex supports user-wide project-aware installation; Claude remains project-local.
-Each uses MCP settings and one prompt-recall hook. Neither integration
+Each uses MCP settings and a prompt-recall hook; global Codex also adds session-start guidance. Neither integration
 imports transcripts, starts a daemon, or selects another model. The host assistant
 uses its own model to decide when to call the evidenced learning tools.
 
@@ -11,23 +11,27 @@ uses its own model to decide when to call the evidenced learning tools.
 After installing the V3 package and selecting a vault with `ai-dememory setup`:
 
 ```bash
-ai-dememory module enable harness-codex
-ai-dememory serve harness-codex install --user
+ai-dememory setup --with-codex --yes
 ```
 
-Restart Codex, open `/hooks` and trust **DeMemory V3: recall this project's memory**.
+Restart Codex, open `/hooks` and trust **DeMemory V3: recall this project's memory**
+and **DeMemory V3: prepare memory for this session**.
 Trust is per exact definition; it is never bypassed. Package installation alone
 does not trust a hook, and no transcript watcher or extra model is enabled.
 Existing host tool-approval policy still applies to learning/forgetting; a client
 configured to reject all approval requests can recall but may refuse writes.
 
 The installer uses the native Python executable and selected configuration,
-adds one owned MCP block to `~/.codex/config.toml` and one UserPromptSubmit hook
+adds one owned MCP block to `~/.codex/config.toml`, one UserPromptSubmit and one SessionStart hook
 to `~/.codex/hooks.json` (`CODEX_HOME` is respected). Other settings are preserved.
 Its private receipt is beside the DeMemory selector. Reinstalling is a no-op;
 edits to owned definitions cause a conflict instead of silently being overwritten.
 Do not copy a fixed-scope project config globally: Codex hooks from different
 sources [all run](https://learn.chatgpt.com/docs/hooks).
+
+SessionStart provides memory guidance at startup/resume/clear and after
+compaction; it performs no model call or canonical write. No Stop continuation
+is installed. See [hooks and optional Windows scheduled consolidation](automation.md).
 
 To replace an existing exact DeMemory-generated project connection, add
 `--retire-project <path>` to the user install (repeat for other known projects).

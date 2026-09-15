@@ -97,7 +97,7 @@ def install_project(vault, project, client, scope):
 def _record(vault, scope, payload, count, elapsed):
     # Bounded local metadata proves hooks actually ran without capturing prompts.
     ids = [payload.get("session_id"), payload.get("turn_id")]
-    token = (uuid.uuid5(uuid.NAMESPACE_URL, json.dumps([scope, *ids])).hex
+    token = (uuid.uuid5(uuid.NAMESPACE_URL, json.dumps([scope, payload.get("hook_event_name"), *ids])).hex
              if all(isinstance(value, str) and 0 < len(value) <= 128 for value in ids)
              else uuid.uuid4().hex)
     with closing(_database(vault)) as db, db:
@@ -112,7 +112,22 @@ def _record(vault, scope, payload, count, elapsed):
 def recall_hook(vault, payload, scope, client="codex"):
     start = time.monotonic()
     validate_scope(scope)
-    if not isinstance(payload, dict) or payload.get("hook_event_name") != "UserPromptSubmit":
+    if not isinstance(payload, dict):
+        return {}
+    if client == "codex" and payload.get("hook_event_name") == "SessionStart":
+        if payload.get("source") not in {"startup", "resume", "clear", "compact"}:
+            return {}
+        guidance = (
+            f"DeMemory is available for scope {scope}. Before a relevant task, use memory.context "
+            "with the current question; never reuse another project's scope. Use memory.learn for "
+            "useful explicit durable user facts or verified outcomes, with a short source excerpt. "
+            "Skip transient tasks, guesses, secrets and facts merely recalled from memory. "
+            "Uncertain deductions stay provisional. Saving through MCP needs no separate provider. "
+            "Do not read or copy entire conversation transcripts to create a memory."
+        )
+        _record(vault, scope, payload, 0, int((time.monotonic() - start) * 1000))
+        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": guidance}}
+    if payload.get("hook_event_name") != "UserPromptSubmit":
         return {}
     prompt = payload.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 12_000:
