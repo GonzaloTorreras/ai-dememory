@@ -147,6 +147,7 @@ function renderSettings() {
   $('#daily-usd').value = settings.budgets.daily_usd;
   $('#schedule-enabled').checked = settings.schedule.enabled;
   $('#interval-hours').value = settings.schedule.interval_hours;
+  $('#schedule-scope').value = settings.schedule.scope;
 }
 function parseFallback(value) { return value.split(',').map((id) => id.trim()).filter(Boolean); }
 function collectSettings() {
@@ -156,7 +157,7 @@ function collectSettings() {
     else delete state.settings.routes[row.dataset.route];
   });
   state.settings.budgets = { daily_calls: Number($('#daily-calls').value), daily_tokens: Number($('#daily-tokens').value), daily_usd: Number($('#daily-usd').value) };
-  state.settings.schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value) };
+  state.settings.schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
 }
 function openProvider(id = '') {
   collectSettings(); const form = $('#provider-form'); form.reset(); form.dataset.editId = id; form.dataset.suggestedId = '';
@@ -264,7 +265,7 @@ function dialogError(id, message) { $(id).textContent = message; $(id).hidden = 
 function renderOperational(data) {
   const schedule = data.schedule || {}, facts = $('#schedule-status'); facts.replaceChildren();
   const result = schedule.last_result;
-  const values = { Status: schedule.running ? 'Running' : schedule.enabled ? 'Scheduled' : 'Manual', 'Last run': timestamp(schedule.last_run_at), 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  const values = { Status: schedule.running ? 'Running' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': schedule.scope || 'global', 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope || 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
   Object.entries(values).forEach(([label, value]) => facts.append(element('dt', label), element('dd', value)));
   const usage = data.usage || {}, grid = $('#usage'); grid.replaceChildren();
   [['Calls', number(usage.calls)], ['Tokens', number(usage.tokens)], ['Estimated USD', Number(usage.cost_usd || 0).toFixed(4)]].forEach(([label, value]) => { const item = element('div', undefined, 'usage-item'); item.append(element('span', label), element('strong', value)); grid.append(item); });
@@ -285,6 +286,7 @@ async function refresh() {
   $('#scope-selector').replaceChildren(...scopes.map(name => new Option(name, name)));
   $('#scope-selector').value = state.scope;
   $('#scope-options').replaceChildren(...scopes.map(name => new Option(name, name)));
+  $('#run-consolidation').textContent = `Run now in ${state.scope}`;
   renderSourceSchedules(data.source_schedules || []);
   state.codexRoot = data.codex_sessions_root;
   if (!state.dirty) { state.settings = data.settings; renderSettings(); }
@@ -505,7 +507,7 @@ function renderSourceSchedules(rules) {
     card.append(button('Remove schedule',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'delete'}); await refresh();}))); list.append(card);
   }
 }
-$('#run-consolidation').addEventListener('click', () => perform(async () => { notify('Running consolidation…'); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
+$('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${state.scope}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${result.scope} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
 window.addEventListener('hashchange', showPage);
 window.addEventListener('beforeunload', (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });
 showPage(); perform(refresh);

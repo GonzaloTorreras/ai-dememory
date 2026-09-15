@@ -1,6 +1,6 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-14 after the V2/V3
+This is the single active product plan. Updated 2026-09-15 after the V2/V3
 audit and the request for autonomous, modular, multi-harness memory.
 
 ## Product outcome
@@ -27,7 +27,12 @@ several hosts.
 
 ## Delivery sequence
 
-Latest local increment: readable Codex conversation titles/workspaces, internal
+Latest local increment: one saved consolidation scope in the workbench, durable
+per-schedule cadence and explicit last-run/manual scopes. An unrelated manual
+run cannot postpone the schedule. Project cleanup remains local and deterministic;
+procedural memory and tested skill export are still next, not shipped behavior.
+
+Earlier increments: readable Codex conversation titles/workspaces, internal
 session filtering, accordion previews, multi-selection, shared scope selector,
 independent Codex/Claude module switches and per-harness source schedules.
 Codex now also has opt-in chronological history windows, persistent retry cursors,
@@ -49,7 +54,7 @@ Every row is a complete user-visible slice, not empty interfaces.
 | Codex integration (native MCP episode verified; hook acceptance pending) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions learned, recalled, corrected and undid a scoped synthetic lesson through the installed MCP. CLI compatibility is verified; automatic trusted-hook injection remains separate |
 | Hermes and Claude (Hermes adapter implemented alpha) | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Synthetic Hermes-adapter → MCP correction → Hermes undo passes; transcript/mirror callbacks are no-op. Full native Hermes/Claude episodes remain pending |
 | Incremental ingestion (Codex history implemented alpha) | Authorized native Codex deltas, occurrence receipts, durable byte cursors, bounded folder pagination and visible progress | Failed windows retain their exact range across append/restart; separate positions remain separate occurrences; no re-extraction on assistant-only activity. Native rotation/rewrite and other harnesses remain incomplete |
-| Consolidation and skills | Reversible cleanup, evidence-backed procedural knowledge and tested skill export | Repeated runs converge; recipes work in a second case; executable capabilities have policy, tests and rollback |
+| Consolidation and skills (scoped scheduling implemented alpha) | One saved scope/cadence, deterministic project cleanup and visible manual target; procedural knowledge and tested skill export remain next | Scope and cadence survive restart; other-scope manual runs do not postpone them; repeated cleanup converges without model calls. Future recipes must work in a second case with tests and rollback |
 | Remote service/admin (later) | HTTP MCP/event service on PC/Raspberry, LAN/Internet, admin UI | Identity-based scopes, TLS, revocation, two-host restart/replay and restore tested before exposure |
 
 DSH is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
@@ -95,8 +100,9 @@ The optional local workbench provides Memory, Providers, Consolidation and
 Activity, Local sources and Modules views. Ordinary configuration must not require editing JSON or
 running admin CLI commands. Empty, disabled and error states must be truthful.
 
-The UI selects consolidation interval, enables/disables it, runs it now and
-shows last/next execution and budget state. Initially scheduled work runs only
+The UI saves one consolidation scope and interval, enables/disables it, runs
+the browsing scope now and shows last/next execution, last-run scope and budget
+state. Changing browsing scope never retargets the saved schedule. Scheduled work runs only
 while the foreground workbench is open. Say so directly. Later OS-service
 installation can keep it running after reboot.
 

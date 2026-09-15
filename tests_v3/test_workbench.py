@@ -197,6 +197,29 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(self.request("/api/consolidate", {"scope": "global"})[0], 200)
         self.assertIsNotNone(self.state()["schedule"]["last_run_at"])
 
+    def test_saved_schedule_scope_is_independent_from_browsing_and_manual_runs(self):
+        settings = self.state()["settings"]
+        settings["schedule"] = {"enabled": True, "interval_hours": 24, "scope": "project:empty"}
+        self.assertEqual(self.request("/api/settings", settings)[0], 200)
+        before = self.state("?scope=project:browsing")
+        self.assertIn("project:empty", before["scopes"])
+        self.assertEqual(before["schedule"]["scope"], "project:empty")
+        code, body, _ = self.request("/api/consolidate", {"scope": "project:manual"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["scope"], "project:manual")
+        after = self.state()
+        self.assertEqual(after["settings"]["schedule"], settings["schedule"])
+        self.assertEqual(after["schedule"]["next_run_at"], before["schedule"]["next_run_at"])
+        self.assertEqual(after["schedule"]["last_run_scope"], "project:manual")
+        self.assertEqual(after["usage"]["calls"], 0)
+
+    def test_invalid_schedule_scope_cannot_replace_saved_configuration(self):
+        before = self.state()["settings"]
+        for scope in (None, "", "project with spaces"):
+            settings = {**before, "schedule": {**before["schedule"], "scope": scope}}
+            self.assertEqual(self.request("/api/settings", settings)[0], 400)
+            self.assertEqual(self.state()["settings"], before)
+
     def test_long_unicode_and_escaped_excerpts_are_bounded(self):
         for content in ("Preferir español 🙂 " * 200, '"' * 1000):
             code, body, _ = self.request("/api/learn", {"title": "Quoted preference", "content": content})

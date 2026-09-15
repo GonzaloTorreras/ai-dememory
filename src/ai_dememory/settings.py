@@ -10,11 +10,11 @@ import re
 from urllib.parse import urlsplit
 
 from .policy import reject_high_confidence_secrets
-from .vault import Vault, _atomic_write
+from .vault import Vault, _atomic_write, validate_scope
 
 DEFAULT_SETTINGS = {
     "schema_version": 1, "providers": {}, "routes": {},
-    "schedule": {"enabled": False, "interval_hours": 168},
+    "schedule": {"enabled": False, "interval_hours": 168, "scope": "global"},
     "budgets": {"daily_calls": 20, "daily_tokens": 50_000, "daily_usd": 0},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
@@ -110,15 +110,18 @@ def validate_settings(data: dict) -> dict:
         if len(chain) > 8 or any(not isinstance(item, str) or item not in providers for item in chain) or len(set(chain)) != len(chain):
             raise ValueError("Routes require distinct configured providers (maximum eight)")
         _number(route["max_output_tokens"], 16, 16_384, True)
-    _shape(data["schedule"], {"enabled", "interval_hours"})
+    _shape(data["schedule"], {"enabled", "interval_hours"}, {"scope"})
     if type(data["schedule"]["enabled"]) is not bool:
         raise ValueError("Schedule enabled must be boolean")
     _number(data["schedule"]["interval_hours"], 1, 8760, True)
+    validate_scope(data["schedule"].get("scope", "global"))
     _shape(data["budgets"], {"daily_calls", "daily_tokens", "daily_usd"})
     _number(data["budgets"]["daily_calls"], 1, 100_000, True)
     _number(data["budgets"]["daily_tokens"], 1, 100_000_000, True)
     _number(data["budgets"]["daily_usd"], 0, 100_000)
-    return copy.deepcopy(data)
+    validated = copy.deepcopy(data)
+    validated["schedule"].setdefault("scope", "global")
+    return validated
 
 
 def load_settings(vault: Vault) -> dict:

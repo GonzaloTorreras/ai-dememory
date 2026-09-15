@@ -169,7 +169,7 @@ class WorkbenchServer(HTTPServer):
 
     def scopes(self):
         from itertools import islice
-        values = {"global"}
+        values = {"global", load_settings(self.services.vault)["schedule"]["scope"]}
         for path in islice(self.services.vault.iter_memory_paths(), 1000):
             values.add(self.services.vault.read_memory(path).scope)
         values.update(rule["scope"] for rule in self.source_jobs.public())

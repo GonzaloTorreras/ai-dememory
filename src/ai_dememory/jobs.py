@@ -238,14 +238,16 @@ class LearningJobs:
         now, state = _time(now), self._state()
         schedule = load_settings(self.vault)["schedule"]
         if state.get("schedule") != schedule:
-            anchor = _time(state["last_run_at"]) if state.get("last_run_at") else now
-            if not state.get("schedule", {}).get("enabled"):
-                anchor = now
-            state.update(schedule=schedule, next_run_at=_stamp(
+            previous = state.get("schedule", {})
+            anchor = now
+            if previous.get("enabled") and previous.get("scope", "global") == schedule["scope"]:
+                anchor = _time(state.get("schedule_anchor_at") or now)
+            state.update(schedule=schedule, schedule_anchor_at=_stamp(anchor), next_run_at=_stamp(
                 anchor + timedelta(hours=schedule["interval_hours"])) if schedule["enabled"] else None)
             self._save(state)
         return {**schedule, "running": self._running,
                 "last_run_at": state.get("last_run_at"), "next_run_at": state.get("next_run_at"),
+                "last_run_scope": state.get("last_run_scope"),
                 "last_result": state.get("last_result"), "last_error": state.get("last_error"),
                 "foreground_only": True}
 
@@ -257,14 +259,18 @@ class LearningJobs:
         with _exclusive_write_lock(local_file(self.vault, ".jobs.lock")):
             self._running = True
             try:
+                self.schedule_status(now)
                 state = self._state()
-                schedule = load_settings(self.vault)["schedule"]
-                state.update(schedule=schedule, last_run_at=_stamp(now), last_error=None,
-                             last_result=None, next_run_at=_stamp(now + timedelta(
-                                 hours=schedule["interval_hours"])) if schedule["enabled"] else None)
+                schedule = state["schedule"]
+                state.update(last_run_at=_stamp(now), last_run_scope=scope,
+                             last_error=None, last_result=None)
+                # A manual run for another project must not delay this schedule.
+                if scope == schedule["scope"] and schedule["enabled"]:
+                    state.update(schedule_anchor_at=_stamp(now), next_run_at=_stamp(
+                        now + timedelta(hours=schedule["interval_hours"])))
                 self._save(state)  # A crash must not trigger a retry storm after restart.
                 try:
-                    result = self.consolidate(scope, route_key)
+                    result = {**self.consolidate(scope, route_key), "scope": scope}
                 except Exception:
                     state["last_error"] = "consolidation_failed"
                     self._save(state)
@@ -281,7 +287,7 @@ class LearningJobs:
         if (status["enabled"] and not self._running and status["next_run_at"]
                 and now >= _time(status["next_run_at"])):
             try:
-                return self.run_consolidation(now=now)
+                return self.run_consolidation(scope=status["scope"], now=now)
             except Exception:
                 return {"error": "consolidation_failed"}
         return None

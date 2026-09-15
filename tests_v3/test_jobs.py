@@ -7,6 +7,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -41,9 +42,9 @@ class LearningJobsTests(unittest.TestCase):
             "primary": "local", "fallback": [], "max_output_tokens": 1000}
         save_settings(self.vault, settings)
 
-    def schedule(self, enabled=True, hours=168):
+    def schedule(self, enabled=True, hours=168, scope="global"):
         settings = load_settings(self.vault)
-        settings["schedule"] = {"enabled": enabled, "interval_hours": hours}
+        settings["schedule"] = {"enabled": enabled, "interval_hours": hours, "scope": scope}
         save_settings(self.vault, settings)
 
     def remember(self, text, scope="global", key=None, supersedes=None):
@@ -295,6 +296,76 @@ class LearningJobsTests(unittest.TestCase):
         self.assertIn("consolidation_failed", state)
         self.assertTrue(self.jobs.run_consolidation(now=due)["no_op"])
         self.assertIsNone(self.jobs.schedule_status(due)["last_error"])
+
+    def test_scheduled_project_cleanup_is_isolated_and_survives_restart(self):
+        # Simulate manually copied Markdown records; ordinary learn deduplicates.
+        for scope in ("global", "project:one", "project:two"):
+            for title in ("Original", "Manual copy"):
+                memory = self.vault.remember("Same synthetic recipe", title)
+                self.vault._write_memory(replace(memory, scope=scope))
+        self.route()
+        self.schedule(hours=1, scope="project:one")
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        restarted = LearningJobs(self.services, self.factory)
+        result = restarted.run_due(due)
+        self.assertEqual(result, {"cleaned": 1, "proposals": 0, "no_op": False, "scope": "project:one"})
+        self.assertEqual(len(self.services.list_memories("project:one")), 1)
+        for scope in ("global", "project:two"):
+            self.assertEqual(len(self.services.list_memories(scope)), 2)
+        self.assertEqual(len(self.services.list_memories("project:one", include_inactive=True)), 2)
+        self.factory.assert_not_called()
+        self.assertEqual(ProposalStore(self.vault).count(), 0)
+        self.assertIsNone(restarted.run_due(due))
+        status = restarted.schedule_status(due)
+        self.assertEqual(status["scope"], "project:one")
+        self.assertEqual(status["last_run_scope"], "project:one")
+        self.assertTrue(restarted.run_due(status["next_run_at"])["no_op"])
+
+    def test_other_scope_manual_success_and_failure_preserve_schedule_anchor(self):
+        self.schedule(hours=24, scope="project:scheduled")
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        later = self.now + timedelta(hours=3)
+        self.jobs.run_consolidation("project:manual", now=later)
+        self.assertEqual(self.jobs.schedule_status(later)["next_run_at"], due)
+        with patch.object(self.jobs, "consolidate", side_effect=ValueError("PRIVATE")):
+            with self.assertRaises(ValueError):
+                self.jobs.run_consolidation("project:manual", now=later + timedelta(hours=1))
+        restarted = LearningJobs(self.services, self.factory)
+        status = restarted.schedule_status(later)
+        self.assertEqual(status["next_run_at"], due)
+        self.assertEqual(status["last_run_scope"], "project:manual")
+        self.assertEqual(status["last_error"], "consolidation_failed")
+        self.schedule(hours=12, scope="project:scheduled")
+        self.assertEqual(restarted.schedule_status(later)["next_run_at"],
+                         (self.now + timedelta(hours=12)).isoformat().replace("+00:00", "Z"))
+        self.assertNotIn("PRIVATE", (self.vault.root / "jobs.json").read_text())
+
+    def test_scope_change_and_reenable_start_fresh_interval(self):
+        self.schedule(hours=24, scope="project:one")
+        self.jobs.schedule_status(self.now)
+        later = self.now + timedelta(hours=20)
+        self.schedule(hours=24, scope="project:two")
+        status = self.jobs.schedule_status(later)
+        self.assertEqual(status["next_run_at"], (later + timedelta(hours=24)).isoformat().replace("+00:00", "Z"))
+        self.assertIsNone(self.jobs.run_due(later + timedelta(hours=4)))
+        self.schedule(enabled=False, hours=24, scope="project:two")
+        self.assertIsNone(self.jobs.schedule_status(later)["next_run_at"])
+        resumed = later + timedelta(days=2)
+        self.schedule(hours=24, scope="project:two")
+        self.assertEqual(self.jobs.schedule_status(resumed)["next_run_at"],
+                         (resumed + timedelta(hours=24)).isoformat().replace("+00:00", "Z"))
+
+    def test_schedule_scope_validation_is_atomic_and_absence_means_global(self):
+        settings = load_settings(self.vault)
+        settings["schedule"].pop("scope")
+        saved = save_settings(self.vault, settings)
+        self.assertEqual(saved["schedule"]["scope"], "global")
+        self.assertNotIn("scope", settings["schedule"])
+        for value in (None, False, "", "has space", "x" * 129):
+            settings["schedule"]["scope"] = value
+            with self.assertRaises(ValueError):
+                save_settings(self.vault, settings)
+            self.assertEqual(load_settings(self.vault), saved)
 
     def test_overlap_and_naive_time_rejected(self):
         self.jobs._running = True

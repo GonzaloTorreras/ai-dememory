@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 2026-09-14. This is the current handoff, not an accumulated backlog.
+Updated: 2026-09-15. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
 
 ## Checkout and release reality
@@ -9,9 +9,11 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; latest runtime increment `6ce1e0a`.
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `7bdd018`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source and isolated installed runtime: `3.0.0a1`, unpublished. No version,
+- Source remains `3.0.0a1`, unpublished. The user's isolated runtime was not
+  replaced this cycle; it still uses the `6ce1e0a` wheel recorded below. The new
+  wheel was installed only in a disposable smoke environment. No version,
   release tag, package publication or merge in this cycle.
 - PR #58 remains the original V3 baseline, not a current workbench readiness
   receipt. No new hosted CI is claimed for these local changes.
@@ -71,11 +73,11 @@ Earlier implementation/install receipts remain in Git history.
 - [Integration documentation](integrations.md#native-hermes-provider-local-alpha)
   covers environment, Hermes profile configuration, module control and rollback.
 
-## Reproducible evidence
+## Previous integration evidence
 
 - Baseline: 177 tests; 173 passed / four Windows symlink skips.
 - Previous cycle: 196 tests; 191 passed / five Windows symlink skips.
-- Current full suite: 210 tests; 205 passed / the same five skips. Compilation
+- That integration's full suite: 210 tests; 205 passed / the same five skips. Compilation
   and `git diff --check` pass; no UI asset code changed.
 - Focused provider tests: 14/14 pass, including an adapter → MCP correction →
   adapter undo episode, independent scopes, forged provenance, real-quote/unrelated
@@ -151,10 +153,38 @@ Earlier implementation/install receipts remain in Git history.
   installed dependency. Opened its official documentation in the built-in browser
   and inspected the rendered page successfully. No extra browser package was added.
 
+## This cycle: scoped consolidation scheduling
+
+- One saved `schedule.scope`, editable in the existing workbench with scope
+  suggestions, independent of browsing/manual-run scope. Empty scopes remain
+  selectable. A missing optional scope means global; no V2 reader/migration.
+- A persisted schedule cadence anchor is separate from last-run metadata.
+  Manual success/failure in another scope cannot delay the scheduled run or
+  distort later interval edits. Scope changes/re-enablement start a fresh interval.
+- Last-run scope and manual target are explicit in UI and API results. Project
+  cleanup still makes zero model calls and cannot create global proposals;
+  inactive originals remain in Markdown history. No extra scheduler/module.
+- Focused checks: 55 passed. Full suite: 216 tests, 211 passed / five expected
+  Windows symlink skips. Compilation, JavaScript syntax and diff checks pass.
+  Fresh exact-diff read-only review found no blocker and independently passed
+  all 43 jobs/workbench tests.
+- Built-in Browser QA at `127.0.0.1:18768`, 1440x1080 / 390x844: save a daily
+  alpha-scope schedule, manually clean beta, verify alpha's due time unchanged,
+  reload and confirm persistence. No blank page, overlay, mobile overflow or
+  relevant console errors. The initial UI save was rejected as a real schedule;
+  after read-only proof of the disposable fixture, the same action was approved.
+- Wheel: 103,723 bytes, SHA-256
+  `649b4b0743d535eb580b9ce257e5452352bfcbc3ad72b756ff8e651d3a123c41`.
+  Disposable install outside the checkout passed actual packaged CLI
+  setup/save/recall/status, schedule/restart behavior and UI-asset checks.
+  No personal vault, hook trust, global client config or model call was involved.
+
 ## Next development cycle
 
-1. Next safe local slice: scoped consolidation/procedural memory with one working
-   second-case skill export. Current model summaries are global review proposals.
+1. Next safe local slice: evidence-backed procedural memory with one working
+   second-case advisory skill export. Scoped scheduling is delivered; model
+   summaries remain global review proposals. Do not add executable playbooks
+   or a new task framework merely to export a recipe.
 2. Complete native Hermes/Claude episodes and trusted Codex-hook acceptance in
    isolated client environments; do not substitute contract/fixture evidence for
    client execution or bypass authentication/trust. Keep optional DeMemory-managed
@@ -190,8 +220,9 @@ not an automatic rewrite migration. Source cursors do not make canonical
 Markdown and admission receipts transactional. Run one workbench writer per
 vault; synchronous jobs can block UI requests while a provider runs.
 
-Consolidation inspects at most 100 active memories; scheduled consolidation uses
-global scope. Budget prices are estimates, not provider invoice enforcement.
+Consolidation inspects at most 100 active memories in its exact scope. There is
+one saved consolidation schedule per vault, not a per-project scheduler fleet.
+Budget prices are estimates, not provider invoice enforcement.
 Trusted MCP evidence labels are not independent truth verification. No remote
 listener, new runtime dependency, daemon or automatic publication was added.
 

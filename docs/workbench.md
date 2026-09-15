@@ -277,15 +277,27 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 ## Consolidation
 
-Enable the schedule, choose hours (24 daily, 168 weekly), and save. Scheduled
-runs process global memory; Run now uses the selected Memory scope. The schedule
-persists across restarts, and missed runs coalesce into one run on resume.
+Choose the **Scheduled scope**, enable the schedule, choose hours (24 daily,
+168 weekly), and save. There is one saved schedule per vault. It processes only
+that scope, independently of the browsing scope above; you can enter a scope
+before it has any memories. Settings and cadence persist across restarts, and
+missed runs coalesce into one run on resume.
+
+**Run now** names the browsing scope it will process. Running another scope
+does not postpone the saved schedule. Running the scheduled scope starts its
+next interval, as do changing the scheduled scope or re-enabling the schedule.
+Changing only the interval uses the same schedule's prior cadence anchor, not
+the most recent run of an unrelated scope. Latest run shows its own scope
+separately from the saved scheduled scope.
 
 The current pass examines at most 100 active memories in that scope. It retires
 exact duplicate unkeyed records without correction ancestry. Keyed/corrected
 records are preserved. With a configured consolidation route, global memory may
 also produce at most one shorter, source-linked review proposal. It does not
 automatically rewrite summaries or consume pending proposals.
+Project-scope cleanup is deterministic and makes no model calls, even when a
+global consolidation route is configured. Retired duplicates remain in memory
+history; cleanup does not delete their Markdown files.
 
 The foreground server must remain running; closing the browser tab is fine.
 There is no hidden daemon or OS scheduled task. This alpha runs one job
