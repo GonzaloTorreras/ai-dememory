@@ -5,6 +5,16 @@ It installs project-local MCP settings and one prompt-recall hook. It does not
 import transcripts, start a daemon, or select another model. The host assistant
 uses its own model to decide when to call the evidenced learning tools.
 
+## Current installation boundary
+
+Installing the package does not connect every project. The current installer
+creates a fixed-scope, project-local connection; installing it globally with that
+same scope would mix unrelated projects. Global hooks also accumulate with
+project hooks, so copying the generated files can cause duplicate recall.
+Project-aware global installation is the [next planned slice](roadmap.md#now-one-global-v3-installation-isolated-projects),
+not a shipped option. Until it is verified, use the explicit project binding below.
+Do not repair V3 by running historical V2 scripts or installing V2 dependencies.
+
 ## Try it in an empty project
 
 After installing V3 from source and running `ai-dememory setup`:

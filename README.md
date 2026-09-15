@@ -6,7 +6,8 @@ disposable; optional provider budgets and job receipts are separate durable stat
 
 The current development branch is rebuilding the product as V3. The source version is
 `3.0.0a1`; it is not published yet. V3 deliberately does not migrate or emulate
-2.x because there are no known production vaults to preserve.
+2.x. Existing historical/test vaults remain separate and must not be deleted
+when replacing the installed package.
 
 ## Start in under five minutes
 
@@ -47,6 +48,11 @@ does not build the index or start anything. Use
 `ai-dememory status --json` for scripts.
 
 Use `--vault <path>` only when deliberately overriding the saved default.
+
+Installing V3 does not yet connect every Codex project. The current harness
+installer is project-local with an explicit scope; [global project-aware
+installation is the next priority](docs/roadmap.md#now-one-global-v3-installation-isolated-projects).
+Use this branch's built package or source, not historical V2 scripts, when testing V3.
 
 ## Learning without approving every fact
 

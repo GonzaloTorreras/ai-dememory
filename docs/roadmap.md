@@ -1,7 +1,8 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-15 after the V2/V3
-audit and the request for autonomous, modular, multi-harness memory.
+This is the single active product plan. Updated 2026-09-15 after the local
+V2 fallback incident and the request for global V3 installation. Global local
+usability now takes priority over procedural export and further ingestion features.
 
 ## Product outcome
 
@@ -35,7 +36,8 @@ empty account; successful managed login and generation remain separate checks.
 Previous increment: one saved consolidation scope in the workbench, durable
 per-schedule cadence and explicit last-run/manual scopes. An unrelated manual
 run cannot postpone the schedule. Project cleanup remains local and deterministic;
-procedural memory and tested skill export are still next, not shipped behavior.
+procedural memory and tested skill export follow global installation; they are
+not shipped behavior.
 
 Earlier increments: readable Codex conversation titles/workspaces, internal
 session filtering, accordion previews, multi-selection, shared scope selector,
@@ -56,10 +58,11 @@ Every row is a complete user-visible slice, not empty interfaces.
 | --- | --- | --- |
 | Local learning workbench (implemented alpha) | Configure providers and ordered fallback, learn a scoped fact, retrieve its relevant passage, inspect activity, set consolidation interval and budgets in UI | Settings survive restart; mocked provider failure selects fallback within budget; invalid input creates no memory; inference stays provisional. Live model acceptance remains pending |
 | Correction and hygiene (implemented alpha) | Explicit keyed replacement, exact unkeyed dedupe, undo, inactive-state filtering and durable extraction receipts | Completed extraction retries return original admissions without another provider call; correction wins only in its scope; history remains inspectable. Interrupted two-store writes remain a documented limit |
-| Codex integration (native MCP episode verified; hook acceptance pending) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions learned, recalled, corrected and undid a scoped synthetic lesson through the installed MCP. CLI compatibility is verified; automatic trusted-hook injection remains separate |
+| Codex integration (project-local alpha verified) | Scope-bound MCP tools, project-local installer and bounded prompt recall | Three native Luna sessions completed the MCP learning/correction/undo episode; current-task hook context is now observed. Global and simultaneous-project acceptance are not yet verified |
+| Global V3 installation (now, planned) | One V3 command and selector, project-aware client integration, no V2 fallback or duplicate recall | Installed-package episodes in two fresh projects, a worktree and a projectless task; restart/upgrade preserve scopes and settings. Complete the ordered slices below before claiming all-project support |
 | Hermes and Claude (Hermes adapter implemented alpha) | Native Hermes provider, Claude hooks/MCP, one extraction owner per origin | Synthetic Hermes-adapter → MCP correction → Hermes undo passes; transcript/mirror callbacks are no-op. Full native Hermes/Claude episodes remain pending |
 | Incremental ingestion (Codex history implemented alpha) | Authorized native Codex deltas, occurrence receipts, durable byte cursors, bounded folder pagination and visible progress | Failed windows retain their exact range across append/restart; separate positions remain separate occurrences; no re-extraction on assistant-only activity. Native rotation/rewrite and other harnesses remain incomplete |
-| Consolidation and skills (scoped scheduling implemented alpha) | One saved scope/cadence, deterministic project cleanup and visible manual target; procedural knowledge and tested skill export remain next | Scope and cadence survive restart; other-scope manual runs do not postpone them; repeated cleanup converges without model calls. Future recipes must work in a second case with tests and rollback |
+| Consolidation and skills (scoped scheduling implemented alpha) | One saved scope/cadence, deterministic project cleanup and visible manual target; procedural knowledge and tested skill export follow global installation | Scope and cadence survive restart; other-scope manual runs do not postpone them; repeated cleanup converges without model calls. Future recipes must work in a second case with tests and rollback |
 | Remote service/admin (later) | HTTP MCP/event service on PC/Raspberry, LAN/Internet, admin UI | Identity-based scopes, TLS, revocation, two-host restart/replay and restore tested before exposure |
 
 DSH is [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
@@ -67,6 +70,84 @@ The optional manual sources module now previews its plain JSONL, Codex/Claude/Pi
 exports and Hermes databases (live local WAL or checkpointed snapshots).
 Compressed DSH and Hermes lineage remain explicit gaps. The Hermes reader is
 bounded recent-window extraction, not exhaustive unattended ingestion.
+
+## Now: one global V3 installation, isolated projects
+
+The failed local acceptance found a V2 launcher and fell back to historical V2
+scripts. That is not V3 acceptance. The owned V2 tool installation has now been
+removed; the existing isolated V3 runtime and vault remain intact. The bare
+global command is temporarily absent, not silently redirected to another version.
+See [development status](development-status.md) for the verified local receipt.
+
+These are planned changes, not currently supported installer options. Deliver
+each slice end to end, using the existing setup, harness, status and UI surfaces.
+Do not add a launcher framework, identity service, daemon or new top-level CLI.
+
+1. **One discoverable command and one selector.** Install the exact local V3 wheel
+   into one stable per-user runtime and expose its packaged entry point on PATH.
+   V3 is unpublished: an unpinned public package install is not this artifact.
+   Reuse `config.py`; selected-vault lookup already works outside the checkout.
+   Align CLI, workbench, hooks and MCP on the same selector without merging V2
+   config. Keep explicit isolated selectors available for tests. Extend existing
+   status with runtime/version/selector provenance. From a fresh shell outside
+   any repo, prove version, setup, save, recall and status against a disposable
+   vault, without `PYTHONPATH`, source-script fallback or ad hoc dependencies.
+   Upgrading/reinstalling must preserve configuration and Markdown; removing the
+   package must leave both intact.
+2. **Prove native project binding before global MCP.** Use two simultaneous native
+   Codex tasks to establish which client-provided root/session information is
+   actually available to MCP. The current server has only a fixed binding; its
+   launch cwd and model-supplied tool arguments are not an authoritative active
+   project. Reuse that bound-scope enforcement after resolving reliable host
+   context. Do not assume MCP roots support or use one mutable "current project"
+   shared by every session. If the client cannot supply a reliable binding, keep
+   the working per-project MCP and provide an explicit project connection through
+   the existing setup flow. Report the limitation; do not advertise global
+   learning merely because a global recall hook works.
+3. **One small shared project resolver.** Explicit local folder-to-scope mappings
+   take precedence. Git worktrees share their Git common-directory identity by
+   default; unrelated clones/folders do not merge by basename or remote URL.
+   Persist an opaque local project ID with an editable display name, so a rename
+   can be rebound deliberately without losing memory. Give projectless task
+   workspaces their own identity. An unknown/home context must not silently write
+   global memory: ask for a project binding or skip project recall with an
+   actionable diagnostic. Use trusted hook cwd, never transcript contents, for
+   hook resolution. Make global sharing explicit, preserve project-plus-global
+   reads, and reuse the same resolver in each verified client adapter. Add scope
+   selection to existing manual remember/recall and show resolution/reason in
+   status/UI. Prove same-name folder separation and intentional worktree sharing.
+4. **One owned integration per event.** Extend the existing installer with a user
+   target and idempotent merge/uninstall of identifiable DeMemory entries. Parse
+   and preserve unrelated TOML/JSON, keep local before/after rollback material
+   private, and restore only unchanged owned edits; never overwrite later user
+   edits. Inspect known installed projects and the current project for owned
+   duplicate handlers; do not crawl all disks. Detect conflicts when another
+   project is encountered. Codex hooks from global and project sources
+   [accumulate rather than replace each other](https://learn.chatgpt.com/docs/hooks),
+   so prove exactly one callback with both sources present. Retain normal user
+   trust for changed definitions. Client-specific disablement must take precedence
+   over the generic harness module; per-project exclusions must stop recall and
+   learning consistently, not just hide the UI switch. Global
+   [MCP configuration](https://learn.chatgpt.com/docs/extend/mcp) must not weaken
+   the binding proven in slice 2. Test malformed config, repeat installation,
+   partial failures, rollback and preservation of unrelated clients/settings.
+5. **Installed native acceptance, then wider harness coverage.** In fresh project
+   A, learn a synthetic fact; fresh A recalls, corrects and undoes it. Project B
+   cannot read or mutate A; A's worktree shares intentionally; a projectless task
+   stays separate. Repeat with simultaneous tasks, a runtime upgrade and client
+   restart. Check the actual hook callback and MCP result, disabled-project
+   behavior, bounded latency and owned-child exit. Provider login is optional,
+   not a prerequisite for zero-extra-model local recall or host-assisted learning.
+   Document one installation path and rollback, then apply the proven binding
+   contract to Claude and Hermes using their native capabilities; DSH remains a
+   separate adapter gap. Do not claim support from generated config alone.
+
+Retirement also means no active documentation or acceptance test may recommend
+executing historical V2 scripts to repair V3. The old dirty checkout contains the
+active worktree and shared Git metadata: keep it until its edits are inventoried
+and V3 can be moved safely to a standalone checkout. Any later source cleanup is
+a reviewed change in the V3 branch, not recursive deletion of that parent or of
+private V2/test vaults. No V2 memory-format migration is being introduced.
 
 ## Model routing
 

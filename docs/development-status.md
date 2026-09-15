@@ -9,7 +9,7 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `9d38e01`.
+- This line builds on V3 baseline `a04a0cd`; this planning increment starts at `dc019d6`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
 - Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now uses
   the Windows provider-discovery fix recorded below, including the previous
@@ -145,10 +145,11 @@ Earlier implementation/install receipts remain in Git history.
   ms). These single-run timings are smoke observations, not latency benchmarks.
   No model calls or transcript reads; zero memories created; all smoke processes
   exited. A fresh independent read-only review found no installation blocker.
-- The user reports activating the hook on 2026-09-15. This is not yet independent
-  evidence of injection from a native prompt in a fresh session. No trust
-  bypass or trust-store edits were used. Check that each task shows exactly one
-  DeMemory UserPromptSubmit handler; matching hook sources accumulate.
+- The user activated the hook on 2026-09-15. A subsequent native prompt in the
+  current project task supplied DeMemory context and a previously verified
+  project lesson. This observes current-task injection, not fresh-project,
+  simultaneous-project or global acceptance. No trust bypass or trust-store
+  edits were used. Check exactly one handler per task; matching sources accumulate.
 - Browser is included in the current desktop app, not a missing separately
   installed dependency. Opened its official documentation in the built-in browser
   and inspected the rendered page successfully. No extra browser package was added.
@@ -179,7 +180,7 @@ Earlier implementation/install receipts remain in Git history.
   setup/save/recall/status, schedule/restart behavior and UI-asset checks.
   No personal vault, hook trust, global client config or model call was involved.
 
-## This cycle: Codex provider executable discovery
+## Previous cycle: Codex provider executable discovery (`dc019d6`)
 
 - User report: `codex_binary_required` while starting managed login. This code
   is emitted before authentication when the discovered/explicit path is not an
@@ -210,21 +211,55 @@ Earlier implementation/install receipts remain in Git history.
 - User action: restart the workbench and retry provider sign-in. Authentication
   is still user-completed and must not be inferred from the hook activation or
   the successful unauthenticated account read. The continuation pauses at this
-  acceptance boundary instead of repeating sign-in attempts.
+  acceptance boundary instead of repeating sign-in attempts. This optional
+  provider check does not block local CLI/MCP integration development.
+
+## This cycle: V2 runtime retirement and global V3 plan
+
+- The user's separate local acceptance invoked historical V2 scripts after
+  launcher/dependency failures and created a review proposal, not a V3 memory.
+  It did not prove the installed V3 hook/MCP route. Only a bounded verified
+  project lesson was retained in the private V3 vault; no transcript or private
+  capture is repository content.
+- Read the UV installation receipt and package metadata: the global entry point
+  belonged to `ai-dememory 2.1.0`. The exact owned tool directory was checked
+  before `uv tool uninstall ai-dememory`; UV removed its one executable.
+  Readback confirmed both that directory and launcher absent, and UV reports no
+  remaining tools. No manually constructed recursive delete was used.
+- The isolated V3 runtime, its selector and both V3/legacy vaults are preserved.
+  Outside either checkout, the installed runtime reports `3.0.0a1` and selected
+  vault status successfully. The bare `ai-dememory` command is currently absent
+  from PATH; global V3 replacement is planned, not claimed installed.
+- A bounded host inventory found no matching legacy-script/runtime processes or
+  DeMemory Windows scheduled tasks. Three relevant Codex automations were already
+  paused and remain unchanged. Inspected global Codex config/hooks have no DeMemory
+  entries; the two known project-local integrations still point to V3 with one
+  fixed scope. No matching standalone DeMemory skill directory was found.
+- The active V3 worktree, the dirty historical parent and pre-existing `build/`
+  are untouched by removal. The parent cannot be deleted while it owns this
+  worktree's shared Git metadata and unreviewed edits. No V3 runtime update,
+  release/publication, trust, authentication or global-client config change in
+  this cycle.
+- Read-only code exploration confirmed the missing pieces: global installer
+  merging/ownership, one selector across entry points, reliable native project
+  binding, a common scope resolver and client-disable precedence. The existing
+  selected-vault resolver and fixed-scope MCP are reused, not replaced by a new
+  framework. The ordered plan lives only in [the roadmap](roadmap.md#now-one-global-v3-installation-isolated-projects).
+- Verification: 49 focused core/harness/MCP tests, 46 passed and three expected
+  Windows symlink skips; `git diff --check` passed. Independent read-only review
+  found no plan blocker after clarifying that only V2 was uninstalled. This is a
+  four-file documentation change, not implementation or global-install acceptance;
+  the full suite, browser QA and hosted CI were not rerun for this planning diff.
 
 ## Next development cycle
 
-1. Next safe local slice: evidence-backed procedural memory with one working
-   second-case advisory skill export. Scoped scheduling is delivered; model
-   summaries remain global review proposals. Do not add executable playbooks
-   or a new task framework merely to export a recipe.
-2. Complete native Hermes/Claude episodes and trusted Codex-hook acceptance in
-   isolated client environments; do not substitute contract/fixture evidence for
-   client execution or bypass authentication/trust. Keep optional DeMemory-managed
-   login/generation evidence separate from the already verified Codex MCP route.
-3. DSH compressed input and Hermes lineage remain example-driven reader gaps.
-4. Complete real selected-provider/fallback acceptance with visible budgets.
-5. Remote service/admin remains later: identity scopes, TLS/key management and
+1. Deliver the roadmap's global-command slice with the exact V3 artifact and one
+   selector; then prove native multi-project binding before installing global MCP.
+2. Complete the common scope resolver, owned integration merging/disablement and
+   two-project/worktree/projectless native acceptance. Keep provider login separate.
+3. Resume native Hermes/Claude episodes, evidence-backed advisory skill export,
+   measured DSH/Hermes reader gaps and selected-provider/fallback acceptance.
+4. Remote service/admin remains later: identity scopes, TLS/key management and
    two-host restart/restore acceptance before any non-loopback exposure.
 
 ## Known limits and rollback
