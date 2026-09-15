@@ -1,39 +1,47 @@
 # ai DeMemory
 
-ai DeMemory is a local-first memory toolchain for people who work with more
-than one AI assistant. It provides a Python CLI, an optional local MCP server,
-review-first memory workflows, and a private vault whose Markdown files remain
-the canonical data.
+A small, local-first memory for people and AI tools.
 
-## Install
-
-Use Python 3.11 or newer. For a published stable release on the default PyPI
-index:
+This is the V3 alpha, a clean reset. Use an explicitly versioned V3 artifact
+from the [releases page](https://github.com/GonzaloTorreras/ai-dememory/releases)
+or its V3 checkout; an unpinned stable package install may still select V2.
 
 ```bash
-python -m pip install --upgrade ai-dememory
+python -m pip install .
+ai-dememory setup
+ai-dememory remember "Something worth remembering"
 ```
 
-Prereleases and non-default indexes require the exact version and index command
-on the matching [GitHub Release](https://github.com/GonzaloTorreras/ai-dememory/releases).
-Do not assume the default PyPI command installs a prerelease.
+The first setup saves a default vault outside the installation, so later
+commands work from any directory. A save is reported only after the canonical
+Markdown file has been read back successfully. Saving does not build SQLite;
+`ai-dememory recall "something"` creates the disposable FTS index lazily. The
+default runtime has no daemon, network, model calls, Node dependency or child
+processes.
 
-## Start
+AI integrations are optional. The foreground MCP module exposes seven tools,
+including scoped learning with provenance and reversible forgetting. Inference
+stays provisional. The optional local workbench manages memory, provider routes,
+fallbacks, budgets and consolidation schedules in a browser.
 
-Use the wizard-first command documented by that matching release; older
-releases can retain a compatibility flag. The wizard creates bounded local
-operating policy. It does not start a daemon, schedule background work, call a
-model, or promote durable memories. Follow-up actions such as MCP
-configuration, a loopback-only local API, indexing, hooks, and schedules are
-optional and explicit.
+For project-aware Codex integration, run `ai-dememory setup --with-codex --yes`,
+then restart Codex and trust UserPromptSubmit and SessionStart in `/hooks`.
+Native learning uses the host assistant, not
+an additional extraction model. Existing Codex tool approval policy still applies.
 
-## Trust boundary
+```bash
+ai-dememory module enable workbench
+ai-dememory serve workbench
+```
 
-Keep the private vault outside source checkouts and do not place credentials,
-tokens, private keys, or personal memories in this public package repository.
-SQLite indexes and generated reports are disposable; approved Markdown remains
-the portable source of truth.
+Open `http://127.0.0.1:8765`. Models and scheduling remain unconfigured/off until
+you choose them. On Windows, optional `setup --with-schedule --yes` installs a
+current-user hourly check of the saved consolidation schedule (new default:
+weekly). No resident worker or conversation ingestion. Pause/change cadence and
+scope in the dashboard; remove with `serve workbench --task remove`.
+Provider credentials use process-local keys, environment references or the
+optional separately authenticated Codex subscription adapter.
 
-For full documentation, exact release artifacts, compatibility notes, and
-prerelease availability, see the
-[ai DeMemory repository](https://github.com/GonzaloTorreras/ai-dememory).
+V3 is a clean format with no 2.x migration or compatibility layer. Keep secrets
+and credentials out of memory. Full source and documentation:
+[github.com/GonzaloTorreras/ai-dememory](https://github.com/GonzaloTorreras/ai-dememory).

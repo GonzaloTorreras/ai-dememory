@@ -1,0 +1,310 @@
+"""Bounded provider calls with durable reservations and metadata-only activity."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import time
+import urllib.error
+import urllib.request
+import copy
+from contextlib import closing
+from datetime import datetime, timezone
+
+from .settings import DEFAULT_SETTINGS, auth_mode, is_local_url, load_settings, local_file, resolve_route, validate_settings
+from .modules import load_enabled_module
+from .provider_plugins import load_provider
+from .policy import reject_high_confidence_secrets
+from .vault import Vault
+
+MAX_PROMPT_BYTES = 64_000
+MAX_RESPONSE_BYTES = 1_000_000
+TIMEOUT_SECONDS = 30
+
+
+class ProviderError(ValueError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(f"Provider operation failed: {reason}")
+
+
+class BudgetExceeded(ProviderError):
+    pass
+
+
+def _database(vault):
+    path = local_file(vault, "runtime.sqlite")
+    for suffix in ("-journal", "-wal", "-shm"):
+        local_file(vault, "runtime.sqlite" + suffix)
+    db = sqlite3.connect(path, timeout=5)
+    db.row_factory = sqlite3.Row
+    db.execute("""CREATE TABLE IF NOT EXISTS provider_attempts (
+        id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, day TEXT NOT NULL,
+        operation TEXT NOT NULL, route TEXT NOT NULL, provider TEXT NOT NULL,
+        model TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+        input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+        cost_usd REAL NOT NULL, estimated INTEGER NOT NULL, duration_ms INTEGER NOT NULL DEFAULT 0
+    )""")
+    return db
+
+
+def _day():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _totals(db):
+    return dict(db.execute("""SELECT COUNT(*) AS calls,
+        COALESCE(SUM(input_tokens + output_tokens),0) AS tokens,
+        COALESCE(SUM(cost_usd),0) AS cost_usd,
+        COALESCE(SUM(estimated),0) AS estimated_attempts
+        FROM provider_attempts WHERE day = ?""", (_day(),)).fetchone())
+
+
+def usage_summary(vault: Vault) -> dict:
+    with closing(_database(vault)) as db:
+        return {"day": _day(), **_totals(db), "limits": load_settings(vault)["budgets"]}
+
+
+def activity(vault: Vault, limit: int = 50) -> list[dict]:
+    if type(limit) is not int or not 1 <= limit <= 200:
+        raise ValueError("Activity limit must be between 1 and 200")
+    with closing(_database(vault)) as db:
+        return [dict(row) for row in db.execute("SELECT * FROM provider_attempts ORDER BY id DESC LIMIT ?", (limit,))]
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def http_transport(url: str, payload: dict | None, headers: dict, timeout: int) -> dict:
+    encoded = json.dumps(payload).encode("utf-8") if payload is not None else None
+    if encoded is not None and len(encoded) > MAX_PROMPT_BYTES * 8:
+        raise ProviderError("request_too_large")
+    request = urllib.request.Request(url, data=encoded, headers=headers, method="POST" if payload is not None else "GET")
+    # Ignore proxy environment variables; a local fallback must stay local.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
+    deadline = time.monotonic() + timeout
+    with opener.open(request, timeout=timeout) as response:
+        chunks, size = [], 0
+        while True:
+            if time.monotonic() >= deadline:
+                raise ProviderError("provider_timeout")
+            chunk = response.read1(min(65_536, MAX_RESPONSE_BYTES + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise ProviderError("response_too_large")
+        raw = b"".join(chunks)
+    try:
+        data = json.loads(raw)
+    except (ValueError, UnicodeError) as exc:
+        raise ProviderError("invalid_response") from exc
+    if not isinstance(data, dict):
+        raise ProviderError("invalid_response")
+    return data
+
+
+def _cost(provider, inputs, outputs):
+    if provider["kind"] == "codex":
+        return 0
+    return (inputs * provider.get("input_cost_per_million", 0)
+            + outputs * provider.get("output_cost_per_million", 0)) / 1_000_000
+
+
+def _headers(profile, credential):
+    headers = {"Content-Type": "application/json"}
+    mode = auth_mode(profile)
+    if mode not in ("none", "chatgpt"):
+        if not credential:
+            raise ProviderError("missing_credentials")
+        if not isinstance(credential, str) or len(credential) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in credential):
+            raise ProviderError("invalid_credentials")
+        headers["x-api-key" if profile["kind"] == "anthropic" else "Authorization"] = credential if profile["kind"] == "anthropic" else "Bearer " + credential
+    if profile["kind"] == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
+    return headers
+
+
+def _model_ids(values, credential=""):
+    if not isinstance(values, list) or len(values) > 10_000:
+        raise ProviderError("invalid_model_catalog")
+    ids = []
+    for value in values:
+        if (not isinstance(value, str) or not value or len(value) > 512 or any(ord(c) < 33 for c in value)
+                or (credential and credential in value)):
+            raise ProviderError("invalid_model_catalog")
+        reject_high_confidence_secrets(value)
+        if value not in ids:
+            ids.append(value)
+        if len(ids) >= 1000:
+            break
+    return ids
+
+
+def list_provider_models(profile: dict, credential: str = "", transport=None) -> list[str]:
+    settings = copy.deepcopy(DEFAULT_SETTINGS)
+    settings["providers"] = {"discovery": {**profile, "model": profile.get("model") or "discovery"}}
+    profile = validate_settings(settings)["providers"]["discovery"]
+    try:
+        if profile["kind"] == "codex":
+            return _model_ids(load_enabled_module("codex-subscription").list_models())
+        _headers(profile, credential)
+        if profile["kind"].startswith("plugin:"):
+            plugin = load_provider(profile["kind"])
+            plugin.validate(profile)
+            return _model_ids(plugin.list_models(profile, credential), credential)
+        data = (transport or http_transport)(profile["base_url"].rstrip("/") + "/models", None,
+                                            _headers(profile, credential), TIMEOUT_SECONDS)
+        rows = data.get("data")
+        if not isinstance(rows, list):
+            raise ProviderError("invalid_model_catalog")
+        return _model_ids([row.get("id") if isinstance(row, dict) else None for row in rows], credential)
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        raise ProviderError("model_catalog_unavailable") from None
+    except Exception:
+        raise ProviderError("model_catalog_unavailable") from None
+
+
+class ProviderEngine:
+    def __init__(self, vault: Vault, settings: dict | None = None, transport=None, credential_resolver=None):
+        self.vault = vault
+        self.settings = validate_settings(settings) if settings is not None else load_settings(vault)
+        self.transport = transport or http_transport
+        self.credential_resolver = credential_resolver
+
+    def _reserve(self, operation, route_key, name, provider, inputs, outputs):
+        budgets = self.settings["budgets"]
+        if budgets["daily_usd"] and provider["kind"] != "codex" and not is_local_url(provider["base_url"]) and any(
+            key not in provider for key in ("input_cost_per_million", "output_cost_per_million")
+        ):
+            raise BudgetExceeded("pricing_required")
+        cost = _cost(provider, inputs, outputs)
+        with closing(_database(self.vault)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            totals = _totals(db)
+            if totals["calls"] + 1 > budgets["daily_calls"]:
+                raise BudgetExceeded("daily_calls")
+            if totals["tokens"] + inputs + outputs > budgets["daily_tokens"]:
+                raise BudgetExceeded("daily_tokens")
+            if budgets["daily_usd"] and totals["cost_usd"] + cost > budgets["daily_usd"]:
+                raise BudgetExceeded("daily_usd")
+            cursor = db.execute("""INSERT INTO provider_attempts
+                (created_at,day,operation,route,provider,model,status,input_tokens,output_tokens,cost_usd,estimated)
+                VALUES (?,?,?,?,?,?,'pending',?,?,?,1)""",
+                (datetime.now(timezone.utc).isoformat(), _day(), operation, route_key or operation,
+                 name, provider["model"], inputs, outputs, cost))
+            return cursor.lastrowid
+
+    def _finish(self, attempt, status, reason, started, usage=None, provider=None):
+        with closing(_database(self.vault)) as db, db:
+            db.execute("UPDATE provider_attempts SET status=?,reason=?,duration_ms=? WHERE id=?",
+                       (status, reason, round((time.monotonic() - started) * 1000), attempt))
+            if usage is not None:
+                db.execute("UPDATE provider_attempts SET input_tokens=?,output_tokens=?,cost_usd=?,estimated=0 WHERE id=?",
+                           (usage["input_tokens"], usage["output_tokens"],
+                            _cost(provider, usage["input_tokens"], usage["output_tokens"]), attempt))
+
+    def run(self, operation: str, prompt: str, route_key: str | None = None) -> dict:
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+            raise ValueError("Prompt must contain 1 to 64000 UTF-8 bytes")
+        route = resolve_route(self.settings, operation, route_key)
+        attempts = []
+        codex_seen = False
+        for name in [route["primary"], *route["fallback"]]:
+            provider = self.settings["providers"][name]
+            if codex_seen and provider["kind"] != "codex" and not is_local_url(provider["base_url"]):
+                raise ProviderError("paid_fallback_disabled")
+            codex_seen = codex_seen or provider["kind"] == "codex"
+            # Byte count is conservative across tokenizers; include message framing.
+            inputs, outputs = len(prompt.encode("utf-8")) + 256, route["max_output_tokens"]
+            attempt = self._reserve(operation, route_key, name, provider, inputs, outputs)
+            started = time.monotonic()
+            try:
+                mode = auth_mode(provider)
+                anthropic = provider["kind"] == "anthropic"
+                key = ""
+                if mode not in ("none", "chatgpt"):
+                    key = (os.environ.get(provider["api_key_env"], "") if mode == "environment" else
+                           self.credential_resolver(name, provider) if self.credential_resolver else "")
+                headers = _headers(provider, key)
+                response_api = provider["kind"] == "responses"
+                payload = {"model": provider["model"], "stream": False}
+                if response_api:
+                    payload.update(input=prompt, max_output_tokens=outputs, store=False)
+                    if "reasoning_effort" in provider:
+                        payload["reasoning"] = {"effort": provider["reasoning_effort"]}
+                else:
+                    payload.update(messages=[{"role": "user", "content": prompt}], max_tokens=outputs)
+                    if "reasoning_effort" in provider:
+                        payload["reasoning_effort"] = provider["reasoning_effort"]
+                endpoint = "/messages" if anthropic else "/responses" if response_api else "/chat/completions"
+                url = provider["base_url"].rstrip("/") + endpoint
+                extension = provider["kind"] == "codex" or provider["kind"].startswith("plugin:")
+                if extension:
+                    try:
+                        if provider["kind"] == "codex":
+                            module = load_enabled_module("codex-subscription")
+                            module.validate_vault(self.vault.root)
+                            data = module.generate(provider, prompt, outputs)
+                        else:
+                            plugin = load_provider(provider["kind"])
+                            plugin.validate(provider)
+                            data = plugin.generate(provider, prompt, outputs, key)
+                    except Exception as exc:
+                        reason = getattr(exc, "reason", None)
+                        if provider["kind"] == "codex" and reason in {
+                            "account_directory_inside_vault", "unsafe_account_directory",
+                            "unexpected_account_configuration", "unsupported_tools_isolation",
+                            "unsupported_thread_isolation", "chatgpt_login_required",
+                            "chatgpt_account_required", "codex_not_installed", "codex_binary_required",
+                            "unsupported_reasoning_effort", "codex_timeout", "codex_process_exited",
+                        }:
+                            raise ProviderError(reason) from None
+                        raise ProviderError("extension_failed") from None
+                else:
+                    data = self.transport(url, payload, headers, TIMEOUT_SECONDS)
+                if extension:
+                    text = data["text"]
+                elif anthropic:
+                    text = "".join(part["text"] for part in data["content"] if part.get("type") == "text")
+                elif response_api:
+                    text = "".join(part["text"] for item in data.get("output", []) if item.get("type") == "message"
+                                   for part in item.get("content", []) if part.get("type") == "output_text")
+                else:
+                    text = data["choices"][0]["message"]["content"]
+                if not isinstance(text, str) or not text.strip() or len(text.encode("utf-8")) > MAX_RESPONSE_BYTES:
+                    raise ProviderError("invalid_response")
+                raw_usage = data.get("usage") or {}
+                in_count = raw_usage.get("input_tokens" if response_api or anthropic or extension else "prompt_tokens")
+                out_count = raw_usage.get("output_tokens" if response_api or anthropic or extension else "completion_tokens")
+                if anthropic:
+                    counts = [in_count, raw_usage.get("cache_creation_input_tokens", 0), raw_usage.get("cache_read_input_tokens", 0)]
+                    in_count = sum(counts) if all(type(count) is int and count >= 0 for count in counts) else None
+                usage = None
+                if type(in_count) is int and type(out_count) is int and in_count >= 0 and out_count >= 0:
+                    usage = {"input_tokens": in_count, "output_tokens": out_count}
+                self._finish(attempt, "success", "", started, usage, provider)
+                attempts.append({"provider": name, "status": "success"})
+                return {"text": text, "provider": name, "model": provider["model"],
+                        "usage": {**(usage or {"input_tokens": inputs, "output_tokens": outputs}), "estimated": usage is None},
+                        "attempts": attempts}
+            except urllib.error.HTTPError as exc:
+                reason = "provider_quota" if exc.code == 429 else "provider_unavailable" if exc.code >= 500 else "provider_http_error"
+                retryable = exc.code in (408, 429) or exc.code >= 500
+                exc.close()
+            except (TimeoutError, urllib.error.URLError, ConnectionError, OSError):
+                reason, retryable = "provider_unavailable", True
+            except ProviderError as exc:
+                reason, retryable = exc.reason, True
+            except (KeyError, IndexError, TypeError, AttributeError, ValueError):
+                reason, retryable = "invalid_response", True
+            self._finish(attempt, "failed", reason, started)
+            attempts.append({"provider": name, "status": "failed", "reason": reason})
+            if not retryable:
+                raise ProviderError(reason)
+        raise ProviderError(attempts[-1]["reason"])

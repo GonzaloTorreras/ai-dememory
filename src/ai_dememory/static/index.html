@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="dememory-token" content="__SESSION_TOKEN__">
+  <title>ai DeMemory · Workbench</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<aside class="sidebar">
+  <a class="brand" href="#memory">ai DeMemory</a>
+  <nav aria-label="Workbench">
+    <a href="#memory"><span aria-hidden="true">◎</span>Memory</a>
+    <a href="#providers"><span aria-hidden="true">▤</span>Providers</a>
+    <a href="#sources"><span aria-hidden="true">▧</span>Local sources</a>
+    <a href="#modules"><span aria-hidden="true">◇</span>Modules</a>
+    <a href="#consolidation"><span aria-hidden="true">↻</span>Consolidation</a>
+    <a href="#activity"><span aria-hidden="true">⌁</span>Activity</a>
+  </nav>
+  <p class="local-label"><span aria-hidden="true">▱</span> Local workspace</p>
+</aside>
+<main id="main">
+  <header class="page-header"><div><h1 id="page-title">Memory</h1><p id="page-description">Useful knowledge, with its source and scope.</p></div><button id="refresh" type="button"><span aria-hidden="true">↻</span> Refresh</button></header>
+  <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+  <p id="dirty-notice" class="notice" hidden>Settings have unsaved changes. Refresh keeps your edits.</p>
+  <form id="scope-form" class="scope-bar"><label>Current scope<select id="scope-selector"><option>global</option></select></label><label>New scope<input id="scope" type="text" autocomplete="off" required maxlength="128" placeholder="e.g. project:my-project"></label><button type="submit">Use scope</button><p class="hint">Select an existing scope or type a new one. Shared across memory, manual extraction and run-now consolidation.</p></form>
+  <datalist id="scope-options"></datalist>
+  <section id="memory" class="page" aria-labelledby="page-title">
+    <label class="check"><input id="inactive" type="checkbox"> Include inactive</label>
+    <div id="memory-list" class="memory-list"></div>
+    <section class="section"><h2>Remember something</h2><p class="hint">Save an explicit fact or decision in the current scope. Saving directly, here or from a connected agent via MCP, needs no DeMemory model provider. A matching key replaces the previous version; you can undo it.</p>
+      <form id="remember-form" class="form-stack"><div class="two-columns"><label>Title<input name="title" required maxlength="200"></label><label>Key <span class="optional">optional</span><input name="key" placeholder="e.g. preferred-language" maxlength="128"></label></div><label>Memory<textarea name="content" rows="3" required maxlength="4000"></textarea></label><div class="actions"><button class="primary" type="submit">Save memory</button></div></form>
+    </section>
+    <details class="section"><summary>Extract from a conversation</summary><p class="hint">This sends the text to your configured extractor and may use a fallback provider. This input is treated as your own statement: paste only your messages, without assistant replies. Exact user statements may be saved automatically; inferred learnings stay provisional.</p>
+      <form id="extract-form" class="form-stack"><label>Conversation text<textarea name="content" rows="5" required maxlength="24000"></textarea></label><label>Hook or skill route <span class="optional">optional</span><input name="route_key" placeholder="e.g. hook:codex-stop" pattern="(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}"></label><div class="actions"><button class="primary" type="submit">Extract learnings</button></div></form>
+    </details>
+  </section>
+  <section id="sources" class="page" aria-labelledby="page-title" hidden>
+    <p class="hint">Browse conversations by title, date and workspace. Listing and previews stay local. Extraction sends only selected user messages to your configured route.</p>
+    <button id="enable-sources" type="button">Enable local conversation reader</button>
+    <div id="source-controls" hidden>
+      <form id="source-form" class="form-stack"><label>Conversation folder<input name="root" required placeholder="Absolute path to a sessions folder" maxlength="1024"></label>
+        <label>Format<select name="format"><option value="codex">Codex sessions</option><option value="claude">Claude Code sessions</option><option value="pi">Pi sessions (active branch)</option><option value="hermes">Hermes state.db (live or snapshot)</option><option value="dsh">DeepSeek Harness (plain JSONL)</option><option value="generic">Generic JSON / JSONL export</option></select></label>
+        <p class="hint">Select the harness's conversation folder, not the whole home directory. For another harness, use a compatible export; additional native readers can extend the sources module. Only user text is extracted; tool results, assistant replies and system instructions are excluded.</p>
+        <div class="actions"><button id="codex-default-root" type="button">Use Codex sessions folder</button><button type="submit">Find conversations</button></div>
+      </form>
+      <div class="source-toolbar section"><label>Filter conversations<input id="source-search" type="search" placeholder="Title, workspace or date"></label><button id="preview-selected" type="button">Preview selected (max 10)</button><button id="extract-source" type="button" class="primary" disabled>Extract selected previews</button><p id="source-selection" class="hint">Select conversations, inspect their inline previews, then extract.</p></div>
+      <div id="source-files" class="memory-list section"></div>
+      <details class="section"><summary>Automate this source</summary>
+        <p class="hint">Optional: one conversation window per run, only while this workbench runs. Uses skill:source-&lt;harness&gt; when configured, otherwise Extract. Normal provider budgets apply.</p>
+        <form id="source-schedule-form" class="form-stack">
+          <label>What to read<select name="mode"><option value="recent">Recent activity — latest user messages</option><option value="history">Codex history — from the beginning, then new messages</option></select></label>
+          <p id="source-mode-help" class="hint">Recent activity reads the latest bounded window, not the entire conversation.</p>
+          <label>Every (hours)<input name="interval_hours" type="number" min="1" max="8760" value="24" required></label>
+          <p class="hint">Each run sends at most 20 user messages / 24,000 characters. Log readers inspect up to 2 MB of records; Hermes uses a bounded SQLite transaction over the latest 100 eligible user rows. Folder discovery and title metadata are separate reads. A daily interval means one window per day, not the whole archive.</p>
+          <label class="check"><input name="enabled" type="checkbox"> Enable automatic extraction from the folder above into the current scope. I authorize sending its user messages to the configured route and fallbacks.</label><button type="submit">Save source schedule</button>
+        </form>
+      </details>
+      <div id="source-schedules" class="memory-list section"></div>
+    </div>
+  </section>
+  <section id="modules" class="page" aria-labelledby="page-title" hidden><p class="hint">Optional modules can be enabled or disabled independently. Installed community plugins are trusted Python code, not sandboxes. Disabling stops future calls; it does not uninstall a package or erase memory.</p><div id="module-list" class="memory-list"></div><p class="hint">Install reviewed provider plugins as Python packages registering ai_dememory.modules. A plugin can add a provider or replace the dashboard through its own foreground service; this UI does not install arbitrary packages or execute uploaded code.</p></section>
+  <section id="providers" class="page" aria-labelledby="page-title" hidden>
+    <section class="section first"><h2>Providers</h2><p class="hint">Optional for direct memory saving and MCP recall/learning: the connected agent uses its own model. Configure a provider when DeMemory itself should extract conversation learnings or generate consolidation suggestions. Its sign-in is separate from your connected agent.</p><div class="table-wrap"><table><thead><tr><th>Name</th><th>API</th><th>Model</th><th>Credential</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="provider-rows"></tbody></table></div><div class="actions"><button id="add-provider" class="outline" type="button">＋ Add provider</button></div></section>
+    <section class="section"><h2>Operation routes</h2><div id="operation-routes" class="routes"></div><p class="hint">Fallbacks run in order when a provider fails. Enter provider IDs separated by commas. Every attempt counts toward the budget.</p></section>
+    <section class="section"><h2>Overrides</h2><div class="table-wrap"><table><thead><tr><th>Hook or skill</th><th>Route</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="override-rows"></tbody></table></div><div class="actions"><button id="add-override" class="outline" type="button">＋ Add override</button></div></section>
+    <section class="section"><h2>Daily budget</h2><div class="three-columns"><label>Calls<input id="daily-calls" type="number" min="1" max="100000" step="1" required></label><label>Tokens<input id="daily-tokens" type="number" min="1" max="100000000" step="1" required></label><label>USD<input id="daily-usd" type="number" min="0" max="100000" step="0.01" required></label></div><p class="hint">0 disables the currency limit. Calls and tokens stay capped. Add model prices to estimate spend.</p></section>
+    <div class="actions"><button class="primary save-settings" type="button">Save settings</button></div>
+  </section>
+  <section id="consolidation" class="page" aria-labelledby="page-title" hidden>
+    <section class="section first"><h2>Schedule</h2><p class="hint">Consolidation removes exact duplicates within one scope. For global memories, a configured model route can also suggest concise summaries for review. Project scopes use local duplicate cleanup only, with no model calls.</p><label>Scheduled scope<input id="schedule-scope" list="scope-options" pattern="[A-Za-z0-9][A-Za-z0-9_.:\-]{0,127}" maxlength="128" required placeholder="e.g. project:my-project"></label><p class="hint">One saved schedule per vault. Choose an existing scope or enter a new one. Changing the browsing scope above does not retarget this schedule.</p><label class="check"><input id="schedule-enabled" type="checkbox"> Enable scheduled consolidation</label><label class="interval-label">Run every (hours)<input id="interval-hours" type="number" min="1" max="8760" step="1" required></label><p class="hint">168 hours is weekly; 24 is daily. The workbench runs due jobs while open. An optional Windows task can check this same schedule hourly without the dashboard, while you are logged in. Neither wakes a sleeping PC. Changing the scheduled scope starts a fresh interval after saving.</p><p class="hint" id="task-status">Checking local task receipt…</p><p class="hint">Install from <code>ai-dememory setup --with-schedule --yes</code>. Check live Windows status with <code>ai-dememory serve workbench --task status</code>. Source conversation schedules still require the workbench. Browser-session API keys are not available to the Windows task.</p><div class="actions"><button class="primary save-settings" type="button">Save settings</button></div></section>
+    <section class="section"><h2>Latest run</h2><dl id="schedule-status" class="facts"></dl><p class="hint">Run now uses the browsing scope selected above. A manual run in a different scope does not postpone the saved schedule. Originals remain in memory history.</p><div class="actions"><button id="run-consolidation" type="button">Run now</button></div></section>
+    <p class="hint">Choose a separate consolidation provider, fallback chain and token allowance in <a href="#providers">Providers</a>.</p>
+  </section>
+  <section id="activity" class="page" aria-labelledby="page-title" hidden>
+    <section class="section first"><h2>Today’s usage</h2><div id="usage" class="usage-grid"></div></section>
+    <section class="section"><h2>Provider attempts</h2><p class="hint">Local operational metadata only. Prompts and conversation text are not included in these logs.</p><div class="table-wrap"><table><thead><tr><th>Time</th><th>Operation</th><th>Provider / model</th><th>Result</th><th>Tokens</th><th>USD</th></tr></thead><tbody id="activity-rows"></tbody></table></div></section>
+    <p class="hint">Remote access planned; this workbench is local only.</p>
+  </section>
+</main>
+<dialog id="provider-dialog" aria-labelledby="provider-title">
+  <form id="provider-form" class="form-stack" autocomplete="off">
+    <h2 id="provider-title">Add provider</h2>
+    <label>Provider preset<select name="preset"><option value="codex">OpenAI via Codex / ChatGPT subscription</option><option value="openai">OpenAI API — usage billed separately</option><option value="anthropic">Anthropic / Claude API</option><option value="local">Local model (OpenAI compatible)</option><option value="custom">Other / custom endpoint</option></select></label>
+    <p class="hint">The dashboard stays on this PC. Remote providers receive text only when you run a configured learning job.</p>
+    <label>Profile name (Provider ID)<input name="id" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="e.g. weekly-local or codex-learning" maxlength="64"></label>
+    <p class="hint">Your own short name for this configuration, not an ID from OpenAI or Anthropic. Routes refer to this name. Create separate profiles for different models or jobs; use letters, numbers, dots or dashes.</p>
+    <div id="codex-login" hidden><p class="hint">Uses the official Codex CLI with an isolated ChatGPT login. No API key or automatic paid API fallback. Subscription limits still apply; purchased Codex credits may be consumed according to your account settings. This is not unlimited free usage.</p><div class="actions"><button id="enable-codex" type="button">Enable Codex subscription module</button><button id="codex-device" type="button">Sign in with device code</button><button id="codex-browser" type="button">Sign in with browser</button><button id="codex-check" type="button">Check sign-in</button><button id="codex-cancel" type="button">Cancel pending sign-in</button></div><p id="codex-auth-status" class="hint" role="status"></p><a id="codex-auth-link" target="_blank" rel="noopener noreferrer" hidden>Open official sign-in page</a><p id="codex-user-code" class="hint"></p></div>
+    <label id="provider-auth-field">Authentication<select name="auth"><option value="session">API key — this workbench session</option><option value="environment">API key — environment variable</option><option value="none">No authentication</option><option value="chatgpt" hidden>ChatGPT via Codex</option></select></label>
+    <label id="session-key-field">API key<input name="api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="Paste a provider API key"></label>
+    <p id="session-key-help" class="hint">Kept only in this server process, never saved in the vault or browser storage. Re-enter after restarting the workbench. Closing this tab does not clear it.</p>
+    <p id="credential-status" class="hint"></p>
+    <button id="clear-provider-key" type="button" hidden>Clear session key now</button>
+    <label id="environment-key-field" hidden>Environment variable name<input name="api_key_env" placeholder="OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" maxlength="128" autocomplete="off"></label>
+    <p id="environment-key-help" class="hint" hidden>Enter the variable name, not its value. Set it before starting the workbench. This works for unattended scheduled jobs after restart.</p>
+    <div class="actions"><button id="load-models" type="button">Load available models</button></div>
+    <label>Model<input name="model" list="provider-models" required placeholder="Load the provider list or enter an exact model ID" maxlength="512"><datalist id="provider-models"></datalist></label><p id="models-status" class="hint" role="status">Models are fetched from the selected provider, not a fixed list. Loading lists makes no generation request. Custom endpoints may require manual entry.</p>
+    <details id="provider-advanced"><summary>Advanced model options</summary><div class="form-stack">
+      <div id="custom-endpoint-fields" class="form-stack"><label>API type<select name="kind"><option value="responses">OpenAI Responses</option><option value="anthropic">Anthropic Messages</option><option value="openai_compatible">OpenAI compatible (Chat Completions)</option><option value="codex" hidden>Codex subscription</option></select></label>
+      <label>Base URL<input name="base_url" type="url" required placeholder="https://api.openai.com/v1" maxlength="512"></label><p class="hint">API type is the wire format your server speaks, not its model. Responses calls /responses; Anthropic calls /messages; Chat Completions calls /chat/completions. Base URL is the prefix before that path, usually ending in /v1. Choose exactly what your server documents. HTTPS is required remotely; localhost can use HTTP.</p></div>
+      <p id="preset-endpoint-help" class="hint">This preset supplies the protocol and endpoint automatically. Choose Other / custom endpoint only for a proxy or a different service.</p>
+      <label>Reasoning effort<select name="reasoning_effort"><option value="">Provider default</option><option>none</option><option>minimal</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label>
+      <p id="reasoning-help" class="hint" hidden>Claude uses a different thinking contract; this adapter currently uses its default.</p>
+      <div id="provider-prices" class="two-columns"><label>Input USD / million tokens<input name="input_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label><label>Output USD / million tokens<input name="output_cost_per_million" type="number" min="0" max="100000" step="any" placeholder="Optional"></label></div>
+    </div></details>
+    <p class="hint">Saving also saves your current routes and budget edits. It does not make a model call or verify the key with the provider.</p>
+    <p id="provider-error" class="form-error" role="alert" hidden></p>
+    <div class="actions"><button type="button" data-close="provider-dialog">Cancel</button><button type="submit" class="primary">Save provider &amp; settings</button></div>
+  </form>
+</dialog>
+<dialog id="override-dialog" aria-labelledby="override-title"><form id="override-form" class="form-stack"><h2 id="override-title">Add override</h2><label>Hook or skill ID<input name="id" required pattern="(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}" placeholder="hook:codex-stop"></label><label>Primary provider<select name="primary" required></select></label><label>Fallback provider IDs<input name="fallback" placeholder="local, backup"></label><label>Max output tokens<input name="max_output_tokens" type="number" min="16" max="16384" value="1024" required></label><p id="override-error" class="form-error" role="alert" hidden></p><div class="actions"><button type="button" data-close="override-dialog">Cancel</button><button class="primary" type="submit">Apply override</button></div></form></dialog>
+</body>
+</html>

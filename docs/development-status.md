@@ -1,811 +1,471 @@
-# Development Status
+# Development status
 
-Updated: 2026-08-27
+Updated: 2026-09-16. This is the current handoff, not an accumulated backlog.
+Earlier implementation/install receipts remain in Git history.
 
-This is a concise public-repository handoff, not release evidence by itself.
-The lead integrator updates it when a verified checkout, frontier, blocker, or
-reproducible evidence changes.
+## Checkout and release reality
 
-## Canonical Baseline
+- Active worktree: `working/worktrees/product-reset-v3` under the historical
+  checkout; branch `codex/v3-learning-workbench`.
+- Public `main` read back through GitHub at
+  `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `0b45e42`.
+  The large dirty historical V2 checkout and pre-existing `build/` are preserved.
+- Source is prepared as `3.0.0a2`, not yet published at this checkpoint. The user's isolated V3 runtime now
+  includes the global Codex integration recorded below. The default selector and
+  global client connection were configured; existing account state and unrelated
+  settings were preserved. No release tag, package publication or merge yet.
+- PR #58 remains the original V3 baseline, not a current workbench readiness
+  receipt. No new hosted CI is claimed for these local changes.
+- GitHub search found no PR for `codex/v3-learning-workbench` on 2026-09-14.
+- [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
+  historical input; there is no V2 migration or compatibility backlog.
 
-- Public remote: `https://github.com/GonzaloTorreras/ai-dememory.git`
-- Public `main` is a moving source branch. Resolve its current SHA before a
-  handoff or merge with `git ls-remote origin refs/heads/main`; do not turn a
-  historical release commit into a permanent `main` claim.
-- For this handoff, public `main` was read back at
-  `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`, the squash merge result of
-  [PR #56](https://github.com/GonzaloTorreras/ai-dememory/pull/56). Its history
-  contains the validated proposal/planning contracts from PR #56, package-
-  rootless diagnostic enforcement from PR #55, the exhaustive generic-command
-  root-policy inventory from PR #54, structural runtime-vault validation from
-  PR #53, rootless provider detection from PR #52, the completed strict-
-  configuration boundary from PR #51, and the prior public planning and
-  compatible `2.1.2` source corrections. The exact PR #56 head
-  `89cbbd7faa387d36b397d5ce8a35d71dc488204a` and tree
-  `41da5c36442eb2884e4fd1f9841296d0bbb29836` passed
-  [CI run 33087858096](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33087858096)
-  and [Pages validation 33087858102](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33087858102).
-  Three fresh exact-head reviews returned `READY` with no P0-P2 findings, and
-  the owner receipt bound them to the exact base/head/tree tuple. Post-merge
-  public [CI run 33090677528](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/33090677528)
-  then passed `verify` plus all nine OS/Python compatibility jobs; GitHub
-  readback reported public `main` identical to the squash commit.
-- Last externally verified public stable tag [`v2.1.1`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1):
-  its annotated tag peels to
-  `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6`.
-- [`ai-dememory 2.1.1`](https://pypi.org/project/ai-dememory/2.1.1/) is
-  available from public PyPI as a non-yanked wheel and source distribution. The canonical
-  [release workflow 32662792807](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662792807)
-  completed validation, provenance-attested build, protected PyPI publication,
-  exact-version verification, and GitHub Release creation. Its public package
-  route is the unpinned CLI install followed by `ai-dememory init
-  ~/code/my-memory --wizard`; `--require-version` remains a legacy-compatible
-  diagnostic option, not normal setup guidance.
-- Historical prerelease evidence: [`v2.1.1rc2`](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2),
-  an annotated tag whose peeled ref resolves to
-  `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`. It is published on
-  [TestPyPI](https://test.pypi.org/project/ai-dememory/2.1.1rc2/) through the
-  successful canonical release
-  [workflow 32647839323](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647839323).
-  It is release-candidate evidence, not an active installation route or a
-  stable PyPI release.
-- `v2.1.1rc1` remains historical prerelease evidence, not a second recommended
-  installation route.
-- Python 3.11+ remains the only headless runtime. Node is not an installation
-  or background-process dependency.
-- The former private checkout is historical input only. Private vaults,
-  receipts, credentials, paths, and personal memory are not public source or
-  release evidence.
+## Delivered local product
 
-The immutable release facts above were read back from the canonical public tag,
-GitHub Release, release workflow, PyPI index, and artifact hashes. Current
-`main` is source state rather than release evidence and must be read back
-separately. This status file does not substitute for exact release checks.
+## Current increment: optional first-run hooks and Windows consolidation
 
-## Current Maintenance Correction
+- Setup offers global Codex integration and optional Windows scheduled work;
+  explicit `--with-codex` / `--with-schedule` support repeatable installation.
+  Default noninteractive setup remains core-only. No provider account, source
+  scan, model call or resident service is started during setup.
+- Global Codex adds SessionStart guidance for startup/resume/clear/compact to
+  the unchanged prompt-recall handler. No Stop continuation loop. Existing V3
+  ownership receipts upgrade without adopting unrelated hook definitions.
+  Native trust for the new exact definition remains a user action.
+- One current-user Windows task checks the saved consolidation schedule hourly,
+  uses pythonw without a console, has a five-minute execution limit, no wake and
+  IgnoreNew overlap policy. It runs only while the installing user is logged in.
+  Cadence/scope/routes/budgets remain owned by the existing dashboard settings.
+  SourceJobs/history ingestion are deliberately not part of the OS runner.
+- Shared lock covers due-time selection and running work. A busy dashboard status
+  is read-only; structural lock errors are not silently treated as contention.
+  Exact task XML ownership is checked inside the same COM operation that writes;
+  receipt-write failure rolls back only unchanged owned task state.
+- Fresh independent functional review found normalized-XML idempotence and
+  setup-failure schedule-drift defects. Both corrected with tests. This is not a
+  formal security scan, nor a full-branch release certification.
+- Regression: 258 tests, 253 pass / five expected Windows symlink skips.
+  Compilation, JavaScript syntax and diff checks pass. Isolated installed-wheel
+  native task acceptance: repeated install is a no-op; due scoped dedup ran with
+  zero model calls, exit 0, retained inactive history; removal/absence verified.
+- Rendered installed-wheel Edge/Playwright at 1280x900 and 390x844: schedule scope,
+  cadence/save/reload/pause pass; no console warnings/errors or horizontal overflow.
+  Browser skill/plugin unavailable; bundled Playwright used without new browser
+  dependencies. Temporary server and native test task were closed/removed.
+- Release preparation restores the actual required aggregate `verify` check and
+  installs the package before clean-runner release/preflight tests. Installation
+  and release runbooks now describe V3 rather than obsolete V2 commands/gates.
+  Current workflow policy publishes prereleases to TestPyPI and stable to PyPI.
+- First hosted CI passed both Linux versions but exposed fixture path aliases
+  on macOS and Windows (including short-name vs resolved-name mock comparison).
+  Fixtures now use canonical temporary directories; runtime link checks and
+  containment remain unchanged. Re-run all four matrix jobs before merge.
 
-The released `2.1.1` maintenance correction carries forward the two evaluated
-increments without changing the V3 execution DAG. `2.1.1rc1` corrected an
-unintended 2.1.0 compatibility contract; `2.1.1rc2` supplied the optional
-local-API onboarding hint and documentation follow-up.
+Known boundaries: custom provider plugins are trusted code; five minutes is the
+Windows task execution limit, not a sandbox for arbitrary plugin descendants.
+Use a short fallback chain. Browser-session API keys do not exist in the external
+runner. An already-running job is not cancelled by removing its future task.
+Managed provider authentication and full native Hermes/Claude remain separate
+acceptance; no such model calls were made in this increment.
 
-- Planning mapping: compatible maintenance remediation of completed `BRG-014`
-  in `B04a`; it does not advance `B04b` or claim a V3 milestone.
-- Problem: release preparation made `--require-version` look like a normal
-  setup command and persisted an exact semver pin into generated MCP commands.
-  A later patch package would then abort before MCP started.
-- Resolution: new generated configuration, plans, plugin defaults, and Docker
-  defaults omit the pin. Legacy configuration that still contains it is accepted
-  as a no-op. `version-check` remains an explicit CI/support diagnostic.
-- Release result: `v2.1.1` is now the public PyPI/GitHub stable release; its
-  wheel and source hashes match the GitHub Release assets. `2.1.1rc1` and
-  `2.1.1rc2` remain immutable TestPyPI evidence only, not active installation
-  routes.
-- Post-release first-run UX: `ai-dememory init ~/code/my-memory --wizard`
-  after installing the exact stable package. Client configuration remains an
-  optional, inspect-before-copy action.
-- Optional API follow-up: after a completed operational wizard, the package may
-  suggest the foreground loopback API command for a dashboard or script. It
-  does not start, install, configure, or schedule the API.
-- Preserved safeguards: explicit vault binding, `--require-bound-root`,
-  server-enforced profiles/allowlists, preview/apply fingerprints, idle leases,
-  and bounded resource policy.
+## Retained local product
 
-## Current B04b Binding Increment
+- Small Python core: canonical Markdown, generated Unicode FTS, one selected
+  vault, seven top-level commands and lazy optional modules.
+- Scoped learn/recall/correct/forget; explicit user statements can be active,
+  inference remains provisional, keyed corrections and undo preserve history.
+- Scope-bound stdio MCP, user-wide project-aware Codex installation, explicit
+  project-local Codex/Claude connections and fail-open UserPromptSubmit recall.
+  No default daemon or model call.
+- Local web UI for memory/scopes, providers, ordered fallback, budgets,
+  consolidation, source conversations and independent module switches.
+- Provider presets, live model discovery, session/environment API keys, an
+  optional isolated Codex managed-login adapter and trusted provider plugins.
+- Readable conversation titles/workspaces, internal-session filtering, inline
+  previews and ten-conversation batches bound to exact scope/routes/text.
+- Opt-in per-harness recent-window schedules reuse existing budgets/receipts.
+  Pausing/disabling prevents future runs; no OS task or extra watcher.
 
-- PR [#27](https://github.com/GonzaloTorreras/ai-dememory/pull/27) was merged
-  at `64622752d7d14c2a7f5bb49fc436010825d37d8c` after exact-head functional
-  and security review found no actionable P0/P1/P2 issue and CI run
-  [32589647682](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32589647682)
-  passed all verification and cross-platform compatibility jobs.
-- This first `BRG-003` increment rejects an explicitly supplied empty or
-  whitespace-only `--root` before the CLI can fall through to
-  `AI_DEMEMORY_ROOT` or CWD discovery. It covers global and post-command CLI
-  binding plus direct MCP-config, setup, onboarding, and maintenance entry
-  points; focused tests also preserve valid explicit-root precedence.
-- PR [#29](https://github.com/GonzaloTorreras/ai-dememory/pull/29) was merged
-  at `2d7212ad1205c58dd060b8048023fdb34c7ad164` after fresh exact-head
-  functional/security review found no actionable P0/P1/P2 issue and CI run
-  [32592493743](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32592493743)
-  passed verification, all nine compatibility jobs, MCP runtime, install,
-  package-build, and Docker smokes.
-- This second `BRG-003` increment adds a pure runtime resolver and applies it
-  to direct MCP runtime and `mcp-config`: `--stdio` and `--call` now require
-  `--root` or `AI_DEMEMORY_ROOT`, while static `--list-tools` remains
-  rootless. Packaged MCP dispatch no longer reaches CWD/package discovery,
-  and generated client configurations remain compatible through explicit
-  environment binding plus the legacy `--require-bound-root` flag.
-- PR [#31](https://github.com/GonzaloTorreras/ai-dememory/pull/31) was merged
-  at `e8a55506d95990e911edf7f3c1fa1570b87aed18` after a fresh independent
-  exact-head review found no actionable P0/P1/P2 issue. CI run
-  [32595063206](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32595063206)
-  and Pages validation
-  [32595063201](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32595063201)
-  passed.
-- This third `BRG-003` increment applies the same resolver to the direct
-  local API and stateful hook surfaces. Those paths now require a nonempty
-  absolute root from `--root` or `AI_DEMEMORY_ROOT` (with `~` expanded),
-  reject duplicate/relative bindings, avoid opening an API socket before
-  binding, and leave unbound hook dispatch as the documented `{}` no-op.
-- PR [#33](https://github.com/GonzaloTorreras/ai-dememory/pull/33) was merged
-  at `72d18eb271895e6fad7252e7b137ade33129644d` after a fresh exact-head
-  functional/security review found no actionable P0/P1/P2 issue. CI run
-  [32597614409](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32597614409)
-  and Pages validation
-  [32597614438](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32597614438)
-  passed.
-- This fourth `BRG-003` increment makes the `setup` and `onboard` execution
-  paths select their vault only through the strict runtime resolver, before
-  generic CLI CWD/package discovery. They reject blank and relative bindings,
-  prefer an explicit absolute `--root` over the environment, and preserve
-  `setup wizard` plus `init --wizard`, including both post-command root
-  spellings. Packaged vault templates and active setup/maintenance guidance now
-  show the same root-bound onboarding command.
-- PR [#35](https://github.com/GonzaloTorreras/ai-dememory/pull/35) was merged
-  at `e4f844413a874972d7626a325b47ec9dfa75a393` after a fresh independent
-  exact-head review found no actionable P0/P1/P2 issue. CI run
-  [32601078748](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32601078748)
-  and Pages validation
-  [32601078743](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32601078743)
-  passed.
-- This fifth `BRG-003` increment makes `maintenance run` select its vault
-  through the strict runtime resolver before generic discovery, provider reads,
-  lock acquisition, or supervised-child creation. It applies equally to real,
-  dry-run, and supervised maintenance; absolute explicit `--root` takes
-  precedence over the environment. At that point `maintenance status` remained
-  a compatible read-only legacy path; the ninth increment below closes that
-  temporary exception. Source-checkout children use the trusted wrapper while
-  installed packages retain the module entry point, both with an explicit root.
-  PR #35 records full regression evidence of 856 passed and 53 skipped, plus an
-  exact working-tree security scan with zero findings.
-- PR [#37](https://github.com/GonzaloTorreras/ai-dememory/pull/37) was merged
-  at `4ff90b288c3d5ae9f522d5891fa5120f476ed781` after a fresh independent
-  exact-head review found no actionable security issue. CI run
-  [32606276539](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32606276539)
-  and Pages validation passed.
-- This sixth `BRG-003` increment makes stateful provider, import, and capture
-  commands parse their own arguments before resolving a vault, then require an
-  explicit runtime binding rather than generic CWD/package discovery.
-  `providers detect` remains a deliberately rootless, read-only diagnostic.
-  Documentation, generated setup guidance, and release checks now use the
-  canonical root-bound command form. It is source hardening only: `BRG-003`
-  remains `in_progress`, with no package, tag, release, vault, or V3-milestone
-  change.
-- PR [#39](https://github.com/GonzaloTorreras/ai-dememory/pull/39) was merged
-  at `b585f913da8085231a1eb4d72671cd2e2f515869` after fresh independent
-  exact-head review found no actionable P0/P1/P2/P3 issue. CI run
-  [32611176677](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32611176677)
-  passed 879 tests with 6 expected platform skips, and Pages validation
-  [32611176739](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32611176739)
-  passed.
-- This seventh `BRG-003` increment binds configuration and review-state reads
-  and writes to the selected vault root. It rejects external paths,
-  symlinks/junctions, hard links, unstable file identity, descriptor
-  substitution, non-regular input, oversized input, and invalid UTF-8.
-  Onboarding reuses the validated configuration snapshot for planning and
-  fingerprints, while the review API preserves direct `ValueError` contracts
-  and the CLI returns controlled errors. The exact public-diff security review
-  recorded complete coverage and zero reportable findings.
-- It is source hardening only: it does not change a package, tag, release,
-  vault, host configuration, or the V3 task state from `in_progress` to
-  complete. The remaining strict-resolver inventory and any structural
-  vault-validation policy stay within `BRG-003`.
-- PR [#48](https://github.com/GonzaloTorreras/ai-dememory/pull/48) was squash
-  merged at `bf611ac2e2ebf819adb74f79e6d6ef093c0503d0` after all ten CI jobs and
-  Pages validation passed. Its exact committed diff was sealed as canonical
-  security scan `46e5e575_dcca4a96_20260825T205252Z`; the post-seal validator
-  returned `status: valid` with complete coverage, zero deferred work, zero
-  candidates, and zero findings. A fresh GitHub-context review returned no
-  blockers and explicitly recommended the exact-head squash merge.
-- This eighth `BRG-003` increment makes the complete `schedule` command
-  family parse its own grammar before any vault lookup. `schedule doctor`
-  remains a genuinely rootless environment check; `plan`, `cron`, `setup`,
-  `install`, `status`, and `remove`, including their dry-run forms, resolve only
-  through `--root`, `AI_DEMEMORY_ROOT`, or the saved local default. None can
-  fall through to CWD/package discovery. This also reflects that a real
-  `schedule status` may refresh or clear verification evidence and therefore
-  is not merely a static command. The scheduler-plan smoke now rejects missing,
-  duplicated, misplaced, or incorrect root bindings and distinguishes the host
-  vault from the Docker runtime root. Its installed and Docker previews must
-  match the exact platform-specific host command set, complete maintenance
-  argv, root-derived task namespace, safety flags, fingerprint-bound apply
-  argv, independently recomputed plan fingerprint, and canonical cron entries;
-  a malformed duplicate or internally consistent forged plan cannot hide
-  behind valid-looking metadata.
-- The scheduler increment remains source hardening with `BRG-003` still
-  `in_progress`. It does not change scheduler definitions, an installed vault,
-  package metadata, a tag, a release, or the current V3 frontier.
-- Local evidence for this checkout: the complete unit suite passed 935 tests
-  with 59 expected platform skips; the integrated memory-tools module passed
-  580 tests with 45 expected skips; the documentation/planning guards passed;
-  and a fresh venv install smoke installed the local package and exercised its
-  console script, exact installed and Docker scheduler-plan validation, MCP,
-  API, hooks, providers, and maintenance successfully. The Docker step was a
-  plan-only preview: the smoke removed its temporary environment and neither
-  ran Docker nor installed host scheduler definitions.
-- PR [#49](https://github.com/GonzaloTorreras/ai-dememory/pull/49) was squash
-  merged at `2c3e80735b4412d94c8a67983a5d410b417fb5e9`. Its exact head passed CI
-  run [32902951391](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32902951391)
-  and Pages run
-  [32902951388](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32902951388),
-  plus fresh independent normative and security reviews. It consolidated the
-  planning authority and hardened the advisory release-checklist parser; it did
-  not change the V3 frontier or publish a package.
-- PR [#50](https://github.com/GonzaloTorreras/ai-dememory/pull/50) was squash
-  merged at `02aa9945f82fc895eeb4420a932610a130a497b2`. Its exact head passed CI
-  run [32905559559](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559559)
-  and Pages run
-  [32905559592](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32905559592),
-  plus fresh functional and sealed security reviews with zero findings. The
-  resulting public-main push CI run
-  [32907288634](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32907288634)
-  also passed verification and all nine OS/Python compatibility jobs.
-- The merged ninth `BRG-003` increment routes the complete `maintenance`
-  family through its own parser. Both `run` and read-only `status` now resolve
-  only `--root`, `AI_DEMEMORY_ROOT`, or the saved local default, in that order,
-  and never discover a vault from CWD or the source checkout. Invalid grammar,
-  abbreviations, duplicate, blank, relative, or misplaced roots fail before
-  configuration reads, status work, locks, providers, or child processes.
-  Rootless help remains available and `status` preserves its JSON contract and
-  makes no vault writes.
-- Local evidence for this increment: all 25 maintenance-focused tests passed;
-  the runtime-binding help test passed; and the integrated memory-tools module
-  passed 589 tests with 45 expected platform skips. Thirteen install-smoke
-  regressions also passed, and a fresh venv installed the local package and
-  proved that installed `maintenance status` rejects an unbound foreign CWD,
-  then uses the saved vault from that same deliberately poisoned directory;
-  the rest of the installed CLI, API, MCP, hook, provider, scheduler, and recall
-  smoke remained green. This remains compatible source hardening: `BRG-003`
-  stays `in_progress`, and no version, task state, package, tag, vault,
-  scheduler definition, or release changes.
-- The merged tenth `BRG-003` increment makes CLI
-  `providers detect` genuinely rootless. It returns the five fixed host
-  candidates before any runtime-vault resolution and ignores explicit roots,
-  `AI_DEMEMORY_ROOT`, the saved selector, vault configuration, and CWD. Blank,
-  duplicate, or misplaced root syntax still fails before detection. JSON keeps
-  its existing fields with `configured=false` and `enabled=false`; human output
-  marks those unavailable vault-only fields as `config=n/a`. MCP detection,
-  provider status, and provider plans deliberately remain vault-bound.
-- Missing, blank, relative, or UNC-style application-config overrides no longer
-  turn into the working directory or probe a supplied network value. Windows
-  uses the absolute user-home `AppData/Roaming` fallback, macOS uses its
-  application-support directory, and POSIX hosts use an absolute XDG config
-  home or `~/.config`. An unavailable, relative, or UNC-style home now fails
-  with a stable path-redacted error before candidate probes; static help does
-  not resolve a home. Manually edited relative provider paths fail closed before
-  vault-bound detection, status, planning, MCP, or import can probe the CWD,
-  while an explicit one-shot `import-chats --path` remains CWD-relative for
-  compatibility and is never persisted.
-  The installed-package smoke poisons every vault selector and config source,
-  runs from a foreign CWD, requires exact existing host candidates, and verifies
-  exact before/after snapshots.
-- Local evidence for the merged increment: the focused boundary set passed on
-  Windows and WSL;
-  the 39 provider-related tests pass with one expected Windows platform skip;
-  the full Windows suite passes 1,073 tests with 60 expected platform skips;
-  and the installed package smoke passed all 96 recorded steps. The exact PR
-  head passed [CI run 32947554012](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32947554012),
-  [Pages validation 32947554011](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32947554011),
-  and fresh independent functional and security reviews with zero reportable
-  findings. PR #52 was squash merged at
-  `61c708ad421e2f3d8d520aa685771db281200b29`; its public-main CI run
-  [32950389813](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32950389813)
-  then passed verification and all nine compatibility jobs. `BRG-003` stays
-  `in_progress`, and this increment changes no version, DAG, package
-  publication, vault, host configuration, or release.
+## Retained ingestion increments
 
-### Merged Structural Runtime-Vault Increment
+- `47eee14`: opt-in Codex chronological history, 20-message / 24,000-character /
+  2 MB windows, durable pending ranges and cursors, paginated round-robin folder
+  discovery and visible progress. Retries cannot expand with appended messages;
+  completed receipts avoid repeated model calls. Internal/mirrored events are
+  excluded and incomplete final records wait for completion.
+- `e4388a1`: live local Hermes WAL source reading with coherent read-only
+  transactions, bounded titles/workspaces/dates, hidden/child filtering and
+  visible unreadable-source warnings. WAL-only user commits trigger schedules;
+  assistant-only activity does not. No full-copy/checkpoint/repair is performed.
 
-- PR [#53](https://github.com/GonzaloTorreras/ai-dememory/pull/53) passed exact
-  head CI run
-  [32970746205](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32970746205),
-  all nine compatibility jobs, and Pages run
-  [32970746228](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32970746228).
-  Fresh functional review found no blocker; sealed security scan
-  `e8ec9df0-83d5-4645-b3a8-c538da32c633` covered the exact
-  `61c708ad..519912f` range with zero candidates, findings, or deferred work.
-  The PR was squash merged at
-  `0fa635ea5e6985900b820e569fb44dffda3776ca`; public-main CI run
-  [32972685861](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32972685861)
-  then passed canonical verification and all nine OS/Python compatibility jobs.
-- Every surface already routed through `resolve_runtime_vault` now applies one
-  structural validator after selecting `--root`, then `AI_DEMEMORY_ROOT`, then
-  the saved local default. A selected but invalid higher-precedence source
-  fails without falling through. The final logical root must be a real
-  directory with stable identity; the canonical directory chain must remain
-  stable; and `.ai-dememory.toml` must be a bounded, regular, single-link,
-  identity-stable marker. Strict TOML syntax and schema remain owned by the
-  completed `BRG-017` parser rather than being duplicated here.
-- MCP, API, stateful hooks, setup/onboarding, vault-bound provider/import/
-  capture, maintenance, and scheduler work now reject a structurally invalid
-  selected vault before sockets, stdin handling, provider work, locks, children,
-  host commands, or writers. Static help, provider detection, scheduler doctor,
-  the static MCP tool list, inert unbound hook dispatch, `init`, and
-  `vault-template` preserve their intentional rootless or bootstrap behavior.
-- The complete Windows suite passed 1,091 tests with 63 expected platform skips
-  before the final documentation edits and one new no-runtime limit-alignment
-  assertion. The final resolver/help/redaction set, including that assertion,
-  passes all 39 tests with four Windows symlink skips; a direct ten-step API
-  smoke and a fresh installed-package smoke also pass. The WSL/Python 3.12
-  snapshot passed all 32 behavioral resolver cases with only the Windows UNC
-  case skipped, exercised the real POSIX symlink cases, and passed 127
-  additional focused compatibility checks. ADR, planning-contract,
-  documentation-site, secret, compile, and diff guards pass.
-- The initial PR head `f53b2ea6e4c492841e757ea3ae79583b41597f42`
-  passed 1,092 unit tests with 11 expected Linux skips, the strict PR release
-  check, all nine Python 3.11-3.13 compatibility jobs, and
-  [Pages validation 32960690979](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32960690979).
-  [CI run 32960690972](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32960690972)
-  then failed only at MCP runtime smoke: that source-bound harness still
-  exposed the public checkout through `AI_DEMEMORY_ROOT`, so the new validator
-  correctly rejected its missing vault marker. The failure reproduced locally.
-  The corrected harness never writes or accepts a marker in the public
-  checkout. It resolves one immutable commit OID, requires Git to report a clean
-  tracked tree against that OID, and materializes only its regular blobs through
-  bounded direct Git object reads into a smoke-owned temporary tree. Untracked
-  files and arbitrary root configuration remain excluded; archive attributes,
-  local filters, replacement objects, and tar mode settings cannot alter the
-  copied bytes or modes. Strict UTF-8 decoding and explicit cross-platform path
-  rejection protect the raw tree inventory. The harness adds the reviewed
-  vault-template marker only inside the temporary tree, initializes local Git
-  evidence without a remote or hooks, rebuilds the disposable index, and binds
-  the checkout-specific server explicitly to that isolated snapshot. It does
-  not relax runtime validation or turn public source into a durable vault. The
-  lifecycle suite and the complete MCP runtime smoke pass locally; compile and
-  diff checks pass, no checkout marker remains, and no temporary snapshot
-  remains after normal completion. The corrected exact head then ran 1,101
-  tests with 11 expected skips and passed the complete
-  MCP/install/package/Docker smoke sequence, strict release checks, and all
-  compatibility jobs in the PR CI run
-  recorded above. The earlier failed tuple remains diagnostic history only.
-- The fresh exact-range functional and security reviews cover the final
-  corrective harness commit rather than reusing the initial-head evidence. A
-  prior documentation review also narrowed an overbroad Operations claim; the
-  current documentation and ADR limit the guarantee to migrated
-  strict-resolver surfaces.
-- Binding-time validation does not retain a root descriptor for a long-running
-  process, cannot portably classify every mounted/remote filesystem, and has no
-  live SMB/UNC or native Windows-junction reproduction yet. The unchanged
-  generic dispatcher still needs an exhaustive `vault-bound`, `source-bound`,
-  or `rootless` command policy and removal of unintended CWD/package discovery.
-  Consequently `BRG-003` remains `in_progress`; this increment changes no
-  version, package publication, tag, installed vault, host configuration, or
-  current frontier.
+## Retained increment: native Hermes memory-provider adapter
 
-### Merged Generic-Command Root-Policy Increment
+- Disabled-by-default `hermes-memory` module registers the official packaged
+  `dememory` provider entry point. Ordinary DeMemory discovery/enablement does
+  not import Hermes; Hermes discovery only loads a cheap read-only wrapper.
+- Three native tools reuse `CoreServices`: context, learn and forget. Vault and
+  scope are fixed by a profile-local binding; session/turn come from lifecycle,
+  not model arguments. Recall adds no model call or adapter-owned worker/process.
+- Only a literal current-human excerpt can authorize active learning; different
+  claims are provisional. The native skill normalizer excludes skill bodies.
+  Bot/non-primary/cron/subagent/flush contexts cannot write. Session switches
+  clear the prior turn's transient evidence. A lifecycle-binding nonce avoids
+  collisions when Hermes reuses a turn number after resume/rewind; this is not
+  a durable replay ledger or exact occurrence idempotency across restarts.
+- Native sync/mirror/compression/session-end writers remain inherited no-ops.
+  No transcript import, source schedule or additional extraction owner is enabled.
+- The installer prepares only a new empty Hermes home. Its two official flags
+  disable built-in MEMORY.md/USER.md while retaining the external provider.
+  Existing profiles, authentication and client settings are untouched. Hermes
+  history still exists; this does not replace its conversation storage.
+- [Integration documentation](integrations.md#native-hermes-provider-local-alpha)
+  covers environment, Hermes profile configuration, module control and rollback.
 
-- PR [#54](https://github.com/GonzaloTorreras/ai-dememory/pull/54) was squash
-  merged to public `main` at `10b83ada74c07f8bfec66dbf51e3d14268585112`.
-  Its exact head `5bb02443b7d671fe0c7eda04ab1812d06f7a71aa` and tree
-  `227c843a334e46c8811d6e1c11360d8029336728` passed the CI and Pages runs
-  above, both fresh SHA-sealed reviews returned `READY` with no P0-P2 findings,
-  and the solo-maintainer receipt plus merge readback are recorded in the PR.
-- It freezes an exhaustive target contract for all 45 commands still routed
-  through the legacy generic dispatcher: 19 vault-bound, 14 source-bound, 10
-  context-dependent, and two package/rootless commands. Each contextual entry
-  names its selector and terminal source/vault/rootless branches; there is no
-  inaccurate assumption that one parsed-submode rule covers all ten. The 11
-  parser-owned commands remain a disjoint, independently resolved set. Aliases
-  share both dispatch module and policy.
-- Behavioral checks prove that `verify-mcp` consumes the packaged server
-  contract without a checkout, normal/profile MCP inventory is package-derived
-  while `--check-docs` consumes source documentation, and MCP client smoke runs
-  source code against a separate initialized vault. The inventory is a target
-  contract only: this increment deliberately does not claim that the legacy
-  dispatcher enforces every category yet.
-- The obsolete post-resolution ambient-root guard and its unreachable helper
-  branches are removed without weakening parser-owned strict vault resolution.
-  Active maintainer docs, the PR template, and release checklist now require a
-  disposable initialized smoke vault and an absolute child script path; they no
-  longer imply that the public checkout or checked-in plugin config is a vault.
-- Loaded non-Docker client configs remove every root environment spelling that
-  Windows aliases to the canonical key before injecting the selected vault,
-  and reject embedded `--root`. Configs whose direct executable is Docker fail
-  closed, including aliases that differ by case or trailing Win32 dots/spaces;
-  generated `--mode docker` owns the mount instead. Documentation guards reject
-  relative vault roots. PR and release-checklist evidence retains exact
-  cardinality and reviewed neighboring source sequences, while unrelated prose,
-  block quotes, comparisons, and fenced examples remain available. At least one
-  direct installed-mode Python source launch must execute exactly one absolute
-  `scripts/ai_dememory.py` child after only the optional Windows `py -3[.N]`
-  selector. Literal `~`, relative or dynamic paths, duplicate/abbreviated
-  singleton options, ignored config/Docker controls, and unconsumed tail tokens
-  are rejected by an exact argv contract. A bounded lexical projection classifies
-  proof candidates as literal, derived, opaque, or overflow without expanding
-  assignments, substitutions, or shell semantics. A non-smoke exemption must
-  be one standalone, operator-free segment with an explicit literal command;
-  nested substitutions and a second dynamic segment cannot hide a strict smoke
-  candidate. Reviewed literal wrappers and Python interpreter options are parsed
-  only far enough to identify the dispatcher and exact command slot. Dynamic
-  prefixes, alternate tokenizations that reconstruct the protected route through
-  adjacent POSIX quotes or escapes, unknown option-shaped Python flags, and
-  ambiguous nested dispatchers fail closed. Its conservative transport mode is
-  enabled only by the owned PR and release-checklist guards; general operations
-  guidance remains relaxed. Exact checklist cardinality and adjacency count only
-  Markdown-visible lines: HTML comments, fenced examples, and all seven CommonMark
-  raw-HTML block classes cannot supply hidden proof.
-- Local validation for the branch implementation passes 658 memory-tool tests
-  with 45 expected platform skips, 159 documentation/profile tests, the
-  documentation, PR-template and release-checklist guards, secret scan,
-  targeted Python compilation, and diff checks. Focal canaries additionally
-  reject a missing, shadowed, non-absolute, duplicate, Docker, echoed, displaced,
-  case-tampered, unknown-option, invalid-choice, incomplete, or separated
-  option-like Python source launch; displaced/noncanonical wrapper proof;
-  Windows Unicode environment collisions; and Docker executable aliases, while
-  preserving ordinary Markdown and direct installed-command guidance. Additional
-  fail-closed canaries cover
-  parameter defaults, command substitutions (including nested execution beneath
-  a literal non-smoke route), PowerShell/cmd interpolation and positional
-  parameters, wrappers, Python startup flags, dynamic
-  dispatcher/subcommand pairs, rendered HTML/Markdown reconstruction, and legal
-  newlines inside substitutions. Relevant candidate regions over 16 KiB,
-  candidates over 256 tokens, documents over 512 KiB, or more than 64 projected
-  candidates or correlated assignments fail visibly; generic dynamic CLI
-  examples remain outside strict proof surfaces rather than being guessed as
-  smoke runs. Document and candidate-region ceilings are enforced on UTF-8
-  bytes rather than Python character counts.
-- The interactive MCP client smoke now shares one 30-second wall-clock budget
-  across initialize, notification, ping, pagination, ignored traffic, reads,
-  and writes. It bounds serialized requests, individual response lines,
-  cumulative retained output, and page count. A pipe writer that survives a
-  failed bounded tree-termination attempt is detached before generic cleanup;
-  it alone closes its captured stream if it later returns, so cleanup cannot
-  block on the writer's `TextIOWrapper` lock. This fail-open host boundary is
-  explicit: an unrecoverable OS-level writer may remain daemonized until the
-  host exits, but it cannot stall the validation path or be mistaken for clean
-  reclamation.
-- Commit-bound MCP client/runtime smokes, strict release checks, independent
-  review, CI, Pages, receipt, and merge evidence are retained in the durable PR
-  handoff. No version, DAG state, package publication, installed vault, host
-  configuration, or release changed.
+## Previous integration evidence
 
-### Merged Package-Rootless Generic Dispatch Increment
+- Baseline: 177 tests; 173 passed / four Windows symlink skips.
+- Previous cycle: 196 tests; 191 passed / five Windows symlink skips.
+- That integration's full suite: 210 tests; 205 passed / the same five skips. Compilation
+  and `git diff --check` pass; no UI asset code changed.
+- Focused provider tests: 14/14 pass, including an adapter → MCP correction →
+  adapter undo episode, independent scopes, forged provenance, real-quote/unrelated
+  claim downgrade, cron and skill exclusion, disablement, discovery, configuration
+  preservation, inherited writer no-ops and reused turn ordinals after resume.
+- Fresh independent review identified three admission defects (claim authority,
+  skill scaffolding and cron provenance). All fixed and re-reviewed; reviewer
+  independently reran the provider tests. No local-commit blocker remains. This is not a
+  full-branch hosted release/security certification.
+- Wheel: 103,324 bytes, SHA-256
+  `4ddb81a0879eded1cc18f4170fd33a9c18748387a0852525410b495af736169a`.
+  Reinstalled in the existing isolated V3 runtime. Outside both checkouts, its
+  actual packaged entry point instantiated the official Hermes ABC at commit
+  `1ad89ac018f26a4f21817ebf37bb09f508656d63`. The upstream pure skill normalizer,
+  scoped learning and inherited writer no-ops passed a synthetic contract smoke.
+  The installed CLI also prepared a disposable empty home with the correct binding.
+- Browser QA of the installed package at `127.0.0.1:18767`, 1440x1080 / 390x844:
+  enable Hermes, reload persisted state, disable it, preserve the other harness
+  switches. No blank page, overlay, overflow or console warnings/errors. Browser
+  plugin was not exposed to that QA turn; Playwright connector used. The later
+  installation check below verified the built-in Browser. Screenshots stay outside Git.
+- No real Hermes/Claude process, new model call, personal-profile extraction,
+  credential copy or installed personal automation was started. Full Hermes
+  loader/manager/authenticated-model acceptance remains **unverified**; contract
+  and synthetic cross-adapter tests are not a native-client episode.
 
-- PR [#55](https://github.com/GonzaloTorreras/ai-dememory/pull/55) was squash
-  merged to public `main` at `1e70f713d73e3d828ec17e1ad0d92c5e4a780b4d`.
-  Its exact head `4f2d8ea5e6e4b40c34462887dcfedc183d057137` and tree
-  `167f8d813ac16a16cb26ee38b20c55680050a939` passed the CI, Pages, independent
-  functional/security review, owner receipt, merge readback, and public-main CI
-  evidence summarized above. The change remains inside `BRG-003` / `B04b`.
-- The generic dispatcher now enforces the inventory's two unconditional
-  package/rootless entries before any legacy vault lookup. `verify-mcp` loads
-  the contract exported by the active package, while `api-smoke` owns its
-  temporary vault. Neither command resolves a caller-owned or ambient vault
-  from `AI_DEMEMORY_ROOT`, the saved selector, or CWD. `api-smoke` intentionally
-  validates its own disposable vault, and direct source-script execution loads
-  the checkout containing that script rather than selecting one from CWD.
-- A supplied global or post-command nonempty `--root` remains a compatibility
-  no-op and is never resolved or injected. The dispatcher selects the rootless
-  policy before any binding and preserves the caller's environment; the
-  rootless modules ignore an existing ambient root, saved selector, and CWD.
-  The outer restoration guard retains that environment contract for reusable
-  in-process CLI calls. Direct module parsers reject abbreviations, duplicate,
-  empty, missing, unknown, or post-`--` root syntax before smoke or contract
-  work.
-- Installed-package smoke now exercises both commands from an empty foreign
-  directory with no vault binding or saved selector and verifies that the CWD
-  remains unchanged. It removes inherited Python package-selection overrides
-  and verifies that `ai_dememory_tool` resolves inside the newly created venv.
-  Focused dispatcher/module tests also place the authoritative checkout after a
-  stale package in `PYTHONPATH`, use an unresolved path canary, and make vault
-  discovery, selector reads, and path resolution fatal if reached.
-- Local exact-tree evidence is green: full discovery passed all 1,146 tests with
-  63 expected skips. Its focused subsets included 665 `test_memory_tools` cases
-  with 45 expected skips, 159 combined documentation-site and MCP-profile cases,
-  and all six planning-contract/runtime-binding cases. Both direct scripts
-  passed from outside the repository, and the fresh installed-package smoke
-  completed every step, including both pre-vault rootless assertions. PR-
-  template, release-checklist, CI-workflow, artifact, planning-contract, docs-
-  site, secret-scan, compile, and diff guards also pass.
-- This is compatible source hardening only. `BRG-003` remains `in_progress`;
-  `mcp-inventory` is intentionally deferred to the next contextual slice, and
-  no version, package, tag, release, installed vault, host configuration, or
-  future learning capability changes.
+## Native Codex acceptance — now verified
 
-## Merged Proposal Validation And Planning Consolidation
+- Current native CLI: `0.154.0-alpha.6.2`. A synthetic `gpt-5.6-luna` / `low`
+  subscription probe returned successfully with exit 0.
+- The old “requires a newer version” blocker is no longer current. An initial
+  restricted-shell attempt hit `UnknownIssuer` and was stopped. The normal host
+  context succeeded without disabling TLS or reading/changing credentials;
+  API-key environment variables were excluded from the successful probes.
+- Three independent ephemeral native sessions used the installed-package MCP
+  against one disposable synthetic vault in `project:native-qa`:
+  1. Context lookup and learn: fictional release day Tuesday.
+  2. Context recalled Tuesday; explicit keyed correction stored Friday.
+  3. Context recalled Friday; forget undid the correction; context restored Tuesday.
+- All seven MCP calls completed without error; all three CLI processes exited 0.
+  Models used no shell or direct file tools. Canonical readback showed Tuesday
+  active and the Friday correction forgotten; recall did not create extra memories.
+- This verifies installed stdio MCP with native Codex, not automatic native hook
+  injection or the separate DeMemory-managed subscription provider. Hook trust
+  was not bypassed and global client configuration was not edited.
+- Native invocation used official
+  [CLI execution](https://learn.chatgpt.com/docs/developer-commands?surface=cli)
+  and [MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+  Existing host subscription authentication stayed separate from the temporary
+  memory/config directories.
 
-- PR [#56](https://github.com/GonzaloTorreras/ai-dememory/pull/56) was squash
-  merged to public `main` at `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`.
-  It treats the supplied external repository assessment as hypotheses, not
-  instructions or evidence, and changes no runtime, package, vault, version,
-  configuration, or current frontier.
-- Confirmed gaps are assigned to existing or explicit future owners: exact
-  MCP/profile budgets under `BRG-019`; writers, accepted formats, proposal caps,
-  YAML duplicate rejection, and index fencing/recovery under `MIG-001`;
-  truth-preserving held-out recall evidence under new pending `RET-001`; then
-  `GATE-B`; followed by future `GRF-001`, shadow-only `RET-002`, and the separate
-  production-design gate `RET-003` as an independent post-gate graph/retrieval
-  branch. Governed learning remains the parallel `OBS-001` -> `OUT-001` ->
-  `CON-001` -> `MEM-001` branch after `GATE-B`.
-- The current ASCII token boundary is now recorded as a high-probability
-  multilingual quality risk. `RET-001` must expose it with reviewed
-  Spanish/Unicode cases; `RET-002` must compare one shared deterministic Unicode
-  normalization boundary before an optional local embedding candidate. Graph
-  output must separately declare page-local closure and body-mention reference
-  detection rather than imply semantic links, and `GRF-001` must share the
-  canonical id grammar so trailing `-`/`/` and non-`mem_` ids cannot be silently
-  lost or truncated.
-- `RET-001` must freeze the machine-readable `retrieval-benchmark-v1` contract
-  before `GATE-B`: paired end-to-end FTS/candidate `Recall@10`, secondary
-  `MRR@10`, deterministic corpus/config identity and bootstrap, repeated
-  same-host measurements, and explicit latency, RSS, error, lock, and policy
-  fields. `RET-002` remains shadow-only and requires the versioned gain and
-  resource thresholds before `RET-003` may open a production-design review;
-  it cannot itself package, enable, promote, or change ranking. `GRF-001` must
-  produce an exact external-readback receipt from two reproducible fresh
-  out-of-process MCP sessions, with profile/allowlist, artifact, schema, fixture,
-  lifecycle, redaction, environment, and canonical response-hash proof.
-- Active quality, operations, MCP, release-checklist, vector, and roadmap docs
-  now distinguish passing regression fixtures from unresolved held-out
-  challenges. `vector status` is descriptive only. The current source snapshot
-  reports the admin MCP profile at 74 tools, 81,234 schema bytes, and about
-  20,309 tokens; `BRG-019` owns generated numeric-budget drift enforcement and
-  must flag read-only capabilities, including `memory.graph`, that are trapped
-  in writer-bearing profiles before any downstream consumer uses them.
-- `CON-001` must measure oldest pending age, bounded-window admissions and
-  resolutions, net queue growth, and cap discards. One candidate per run is a
-  safety limit, not evidence that review debt is shrinking.
-- Reusable planning validation now rejects task dependencies whose batches are
-  not transitively compatible or whose predecessor batches are incomplete;
-  requires the frontier to equal every and only `in_progress` task; requires
-  non-empty, canonical, contained regular-file evidence and complete
-  dependencies for every `complete` task; and requires empty evidence for every
-  `future` task. External tasks declare distinct versioned descriptors and can
-  complete only with a size-bounded, task/contract/class-bound JSON receipt that
-  satisfies fixture requirements, distinct session identities, and the exact
-  required detail set. Session lifecycle, redaction, result, secret-scan, and
-  detail claims now point to task-local bounded JSON artifacts whose byte size
-  and SHA-256 are recomputed. Portable-path validation rejects case-fold
-  ambiguity, Windows reserved names, symlinks/reparse points, and hardlinks.
-  Duplicate, deeply nested, oversized, unsupported-schema, or otherwise invalid
-  JSON fails with controlled bounded diagnostics; cycle validation is iterative.
-  Its bounded escaped-pipe-aware roadmap parser enforces exact
-  task-id/batch/state/frontier parity from `release-check`, not only from unit
-  tests. The current frontier remains exactly `BRG-003`; contract version 1 and
-  the empty public execution ledger are unchanged.
-- Earlier review exposed evidence-path, cross-receipt, lifecycle, and
-  production-authorization ambiguities before merge; all were corrected on the
-  final exact head. That head passed 1,192 tests with 66 expected skips, 51
-  focused planning tests with three honest capability skips, direct planning,
-  documentation-site, MCP-doc, secret, artifact, release, compile, and diff
-  guards, the exact CI and Pages runs above, and three fresh independent
-  reviews. No stale test process remained after the final suite.
+## Prior local installation: Codex (2026-09-14)
 
-## Current BRG-003 MCP Inventory Contextual Slice
+- At the user's explicit request, installed the existing V3 Codex integration
+  in the historical checkout and active V3 worktree. Both use one new, empty
+  private V3 vault and `project:ai-dememory`; the test vault, V2 memories and
+  global Codex settings remain unchanged. The separate local selector enables
+  only `harness-codex`, `mcp` and `workbench`.
+- Generated client files contain machine-local paths and are excluded through
+  shared Git `info/exclude`, not committed. The native CLI reads both scoped MCP
+  configurations successfully in the normal host context.
+- All 23 focused harness/MCP tests passed. Direct invocation of each installed
+  hook returned valid scoped context (891 / 328 ms including process startup);
+  both installed MCP processes initialized and exposed seven tools (265 / 234
+  ms). These single-run timings are smoke observations, not latency benchmarks.
+  No model calls or transcript reads; zero memories created; all smoke processes
+  exited. A fresh independent read-only review found no installation blocker.
+- The user activated the hook on 2026-09-15. A subsequent native prompt in the
+  current project task supplied DeMemory context and a previously verified
+  project lesson. This observes current-task injection, not fresh-project,
+  simultaneous-project or global acceptance. No trust bypass or trust-store
+  edits were used. Check exactly one handler per task; matching sources accumulate.
+- Browser is included in the current desktop app, not a missing separately
+  installed dependency. Opened its official documentation in the built-in browser
+  and inspected the rendered page successfully. No extra browser package was added.
 
-- The current `codex/brg003-mcp-inventory-rootless` branch is based directly on
-  public `main` at `dfdd9747b5a26e9ae89ee3f4e8df91d4a5884b76`. It remains
-  `BRG-003` / `B04b`; no planning state, version, package, tag, release, vault,
-  selector, or installed configuration changes.
-- The frozen policy already classified default/profile `mcp-inventory` as
-  package/rootless and `--check-docs` as source-bound, but the legacy dispatcher
-  still resolved an explicit, environment, saved, CWD, or package/vault root
-  before either branch. The old focused test mocked that resolver to return a
-  path instead of proving it was never called.
-- The command now owns exact, non-abbreviated grammar before any root work.
-  Default and profile output load the active packaged server definitions and
-  ignore legacy root values without resolving them. Only `--check-docs` selects
-  the direct script's checkout or an explicit absolute source root; it never
-  treats `AI_DEMEMORY_ROOT`, a saved vault selector, or CWD as source authority.
-  Direct source execution also places its own package ahead of a stale installed
-  copy before the first package import.
-- Focused evidence passes 40 dispatcher, module, import-precedence, install-
-  command, and MCP-profile tests. Fresh-wheel smoke passed every step, including
-  full and `core` inventory from an unrelated directory before vault creation,
-  and verified that the directory remained unchanged. Full discovery passes
-  1,195 tests with 66 expected Windows capability skips. Exact-head CI/Pages and
-  fresh independent review remain PR delivery evidence.
+## Previous cycle: scoped consolidation scheduling (`9d38e01`)
 
-## Completed BRG-017 Strict Configuration Boundary
+- One saved `schedule.scope`, editable in the existing workbench with scope
+  suggestions, independent of browsing/manual-run scope. Empty scopes remain
+  selectable. A missing optional scope means global; no V2 reader/migration.
+- A persisted schedule cadence anchor is separate from last-run metadata.
+  Manual success/failure in another scope cannot delay the scheduled run or
+  distort later interval edits. Scope changes/re-enablement start a fresh interval.
+- Last-run scope and manual target are explicit in UI and API results. Project
+  cleanup still makes zero model calls and cannot create global proposals;
+  inactive originals remain in Markdown history. No extra scheduler/module.
+- Focused checks: 55 passed. Full suite: 216 tests, 211 passed / five expected
+  Windows symlink skips. Compilation, JavaScript syntax and diff checks pass.
+  Fresh exact-diff read-only review found no blocker and independently passed
+  all 43 jobs/workbench tests.
+- Built-in Browser QA at `127.0.0.1:18768`, 1440x1080 / 390x844: save a daily
+  alpha-scope schedule, manually clean beta, verify alpha's due time unchanged,
+  reload and confirm persistence. No blank page, overlay, mobile overflow or
+  relevant console errors. The initial UI save was rejected as a real schedule;
+  after read-only proof of the disposable fixture, the same action was approved.
+- Wheel: 103,723 bytes, SHA-256
+  `649b4b0743d535eb580b9ce257e5452352bfcbc3ad72b756ff8e651d3a123c41`.
+  Disposable install outside the checkout passed actual packaged CLI
+  setup/save/recall/status, schedule/restart behavior and UI-asset checks.
+  No personal vault, hook trust, global client config or model call was involved.
 
-[PR #51](https://github.com/GonzaloTorreras/ai-dememory/pull/51) completed
-`BRG-017` within batch `B04b` and was squash merged at
-`8655a8f097f64cec0be7bc46d6f57d4521ba821d`. Its independent review, merge, and
-public-main CI are delivery evidence rather than a reason to broaden the
-implementation.
+## Previous cycle: Codex provider executable discovery (`dc019d6`)
 
-- The exact PR head `9e215a9334a668765cde22d2cee66c221709ba61`
-  passed CI run
-  [32934986028](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32934986028)
-  and Pages validation
-  [32934986040](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32934986040).
-  Fresh exact-head functional and security reviews reported no blocker or
-  finding; the resulting public-main CI run 32935981402 also passed.
+- User report: `codex_binary_required` while starting managed login. This code
+  is emitted before authentication when the discovered/explicit path is not an
+  accepted executable. The historical dashboard environment was not captured;
+  current host and persistent PATH checks already resolve a native executable.
+  Do not claim wrapper shadowing as the verified cause of that original attempt.
+- Windows now prefers `codex.exe` before generic `codex`. Explicit overrides
+  remain strict, with no shell-wrapper execution, filesystem crawling or new
+  dependency. Missing/invalid executables have static actionable guidance in
+  both login and status; failed attempts clear stale sign-in links and codes.
+- Forty focused tests passed, also independently rerun by the read-only reviewer.
+  Full suite: 222 tests, 217 passed / five Windows symlink skips. Compilation,
+  JavaScript syntax and diff checks passed. No exact-diff review blocker remains.
+- Built-in Browser QA: disposable account fixture at `127.0.0.1:18769`, desktop
+  1280-wide and mobile 390x844. Pending flow, failed status, failed retry, guidance
+  and link/code cleanup verified. No blank page, overlay, horizontal overflow or
+  console warning/error. QA found the shared request helper discarded error
+  guidance; it was fixed and the flow rechecked. No real sign-in page was opened.
+- Source and installed package each initialized the native Codex AppServer,
+  read an unauthenticated disposable account and reaped the child/reader/scratch.
+  No login, token copy, model call, personal extraction or hook-trust change.
+- Wheel: 104,032 bytes, SHA-256
+  `aadce9e86bf91ab50f4a0b17d14b43d3584a459b8f2741c66cc93d94b85f54bd`.
+  Disposable package CLI/settings smoke passed before updating the existing
+  isolated runtime with this exact wheel. Packaged UI and native startup readback
+  passed afterwards. The runtime has no pip; the existing bundled pip targeted
+  it explicitly, without adding pip/dependencies or changing the global PATH.
+- User action: restart the workbench and retry provider sign-in. Authentication
+  is still user-completed and must not be inferred from the hook activation or
+  the successful unauthenticated account read. The continuation pauses at this
+  acceptance boundary instead of repeating sign-in attempts. This optional
+  provider check does not block local CLI/MCP integration development.
 
-- Main vault configuration and the separate generated review-state file now
-  use Python 3.11 `tomllib` with closed, versioned structural allowlists. Empty
-  and partial configuration remains valid, while malformed TOML, duplicate
-  definitions, unknown sections/providers/keys, nested surprises, wrong types,
-  boolean-as-integer values, non-string arrays, non-finite numbers, unsafe
-  review identifiers, invalid UTF-8, and oversized files fail closed.
-- Configuration writers validate the existing snapshot, requested update, and
-  complete rendered candidate before their atomic write. Invalid input cannot
-  create parent directories or partially rewrite a file, and equivalent
-  noncanonical table spellings are rejected rather than duplicated.
-- Product writers serialize the complete read/validate/modify/replace cycle
-  with a bounded per-vault kernel lock plus an in-process reentrant lock. Stale
-  merge snapshots fail closed instead of erasing a concurrent section update;
-  cancellation is deferred from coordination acquisition through cleanup, and
-  an exact candidate already published by `os.replace` is reported as a
-  committed success. The guarantee is atomic runtime visibility, not
-  power-loss durability or protection from an external editor that ignores the
-  advisory lock.
-- Onboarding, setup health, doctor, providers, maintenance, scheduling, sleep,
-  review operations, and resource policy share controlled error boundaries.
-  Diagnostics retain stable codes and allowlisted field names but never echo
-  unknown keys, values, custom review-state/provider paths, OS error text, or
-  chained causes. Successful local administrative status and plan projections
-  retain their existing paths and payloads.
-- Exact-head review closed two boundary gaps before merge: onboarding now
-  rejects a generated configuration candidate that exceeds the same 64 KiB
-  limit before creating an apply plan, and invalid recall configuration makes
-  hooks inert even when the vault already has an index. Retrieval or injection
-  can no longer be re-enabled by falling back from an invalid explicit opt-out.
-- The same validation run reproduced an intermittent Windows loopback reset on
-  rejected POST requests. The API now authenticates the request context and
-  optional key first, consumes only the already bounded request body, and then
-  enforces mutation intent and JSON type. Stress coverage observed no aborted
-  connections or residual server threads; the origin, intent, content-type,
-  64 KiB body, and 15-second timeout controls remain unchanged.
-- Every onboarding apply, including personal-only Markdown, now holds the same
-  bounded coordination lock. Apply is transactional across reviewed files and
-  configuration; interruption either rolls back the pre-commit batch or lets a
-  fully committed batch win. Incomplete recovery returns a stable redacted
-  boundary with explicit manual-recovery state rather than a traceback, path,
-  operating-system error, or candidate content.
-- Scheduler install/remove compensates every host command it attempted,
-  including the command that returned nonzero, timed out, raised an operating
-  system error, or was interrupted. Operation/config lock ordering is fixed,
-  identity loss stops unsafe automatic rollback, and Linux file restoration is
-  followed by a bounded daemon reload before rollback can be called complete.
-- Owned subprocesses run in a scoped POSIX session or, on Windows, a suspended
-  child assigned to a kill-on-close Job Object before execution resumes.
-  Console cancellation unwinds the interrupted subprocess frame before the
-  bounded tree cleanup, and MCP smokes never synchronously close a pipe while
-  its bounded stderr drain is still alive. Abrupt parent death, power loss, or
-  a descendant that deliberately escapes the owned tree remain supervisor
-  boundaries rather than guarantees of this Python process.
-- The operator guide is `docs/configuration.md`; ADR 0262 records why strict
-  parsing is implemented in the existing Python runtime without a second
-  parser, daemon, database, model call, or Node dependency.
-- Final pre-commit Windows evidence ran 1,067 tests in the complete suite with
-  60 expected platform skips. The consolidated strict-config, onboarding,
-  process-lifecycle, review-redaction, and planning set ran 136 tests with one
-  expected skip; the integrated memory-tools run passed, and the scheduler set
-  passed 67 tests with two expected skips on both Windows and WSL. The WSL
-  config/onboarding/lifecycle/planning boundary set passed 129 tests with three
-  expected platform skips. Python compilation, diff validation, workflow and
-  documentation guards, the planning contract, and a repository secret scan
-  also passed on the frozen tree. Fresh exact-commit independent review,
-  package smokes, PR CI, Pages validation, merge readback, and public-main CI
-  subsequently completed successfully.
-- The normative DAG now marks `BRG-017` complete with explicit evidence paths.
-  `BRG-003` is the sole current frontier; `BRG-019` remains pending on that
-  task, and no package, tag, release, installed vault, host integration, or
-  future learning capability changes in this increment.
+## Previous cycle: V2 runtime retirement and global V3 plan (`6d9e717`)
 
-## Merged 2.1.2 Source Candidate (Unpublished)
+- The user's separate local acceptance invoked historical V2 scripts after
+  launcher/dependency failures and created a review proposal, not a V3 memory.
+  It did not prove the installed V3 hook/MCP route. Only a bounded verified
+  project lesson was retained in the private V3 vault; no transcript or private
+  capture is repository content.
+- Read the UV installation receipt and package metadata: the global entry point
+  belonged to `ai-dememory 2.1.0`. The exact owned tool directory was checked
+  before `uv tool uninstall ai-dememory`; UV removed its one executable.
+  Readback confirmed both that directory and launcher absent, and UV reports no
+  remaining tools. No manually constructed recursive delete was used.
+- The isolated V3 runtime, its selector and both V3/legacy vaults are preserved.
+  Outside either checkout, the installed runtime reports `3.0.0a1` and selected
+  vault status successfully. At that checkpoint the bare `ai-dememory` command
+  was absent from PATH; the global replacement is delivered in this cycle below.
+- A bounded host inventory found no matching legacy-script/runtime processes or
+  DeMemory Windows scheduled tasks. Three relevant Codex automations were already
+  paused and remain unchanged. Inspected global Codex config/hooks have no DeMemory
+  entries; the two known project-local integrations still point to V3 with one
+  fixed scope. No matching standalone DeMemory skill directory was found.
+- The active V3 worktree, the dirty historical parent and pre-existing `build/`
+  are untouched by removal. The parent cannot be deleted while it owns this
+  worktree's shared Git metadata and unreviewed edits. No V3 runtime update,
+  release/publication, trust, authentication or global-client config change in
+  this cycle.
+- Read-only code exploration confirmed the missing pieces: global installer
+  merging/ownership, one selector across entry points, reliable native project
+  binding, a common scope resolver and client-disable precedence. The existing
+  selected-vault resolver and fixed-scope MCP are reused, not replaced by a new
+  framework. The ordered plan lives only in [the roadmap](roadmap.md#now-one-global-v3-installation-isolated-projects).
+- Verification: 49 focused core/harness/MCP tests, 46 passed and three expected
+  Windows symlink skips; `git diff --check` passed. Independent read-only review
+  found no plan blocker after clarifying that only V2 was uninstalled. This is a
+  four-file documentation change, not implementation or global-install acceptance;
+  the full suite, browser QA and hosted CI were not rerun for this planning diff.
 
-This compatible `BRG-003` / `B04b` correction was merged from
-`codex/default-vault-wizard-ux` by PR #46. It is present on public `main` at
-`df8fca0e00e5b060e21fbde6bb1cb338c05c75fc` and does not advance the V3 DAG.
+## Next development cycle
 
-- A user may explicitly select one initialized local vault with
-  `ai-dememory vault use <absolute-vault-path>`. Runtime resolution is now
-  `--root`, then `AI_DEMEMORY_ROOT`, then that saved selector. The selector is
-  local-only, validates the selected vault configuration, and fails closed for
-  stale, malformed, linked, or unsafe state. It does not restore CWD or source
-  checkout discovery for strict API, MCP, hook, setup, provider, import, or
-  capture paths. `vault current` and `vault clear` are the inspection and
-  recovery operations.
-- The operational setup wizard now explains its limited scope, intensity
-  ceilings, host-AI policy, schedule boundary, and review-first Stop proposals.
-  It keeps durable personal onboarding separate and offers the local selector
-  only after a successful apply with an explicit `[y/N]` decision.
-- A test-only portability follow-up verifies the canonical selected path rather
-  than a platform alias of the temporary directory. This preserves the intended
-  runtime behavior on macOS `/var` and Windows short-path aliases.
-- Source metadata and public documentation call this `2.1.2` an unreleased
-  candidate. Stable `2.1.1` remains the only published PyPI/GitHub install
-  route until a new tag, package publication, and external readback complete.
-- Local evidence recorded by PR #46:
-  `python -B -m unittest discover -s tests -t .` completed with 929 passing
-  tests and 59 expected skips; the documentation guard, static Pages validation
-  tests, targeted MCP checks, visual QA, and a fresh security review passed.
-  Exact-head CI run
-  [32709293400](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32709293400)
-  and Pages validation
-  [32709293326](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32709293326)
-  both passed for `60979bbcb4f8ffa9b62c054f7babff2c210a7c20` before the squash merge.
-  No tag, TestPyPI/PyPI publication, or `2.1.2` GitHub Release followed.
+1. Global Codex installation is delivered below. Next expose project aliases and
+   exclusions in the existing workbench, using the same small local mapping.
+2. Verify a native linked-worktree episode and task relocation/reconnect. Native
+   new-project and simultaneous-task checks pass; do not generalize them to every
+   client lifecycle/version. Keep provider login separate.
+3. Resume native Hermes/Claude episodes, evidence-backed advisory skill export,
+   measured DSH/Hermes reader gaps and selected-provider/fallback acceptance.
+4. Remote service/admin remains later: identity scopes, TLS/key management and
+   two-host restart/restore acceptance before any non-loopback exposure.
 
-## Verified Stable And Release-Candidate Evidence
+## This cycle: installed global V3 and native project isolation
 
-- PR [#44](https://github.com/GonzaloTorreras/ai-dememory/pull/44) was merged
-  at `3dd65a18c5f26c5d03f24c5f3bb719769b581fa6` after an independent exact-head
-  review found no actionable P0/P1/P2 issue; its CI and Pages validation passed.
-- The protected tag workflow
-  [32662727498](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662727498)
-  created annotated `v2.1.1` and verified its peeled commit.
-- The canonical stable release workflow
-  [32662792807](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32662792807)
-  passed validation, artifact build/checksums/attestation, protected PyPI
-  publication, exact-index verification, and immutable GitHub Release creation.
-- The public [v2.1.1 GitHub Release](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1)
-  includes the wheel, source distribution, release notes, and SHA256SUMS. PyPI
-  readback confirmed both package files as non-yanked and their SHA-256 values
-  match the release assets.
+- Added automatic local project identity shared by hook, CLI and Codex MCP:
+  Git common-directory identity groups worktrees; unrelated same-name folders
+  and projectless workspaces stay separate. Explicit aliases/exclusions live
+  beside the selector. No transcript read, registry daemon or Git subprocess.
+  Home/root context has no implicit global-write fallback. Alias/exclusion UI
+  is not implemented yet; current controls reuse the harness command.
+- The native CLI and one AppServer with two tasks were probed before binding
+  implementation: each starts its own MCP process in the task directory. Native
+  calls supply thread/turn metadata. Auto MCP fixes its project scope, latches
+  the caller thread and stamps learning identity from that metadata, rather than
+  model guesses. Reused-thread/missing-metadata errors preserve the request ID.
+  This is a tested local-client contract, not remote authentication.
+- Client toggles normalize the generic harness switch without importing the
+  sibling. Auto MCP rechecks module/project disablement and rebinding at every
+  call; exclusions apply across explicit aliases sharing the same project scope.
+  Manual remember/recall now accept `--scope auto` or an explicit scope; their
+  existing default is global. Status reports runtime, selector and project.
+- User installer merges one owned TOML block and hook, preserves unrelated
+  settings, rejects unowned conflicts and retains private ownership receipts.
+  Selector enablement participates in the same rollback transaction. Exact
+  generated local connections can be retired with their scopes retained;
+  uninstall restores only unchanged owned edits, never later user changes.
+- Full regression: 237 tests, 232 passed / five expected Windows symlink skips.
+  Compilation and diff checks pass. The fresh read-only reviewer reproduced
+  and helped close correlated-error, duplicate-hook, shared-exclusion and
+  selector-atomicity defects; independently reran 45 focused tests. This is a
+  functional/ownership review, not a completed formal security scan or release
+  certification. No UI asset changed; rendered browser QA was not repeated.
+- Installed wheel: 111,434 bytes, SHA-256
+  `ebcf99d3d47173b9ed583c342ddcded3dcfeaf5f459b3aa63c5b3ccafc4d1cde`.
+  Built from a disposable copy to preserve pre-existing `build/`. Isolated wheel
+  setup/save/recall/status, schedule/restart and packaged-asset smoke passed.
+  Subsequent documentation edits do not change its tested runtime code.
+- Five native Luna sessions against an installed-wheel disposable vault made
+  ten successful MCP calls: learn Tuesday, simultaneous A/B recall with B empty,
+  correct to Friday, then undo back to Tuesday. A separate projectless scope
+  remained empty. An initial `never` approval policy correctly refused a write;
+  the successful run used Codex's normal automatic approval review. Global
+  approval policy was not weakened and write tools are not labeled read-only.
+- Installed that exact wheel into the existing isolated runtime and exposed its
+  packaged entry point on the already configured user PATH. The previously absent
+  default Windows config directory is a junction to the existing V3 selector,
+  resolved canonically; no managed-login credentials were moved or copied.
+  From outside the checkout, the bare command resolves V3 and the selected vault.
+- Installed one global native Codex MCP plus UserPromptSubmit hook; retired the
+  two exact generated local connections, preserving `project:ai-dememory` in the
+  shared mapping. Normal-host Codex readback confirms enabled stdio, no fixed
+  cwd and `--auto-scope`. A restricted-shell readback did not see the personal
+  Codex config; normal-host verification succeeded without altering permissions.
+- The user trusted the new global hook. Two subsequent fresh native projects
+  using the actual global config each completed context/status calls and recorded
+  one hook receipt. Hook-internal lookup timings were 94/110 ms, not p95 or full
+  process-start latency benchmarks. No canonical memories were created in this
+  read-only check. All owned native test CLI processes exited.
+- Separately, the current task used native MCP learning to save one verified
+  installation outcome and retrieved it again in its bound project scope.
+  Native provenance was stamped correctly; no raw conversation was stored.
+- Post-test host inventory found eight retained MCP connections owned by Codex
+  AppServer processes: each had a small Windows venv launcher plus its Python
+  worker, about 25 MB combined working set per connection (202 MB summed across
+  all eight; shared pages may be counted repeatedly). No probe processes remained.
+  A live parent does not prove an active task, and this snapshot neither proves
+  nor rules out a client lifecycle leak. Global MCP is per loaded connection,
+  not one shared service; retained-connection lifecycle remains a measured gap.
+- Private V3/legacy vaults, account state, unrelated settings and the dirty parent
+  checkout remain intact. Existing client processes may retain their old MCP
+  connection until reconnect/restart; new tasks use the global configuration.
+  No daemon, network listener, history scan, version tag, publication or merge.
 
-- PR [#42](https://github.com/GonzaloTorreras/ai-dememory/pull/42) was merged
-  at `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce` after release documentation
-  truth was decoupled from the immutable package long description.
-- The exact `main` CI run
-  [32646728226](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32646728226)
-  passed for `ea7e1667c874a3cf2a8e1d87b916fb00172b71ce`.
-- The protected tag workflow
-  [32647689405](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647689405)
-  created annotated `v2.1.1rc2` and verified its exact peeled commit.
-- The canonical release workflow
-  [32647839323](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32647839323)
-  passed validation, artifact build/checksums/attestation, TestPyPI publication,
-  exact-version index installation, and immutable GitHub prerelease creation.
-- The immutable GitHub prerelease
-  [v2.1.1rc2](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc2)
-  is published with wheel, source distribution, release notes, and SHA256SUMS.
-- The following `rc1` evidence is retained as historical release record.
-- PR [#21](https://github.com/GonzaloTorreras/ai-dememory/pull/21) was merged
-  after a fresh independent exact-head compatibility/security review found no
-  actionable P0/P1/P2 issue. Root binding, `--require-bound-root`,
-  server-enforced profiles/allowlists, and idle leases remain intact.
-- The exact `main` CI run
-  [32531300657](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32531300657)
-  passed for `a5140a81e4d153c8e7f41b0f2a88649030942c51`; its matching Pages
-  and graph validation runs also passed.
-- The source validation before merge passed: static documentation/site and
-  Pages-artifact guards; 800 tests with 53 explicitly environment-conditioned
-  skips; strict release checks; release identity guard; and an isolated package
-  smoke covering wizard, MCP, hooks, maintenance, and public-only retrieval.
-- The protected tag workflow
-  [32557577347](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32557577347)
-  created annotated `v2.1.1rc1` and verified that it resolves exactly to the
-  approved green `main` commit.
-- The canonical release workflow
-  [32557614075](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/32557614075)
-  passed validation, artifact build/checksums/attestation, TestPyPI publication,
-  and an exact-version install from the index. Direct TestPyPI readback reports
-  `ai-dememory 2.1.1rc1` with Python requirement `>=3.11`.
-- The immutable GitHub prerelease
-  [v2.1.1rc1](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v2.1.1rc1)
-  is published with wheel, source distribution, release notes, and SHA256SUMS.
-- The RC2 workflow intentionally skipped stable PyPI publication. No Pages
-  deployment, vault mutation, or host configuration write was performed by
-  this maintenance correction.
+Local rollback: run `ai-dememory serve harness-codex uninstall --user` before
+removing its module, then restart Codex. Reinstall the previous local wheel if
+rolling back runtime code. Remove a Windows selector junction only as a link,
+never recursively delete its target. Vaults and credentials are not uninstall
+targets. The installed readme metadata predates this cycle's documentation-only
+clarifications; release packaging must rebuild and refresh exact artifact evidence.
 
-## Resolved Historical Drift
+## Follow-up: user-terminal selector and workbench fixes
 
-The previous status snapshot still described an unfinished `2.1.0rc1` to stable
-promotion, a release branch, and pre-tag gates. Those statements are historical
-and no longer describe `origin/main`; they have been removed rather than carried
-forward as an active checklist. The dated release record and historical ADRs
-remain intact.
+- The initial Windows selector junction worked in Codex-run probes but the
+  user's PowerShell returned no default vault. Binding the supported
+  `AI_DEMEMORY_CONFIG_DIR` user environment variable to the existing V3 selector
+  and reloading it in the open terminal restored status, confirmed by the user.
+  No duplicate vault/configuration or credential move. The underlying junction
+  visibility difference was not established; do not treat agent-shell success
+  alone as user-terminal acceptance.
+- New scope is now blank plain text, without a datalist arrow or current-scope
+  copy. Scope changes clear its draft and stale validation notices; ordinary
+  refresh preserves a draft. The existing selector and schedule suggestions
+  remain independent. The UI explains direct MCP writes versus provider jobs.
+- Windows provider discovery now also checks known native installation folders
+  when PATH contains only a wrapper or no Codex. Explicit overrides remain
+  authoritative; discovery runs no probes/scripts and scans no recursive tree.
+  With the actual machine/user PATH, the old lookup found only `codex.CMD`;
+  the corrected lookup selected the installed Desktop executable and returned
+  unauthenticated account status without error. Login completion is still the
+  user's action; no credentials were copied and no model generation was tested.
+- Regression: 246 tests, 241 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. Focused independent
+  review identified one wrapper-link masking edge, fixed with a regression test.
+  Rendered Edge/Playwright checks at 1280x900 and 390x844 cover empty/plain-text
+  scope, existing selection, draft refresh, submit/reset, validation, no mobile
+  overflow and no console errors. Browser skill/plugin was unavailable; the
+  uncached Playwright CLI was not installed; bundled Playwright was used instead.
+  Native isolated-account status and browser-login start/cancel passed; completed
+  OAuth and authenticated generation are not claimed. Temporary test vaults
+  contain only synthetic fixtures, never personal memories.
+- Installed replacement wheel: 112,360 bytes, SHA-256
+  `ba265e9e89fe3ea02aeb0ea64c9a19bfd7653e7797489d2623c281a5f44b009b`.
+  Built in a clean temporary copy, then installed in an isolated runtime for
+  CLI save/recall and the same rendered desktop/mobile plus login start/cancel
+  checks with the normal user PATH. That exact artifact replaced the global
+  runtime; installed native discovery/account-status and default-vault readback
+  passed. Personal memory stayed at three records; account/hook settings were
+  preserved. The existing user-started workbench must restart to load Python
+  changes; its unsaved UI state was not interrupted. No tag or publication.
 
-## Next Legal Action
+## Known limits and rollback
 
-1. Keep source `2.1.2` explicitly unpublished until the remaining
-   release-relevant `B04b` work is cut into a reviewed `2.1.2rc1`, installed
-   from TestPyPI, and read back. Each tag and publication must remain bound to
-   its exact commit/tag tuple, artifact, workflow, and package-index evidence.
-2. Complete the current reviewed `mcp-inventory` contextual slice, then continue
-   the remaining source, vault, and contextual policies in compatible slices.
-   Never reuse the vault resolver for a source-bound command.
-3. Preserve completed `BRG-017`, then deliver `BRG-019`, `MIG-001`, `RET-001`,
-   and the externally read-back `GATE-B` in their normative order after
-   `BRG-003`.
-4. After `GATE-B`, keep `GRF-001` -> shadow-only `RET-002` -> production-design
-   gate `RET-003` and `OBS-001` -> `OUT-001` -> `CON-001` -> `MEM-001` as
-   separate future branches. Their planning handoffs
-   add no current runtime, config, wizard, ranking, model, vector, graph-recall,
-   or canonical-write capability.
-5. Keep `2.1.1rc1` and `2.1.1rc2` as historical TestPyPI evidence. The next
-   release identity remains `2.1.2rc1` and then `2.1.2`; do not skip directly
-   to `2.1.3`, reuse a tag, or treat source metadata as publication evidence.
+The native Hermes adapter is local-only, one fixed vault/scope per profile, and
+does not ingest transcript/mirror callbacks. It retains only a bounded current
+user instruction in process memory until the next turn/session/shutdown. Model
+claims do not independently prove truth, even with literal quote matching.
+Disable `hermes-memory` to stop its calls; restore Hermes built-in flags separately
+if desired. Profile rebinding requires a client restart. No vault backup is
+automatically added to Hermes backups; preserve DeMemory state separately.
+
+Hermes live reading is same-host/local-disk only and limited to root-session
+recent windows, not exhaustive history. Database plus sidecars must fit 256 MB;
+the 250 ms SQL deadline is per transaction, not per folder. UNC paths are rejected,
+but mapped/POSIX network mounts are not detected. Filesystem prechecks do not
+claim an adversarial path-swap sandbox. Busy/unsafe databases are skipped visibly.
+The implementation follows official [SQLite WAL](https://www.sqlite.org/wal.html)
+and [read-only URI semantics](https://www.sqlite.org/uri.html), with optional
+session fields from the [Hermes schema](https://github.com/NousResearch/hermes-agent/blob/main/hermes_state_common.py).
+
+History expects append-only native Codex JSONL; response-only exports need manual
+preview. Discovery is limited to 5,000 entries and depth four; 256 MB source-file
+limit still applies. Common replacement/truncation is skipped with a warning,
+not an automatic rewrite migration. Source cursors do not make canonical
+Markdown and admission receipts transactional. Run one workbench writer per
+vault; synchronous jobs can block UI requests while a provider runs.
+
+Consolidation inspects at most 100 active memories in its exact scope. There is
+one saved consolidation schedule per vault, not a per-project scheduler fleet.
+Budget prices are estimates, not provider invoice enforcement.
+Trusted MCP evidence labels are not independent truth verification. No remote
+listener, new runtime dependency, daemon or automatic publication was added.
+
+Rollback: pause/delete affected source rules or disable sources; canonical
+memories and receipts remain. For code rollback, revert the scoped feature
+commit and reinstall the previous local wheel. Back up durable operational
+state with the vault; never remove it as part of an index rebuild.
+
+Before PR readiness, refresh exact base/head and hosted CI and obtain a fresh
+exact-diff review. Merge, tag and publication remain separate approval gates.
