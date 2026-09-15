@@ -20,7 +20,7 @@ from ai_dememory.vault import Vault
 class WorkbenchTests(unittest.TestCase):
     def test_history_schedule_progress_through_confirmed_http_flow(self):
         self.request('/api/modules', {'id': 'sources', 'enabled': True})
-        root = Path(self.temp.name) / 'history'; root.mkdir()
+        root = Path(self.temp.name).resolve() / 'history'; root.mkdir()
         rows = [{'type': 'session_meta', 'payload': {'id': 'http-test', 'source': 'vscode'}}]
         rows += [{'type': 'event_msg', 'payload': {'type': 'user_message', 'message': f'Synthetic preference {i}'}} for i in range(25)]
         (root / 'session.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
@@ -70,7 +70,7 @@ class WorkbenchTests(unittest.TestCase):
         from ai_dememory.settings import DEFAULT_SETTINGS, save_settings
         profile = {"kind":"openai_compatible","base_url":"http://localhost:11434/v1","model":"test","auth":"none","api_key_env":""}
         save_settings(self.services.vault, {**DEFAULT_SETTINGS,"providers":{"local":profile}, "routes":{"extract":{"primary":"local","fallback":[],"max_output_tokens":100}}})
-        root = Path(self.temp.name) / "conversations"
+        root = Path(self.temp.name).resolve() / "conversations"
         root.mkdir()
         source = root / "session.json"
         source.write_text(json.dumps({"messages":[{"role":"user","content":"Synthetic deployment window Thursday."},{"role":"assistant","content":"Untrusted assistant prose."}]}), encoding="utf-8")

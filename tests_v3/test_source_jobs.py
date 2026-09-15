@@ -14,7 +14,7 @@ from ai_dememory.vault import Vault
 class SourceJobTests(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
-        self.root=Path(temp.name); self.sources=self.root/'sessions'; self.sources.mkdir()
+        self.root=Path(temp.name).resolve(); self.sources=self.root/'sessions'; self.sources.mkdir()
         self.env=patch.dict(os.environ,AI_DEMEMORY_CONFIG_DIR=str(self.root/'config')); self.env.start(); self.addCleanup(self.env.stop)
         self.jobs=Mock(); self.jobs.extract.return_value={'learned':[{}]}
         self.manager=SourceJobs(Vault.create(self.root/'vault'),self.jobs)

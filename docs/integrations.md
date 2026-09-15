@@ -204,7 +204,7 @@ sets `memory.provider: dememory`, `memory.memory_enabled: false` and
 MEMORY.md/USER.md stores. Do not disable the `memory` toolset: that also hides
 external-provider tools. Hermes still stores its own conversation history.
 Existing profiles are never changed automatically. The provider exposes vault
-and scope fields to Hermes's memory setup wizard; rebinding requires restart.
+and scope fields to Hermes's memory configuration flow; rebinding requires restart.
 
 Disable `hermes-memory` in DeMemory to stop adapter recall/writes, then restart
 Hermes. To restore Hermes's own memory, separately change its provider/flags in

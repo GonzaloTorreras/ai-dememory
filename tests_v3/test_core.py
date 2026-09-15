@@ -24,7 +24,9 @@ from ai_dememory.vault import MAX_MEMORY_CONTENT_BYTES, MAX_TITLE_BYTES, Vault
 class V3TestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        # CI temp roots may use macOS /var aliases or Windows short names.
+        # These fixtures are real directories, not tests of linked input paths.
+        self.root = Path(self.temporary.name).resolve()
         self.environment = patch.dict(
             os.environ,
             {"AI_DEMEMORY_CONFIG_DIR": str(self.root / "config")},

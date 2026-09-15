@@ -19,7 +19,7 @@ def user(text):
 class SourceHistoryTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.sources = self.root / "sessions"; self.sources.mkdir()
         env = patch.dict(os.environ, AI_DEMEMORY_CONFIG_DIR=str(self.root / "config"))
         env.start(); self.addCleanup(env.stop)

@@ -15,6 +15,11 @@ ACTIVE = (
     ROOT / "docs" / "README.md",
     ROOT / "docs" / "architecture.md",
     ROOT / "docs" / "modules.md",
+    ROOT / "docs" / "install.md",
+    ROOT / "docs" / "integrations.md",
+    ROOT / "docs" / "automation.md",
+    ROOT / "docs" / "workbench.md",
+    ROOT / "docs" / "ai-operated-releases.md",
     ROOT / "docs" / "roadmap.md",
     ROOT / "docs" / "development-status.md",
 )

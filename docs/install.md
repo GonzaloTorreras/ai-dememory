@@ -53,5 +53,5 @@ Saving verifies the Markdown readback; searching lazily builds disposable SQLite
 If status cannot find the vault, inspect the Configuration path it uses, check
 an existing `AI_DEMEMORY_CONFIG_DIR` override, and run `ai-dememory setup PATH`
 once in the same normal user terminal. Do not create another vault just to work
-around a stale selector. `ai-dememory --version` must show V3; do not use old
-`setup wizard`, `--root`, `api`, or source-script commands from V2 documentation.
+around a stale selector. `ai-dememory --version` must show V3; use this guide's
+commands, not retired V2 wizard/API/source-script instructions.

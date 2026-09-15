@@ -82,7 +82,7 @@ for line in sys.stdin:
 class CodexSubscriptionTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.script = self.root / "server.py"
         self.script.write_text(_SERVER, encoding="utf-8")
         self.log = self.root / "protocol.jsonl"

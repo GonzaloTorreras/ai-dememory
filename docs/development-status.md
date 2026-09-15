@@ -57,6 +57,10 @@ Earlier implementation/install receipts remain in Git history.
   installs the package before clean-runner release/preflight tests. Installation
   and release runbooks now describe V3 rather than obsolete V2 commands/gates.
   Current workflow policy publishes prereleases to TestPyPI and stable to PyPI.
+- First hosted CI passed both Linux versions but exposed fixture path aliases
+  on macOS and Windows (including short-name vs resolved-name mock comparison).
+  Fixtures now use canonical temporary directories; runtime link checks and
+  containment remain unchanged. Re-run all four matrix jobs before merge.
 
 Known boundaries: custom provider plugins are trusted code; five minutes is the
 Windows task execution limit, not a sandbox for arbitrary plugin descendants.
