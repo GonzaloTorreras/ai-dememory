@@ -9,11 +9,11 @@ Earlier implementation/install receipts remain in Git history.
   checkout; branch `codex/v3-learning-workbench`.
 - Public `main` read back through GitHub at
   `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `7bdd018`.
+- This line builds on V3 baseline `a04a0cd`; this increment starts at `9d38e01`.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source remains `3.0.0a1`, unpublished. The user's isolated runtime was not
-  replaced this cycle; it still uses the `6ce1e0a` wheel recorded below. The new
-  wheel was installed only in a disposable smoke environment. No version,
+- Source remains `3.0.0a1`, unpublished. The user's isolated V3 runtime now uses
+  the Windows provider-discovery fix recorded below, including the previous
+  scoped-scheduling increment. Configuration and credentials were not changed. No version,
   release tag, package publication or merge in this cycle.
 - PR #58 remains the original V3 baseline, not a current workbench readiness
   receipt. No new hosted CI is claimed for these local changes.
@@ -145,15 +145,15 @@ Earlier implementation/install receipts remain in Git history.
   ms). These single-run timings are smoke observations, not latency benchmarks.
   No model calls or transcript reads; zero memories created; all smoke processes
   exited. A fresh independent read-only review found no installation blocker.
-- **Activation gate remains:** review/trust the exact hook through Codex `/hooks`
-  and demonstrate injection from a native prompt in a fresh session. No trust
+- The user reports activating the hook on 2026-09-15. This is not yet independent
+  evidence of injection from a native prompt in a fresh session. No trust
   bypass or trust-store edits were used. Check that each task shows exactly one
   DeMemory UserPromptSubmit handler; matching hook sources accumulate.
 - Browser is included in the current desktop app, not a missing separately
   installed dependency. Opened its official documentation in the built-in browser
   and inspected the rendered page successfully. No extra browser package was added.
 
-## This cycle: scoped consolidation scheduling
+## Previous cycle: scoped consolidation scheduling (`9d38e01`)
 
 - One saved `schedule.scope`, editable in the existing workbench with scope
   suggestions, independent of browsing/manual-run scope. Empty scopes remain
@@ -178,6 +178,39 @@ Earlier implementation/install receipts remain in Git history.
   Disposable install outside the checkout passed actual packaged CLI
   setup/save/recall/status, schedule/restart behavior and UI-asset checks.
   No personal vault, hook trust, global client config or model call was involved.
+
+## This cycle: Codex provider executable discovery
+
+- User report: `codex_binary_required` while starting managed login. This code
+  is emitted before authentication when the discovered/explicit path is not an
+  accepted executable. The historical dashboard environment was not captured;
+  current host and persistent PATH checks already resolve a native executable.
+  Do not claim wrapper shadowing as the verified cause of that original attempt.
+- Windows now prefers `codex.exe` before generic `codex`. Explicit overrides
+  remain strict, with no shell-wrapper execution, filesystem crawling or new
+  dependency. Missing/invalid executables have static actionable guidance in
+  both login and status; failed attempts clear stale sign-in links and codes.
+- Forty focused tests passed, also independently rerun by the read-only reviewer.
+  Full suite: 222 tests, 217 passed / five Windows symlink skips. Compilation,
+  JavaScript syntax and diff checks passed. No exact-diff review blocker remains.
+- Built-in Browser QA: disposable account fixture at `127.0.0.1:18769`, desktop
+  1280-wide and mobile 390x844. Pending flow, failed status, failed retry, guidance
+  and link/code cleanup verified. No blank page, overlay, horizontal overflow or
+  console warning/error. QA found the shared request helper discarded error
+  guidance; it was fixed and the flow rechecked. No real sign-in page was opened.
+- Source and installed package each initialized the native Codex AppServer,
+  read an unauthenticated disposable account and reaped the child/reader/scratch.
+  No login, token copy, model call, personal extraction or hook-trust change.
+- Wheel: 104,032 bytes, SHA-256
+  `aadce9e86bf91ab50f4a0b17d14b43d3584a459b8f2741c66cc93d94b85f54bd`.
+  Disposable package CLI/settings smoke passed before updating the existing
+  isolated runtime with this exact wheel. Packaged UI and native startup readback
+  passed afterwards. The runtime has no pip; the existing bundled pip targeted
+  it explicitly, without adding pip/dependencies or changing the global PATH.
+- User action: restart the workbench and retry provider sign-in. Authentication
+  is still user-completed and must not be inferred from the hook activation or
+  the successful unauthenticated account read. The continuation pauses at this
+  acceptance boundary instead of repeating sign-in attempts.
 
 ## Next development cycle
 

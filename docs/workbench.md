@@ -102,7 +102,19 @@ The optional **codex-subscription** module uses the official Codex AppServer's
 managed ChatGPT browser or device-code login. Enable it in the provider form or
 Modules, start sign-in, open the official link, then choose **Check sign-in**.
 A native `codex` executable must be on PATH, or set `AI_DEMEMORY_CODEX_BIN` to
-its absolute path. Shell wrapper scripts are not used.
+its absolute path **before starting the workbench**. Windows checks for
+`codex.exe` before a generic `codex` launcher, so a `.cmd` wrapper earlier in
+PATH does not hide a native executable later in PATH. Shell wrapper scripts
+are not run; wrapper-only installations still need a native CLI executable.
+An explicit override is authoritative: a missing, moved or script path produces
+an actionable error, never a silent switch to another executable. Restart the
+workbench after installing/updating Codex or changing its path. **Check sign-in**
+and login failures show the same guidance and clear stale links/device codes.
+
+This provider login is separate from the Codex memory hook/MCP integration.
+Codex can recall and save explicit memories through DeMemory without enabling
+this provider; it is only needed when DeMemory itself asks Codex to extract or
+summarize text.
 The account is isolated in `codex-account` under DeMemory's user config directory,
 outside the vault. Codex manages its credential file there; DeMemory does not
 copy your existing Codex account or place tokens in vault/UI readback. Disabling

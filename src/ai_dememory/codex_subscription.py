@@ -13,6 +13,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -26,6 +27,11 @@ GENERATION_TIMEOUT = 90
 LOGIN_TIMEOUT = 600
 MAX_FRAME_BYTES = 1_000_000
 MAX_PROMPT_BYTES = 64_000
+
+_ERROR_HELP = {
+    "codex_not_installed": "Codex CLI was not found. Install the official Codex CLI and restart the workbench, or set AI_DEMEMORY_CODEX_BIN to its absolute executable path before starting it.",
+    "codex_binary_required": "DeMemory needs the native Codex executable, not a .cmd, .bat or .ps1 launcher. Set AI_DEMEMORY_CODEX_BIN to the full path of codex.exe (Windows) or codex, then restart the workbench. Check any existing override for a moved or missing file.",
+}
 
 # These are documented feature keys, not invented turn/start parameters.
 _DISABLED_FEATURES = (
@@ -53,7 +59,7 @@ class CodexSubscriptionError(ValueError):
 
     def __init__(self, reason):
         self.reason = reason
-        super().__init__(f"Codex account operation failed: {reason}")
+        super().__init__(_ERROR_HELP.get(reason, f"Codex account operation failed: {reason}"))
 
 
 def validate_vault(vault_root):
@@ -78,7 +84,12 @@ def _account_home():
 
 def _command():
     configured = os.environ.get("AI_DEMEMORY_CODEX_BIN")
-    executable = configured or shutil.which("codex")
+    # Windows PATH may contain a shell launcher before the native CLI. Never
+    # execute that launcher or silently replace an explicitly configured path.
+    executable = configured
+    if not executable:
+        executable = shutil.which("codex.exe") if sys.platform == "win32" else None
+        executable = executable or shutil.which("codex")
     if not executable:
         raise CodexSubscriptionError("codex_not_installed")
     path = Path(executable)
@@ -298,12 +309,12 @@ def login_status():
             except CodexSubscriptionError as exc:
                 _pending = None
                 server.close()
-                return {"authenticated": False, "pending": False, "error": exc.reason}
+                return {"authenticated": False, "pending": False, "error": exc.reason, "message": str(exc)}
         try:
             with _AppServer() as server:
                 return {"authenticated": server.authenticated(), "pending": False}
         except CodexSubscriptionError as exc:
-            return {"authenticated": False, "pending": False, "error": exc.reason}
+            return {"authenticated": False, "pending": False, "error": exc.reason, "message": str(exc)}
 
 
 def cancel_login():

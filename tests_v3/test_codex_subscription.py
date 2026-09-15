@@ -202,6 +202,68 @@ class CodexSubscriptionTests(unittest.TestCase):
         self.assertIn("features.shell_tool=false", args)
         self.assertIn("features.skip_host_skill_discovery=true", args)
 
+    def test_windows_prefers_native_binary_over_path_launcher(self):
+        native = self.root / "Native Codex" / "codex.exe"
+        native.parent.mkdir()
+        native.touch()
+        wrapper = self.root / "codex.cmd"
+        wrapper.touch()
+        with patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": ""}), patch.object(sys, "platform", "win32"), \
+                patch.object(codex.shutil, "which", side_effect=lambda name: str(native if name == "codex.exe" else wrapper)) as find:
+            self.assertEqual(codex._command()[0], str(native))
+        find.assert_called_once_with("codex.exe")
+
+    def test_native_generic_discovery_still_works_on_windows_and_posix(self):
+        native = self.root / "codex"
+        native.touch()
+        for platform in ("win32", "linux", "darwin"):
+            with self.subTest(platform=platform), patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": ""}), \
+                    patch.object(sys, "platform", platform), patch.object(codex.shutil, "which", side_effect=lambda name: str(native) if name == "codex" else None) as find:
+                self.assertEqual(codex._command()[0], str(native))
+                self.assertEqual(find.call_count, 2 if platform == "win32" else 1)
+
+    def test_explicit_override_is_authoritative_and_never_runs_wrappers(self):
+        native = self.root / "codex.exe"
+        native.touch()
+        with patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": str(native)}), patch.object(codex.shutil, "which") as find:
+            self.assertEqual(codex._command()[0], str(native))
+            find.assert_not_called()
+        for name in ("codex.cmd", "codex.BAT", "codex.ps1"):
+            (self.root / name).touch()
+        for value in ["relative.exe", str(self.root / "missing.exe"), str(self.root),
+                      *(str(self.root / name) for name in ("codex.cmd", "codex.BAT", "codex.ps1"))]:
+            with self.subTest(value=value), patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": value}), \
+                    patch.object(codex.shutil, "which") as find:
+                with self.assertRaises(codex.CodexSubscriptionError) as raised:
+                    codex._command()
+                self.assertEqual(raised.exception.reason, "codex_binary_required")
+                self.assertNotIn(str(self.root), str(raised.exception))
+                find.assert_not_called()
+
+    def test_missing_and_wrapper_errors_have_safe_actionable_guidance(self):
+        wrapper = self.root / "codex.cmd"
+        wrapper.touch()
+        for found, reason in ((None, "codex_not_installed"), (str(wrapper), "codex_binary_required")):
+            with patch.dict(os.environ, {"AI_DEMEMORY_CODEX_BIN": ""}), patch.object(sys, "platform", "win32"), \
+                    patch.object(codex.shutil, "which", side_effect=lambda name: found if name == "codex" else None), \
+                    self.assertRaises(codex.CodexSubscriptionError) as raised:
+                codex._command()
+            self.assertEqual(raised.exception.reason, reason)
+            self.assertIn("AI_DEMEMORY_CODEX_BIN", str(raised.exception))
+            self.assertIn("restart the workbench", str(raised.exception))
+            self.assertNotIn(str(self.root), str(raised.exception))
+
+    def test_status_and_login_errors_share_remediation_without_creating_children(self):
+        error = codex.CodexSubscriptionError("codex_binary_required")
+        with patch.object(codex, "_AppServer", side_effect=error):
+            status = codex.login_status()
+            with self.assertRaises(codex.CodexSubscriptionError) as raised:
+                codex.start_login()
+        self.assertEqual(status, {"authenticated": False, "pending": False,
+                                 "error": error.reason, "message": str(raised.exception)})
+        self.assertIsNone(codex._pending)
+        self.assertFalse((self.root / "config").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

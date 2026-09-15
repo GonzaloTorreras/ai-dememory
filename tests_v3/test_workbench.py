@@ -119,6 +119,19 @@ class WorkbenchTests(unittest.TestCase):
             self.assertEqual(self.request("/api/codex/cancel", {})[0], 200)
             fake.cancel_login.assert_called_once()
 
+    def test_codex_binary_failure_has_same_guidance_in_login_and_status(self):
+        from ai_dememory import codex_subscription
+        error = codex_subscription.CodexSubscriptionError("codex_binary_required")
+        with patch("ai_dememory.builtin_modules.workbench.load_enabled_module", return_value=codex_subscription), \
+                patch.object(codex_subscription, "_AppServer", side_effect=error):
+            code, body, _ = self.request("/api/codex/login", {"method": "device"})
+            self.assertEqual(code, 400)
+            self.assertEqual(json.loads(body)["error"], str(error))
+            code, body, _ = self.request("/api/codex/status", {})
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(body)["error"], "codex_binary_required")
+            self.assertEqual(json.loads(body)["message"], str(error))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

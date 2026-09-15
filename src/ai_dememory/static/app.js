@@ -52,7 +52,7 @@ async function request(path, body) {
   };
   const response = await fetch(path, { ...options, credentials: 'same-origin' });
   const data = await response.json();
-  if (!response.ok || data.error) throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok || data.error) throw new Error(data.message || data.error || `Request failed (${response.status})`);
   return data;
 }
 async function perform(action) {
@@ -348,7 +348,7 @@ function enableBuiltin(id) {
 $('#enable-codex').addEventListener('click', () => enableBuiltin('codex-subscription'));
 $('#enable-sources').addEventListener('click', () => enableBuiltin('sources'));
 function renderLogin(result) {
-  $('#codex-auth-status').textContent = result.authenticated ? 'Signed in with ChatGPT. You can now load Codex models.' : result.error || (result.pending ? 'Waiting for you to complete official sign-in.' : 'Not signed in.');
+  $('#codex-auth-status').textContent = result.authenticated ? 'Signed in with ChatGPT. You can now load Codex models.' : result.message || result.error || (result.pending ? 'Waiting for you to complete official sign-in.' : 'Not signed in.');
   const link = $('#codex-auth-link'), raw = result.verification_url || result.auth_url || '';
   link.hidden = true; link.removeAttribute('href');
   if (raw) {
@@ -358,12 +358,12 @@ function renderLogin(result) {
   $('#codex-user-code').textContent = result.user_code ? `Device code: ${result.user_code}` : '';
 }
 for (const method of ['device','browser']) $('#codex-' + method).addEventListener('click', () => perform(async () => {
-  $('#codex-auth-status').textContent = 'Starting official Codex sign-in…';
+  renderLogin({message: 'Starting official Codex sign-in…'});
   try { renderLogin({...await request('/api/codex/login', {method}), pending:true}); }
-  catch (error) { $('#codex-auth-status').textContent = error.message; }
+  catch (error) { renderLogin({message: error.message}); }
 }));
 $('#codex-check').addEventListener('click', () => perform(async () => {
-  try { renderLogin(await request('/api/codex/status', {})); } catch (error) { $('#codex-auth-status').textContent = error.message; }
+  try { renderLogin(await request('/api/codex/status', {})); } catch (error) { renderLogin({message: error.message}); }
 }));
 $('#codex-cancel').addEventListener('click', () => perform(async () => { await request('/api/codex/cancel', {}); renderLogin({}); }));
 $('#provider-dialog').addEventListener('close', () => { $('#provider-form').elements.api_key.value = ''; });

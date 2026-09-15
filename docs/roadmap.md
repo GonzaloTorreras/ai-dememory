@@ -27,7 +27,12 @@ several hosts.
 
 ## Delivery sequence
 
-Latest local increment: one saved consolidation scope in the workbench, durable
+Latest local fix: Codex provider startup prefers the native Windows executable
+over shell launchers, retains strict explicit overrides and gives actionable
+login/status errors. Native account-read startup is verified with a disposable
+empty account; successful managed login and generation remain separate checks.
+
+Previous increment: one saved consolidation scope in the workbench, durable
 per-schedule cadence and explicit last-run/manual scopes. An unrelated manual
 run cannot postpone the schedule. Project cleanup remains local and deterministic;
 procedural memory and tested skill export are still next, not shipped behavior.
