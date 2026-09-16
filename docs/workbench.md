@@ -18,9 +18,26 @@ Start with scope `global`. Use `project:my-project` for project-only information
 **Current scope** selects an existing scope. **New scope** is a blank text field
 with an example placeholder; selecting or applying a scope clears that field.
 It is not a second selector and does not copy the current scope.
+Automatically bound projects appear by their folder name in the selector,
+memory cards, source destinations and consolidation controls. Linked Git
+worktrees use the common checkout's name. Same-name projects stay separate and
+receive a short distinguishing suffix. The stable scope ID is still used for
+every operation; a display name never binds or merges projects. Expand
+**Project details** for the full scope ID or **Source & technical details** on
+a memory for its evidence and conversation/turn IDs.
+
+Names are captured locally when an enabled automatic hook or native MCP
+connection resolves the project. Already-saved memories gain that name without
+being rewritten. Older unknown IDs show **Unnamed project** until the project
+is used again; explicit folder bindings can supply the name immediately. No
+conversation scan or model is needed. These are project folder names, not
+guessed conversation titles. If the name cache is unavailable, memory still
+works. Only names (up to 120 characters, at most 1,000 projects), not full paths
+or conversation content, are stored as display metadata in `runtime.sqlite`.
+
 The management list shows the exact selected scope; retrieval returns that
-scope plus global, never another project's records. These labels are routing,
-not user authentication or tenant isolation.
+scope plus global, never another project's records. Scope routing is not user
+authentication or tenant isolation.
 
 Save an explicit statement, optionally with a stable key such as
 `preferred-language`. A new explicit statement with that key replaces the old
@@ -300,8 +317,8 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 Choose the **Scheduled scope**, enable the schedule, choose hours (24 daily,
 168 weekly), and save. There is one saved schedule per vault. It processes only
-that scope, independently of the browsing scope above; you can enter a scope
-before it has any memories. Settings and cadence persist across restarts, and
+that scope, independently of the browsing scope above. Select a project by
+name; to add an empty scope, use **New scope** above first. Settings and cadence persist across restarts, and
 missed runs coalesce into one run on resume.
 
 **Run now** names the browsing scope it will process. Running another scope

@@ -1,7 +1,7 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-16 for first-run Codex
-hooks and opt-in Windows consolidation. Usable global installation takes priority
+This is the single active product plan. Updated 2026-09-16 for readable project
+names after first-run Codex hooks and opt-in Windows consolidation. Usable global installation takes priority
 over procedural export, remote networking and further ingestion frameworks.
 
 ## Product outcome
@@ -30,7 +30,14 @@ several hosts.
 
 ## Delivery sequence
 
-Current increment: `setup --with-codex --with-schedule --yes` installs the optional
+Current increment: show local project names across the workbench while retaining
+opaque internal scope IDs. Automatic host binding records bounded display-only
+names in the existing operational SQLite file; it does not create identity
+bindings, change canonical memories or scan conversations. Worktrees share the
+common project name; same-name folders remain separate. Unknown historical
+scopes become named when their project is used again.
+
+Previous increment: `setup --with-codex --with-schedule --yes` installs the optional
 global Codex hooks/MCP and current-user Windows consolidation task. SessionStart
 restores brief guidance after resume/compact without a Stop continuation loop.
 The OS task shares the existing scope/cadence/budgets and job lock with the UI,
@@ -99,7 +106,8 @@ daemon or top-level CLI.
 
 1. **One discoverable command and one selector.** Install the exact local V3 wheel
    into one stable per-user runtime and expose its packaged entry point on PATH.
-   V3 is unpublished: an unpinned public package install is not this artifact.
+   V3 alpha `3.0.0a2` is on TestPyPI, not production PyPI; an unpinned public
+   package install is not this artifact.
    Reuse `config.py`; selected-vault lookup already works outside the checkout.
    Align CLI, workbench, hooks and MCP on the same selector without merging V2
    config. Keep explicit isolated selectors available for tests. Extend existing
@@ -123,7 +131,8 @@ daemon or top-level CLI.
    default; unrelated clones/folders do not merge by basename or remote URL.
    Derive an opaque ID deterministically from local identity; persist only
    explicit aliases/exclusions, so a rename can be rebound deliberately without
-   losing memory. This avoids an automatically written discovery registry. Give projectless task
+   losing memory. Display-only names in operational state do not constitute a
+   discovery/binding registry and cannot affect this resolver. Give projectless task
    workspaces their own identity. An unknown/home context must not silently write
    global memory: ask for a project binding or skip project recall with an
    actionable diagnostic. Use trusted hook cwd, never transcript contents, for
@@ -210,9 +219,10 @@ running admin CLI commands. Empty, disabled and error states must be truthful.
 
 The UI saves one consolidation scope and interval, enables/disables it, runs
 the browsing scope now and shows last/next execution, last-run scope and budget
-state. Changing browsing scope never retargets the saved schedule. Scheduled work runs only
-while the foreground workbench is open. Say so directly. Later OS-service
-installation can keep it running after reboot.
+state. Changing browsing scope never retargets the saved schedule. Scheduled
+consolidation runs in the foreground workbench or through the optional current-user
+Windows task; source ingestion still requires the workbench. Remote services and
+other platforms' OS scheduling remain later work.
 
 Remote networking is planned, not part of this slice: remain loopback-only.
 Later add per-client scopes, LAN/private-network deployment, Internet TLS with
@@ -251,5 +261,6 @@ project, subject, conditions and date. Human review is reserved for exceptions.
   calls/tokens and processes on representative hardware.
 
 Code and `docs/development-status.md` distinguish delivered behavior from this
-plan. PR #58 is the original alpha baseline; this work is on
-`codex/v3-learning-workbench`. Fresh review replaces earlier readiness claims.
+plan. PR #58 merged the alpha workbench and setup automation into public main;
+the readable-project slice is on `codex/v3-readable-project-scopes`. Fresh review
+replaces earlier readiness claims.

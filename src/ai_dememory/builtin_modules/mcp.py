@@ -29,7 +29,9 @@ class ClientBinding:
     def __init__(self, cwd):
         from ai_dememory.projects import resolve_project
         self.cwd = Path(cwd).resolve()
-        self.scope = resolve_project(self.cwd)["scope"]
+        self.project = resolve_project(self.cwd)
+        self.scope = self.project["scope"]
+        self.name_recorded = False
         self.thread = None
 
     def enabled(self):
@@ -338,6 +340,9 @@ def serve(
                 try:
                     if binding and request.get("method") == "tools/call":
                         request = binding.check(request)
+                        if not binding.name_recorded:
+                            from ai_dememory.projects import remember_project_name
+                            binding.name_recorded = remember_project_name(services.vault, binding.project)
                     if binding and request.get("method") == "tools/list" and not binding.enabled():
                         response = _response(request.get("id"), {"tools": []})
                     else:

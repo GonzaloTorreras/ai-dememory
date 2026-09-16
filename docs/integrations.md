@@ -55,7 +55,12 @@ owned by the same OS user. Other clients retain explicit scope bindings.
 - Projectless task folders have independent scopes. A bare home/filesystem root
   requires explicit binding; it never silently becomes a global writer.
 - Automatic IDs are deterministic from local identity, with no discovery daemon
-  or auto-written registry. Rebind a moved project explicitly to retain its scope.
+  or auto-written binding registry. Rebind a moved project explicitly to retain its scope.
+- The workbench displays project folder names instead of opaque IDs. Enabled
+  automatic hooks/native MCP capture bounded display-only names in the existing
+  operational DB; labels never determine identity or access. Old scopes gain a
+  name on their next connected use, without rewriting memories or scanning
+  conversations. See [project names and technical details](workbench.md#memory).
 - Reads include genuinely shared `global` memories. Project connections cannot
   write global memory. Use the manual CLI/workbench for intentional global facts.
 

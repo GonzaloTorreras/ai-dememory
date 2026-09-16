@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', sources: [] };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [] };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -81,6 +81,12 @@ function button(text, action) {
 }
 function timestamp(value) { return value ? new Date(value).toLocaleString() : 'Not yet'; }
 function number(value) { return Number(value || 0).toLocaleString(); }
+function scopeLabel(scope = 'global') {
+  if (Object.hasOwn(state.scopeLabels, scope)) return state.scopeLabels[scope];
+  if (scope === 'global') return 'Global · shared';
+  const name = scope.replace(/^project:/, '');
+  return /^[a-f0-9]{32}$/.test(name) ? 'Unnamed project' : name;
+}
 function renderMemories(memories) {
   const list = $('#memory-list'); list.replaceChildren();
   if (!memories.length) list.append(element('p', 'No memories in this scope yet. Save something useful below.', 'memory-empty'));
@@ -90,10 +96,16 @@ function renderMemories(memories) {
     header.append(element('h2', memory.title), element('span', status, `badge ${status === 'provisional' ? 'provisional' : status === 'active' ? '' : 'inactive'}`));
     card.append(header, element('p', memory.content));
     const source = memory.source || {};
-    const metadata = [memory.scope || 'global', source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
+    const metadata = [scopeLabel(memory.scope), source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
     if (memory.key) metadata.push(`Key: ${memory.key}`);
     card.append(element('p', metadata.join(' · '), 'hint'));
-    if (source.excerpt) { const details = element('details'); details.append(element('summary', 'Source excerpt'), element('p', source.excerpt)); card.append(details); }
+    const details = element('details');
+    details.append(element('summary', 'Source & technical details'));
+    if (source.excerpt) details.append(element('p', source.excerpt));
+    details.append(element('p', `Scope ID: ${memory.scope || 'global'}`, 'hint'));
+    if (source.session) details.append(element('p', `Conversation ID: ${source.session}`, 'hint'));
+    if (source.turn) details.append(element('p', `Turn ID: ${source.turn}`, 'hint'));
+    card.append(details);
     if (status === 'active' || status === 'provisional') {
       const actions = element('div', undefined, 'actions');
       actions.append(button(memory.supersedes ? 'Undo replacement' : 'Forget', () => perform(async () => {
@@ -266,7 +278,7 @@ function renderOperational(data) {
   const schedule = data.schedule || {}, facts = $('#schedule-status'); facts.replaceChildren();
   const result = schedule.last_result;
   $('#task-status').textContent = data.scheduled_task?.installed_receipt ? 'Windows task installation recorded. Live health is not polled here; use the status command below. Pausing this schedule stops future consolidation.' : 'No Windows task installation recorded for this vault. Automatic consolidation currently needs the workbench or an external one-shot runner.';
-  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': schedule.scope || 'global', 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope || 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': scopeLabel(schedule.scope), 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope ? scopeLabel(schedule.last_run_scope) : 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
   Object.entries(values).forEach(([label, value]) => facts.append(element('dt', label), element('dd', value)));
   const usage = data.usage || {}, grid = $('#usage'); grid.replaceChildren();
   [['Calls', number(usage.calls)], ['Tokens', number(usage.tokens)], ['Estimated USD', Number(usage.cost_usd || 0).toFixed(4)]].forEach(([label, value]) => { const item = element('div', undefined, 'usage-item'); item.append(element('span', label), element('strong', value)); grid.append(item); });
@@ -282,12 +294,17 @@ async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
   state.credentials = data.credentials || {};
+  state.scopeLabels = data.scope_labels || {};
   renderModules(data);
-  const scopes = [...new Set([...(data.scopes || ['global']), state.scope])];
-  $('#scope-selector').replaceChildren(...scopes.map(name => new Option(name, name)));
+  const scheduledScope = state.dirty ? $('#schedule-scope').value : data.settings.schedule.scope;
+  const scopes = [...new Set([...(data.scopes || ['global']), state.scope, scheduledScope])].filter(Boolean);
+  scopes.sort((a, b) => a === 'global' ? -1 : b === 'global' ? 1 : scopeLabel(a).localeCompare(scopeLabel(b)));
+  $('#scope-selector').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
   $('#scope-selector').value = state.scope;
-  $('#scope-options').replaceChildren(...scopes.map(name => new Option(name, name)));
-  $('#run-consolidation').textContent = `Run now in ${state.scope}`;
+  $('#schedule-scope').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
+  $('#schedule-scope').value = scheduledScope;
+  $('#scope-id').textContent = state.scope;
+  $('#run-consolidation').textContent = `Run now in ${scopeLabel(state.scope)}`;
   renderSourceSchedules(data.source_schedules || []);
   state.codexRoot = data.codex_sessions_root;
   if (!state.dirty) { state.settings = data.settings; renderSettings(); }
@@ -426,7 +443,7 @@ function updateSourceSelection() {
   const ready = selected.length > 0 && selected.every(item => item.preview?.messages.length && item.preview.destinations.length);
   $('#extract-source').disabled = state.busy || !ready;
   $('#preview-selected').disabled = state.busy || !selected.length;
-  $('#source-selection').textContent = `${selected.length} selected · destination ${state.scope}. Preview each selected conversation before extracting. Each conversation uses its own bounded model call.`;
+  $('#source-selection').textContent = `${selected.length} selected · destination ${scopeLabel(state.scope)}. Preview each selected conversation before extracting. Each conversation uses its own bounded model call.`;
 }
 async function previewItem(item) {
   item.preview = await request('/api/sources/preview', {root:item.root,format:item.format,file:item.path,session_id:item.session_id,scope:state.scope});
@@ -449,7 +466,7 @@ function renderSources() {
     details.append(element('p',item.path,'source-path'),button(item.preview ? 'Refresh preview' : 'Preview user messages',()=>perform(()=>previewItem(item))));
     if (item.preview) {
       const p = item.preview;
-      details.append(element('p',`${p.messages.length} user messages → ${p.scope} · ${p.destinations.join(' → ') || 'No extraction route configured'}`, 'hint'));
+      details.append(element('p',`${p.messages.length} user messages → ${scopeLabel(p.scope)} · ${p.destinations.join(' → ') || 'No extraction route configured'}`, 'hint'));
       details.append(element('pre',p.messages.map((message,i)=>`${i+1}. ${message.content}`).join('\n\n') || 'No eligible human messages.', 'conversation-preview'));
       if (p.truncated || p.notice) details.append(element('p',[p.truncated?'Latest bounded window; older messages are not included.':'',p.notice || ''].join(' '),'hint'));
       const diagnostics = element('details'); diagnostics.append(element('summary','Reader details'),element('p',Object.entries(p.counts || {}).map(([k,v])=>`${k.replaceAll('_',' ')}: ${v}`).join(' · '),'hint')); details.append(diagnostics);
@@ -468,7 +485,7 @@ $('#extract-source').addEventListener('click', () => perform(async () => {
   await request('/api/sources/validate',{tokens:state.sources.filter(item=>item.selected).map(item=>item.preview?.preview_token)});
   for (const item of state.sources.filter(item=>item.selected)) {
     if (!item.preview) throw new Error('Preview all selected conversations first.');
-    try { const result = await request('/api/sources/extract',{preview_token:item.preview.preview_token,confirmed:true}); item.result = `${(result.learned || []).length} learnings saved to ${item.preview.scope}`; item.selected = false; }
+    try { const result = await request('/api/sources/extract',{preview_token:item.preview.preview_token,confirmed:true}); item.result = `${(result.learned || []).length} learnings saved to ${scopeLabel(item.preview.scope)}`; item.selected = false; }
     catch (error) { item.result = error.message; renderSources(); throw error; }
   }
   renderSources(); await refresh(); notify('Selected conversations processed. Results are shown inline.');
@@ -492,7 +509,7 @@ function renderSourceSchedules(rules) {
   const list=$('#source-schedules'); list.replaceChildren();
   for (const rule of rules) {
     const card=element('article',undefined,'memory-card');
-    card.append(element('h3',`${rule.format} → ${rule.scope}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
+    card.append(element('h3',`${rule.format} → ${scopeLabel(rule.scope)}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
     if (rule.mode === 'history') {
       const p = rule.progress || {};
       card.append(element('p',`History and new messages · ${p.messages || 0} user messages in ${p.windows || 0} windows · ${p.tracked_conversations || 0} conversations tracked · ${p.passes || 0} discovery passes completed`));
@@ -509,7 +526,7 @@ function renderSourceSchedules(rules) {
     card.append(button('Remove schedule',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'delete'}); await refresh();}))); list.append(card);
   }
 }
-$('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${state.scope}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${result.scope} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
+$('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${scopeLabel(state.scope)}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${scopeLabel(result.scope)} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
 window.addEventListener('hashchange', showPage);
 window.addEventListener('beforeunload', (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });
 showPage(); perform(refresh);

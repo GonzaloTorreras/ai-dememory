@@ -239,6 +239,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 settings = load_settings(self.server.services.vault)
                 from ai_dememory.provider_plugins import provider_descriptions
                 from ai_dememory.scheduled import receipt_status
+                from ai_dememory.projects import scope_labels
+                scopes = self.server.scopes()
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
@@ -249,7 +251,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
                     "modules": [item.to_dict() for item in discover_modules().values()],
-                    "scopes": self.server.scopes(),
+                    "scopes": scopes,
+                    "scope_labels": scope_labels(self.server.services.vault, {*scopes, scope}),
                     "source_schedules": self.server.source_jobs.public(),
                     "codex_sessions_root": str(Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex"))) / "sessions"),
                     "provider_extensions": provider_descriptions(),

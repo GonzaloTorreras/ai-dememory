@@ -6,24 +6,49 @@ Earlier implementation/install receipts remain in Git history.
 ## Checkout and release reality
 
 - Active worktree: `working/worktrees/product-reset-v3` under the historical
-  checkout; branch `codex/v3-learning-workbench`.
+  checkout; branch `codex/v3-readable-project-scopes`.
 - Public `main` read back through GitHub at
-  `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `0b45e42`.
+  `99195c1be61afb25b6a8d91e224f5983878fe8b6` (PR #58 merged).
+- The readable-project increment starts at that public main commit.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source is prepared as `3.0.0a2`, not yet published at this checkpoint. The user's isolated V3 runtime now
-  includes the global Codex integration recorded below. The default selector and
-  global client connection were configured; existing account state and unrelated
-  settings were preserved. No release tag, package publication or merge yet.
-- PR #58 remains the original V3 baseline, not a current workbench readiness
-  receipt. No new hosted CI is claimed for these local changes.
-- GitHub search found no PR for `codex/v3-learning-workbench` on 2026-09-14.
+- `v3.0.0a2` was published as a GitHub prerelease and on TestPyPI, not production
+  PyPI. Publisher [run 35035252460](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/35035252460)
+  completed successfully; the release was read back on 2026-09-16. This new slice
+  leaves the version unchanged and is not a new publication.
+- No open PR was found at the start of this slice. No new hosted CI is claimed.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
 
 ## Delivered local product
 
-## Current increment: optional first-run hooks and Windows consolidation
+## Current increment: readable project scopes
+
+- The workbench shows project names in memory, scope selection, source targets
+  and consolidation. Option values and requests retain the exact stable scope
+  ID. Full scope/conversation/turn IDs remain in collapsed technical details.
+- Native auto binding/hooks capture only a bounded basename in the existing
+  `runtime.sqlite` operational file. No transcript scan, model calls, automatic
+  project bindings or canonical memory rewrites. Same-name projects stay separate;
+  linked worktrees use their common checkout's name.
+- Old memories gain a name when their project next uses its enabled integration;
+  unknown scopes remain explicitly unnamed. Existing folder bindings also supply
+  labels. Optional metadata failures never block memory, with a 50ms SQLite wait
+  limit per connection; at most 1,000 names of 120 characters are retained.
+- Tests cover old-memory preservation, disabled/rebound integrations, worktrees,
+  same-name separation, contention, bounded storage, forged hook names and raw-ID
+  API routing. Rendered Edge/Playwright at 1280x900 and 390x844 passes selection,
+  saving, collapsed IDs, same-name disambiguation, HTML-as-text, dirty schedule
+  refresh and save/reload; no console errors or horizontal overflow. Synthetic
+  temporary vault and server only. Browser plugin unavailable; bundled Playwright.
+- Full regression: 270 tests, 265 passed / five expected Windows symlink skips.
+  The isolated installed wheel also passes the rendered named-scope flow at both
+  viewports. JavaScript syntax and diff checks pass. No model/provider calls or
+  private-vault data were needed for these tests.
+- Rollback: restore the previous package; optional display rows may remain and
+  are ignored. Never delete the operational DB to remove display labels because
+  it also holds budgets and job receipts. No package publication/merge in this slice.
+
+## Previous increment: optional first-run hooks and Windows consolidation
 
 - Setup offers global Codex integration and optional Windows scheduled work;
   explicit `--with-codex` / `--with-schedule` support repeatable installation.
@@ -60,7 +85,8 @@ Earlier implementation/install receipts remain in Git history.
 - First hosted CI passed both Linux versions but exposed fixture path aliases
   on macOS and Windows (including short-name vs resolved-name mock comparison).
   Fixtures now use canonical temporary directories; runtime link checks and
-  containment remain unchanged. Re-run all four matrix jobs before merge.
+  containment remain unchanged. All four matrix jobs subsequently passed before
+  PR #58 merged and `v3.0.0a2` was published.
 
 Known boundaries: custom provider plugins are trusted code; five minutes is the
 Windows task execution limit, not a sandbox for arbitrary plugin descendants.

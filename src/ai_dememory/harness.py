@@ -172,14 +172,17 @@ def main(argv=None):
             if len(raw) <= MAX_INPUT:
                 payload = json.loads(raw)
                 scope = args.scope
+                vault = Vault.open(args.vault)
                 if args.auto_scope:
-                    from .projects import project_enabled, resolve_project
+                    from .projects import project_enabled, resolve_project, remember_project_name
                     cwd = payload.get("cwd") if isinstance(payload, dict) else None
                     if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
                         print("{}")
                         return 0
-                    scope = resolve_project(cwd)["scope"]
-                output = recall_hook(Vault.open(args.vault), payload, scope, args.client)
+                    project = resolve_project(cwd)
+                    scope = project["scope"]
+                    remember_project_name(vault, project)
+                output = recall_hook(vault, payload, scope, args.client)
     except (ValueError, TypeError, OSError, sqlite3.Error, RecursionError):
         # Never exit 2, block a prompt or print a sensitive exception in a hook.
         output = {}

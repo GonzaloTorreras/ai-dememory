@@ -209,9 +209,25 @@ class WorkbenchTests(unittest.TestCase):
         self.assertNotIn("list", field)
         self.assertTrue(field["placeholder"])
         self.assertEqual(parsed.fields["scope-selector"][0], "select")
-        self.assertEqual(parsed.fields["schedule-scope"][1]["list"], "scope-options")
-        self.assertEqual(parsed.fields["scope-options"][0], "datalist")
+        self.assertEqual(parsed.fields["schedule-scope"][0], "select")
+        self.assertEqual(parsed.fields["scope-details"][0], "details")
+        self.assertEqual(parsed.fields["scope-id"][0], "code")
         self.assertIn(b"needs no DeMemory model provider", body)
+
+    def test_project_labels_are_additive_and_do_not_change_routing(self):
+        from ai_dememory.projects import resolve_project, remember_project_name
+        project = Path(self.temp.name).resolve() / "Readable project"
+        project.mkdir()
+        identity = resolve_project(project)
+        scope = identity["scope"]
+        self.services.vault.remember("Synthetic local learning.", "Project lesson", scope=scope)
+        before = self.state("?scope=" + scope)["memories"]
+        self.assertTrue(remember_project_name(self.services.vault, identity))
+        result = self.state("?scope=" + scope)
+        self.assertIn(scope, result["scopes"])
+        self.assertEqual(result["scope_labels"][scope], "Readable project")
+        self.assertEqual(result["memories"], before)
+        self.assertEqual(self.state("?scope=project:other")["memories"], [])
 
     def test_complete_scoped_save_and_forget(self):
         payload = {"title": "Preference", "content": "Use readable examples. " * 200, "scope": "project:demo"}
