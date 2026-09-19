@@ -154,7 +154,7 @@ def list_provider_models(profile: dict, credential: str = "", transport=None) ->
             return _model_ids(load_enabled_module("codex-subscription").list_models())
         _headers(profile, credential)
         if profile["kind"].startswith("plugin:"):
-            plugin = load_provider(profile["kind"])
+            plugin = load_provider(profile["kind"], capability=None)
             plugin.validate(profile)
             return _model_ids(plugin.list_models(profile, credential), credential)
         data = (transport or http_transport)(profile["base_url"].rstrip("/") + "/models", None,

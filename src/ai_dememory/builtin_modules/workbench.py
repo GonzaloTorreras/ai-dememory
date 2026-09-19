@@ -241,10 +241,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 from ai_dememory.scheduled import receipt_status
                 from ai_dememory.projects import scope_labels
                 from ai_dememory.proposals import ProposalStore
+                from ai_dememory.quality import evidence_revision
                 scopes = self.server.scopes()
+                memories = self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"])
+                for memory in memories:
+                    memory["judgment_revision"] = evidence_revision(memory["title"], memory["content"], memory["source"])
                 self._send(200, {
                     "status": self.server.services.status(),
-                    "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
+                    "memories": memories,
                     "proposals": [p.to_dict() for p in ProposalStore(self.server.services.vault).list()
                                   if p.scope == scope][:100],
                     "settings": settings,
@@ -304,6 +308,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return self.server.set_credential(data)
         if path == "/api/provider-models":
             return self.server.draft_models(data)
+        if path == "/api/judgment":
+            if (not {"memory_id", "scope", "confirmed", "expected_revision"} <= data.keys()
+                    or data.keys() - {"memory_id", "scope", "confirmed", "comparison_id", "expected_revision", "comparison_revision"}
+                    or not isinstance(data["expected_revision"], str) or len(data["expected_revision"]) != 64
+                    or ("comparison_id" in data and not isinstance(data.get("comparison_revision"), str))
+                    or data["confirmed"] is not True):
+                raise ValueError("Preview and confirm the selected memory and excerpt before external judgment")
+            from ai_dememory.judgments import JudgmentEngine
+            return JudgmentEngine(services.vault, credential_resolver=self.server.resolve_credential).evaluate(
+                data["memory_id"], data["scope"], data.get("comparison_id"),
+                expected_revision=data["expected_revision"], comparison_revision=data.get("comparison_revision"))
         if path == "/api/modules":
             name, enabled = data.get("id"), data.get("enabled")
             if not isinstance(name, str) or type(enabled) is not bool:

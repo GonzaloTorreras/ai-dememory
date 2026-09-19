@@ -19,7 +19,50 @@ Earlier implementation/install receipts remain in Git history.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
 
-## Current implementation: memory quality, step 2
+## Current implementation: memory quality, step 3
+
+- All three vertical slices are implemented locally. Step 1 is `89e1e7c`;
+  lifecycle/scoped consolidation is `a7c6500`. This increment adds optional Jev
+  shadow judgments through existing modules, provider settings and workbench.
+- Jev is disabled by default. Separate typed judgment capability, exact scope
+  opt-in and preview/revision confirmation prevent accidental generative-route
+  use or sending a changed preview. Support uses claim + excerpt only; optional
+  same-scope comparison is a different request, never corroborating evidence.
+- Shared provider reservations/activity, three-attempt cap, 8,000-character
+  inputs, ten-second job deadline/bounded HTTP and 200-entry metadata cache reuse
+  existing runtime storage. Missing usage stays estimated. No new SDK, database,
+  runtime dependency, command, daemon, worker thread or hook network call.
+- No canonical writes or ranking/admission effect. Support probability and
+  evaluator certainty are displayed separately; source authenticity stays
+  unverified. Disabled modules invalidate cached fallback judgments, and saved
+  unavailable provider selections survive unrelated settings changes.
+- Fresh independent read-only review closed four P2 findings: mislabeled support
+  probability, unpreviewed comparison/reconfirmation, lost disabled selections
+  and cached disabled fallback results. No formal security-scan claim.
+- Synthetic browser acceptance covers module enable/profile session key, scoped
+  opt-in, preview, separate comparison, typed results and shared usage refresh;
+  disable/save retains configuration and canonical memory. Desktop 1280x900 and
+  mobile 390x844 show no horizontal overflow or console errors/warnings. Rendered
+  screenshots were inspected in memory, not committed. Mock HTTP only; no real
+  memory, provider credentials or external inference calls used.
+- Full suite: 330 tests, 325 passed / five expected Windows symlink skips;
+  compilation, JS syntax and diff checks pass. After the final per-profile input
+  cap check, 20 focused judgment/documentation tests pass. Clean-wheel acceptance
+  passes in an isolated temporary venv, outside the checkout with `PYTHONPATH`
+  cleared: setup, high-priority episode with expiry, recall, old optional-field
+  settings load, status and nine-module listing with Jev disabled. Build/install
+  use no dependency downloads and preserve the pre-existing `build/` directory.
+  Wheel is 142,502 bytes; SHA-256
+  `de5ff6bba36e4d5a3d32b98a4128e1c94c8772687eaaf0b53c16c0117a965bf2`.
+  Source version remains `3.0.0a2`; this is not a replacement release artifact.
+- Live TypeSafe accuracy (including Spanish), authenticated API behavior and
+  billing are not validated. The next gate is a small explicitly authorized
+  evidence set with reviewed cost limits, before any ranking/admission effect.
+  No real-vault installation, publication, tag, merge or scheduled-task changes.
+  The owned synthetic test server was stopped and its URL no longer responds;
+  the test browser page was closed. Package smoke children all exited.
+
+## Previous implementation: memory quality, step 2 (`a7c6500`)
 
 - Optional durable/episode classification, explicit timezone-aware expiry and an
   initially disabled episode-age window now filter normal recall before top-k.

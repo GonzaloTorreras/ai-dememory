@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0, scopes: [] };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0, scopes: [], providerExtensions: [], memories: [], judgmentRevision: 0, judgmentMemory: null };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -202,6 +202,9 @@ function renderMemories(memories) {
     };
     const qualityActions = element('div', undefined, 'actions');
     qualityActions.append(button('Save changes', () => perform(() => savePriority())), button('Reset priority', () => perform(() => savePriority(true))));
+    const evaluate = button('Evaluate preview with Jev', () => openJudgment(memory));
+    if (!source.excerpt) { evaluate.disabled = true; evaluate.title = 'This memory has no source excerpt to evaluate.'; quality.append(element('p', 'No source excerpt is available, so this memory cannot be evaluated.', 'hint quality-note')); }
+    qualityActions.append(evaluate);
     quality.append(qualityActions); card.append(quality);
     const details = element('details');
     details.append(element('summary', 'Source & technical details'));
@@ -220,9 +223,18 @@ function renderMemories(memories) {
     list.append(card);
   }
 }
-function providerOptions(select, selected = '') {
+function providerCapabilities(profile) {
+  if (!profile.kind?.startsWith('plugin:')) return ['generate'];
+  return state.providerExtensions.find((extension) => extension.kind === profile.kind)?.capabilities || [];
+}
+function providerOptions(select, selected = '', capability = 'generate') {
   select.replaceChildren(new Option('Not configured', ''));
-  Object.keys(state.settings.providers).forEach((id) => select.add(new Option(id, id)));
+  const profiles = Object.entries(state.settings.providers);
+  profiles.filter(([, profile]) => providerCapabilities(profile).includes(capability)).forEach(([id]) => select.add(new Option(id, id)));
+  const selectedProfile = state.settings.providers[selected];
+  if (selected && selectedProfile && !providerCapabilities(selectedProfile).includes(capability)) {
+    const unavailable = new Option(`${selected} (unavailable/disabled)`, selected); unavailable.disabled = true; select.add(unavailable);
+  }
   select.value = selected;
 }
 function routeRow(name, title) {
@@ -270,7 +282,20 @@ function renderSettings() {
   $('#schedule-scope').value = settings.schedule.scope;
   $('#schedule-mode').value = settings.schedule.target_mode || 'fixed';
   $('#schedule-include-global').checked = Boolean(settings.schedule.include_global);
+  renderJudgmentSettings(settings);
   updateScheduleTargetControls();
+}
+function renderJudgmentSettings(settings) {
+  const config = settings.judgment || {}, selectedScopes = new Set(config.scopes || []), operations = new Set(config.operations || ['support']);
+  providerOptions($('#judgment-primary'), config.primary || '', 'judge');
+  $('#judgment-fallback').value = (config.fallback || []).join(', ');
+  const scopes = $('#judgment-scopes'); scopes.replaceChildren(element('legend', 'Scopes allowed to request a judgment'));
+  for (const scope of state.scopes) {
+    const label = element('label', undefined, 'check'), input = element('input');
+    input.type = 'checkbox'; input.value = scope; input.checked = selectedScopes.has(scope);
+    label.append(input, document.createTextNode(scopeLabel(scope))); scopes.append(label);
+  }
+  $('#judgment-operations').querySelectorAll('input').forEach((input) => { input.checked = operations.has(input.value); });
 }
 function renderScheduleProjectTargets(scopes, schedule) {
   const list = $('#schedule-project-list'), selected = new Set(schedule.scopes || []);
@@ -301,6 +326,7 @@ function collectSettings() {
   state.settings.ranking = { ...(state.settings.ranking || {}), importance_weight: Number($('#importance-weight').value), confidence_weight: 0 };
   state.settings.lifecycle = { ...(state.settings.lifecycle || {}), episode_recall_days: Number($('#episode-recall-days').value) };
   state.settings.consolidation = { ...(state.settings.consolidation || {}), project_summaries: $('#project-summaries').checked };
+  state.settings.judgment = { primary: $('#judgment-primary').value, fallback: parseFallback($('#judgment-fallback').value), scopes: [...document.querySelectorAll('#judgment-scopes input:checked')].map((input) => input.value), operations: [...document.querySelectorAll('#judgment-operations input:checked')].map((input) => input.value) };
   const schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
   const targetMode = $('#schedule-mode').value;
   if (targetMode !== 'fixed') {
@@ -330,6 +356,9 @@ function applyProviderPreset() {
   Object.entries(preset).forEach(([field, value]) => { form.elements[field].value = value; });
   form.elements.api_key.value = ''; form.elements.model.value = ''; form.elements.reasoning_effort.value = '';
   form.elements.input_cost_per_million.value = ''; form.elements.output_cost_per_million.value = '';
+  if (preset.kind === 'plugin:jev') {
+    form.elements.model.value = 'jev-1.13.0'; form.elements.auth.value = 'environment'; form.elements.api_key_env.value = 'TYPESAFE_API_KEY';
+  }
   $('#provider-models').replaceChildren(); $('#models-status').textContent = 'Load available models for this provider after choosing authentication.';
   if (!form.dataset.editId && (!form.elements.id.value || form.elements.id.value === form.dataset.suggestedId)) {
     form.dataset.suggestedId = form.elements.preset.value.replace('plugin:', '') + '-learning';
@@ -338,11 +367,13 @@ function applyProviderPreset() {
   updateProviderFields();
 }
 function updateProviderFields() {
-  const form = $('#provider-form'), auth = form.elements.auth.value, anthropic = form.elements.kind.value === 'anthropic', codex = form.elements.kind.value === 'codex';
+  const form = $('#provider-form'), jev = form.elements.kind.value === 'plugin:jev', anthropic = form.elements.kind.value === 'anthropic', codex = form.elements.kind.value === 'codex';
+  if (jev) { form.elements.base_url.value = providerPresets['plugin:jev']?.base_url || 'https://api.typesafe.ai/v1'; form.elements.model.value = 'jev-1.13.0'; if (form.elements.auth.value === 'none') form.elements.auth.value = 'environment'; }
+  const auth = form.elements.auth.value;
   $('#codex-login').hidden = !codex; $('#provider-auth-field').hidden = codex;
-  $('#custom-endpoint-fields').hidden = form.elements.preset.value !== 'custom' && form.elements.preset.value !== 'local';
-  $('#preset-endpoint-help').hidden = !$('#custom-endpoint-fields').hidden;
-  form.elements.base_url.required = !codex;
+  $('#custom-endpoint-fields').hidden = jev || (form.elements.preset.value !== 'custom' && form.elements.preset.value !== 'local');
+  $('#preset-endpoint-help').hidden = jev || !$('#custom-endpoint-fields').hidden; $('#jev-provider-help').hidden = !jev;
+  form.elements.base_url.required = !codex && !jev;
   $('#provider-prices').hidden = codex;
   for (const id of ['codex-device', 'codex-browser', 'codex-check', 'codex-cancel']) $('#' + id).hidden = !moduleEnabled('codex-subscription');
   $('#enable-codex').hidden = moduleEnabled('codex-subscription');
@@ -351,8 +382,10 @@ function updateProviderFields() {
   $('#environment-key-field').hidden = $('#environment-key-help').hidden = auth !== 'environment';
   form.elements.api_key.disabled = auth !== 'session';
   if (auth !== 'session') form.elements.api_key.value = '';
+  form.elements.auth.querySelector('option[value="none"]').hidden = jev;
   form.elements.api_key_env.disabled = auth !== 'environment'; form.elements.api_key_env.required = auth === 'environment';
-  form.elements.reasoning_effort.disabled = anthropic; $('#reasoning-help').hidden = !anthropic;
+  form.elements.model.disabled = jev;
+  form.elements.reasoning_effort.disabled = anthropic || jev; form.elements.reasoning_effort.closest('label').hidden = jev; $('#reasoning-help').hidden = !anthropic || jev;
   if (anthropic) form.elements.reasoning_effort.value = '';
   const id = form.dataset.editId, credential = state.credentials[id];
   $('#credential-status').textContent = auth === 'session' && credential?.mode === 'session' && credential.configured ? 'A session key is set. Leave blank to keep it, or paste a replacement. Endpoint changes require a new key.' : '';
@@ -369,6 +402,7 @@ function providerDraft() {
 function moduleEnabled(id) { return state.modules.some((item) => item.module_id === id && item.enabled); }
 function renderModules(data) {
   state.modules = data.modules || [];
+  state.providerExtensions = data.provider_extensions || [];
   const list = $('#module-list'); list.replaceChildren();
   for (const item of state.modules) {
     if (item.module_id === 'harness') continue;
@@ -387,7 +421,7 @@ function renderModules(data) {
   const form = $('#provider-form'), selected = form.elements.preset.value, selectedKind = form.elements.kind.value;
   document.querySelectorAll('#provider-form option[data-plugin]').forEach((option) => option.remove());
   for (const key of Object.keys(providerPresets)) if (key.startsWith('plugin:')) delete providerPresets[key];
-  for (const extension of data.provider_extensions || []) {
+  for (const extension of state.providerExtensions) {
     const {kind, label, base_url, auth} = extension;
     providerPresets[kind] = {kind, base_url, auth, api_key_env: ''};
     const preset = new Option(label + ' (plugin)', kind); preset.dataset.plugin = 'true'; form.elements.preset.add(preset);
@@ -399,7 +433,8 @@ function renderModules(data) {
 function removeProvider(id) {
   collectSettings();
   const used = Object.entries(state.settings.routes).filter(([, route]) => [route.primary, ...route.fallback].includes(id)).map(([name]) => name);
-  if (used.length) { notify(`Remove this provider from these routes first: ${used.join(', ')}.`, true); return; }
+  const judgment = state.settings.judgment || {}, judgmentUsed = [judgment.primary, ...(judgment.fallback || [])].includes(id);
+  if (used.length || judgmentUsed) { notify(`Remove this provider from ${[used.length ? `these routes: ${used.join(', ')}` : '', judgmentUsed ? 'Jev judgment settings' : ''].filter(Boolean).join(' and ')} first.`, true); return; }
   delete state.settings.providers[id]; markDirty(); renderSettings();
 }
 function openOverride(id = '') {
@@ -469,15 +504,67 @@ function renderProposals(proposals) {
     list.append(card);
   }
 }
+function judgmentNumber(value) { return Number.isFinite(value) ? value.toFixed(3) : 'not supplied'; }
+function judgmentAssessment(label, assessment) {
+  if (!assessment || typeof assessment !== 'object') return '';
+  const probability = label === 'Evidence support' ? assessment.probabilities?.supports : assessment.probabilities?.[assessment.verdict];
+  const probabilityLabel = label === 'Evidence support' ? 'support probability' : 'comparison probability';
+  return `${label}: ${assessment.verdict || 'unknown'} · ${probabilityLabel} ${judgmentNumber(probability)} · evaluator certainty ${judgmentNumber(assessment.certainty)}`;
+}
+function renderJudgmentResult(response) {
+  const target = $('#judgment-result'); target.replaceChildren();
+  const metadata = [`Status: ${response.status || 'unassessed'}`, `Shadow-only: ${response.shadow_only === true ? 'yes' : 'no'}`, `Canonical writes: ${response.writes_canonical_memory === true ? 'yes' : 'no'}`, `Source authenticity: ${response.source_authenticity || 'unverified'}`];
+  if (response.model) metadata.push(`Model: ${response.model}`);
+  if (response.rubric) metadata.push(`Rubric: ${response.rubric}`);
+  if (response.cache && typeof response.cache.hit === 'boolean') metadata.push(`Cached: ${response.cache.hit ? 'yes' : 'no'}`);
+  target.append(element('span', metadata.join(' · ')));
+  if (response.status !== 'assessed') {
+    target.append(document.createTextNode(` · ${response.reason === 'preview_stale' ? 'Preview is stale; refresh and review it again.' : response.reason || 'Not assessed.'}`));
+    return;
+  }
+  const support = judgmentAssessment('Evidence support', response.result?.support);
+  const comparison = judgmentAssessment('Comparison', response.result?.comparison);
+  if (support) target.append(element('span', support, 'judgment-line'));
+  if (comparison) target.append(element('span', comparison, 'judgment-line'));
+  target.append(element('span', 'Typed probability and evaluator certainty describe this assessment, not whether a memory is true.', 'judgment-line'));
+}
+function clearJudgment() {
+  state.judgmentRevision += 1; state.judgmentMemory = null;
+  const dialog = $('#judgment-dialog');
+  if (dialog.open) dialog.close();
+  $('#judgment-preview').replaceChildren(); $('#judgment-result').replaceChildren(); $('#judgment-confirm').checked = false;
+  $('#run-judgment').disabled = true;
+}
+function updateJudgmentRun() {
+  const allowed = Boolean(state.judgmentMemory?.source?.excerpt) && $('#judgment-confirm').checked;
+  $('#run-judgment').disabled = !allowed;
+}
+function renderJudgmentPreview(memory, comparison) {
+  const preview = $('#judgment-preview'); preview.replaceChildren();
+  preview.append(element('h3', memory.title), element('p', memory.content), element('p', 'Source excerpt', 'hint'), element('pre', memory.source.excerpt));
+  if (comparison) preview.append(element('h3', 'Comparison candidate'), element('p', comparison.title), element('p', comparison.content));
+}
+function openJudgment(memory) {
+  if (!memory.source?.excerpt) return;
+  state.judgmentRevision += 1; state.judgmentMemory = memory;
+  const comparison = $('#judgment-comparison'); comparison.replaceChildren(new Option('No comparison', ''));
+  for (const candidate of state.memories.filter((item) => item.memory_id !== memory.memory_id && item.scope === memory.scope)) comparison.add(new Option(candidate.title, candidate.memory_id));
+  const compareEnabled = Boolean(state.settings?.judgment?.operations?.includes('compare'));
+  comparison.disabled = !compareEnabled;
+  if (!compareEnabled) comparison.title = 'Enable Same-scope comparison in Jev settings before using this option.';
+  renderJudgmentPreview(memory);
+  $('#judgment-confirm').checked = false; $('#judgment-result').replaceChildren(); updateJudgmentRun();
+  $('#judgment-dialog').showModal();
+}
 async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
-  clearRecallResults();
+  clearRecallResults(); clearJudgment();
   state.credentials = data.credentials || {};
   state.scopeLabels = data.scope_labels || {};
   renderModules(data);
   const scheduledScope = state.dirty ? $('#schedule-scope').value : data.settings.schedule.scope;
-  const scopes = [...new Set([...(data.scopes || ['global']), ...(data.settings.schedule.scopes || []), state.scope, scheduledScope])].filter(Boolean);
+  const scopes = [...new Set(['global', ...(data.scopes || []), ...(data.settings.schedule.scopes || []), state.scope, scheduledScope])].filter(Boolean);
   state.scopes = scopes;
   scopes.sort((a, b) => a === 'global' ? -1 : b === 'global' ? 1 : scopeLabel(a).localeCompare(scopeLabel(b)));
   $('#scope-selector').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
@@ -489,7 +576,8 @@ async function refresh() {
   renderSourceSchedules(data.source_schedules || []);
   state.codexRoot = data.codex_sessions_root;
   if (!state.dirty) { state.settings = data.settings; renderScheduleProjectTargets(scopes, data.settings.schedule); renderSettings(); }
-  renderMemories(data.memories || []); renderOperational(data); renderProposals(data.proposals || []);
+  state.memories = data.memories || [];
+  renderMemories(state.memories); renderOperational(data); renderProposals(data.proposals || []);
 }
 
 $('#provider-form').addEventListener('submit', (event) => {
@@ -579,6 +667,36 @@ $('#override-form').addEventListener('submit', (event) => {
   state.settings.routes[id] = route; markDirty(); renderSettings(); $('#override-dialog').close(); notify('Override applied. Save settings to use it.');
 });
 document.querySelectorAll('[data-close]').forEach((item) => item.addEventListener('click', () => document.getElementById(item.dataset.close).close()));
+$('#judgment-confirm').addEventListener('change', updateJudgmentRun);
+$('#judgment-comparison').addEventListener('change', () => {
+  const memory = state.judgmentMemory, comparison = state.memories.find((item) => item.memory_id === $('#judgment-comparison').value && item.scope === memory?.scope);
+  state.judgmentRevision += 1; $('#judgment-result').replaceChildren(); $('#judgment-confirm').checked = false;
+  if (memory) renderJudgmentPreview(memory, comparison); updateJudgmentRun();
+});
+$('#run-judgment').addEventListener('click', () => {
+  const memory = state.judgmentMemory;
+  if (!memory?.source?.excerpt || !$('#judgment-confirm').checked) return;
+  const comparisonId = $('#judgment-comparison').value;
+  const comparison = state.memories.find((item) => item.memory_id === comparisonId && item.scope === memory.scope);
+  const revision = ++state.judgmentRevision;
+  const payload = { memory_id: memory.memory_id, scope: memory.scope, expected_revision: memory.judgment_revision, confirmed: true };
+  if (comparison) { payload.comparison_id = comparison.memory_id; payload.comparison_revision = comparison.judgment_revision; }
+  perform(async () => {
+    try {
+      const response = await request('/api/judgment', payload);
+      if (revision !== state.judgmentRevision || state.judgmentMemory?.memory_id !== memory.memory_id || state.scope !== memory.scope) return;
+      renderJudgmentResult(response);
+      try {
+        const operational = await request(`/api/state?scope=${encodeURIComponent(state.scope)}`);
+        renderOperational(operational);
+        $('#judgment-result').append(element('span', `Today's shared usage: ${operational.usage.calls} attempts · ${operational.usage.tokens} tokens. See Activity for estimates; missing model prices do not mean free usage.`, 'judgment-line'));
+      } catch (_) { notify('Assessment completed; refresh Activity to update usage.'); }
+    } catch (error) {
+      if (revision === state.judgmentRevision && state.judgmentMemory?.memory_id === memory.memory_id) renderJudgmentResult({ status: 'unassessed', shadow_only: true, writes_canonical_memory: false, source_authenticity: 'unverified', reason: 'request_failed', result: {} });
+      throw error;
+    }
+  });
+});
 document.querySelectorAll('.save-settings').forEach((item) => item.addEventListener('click', () => {
   const invalid = [...document.querySelectorAll('#providers input, #consolidation input')].find((input) => !input.checkValidity());
   if (invalid) { location.hash = invalid.closest('.page').id; showPage(); invalid.reportValidity(); return; }
@@ -595,7 +713,7 @@ $('#refresh').addEventListener('click', () => perform(async () => { await refres
 function changeScope(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) { notify('Use a short scope name, such as global or project:your-project.', true); return; }
   state.scope = value; $('#scope').value = '';
-  clearRecallResults();
+  clearRecallResults(); clearJudgment();
   notify('');
   state.sources.forEach(item => { item.preview = null; item.result = ''; item.open = false; }); renderSources(); perform(refresh);
 }

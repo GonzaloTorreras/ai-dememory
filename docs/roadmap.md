@@ -2,10 +2,11 @@
 
 This is the single active product plan. Updated 2026-09-19: improve the quality
 of memory already being learned, with importance, evidence confidence and an
-optional Jev evaluator. Finish the local readable-project increment first;
-memory quality now precedes more ingestion, procedural export and networking.
-The first memory-quality slice is implemented locally; lifecycle and Jev remain
-planned. None of these new changes has been installed globally or published.
+optional Jev evaluator. All three memory-quality slices are implemented locally,
+on top of the readable-project increment; they precede more ingestion,
+procedural export and networking. Jev remains manual/shadow-only with mock
+acceptance, not live model-quality proof. None of these new changes has been
+installed globally or published.
 
 ## Product outcome
 
@@ -33,11 +34,13 @@ several hosts.
 
 ## Delivery sequence
 
-Next: deliver the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev)
-in order, each with a working UI-to-core episode. The table below records earlier
+Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev),
+each with a working UI-to-core episode. Next: reviewed local installation and a
+small explicitly authorized live Jev evaluation with cost limits; confidence
+ranking stays zero until measured. The table below records earlier
 capabilities and remaining integration coverage; it is not a competing sequence.
 
-Current increment: show local project names across the workbench while retaining
+Earlier increment: show local project names across the workbench while retaining
 opaque internal scope IDs. Automatic host binding records bounded display-only
 names in the existing operational SQLite file; it does not create identity
 bindings, change canonical memories or scan conversations. Worktrees share the
@@ -310,6 +313,10 @@ This slice does not scan conversation history.
 
 ### 3. Optional Jev judgment module, not a second memory engine
 
+Local implementation: manual shadow evaluation in the existing dashboard, with
+mock-provider acceptance. Live quality calibration and real credential/billing
+acceptance remain separate; no automated ranking/admission effect is enabled.
+
 **Outcome:** enable a dashboard module, evaluate a small candidate against its
 evidence, inspect the verdict/cost and disable it without breaking memory.
 Initially shadow-only: no effect on admission, canonical text, rank or corrections.
@@ -435,8 +442,9 @@ The optional local workbench provides Memory, Providers, Consolidation and
 Activity, Local sources and Modules views. Ordinary configuration must not require editing JSON or
 running admin CLI commands. Empty, disabled and error states must be truthful.
 
-The UI saves one consolidation scope and interval, enables/disables it, runs
-the browsing scope now and shows last/next execution, last-run scope and budget
+The UI saves one consolidation interval with fixed, selected or all-project
+targets, enables/disables it, runs the browsing scope now and shows bounded batch
+progress, last/next execution, last-run scope and budget
 state. Changing browsing scope never retargets the saved schedule. Scheduled
 consolidation runs in the foreground workbench or through the optional current-user
 Windows task; source ingestion still requires the workbench. Remote services and

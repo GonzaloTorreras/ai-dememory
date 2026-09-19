@@ -187,6 +187,44 @@ and use the [DeMemory MCP integration](integrations.md). That does not export
 its OAuth tokens or turn its subscription into a direct extraction API key.
 No login-token scraping or Claude subscription token reuse is implemented.
 
+## Optional evidence judgments (Jev)
+
+This is a manual shadow evaluation, not automatic memory approval. Recall and
+explicit learning work without it. To try it:
+
+1. Enable **jev** in **Modules** and add the **TypeSafe Jev judgments** provider.
+   The endpoint and model are pinned; supply your own API-key environment
+   variable or a browser-session key. Never put keys in memory or source files.
+2. In **Providers → Evidence judgments**, select that profile, optional
+   judgment-capable fallbacks and the exact allowed scopes. Global is not
+   implicitly included. Review the shared daily call/token/cost limits and save.
+3. Open a memory's judgment preview. Inspect its claim and stored source excerpt;
+   without an excerpt the evaluator has no evidence and makes no call. Optionally
+   select another active memory in the same scope for a separate comparison.
+4. Explicitly confirm the preview. If the memory or excerpt has changed, refresh
+   first. The result distinguishes evidence-support probabilities from evaluator
+   certainty. Neither establishes real-world truth or authenticates the source.
+
+Only selected claim text and its excerpt go to the support request. The optional
+comparison is separate: existing memories never corroborate the evidence. No
+conversation transcript, source file path or tool output is loaded. Inputs over
+8,000 characters are skipped, not silently truncated. There are at most three
+provider attempts per job, one attempt per profile per question, with a ten-second
+job deadline and bounded HTTP timeouts. No retry queue or prompt-hook calls.
+All reservations share provider budgets; missing usage remains estimated, not
+free. Check **Activity** for attempts, duration and configured-price estimates.
+
+The result never changes Markdown, priority, confidence ranking, permissions or
+corrections. A bounded metadata-only cache in existing `runtime.sqlite` expires
+by eviction (200 entries); revisions, model/rubric or routing changes invalidate
+reuse. Disabling Jev prevents subsequent adapter imports/calls and cached verdict
+reuse; deterministic memory remains available.
+
+External processing is opt-in. [TypeSafe's no-training policy](https://docs.typesafe.ai/legal)
+does not imply zero retention. This integration has synthetic/mock acceptance,
+not demonstrated live accuracy, Spanish calibration or billing acceptance.
+Do not interpret a convincing numeric score as proof.
+
 ## Local conversation sources
 
 Enable **sources** in Modules or Local sources. Select one absolute folder and

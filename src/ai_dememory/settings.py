@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = {
     "budgets": {"daily_calls": 20, "daily_tokens": 50_000, "daily_usd": 0},
     "ranking": {"importance_weight": 0.15, "confidence_weight": 0},
     "lifecycle": {"episode_recall_days": 0},
+    "judgment": {"primary": "", "fallback": [], "scopes": [], "operations": ["support"]},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
 
@@ -57,8 +58,8 @@ def auth_mode(provider: dict) -> str:
 
 
 def validate_settings(data: dict) -> dict:
-    _shape(data, set(DEFAULT_SETTINGS) - {"ranking", "lifecycle", "consolidation"},
-           {"ranking", "lifecycle", "consolidation"})
+    optional = {"ranking", "lifecycle", "consolidation", "judgment"}
+    _shape(data, set(DEFAULT_SETTINGS) - optional, optional)
     reject_high_confidence_secrets(json.dumps(data))
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported settings schema")
@@ -104,6 +105,10 @@ def validate_settings(data: dict) -> dict:
         for field in ("input_cost_per_million", "output_cost_per_million"):
             if field in provider:
                 _number(provider[field], 0, 100_000)
+        if kind == "plugin:jev" and (provider["base_url"].rstrip("/") != "https://api.typesafe.ai/v1"
+                or provider["model"] != "jev-1.13.0"
+                or mode not in ("environment", "session") or "reasoning_effort" in provider):
+            raise ValueError("Jev requires its pinned System One endpoint/model and API-key authentication")
     for name, route in routes.items():
         if not isinstance(name, str) or (name not in ("extract", "consolidate") and not re.fullmatch(r"(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name)):
             raise ValueError("Invalid operation or override route")
@@ -113,6 +118,8 @@ def validate_settings(data: dict) -> dict:
         chain = [route["primary"], *route["fallback"]]
         if len(chain) > 8 or any(not isinstance(item, str) or item not in providers for item in chain) or len(set(chain)) != len(chain):
             raise ValueError("Routes require distinct configured providers (maximum eight)")
+        if any(providers[item]["kind"] == "plugin:jev" for item in chain):
+            raise ValueError("Jev judges evidence; it cannot generate extraction or consolidation text")
         _number(route["max_output_tokens"], 16, 16_384, True)
     _shape(data["schedule"], {"enabled", "interval_hours"},
            {"scope", "target_mode", "scopes", "include_global"})
@@ -163,6 +170,26 @@ def validate_settings(data: dict) -> dict:
     lifecycle = validated.setdefault("lifecycle", copy.deepcopy(DEFAULT_SETTINGS["lifecycle"]))
     _shape(lifecycle, {"episode_recall_days"})
     _number(lifecycle["episode_recall_days"], 0, 36500, True)
+    judgment = validated.setdefault("judgment", copy.deepcopy(DEFAULT_SETTINGS["judgment"]))
+    _shape(judgment, {"primary", "fallback", "scopes", "operations"})
+    if not isinstance(judgment["primary"], str) or not isinstance(judgment["fallback"], list):
+        raise ValueError("Invalid judgment provider chain")
+    chain = ([judgment["primary"]] if judgment["primary"] else []) + judgment["fallback"]
+    if (len(chain) > 3 or any(not isinstance(item, str) or item not in providers
+            or not providers[item]["kind"].startswith("plugin:") for item in chain)
+            or len(chain) != len(set(chain)) or (not judgment["primary"] and chain)):
+        raise ValueError("Judgment needs up to three distinct plugin profiles, not generative API fallbacks")
+    scopes = judgment["scopes"]
+    if (not isinstance(scopes, list) or len(scopes) > 100
+            or any(not isinstance(scope, str) for scope in scopes) or len(scopes) != len(set(scopes))):
+        raise ValueError("Select up to 100 distinct scopes for external judgment")
+    for scope in scopes:
+        validate_scope(scope)
+    operations = judgment["operations"]
+    if (not isinstance(operations, list) or not operations or len(operations) > 2
+            or any(value not in ("support", "compare") for value in operations)
+            or "support" not in operations or len(operations) != len(set(operations))):
+        raise ValueError("Judgment operations require support with optional compare")
     return validated
 
 

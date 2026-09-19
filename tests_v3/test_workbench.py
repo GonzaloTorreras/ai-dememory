@@ -18,6 +18,19 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_judgment_requires_preview_confirmation_and_exact_revision(self):
+        memory = self.services.vault.remember("Use Python", "Runtime", scope="project:q")
+        row = self.state("?scope=project:q")["memories"][0]
+        self.assertEqual(len(row["judgment_revision"]), 64)
+        payload = {"memory_id": memory.memory_id, "scope": "project:q", "expected_revision": row["judgment_revision"]}
+        with patch("ai_dememory.judgments.JudgmentEngine.evaluate", return_value={"status": "unassessed"}) as evaluate:
+            self.assertEqual(self.request("/api/judgment", payload)[0], 400)
+            evaluate.assert_not_called()
+            code, body, _ = self.request("/api/judgment", {**payload, "confirmed": True})
+            self.assertEqual(code, 200, body)
+            evaluate.assert_called_once_with(memory.memory_id, "project:q", None,
+                expected_revision=row["judgment_revision"], comparison_revision=None)
+
     def test_importance_edit_and_recall_explanation_http_episode(self):
         code, body, _ = self.request("/api/learn", {"title": "Runtime", "content": "Prefer Python", "scope": "project:q", "importance": "high"})
         self.assertEqual(code, 200, body)

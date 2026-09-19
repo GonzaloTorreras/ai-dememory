@@ -35,6 +35,12 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    "jev": ModuleDescriptor(
+        module_id="jev", version="1", summary="Optional TypeSafe Jev shadow-only evidence judgments.",
+        entrypoint="ai_dememory.builtin_modules.jev", capabilities=("provider", "judge"),
+        resource_budget={"network": True, "child_processes": 0, "persistent": "metadata-only cache"},
+        builtin=True, enabled=False,
+    ),
     "hermes-memory": ModuleDescriptor(
         module_id="hermes-memory", version="1", summary="Native Hermes memory provider; shared vault, fixed scope, no extra model.",
         entrypoint="ai_dememory.builtin_modules.hermes_memory", capabilities=("install", "memory-provider"),

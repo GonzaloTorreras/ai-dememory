@@ -118,6 +118,11 @@ previews. Its Modules page toggles these extensions. API billing and subscriptio
 usage are distinct. [Provider plugins and replacement dashboards](docs/modules.md)
 reuse the existing trusted Python module contract.
 
+Memory cards support editable importance, explicit expiry and an optional age
+window for dated episodes. The optional [Jev evidence evaluator](docs/workbench.md#optional-evidence-judgments-jev)
+is shadow-only: it can assess a previewed claim/excerpt but cannot rewrite memory
+or change retrieval. It is off by default and unnecessary for normal learning.
+
 Create a community module without copying this repository:
 
 ```bash
