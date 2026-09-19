@@ -16,6 +16,7 @@ DEFAULT_SETTINGS = {
     "schema_version": 1, "providers": {}, "routes": {},
     "schedule": {"enabled": False, "interval_hours": 168, "scope": "global"},
     "budgets": {"daily_calls": 20, "daily_tokens": 50_000, "daily_usd": 0},
+    "ranking": {"importance_weight": 0.15, "confidence_weight": 0},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
 
@@ -54,7 +55,7 @@ def auth_mode(provider: dict) -> str:
 
 
 def validate_settings(data: dict) -> dict:
-    _shape(data, DEFAULT_SETTINGS)
+    _shape(data, set(DEFAULT_SETTINGS) - {"ranking"}, {"ranking"})
     reject_high_confidence_secrets(json.dumps(data))
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported settings schema")
@@ -121,6 +122,14 @@ def validate_settings(data: dict) -> dict:
     _number(data["budgets"]["daily_usd"], 0, 100_000)
     validated = copy.deepcopy(data)
     validated["schedule"].setdefault("scope", "global")
+    ranking = validated.setdefault("ranking", copy.deepcopy(DEFAULT_SETTINGS["ranking"]))
+    _shape(ranking, {"importance_weight", "confidence_weight"})
+    _number(ranking["importance_weight"], 0, 0.25)
+    _number(ranking["confidence_weight"], 0, 0.25)
+    if ranking["importance_weight"] + ranking["confidence_weight"] > 0.25:
+        raise ValueError("Combined ranking weights cannot exceed 0.25")
+    if ranking["confidence_weight"] != 0:
+        raise ValueError("Confidence weighting is unavailable until an assessor is evaluated; use zero")
     return validated
 
 

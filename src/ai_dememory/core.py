@@ -7,7 +7,8 @@ from typing import Any
 
 from .config import load_config
 from .proposals import MAX_PROPOSAL_FILES, ProposalStore
-from .search import SearchIndex, _canonical_snippet, _TOKEN
+from .search import SearchIndex, _canonical_snippet, _query_tokens
+from .settings import load_settings
 from .vault import Vault, validate_scope
 
 
@@ -18,7 +19,8 @@ class CoreServices:
     vault: Vault
 
     def search(self, query: str, limit: int = 5, scope: str = "global") -> list[dict[str, Any]]:
-        return [hit.to_dict() for hit in SearchIndex(self.vault).search(query, limit, scope)]
+        weight = load_settings(self.vault)["ranking"]["importance_weight"]
+        return [hit.to_dict() for hit in SearchIndex(self.vault).search(query, limit, scope, importance_weight=weight)]
 
     def get(self, memory_id: str, max_chars: int = 20_000, scope: str = "global") -> dict[str, Any] | None:
         validate_scope(scope)
@@ -37,7 +39,8 @@ class CoreServices:
                 scope: str = "global") -> dict[str, Any]:
         if type(max_chars) is not int or not 256 <= max_chars <= 20_000:
             raise ValueError("max_chars must be between 256 and 20000")
-        hits = SearchIndex(self.vault).search(query, limit, scope)
+        weight = load_settings(self.vault)["ranking"]["importance_weight"]
+        hits = SearchIndex(self.vault).search(query, limit, scope, importance_weight=weight)
         text = ""
         included: list[str] = []
         sources: list[dict[str, Any]] = []
@@ -49,18 +52,21 @@ class CoreServices:
                 break
             budget = max(80, remaining // (len(hits) - index))
             heading = f"## {memory.title[:min(72, budget // 3)]}\n\n"
-            excerpt = _canonical_snippet(memory.content, _TOKEN.findall(query),
+            excerpt = _canonical_snippet(memory.content, _query_tokens(query),
                                          max_chars=max(1, budget - len(heading) - 4))
             text += separator + (heading + excerpt)[:remaining]
             included.append(memory.memory_id)
-            sources.append({"memory_id": memory.memory_id, "scope": memory.scope, "source": memory.source})
+            sources.append({"memory_id": memory.memory_id, "scope": memory.scope, "source": memory.source,
+                            "details": hit.details})
         return {"query": query, "memory_ids": included, "sources": sources,
                 "context": text[:max_chars].strip()}
 
     def learn(self, title: str, content: str, scope: str, source: dict[str, str], event_id: str,
               key: str | None = None, supersedes: str | None = None,
-              provisional: bool = False) -> dict[str, Any]:
-        return self.vault.learn(title, content, scope, source, event_id, key, supersedes, provisional)
+              provisional: bool = False, importance: str | None = None,
+              confidence: dict | None = None) -> dict[str, Any]:
+        return self.vault.learn(title, content, scope, source, event_id, key, supersedes, provisional,
+                                importance, confidence)
 
     def forget(self, memory_id: str, scope: str = "global") -> dict[str, Any]:
         return self.vault.forget(memory_id, scope)

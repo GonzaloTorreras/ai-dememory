@@ -4,7 +4,8 @@ This is the single active product plan. Updated 2026-09-19: improve the quality
 of memory already being learned, with importance, evidence confidence and an
 optional Jev evaluator. Finish the local readable-project increment first;
 memory quality now precedes more ingestion, procedural export and networking.
-The new work below is planned, not installed behavior.
+The first memory-quality slice is implemented locally; lifecycle and Jev remain
+planned. None of these new changes has been installed globally or published.
 
 ## Product outcome
 
@@ -210,6 +211,9 @@ V2 reader or gate DAG. Optional canonical metadata lives in Markdown; search
 remains disposable and job accounting durable. No bulk vault rewrite on upgrade.
 
 ### 1. Useful recall with explainable importance and confidence
+
+Status: implemented locally, with confidence weighting deliberately locked at
+zero and host importance advisory. See development status for tested evidence.
 
 **Outcome:** save a lesson, edit its importance in the UI and retrieve the right
 passage in a new conversation, with an explanation of why it was selected.

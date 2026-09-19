@@ -19,10 +19,15 @@ class Memory:
     status: str = "active"
     key: str | None = None
     supersedes: str | None = None
+    importance: str = "normal"
+    importance_origin: str = "default"
+    confidence: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["path"] = str(self.path)
+        from .quality import confidence_status
+        data["confidence_status"] = confidence_status(self)
         return data
 
 
@@ -33,6 +38,7 @@ class SearchHit:
     snippet: str
     score: float
     path: Path
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

@@ -44,6 +44,20 @@ Save an explicit statement, optionally with a stable key such as
 one in the same scope. Forgetting the latest correction restores its predecessor.
 Inactive records remain inspectable; forgetting is not secure erasure.
 
+**Recall** searches the selected project plus global memory and shows the matched
+passage and terms. **Priority** is Low / Normal / High: it slightly adjusts useful
+matches, not truth or access. Save priority on a card to override a host suggestion;
+Reset returns it to Normal. Host suggestions are visible but not weighted.
+Corrections preserve your priority unless you explicitly choose another one.
+
+Providers -> **Advanced retrieval** controls the importance weight (0 to 0.25,
+default 0.15). Zero disables the adjustment. Confidence weighting is locked at
+zero until an assessor has been evaluated. A host assessment is advisory and
+becomes stale if its claim or evidence changes; it cannot activate an inference.
+No provider, model call or transcript scan is required for these controls.
+Search is lexical: English and Spanish filler is filtered, but it does not
+translate between languages. Empty results are preferable to irrelevant context.
+
 The extraction panel is for **your own messages**, not an unlabeled transcript
 containing assistant replies. Text goes to the selected extractor and may go to
 its configured fallback. Up to three supported candidates are admitted per call.

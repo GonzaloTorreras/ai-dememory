@@ -18,6 +18,29 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_importance_edit_and_recall_explanation_http_episode(self):
+        code, body, _ = self.request("/api/learn", {"title": "Runtime", "content": "Prefer Python", "scope": "project:q", "importance": "high"})
+        self.assertEqual(code, 200, body)
+        memory = json.loads(body)
+        self.assertEqual(memory["importance_origin"], "user")
+        payload = {"memory_id": memory["memory_id"], "scope": "project:q", "importance": "low"}
+        self.assertEqual(self.request("/api/memory/quality", payload)[0], 200)
+        self.assertEqual(self.request("/api/memory/quality", {**payload, "scope": "project:other"})[0], 400)
+        self.assertEqual(self.request("/api/memory/quality", {**payload, "importance": "urgent"})[0], 400)
+        code, body, _ = self.request("/api/recall", {"query": "Python", "scope": "project:q"})
+        self.assertEqual(code, 200, body)
+        hit = json.loads(body)[0]
+        self.assertEqual(hit["memory_id"], memory["memory_id"])
+        self.assertEqual(hit["details"]["importance"], "low")
+        self.assertTrue(hit["details"]["matching_terms"])
+
+    def test_explicit_user_correction_can_change_its_previous_priority(self):
+        first = {"title": "Runtime", "content": "Prefer Python", "scope": "project:q", "key": "runtime", "importance": "high"}
+        self.assertEqual(self.request("/api/learn", first)[0], 200)
+        code, body, _ = self.request("/api/learn", {**first, "content": "Prefer Rust", "importance": "low"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["importance"], "low")
+
     def test_history_schedule_progress_through_confirmed_http_flow(self):
         self.request('/api/modules', {'id': 'sources', 'enabled': True})
         root = Path(self.temp.name).resolve() / 'history'; root.mkdir()

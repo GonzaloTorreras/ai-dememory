@@ -337,17 +337,24 @@ class Vault:
 
     def remember(
         self, content: str, title: str | None = None, *, memory_id: str | None = None,
-        scope: str = "global",
+        scope: str = "global", importance: str | None = None,
     ) -> Memory:
         with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
-            return self._remember(content, title, memory_id=memory_id, scope=validate_scope(scope))
+            return self._remember(content, title, memory_id=memory_id, scope=validate_scope(scope),
+                                  importance=importance if importance is not None else "normal",
+                                  importance_origin="user" if importance is not None else "default")
 
     def _remember(
         self, content: str, title: str | None = None, *, memory_id: str | None = None,
         scope: str = "global", source: dict[str, str] | None = None,
         status: str = "active", key: str | None = None, supersedes: str | None = None,
+        importance: str = "normal", importance_origin: str = "default", confidence: dict | None = None,
     ) -> Memory:
         """Write while the caller holds the vault lock."""
+        from .quality import validate_importance, validate_confidence, evidence_revision
+        validate_importance(importance)
+        if importance_origin not in ("default", "user", "host"):
+            raise VaultError("Invalid importance origin")
         if not isinstance(content, str):
             raise VaultError("Memory content must be a string")
         clean_content = content.strip()
@@ -358,6 +365,8 @@ class Vault:
         reject_high_confidence_secrets(clean_content)
         clean_title = validate_title(title or _default_title(clean_content), "Memory title")
         reject_high_confidence_secrets(clean_title)
+        confidence = validate_confidence(confidence, evidence_revision(clean_title, clean_content, source or {}))
+        reject_high_confidence_secrets(json.dumps(confidence))
         supplied_id = memory_id is not None
         memory_id = validate_memory_id(memory_id or uuid.uuid4().hex)
         if supplied_id:
@@ -374,7 +383,7 @@ class Vault:
         if path.exists():
             raise VaultError(f"Memory path already exists: {path}")
         memory = Memory(memory_id, clean_title, clean_content, created_at, path,
-                        scope, source or {}, status, key, supersedes)
+                        scope, source or {}, status, key, supersedes, importance, importance_origin, confidence)
         self._write_memory(memory)
         try:
             saved = self.read_memory(path)
@@ -394,6 +403,11 @@ class Vault:
             fields["key"] = memory.key
         if memory.supersedes:
             fields["supersedes"] = memory.supersedes
+        if memory.importance != "normal" or memory.importance_origin != "default":
+            fields["importance"] = memory.importance
+            fields["importance_origin"] = memory.importance_origin
+        if memory.confidence:
+            fields["confidence"] = json.dumps(memory.confidence, ensure_ascii=False)
         lines = ["---", *(f"{key}: {json.dumps(value, ensure_ascii=False)}" for key, value in fields.items()),
                  "---", "", memory.content, ""]
         _atomic_write(memory.path, "\n".join(lines))
@@ -401,13 +415,19 @@ class Vault:
     def learn(
         self, title: str, content: str, scope: str, source: dict[str, str], event_id: str,
         key: str | None = None, supersedes: str | None = None, provisional: bool = False,
+        importance: str | None = None, confidence: dict | None = None,
+        *, importance_origin: str = "host",
     ) -> dict[str, Any]:
         scope = validate_scope(scope)
         source = validate_source(source)
+        from .quality import validate_importance, validate_confidence, evidence_revision
+        if importance is not None:
+            validate_importance(importance)
         title = validate_title(title, "Memory title")
         if not isinstance(content, str) or not content.strip():
             raise VaultError("Memory content must be a non-empty string")
         content = content.strip()
+        confidence = validate_confidence(confidence, evidence_revision(title, content, source))
         if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 256:
             raise VaultError("event_id must be a non-empty string of at most 256 characters")
         if not isinstance(provisional, bool):
@@ -436,9 +456,16 @@ class Vault:
             if not provisional and key and prior is None:
                 prior = next((memory for memory in memories
                               if memory.scope == scope and memory.key == key and memory.status == "active"), None)
+            keep_user_priority = (prior is not None and prior.importance_origin == "user"
+                                  and not (importance_origin == "user" and importance is not None))
             saved = self._remember(content, title, memory_id=memory_id, scope=scope, source=source,
                                    status="provisional" if provisional else "active", key=key,
-                                   supersedes=prior.memory_id if prior else None)
+                                   supersedes=prior.memory_id if prior else None,
+                                   importance=(prior.importance if keep_user_priority
+                                               else importance or "normal"),
+                                   importance_origin=("user" if keep_user_priority
+                                                      else importance_origin if importance is not None else "default"),
+                                   confidence=confidence)
             if prior:
                 try:
                     self._write_memory(replace(prior, status="superseded"))
@@ -446,6 +473,19 @@ class Vault:
                     saved.path.unlink()
                     raise
             return {**saved.to_dict(), "admission": "created"}
+
+    def set_importance(self, memory_id: str, scope: str, importance: str) -> dict[str, Any]:
+        from .quality import validate_importance
+        validate_memory_id(memory_id)
+        validate_scope(scope)
+        validate_importance(importance)
+        with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
+            memory = self.get(memory_id)
+            if memory is None or memory.scope != scope:
+                raise VaultError("Memory not found in the requested scope")
+            updated = replace(memory, importance=importance, importance_origin="user")
+            self._write_memory(updated)
+            return self.read_memory(updated.path).to_dict()
 
     def forget(self, memory_id: str, scope: str = "global") -> dict[str, Any]:
         validate_scope(scope)
@@ -493,8 +533,17 @@ class Vault:
             raise VaultError(f"Memory {path.name} has invalid source") from exc
         key = validate_scope(metadata["key"]) if "key" in metadata else None
         supersedes = validate_memory_id(metadata["supersedes"]) if "supersedes" in metadata else None
+        from .quality import validate_importance, validate_confidence
+        importance = validate_importance(metadata.get("importance", "normal"))
+        origin = metadata.get("importance_origin", "default")
+        if origin not in ("default", "user", "host"):
+            raise VaultError("Invalid importance origin")
+        try:
+            confidence = validate_confidence(json.loads(metadata["confidence"])) if "confidence" in metadata else {}
+        except json.JSONDecodeError as exc:
+            raise VaultError("Invalid confidence metadata") from exc
         return Memory(memory_id, title, content, metadata.get("created_at", ""), path,
-                      scope, source, status, key, supersedes)
+                      scope, source, status, key, supersedes, importance, origin, confidence)
 
     def get(self, memory_id: str) -> Memory | None:
         validate_memory_id(memory_id)

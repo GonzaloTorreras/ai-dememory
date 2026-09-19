@@ -22,10 +22,17 @@ from .config import config_dir, harness_enabled, set_module_enabled
 from .core import CoreServices
 from .policy import reject_high_confidence_secrets
 from .providers import _database
+from .search import _query_tokens
 from .vault import Vault, _atomic_write, validate_scope
 
 MAX_INPUT = 64_000
 SERVER_NAME = "dememory_v3"
+
+
+def _trivial_prompt(prompt: str) -> bool:
+    """Keep greetings and bare calculations out without rejecting short questions."""
+    tokens = _query_tokens(prompt)
+    return not tokens or all(token.isdecimal() for token in tokens)
 
 
 def install_parser():
@@ -133,8 +140,9 @@ def recall_hook(vault, payload, scope, client="codex"):
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 12_000:
         return {}
     reject_high_confidence_secrets(prompt)
-    # Short greetings/calculations need neither injected policy nor retrieval.
-    if len(prompt.split()) < 4:
+    # Greetings and bare calculations need neither injected policy nor retrieval;
+    # useful short questions still receive the same bounded scoped recall.
+    if _trivial_prompt(prompt):
         _record(vault, scope, payload, 0, int((time.monotonic() - start) * 1000))
         return {}
     result = CoreServices(vault).context(prompt, limit=3, max_chars=2000, scope=scope)

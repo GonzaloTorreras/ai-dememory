@@ -339,14 +339,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/sources/"):
             return self.server.source_action(path.rsplit("/", 1)[-1], data)
         scope = data.get("scope", "global")
+        if path == "/api/recall":
+            return services.search(data.get("query"), limit=10, scope=scope)
+        if path == "/api/memory/quality":
+            if set(data) != {"memory_id", "scope", "importance"}:
+                raise ValueError("Expected memory_id, scope and importance")
+            return services.vault.set_importance(data["memory_id"], scope, data["importance"])
         if path == "/api/learn":
             event = uuid4().hex
             content = data.get("content")
-            return services.learn(data.get("title"), content, scope,
+            return services.vault.learn(data.get("title"), content, scope,
                                   {"provider": "workbench", "session": self.server.session,
                                    "turn": event, "evidence_kind": "user_statement",
                                    "excerpt": content.encode("utf-8")[:300].decode("utf-8", errors="ignore") if isinstance(content, str) else ""},
-                                  event, key=data.get("key"))
+                                  event, key=data.get("key"), importance=data.get("importance"), importance_origin="user")
         if path == "/api/forget":
             return services.forget(data.get("memory_id"), scope)
         if path == "/api/extract":

@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [] };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0 };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -87,6 +87,64 @@ function scopeLabel(scope = 'global') {
   const name = scope.replace(/^project:/, '');
   return /^[a-f0-9]{32}$/.test(name) ? 'Unnamed project' : name;
 }
+function importanceOptions(selected = 'normal') {
+  const select = element('select');
+  for (const value of ['low', 'normal', 'high']) select.add(new Option(value[0].toUpperCase() + value.slice(1), value));
+  select.value = ['low', 'normal', 'high'].includes(selected) ? selected : 'normal';
+  return select;
+}
+function confidenceLabel(memory) {
+  const confidence = memory.confidence && typeof memory.confidence === 'object' ? memory.confidence : {};
+  const label = confidence.label || confidence.assessment_label || memory.confidence_label;
+  if (typeof label === 'string' && label.trim()) return label.trim().slice(0, 120);
+  const status = confidence.status || memory.confidence_status;
+  return confidenceStatusLabel(status);
+}
+function confidenceStatusLabel(status) {
+  if (status === 'advisory') return 'Advisory assessment';
+  if (status === 'not_used') return 'Advisory assessment (not used for ranking)';
+  if (status === 'stale') return 'Assessment stale';
+  return 'Not assessed';
+}
+function matchingReason(memory) {
+  const details = memory.details && typeof memory.details === 'object' ? memory.details : memory;
+  const matchingTerms = Array.isArray(details.matching_terms) ? details.matching_terms : [];
+  if (!matchingTerms.length) return '';
+  const terms = matchingTerms.slice(0, 6).map((term) => String(term).slice(0, 80)).filter(Boolean);
+  return terms.length ? `Matched on: ${terms.join(', ')}` : '';
+}
+function priorityOriginLabel(origin) {
+  if (origin === 'user') return 'set by you';
+  if (origin === 'host') return 'host suggestion';
+  return 'default';
+}
+function recallReason(details) {
+  const reasons = [matchingReason({ details })].filter(Boolean);
+  const importance = ['low', 'normal', 'high'].includes(details.importance) ? details.importance : 'normal';
+  const origin = details.importance_origin || details.origin || 'default';
+  if (origin === 'host') reasons.push(`Priority suggestion: ${importance[0].toUpperCase() + importance.slice(1)} (not weighted)`);
+  else {
+    const weight = Number.isFinite(details.importance_weight) ? ` · weight ${details.importance_weight}` : '';
+    reasons.push(`Priority: ${importance[0].toUpperCase() + importance.slice(1)} · ${priorityOriginLabel(origin)}${weight}`);
+  }
+  reasons.push(`Confidence: ${confidenceStatusLabel(details.confidence_status)}`);
+  return reasons.join(' · ');
+}
+function clearRecallResults() {
+  state.recallRevision += 1;
+  const list = $('#recall-results'); list.replaceChildren(); list.hidden = true;
+}
+function renderRecallResults(hits, scope) {
+  const list = $('#recall-results'); list.replaceChildren(); list.hidden = false;
+  if (!hits.length) { list.append(element('p', `No useful matches in ${scopeLabel(scope)}.`, 'memory-empty')); return; }
+  for (const hit of hits) {
+    const card = element('article', undefined, 'memory-card recall-result');
+    card.append(element('h3', hit.title || 'Untitled memory'), element('p', hit.snippet || 'No preview available.'));
+    const details = hit.details && typeof hit.details === 'object' ? hit.details : {};
+    card.append(element('p', recallReason(details), 'hint'));
+    list.append(card);
+  }
+}
 function renderMemories(memories) {
   const list = $('#memory-list'); list.replaceChildren();
   if (!memories.length) list.append(element('p', 'No memories in this scope yet. Save something useful below.', 'memory-empty'));
@@ -99,6 +157,22 @@ function renderMemories(memories) {
     const metadata = [scopeLabel(memory.scope), source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
     if (memory.key) metadata.push(`Key: ${memory.key}`);
     card.append(element('p', metadata.join(' · '), 'hint'));
+    const reason = matchingReason(memory);
+    if (reason) card.append(element('p', reason, 'hint'));
+    const quality = element('div', undefined, 'memory-quality');
+    const priority = importanceOptions(memory.importance || 'normal');
+    const priorityLabel = element('label', 'Priority'); priorityLabel.append(priority);
+    const origin = memory.importance_origin || 'default';
+    const priorityNote = origin === 'host' ? `Host suggestion: ${priority.value[0].toUpperCase() + priority.value.slice(1)}. Save priority to apply it as your setting.` : `Priority is ${priorityOriginLabel(origin)} and is not truth.`;
+    quality.append(priorityLabel, element('p', `Confidence: ${confidenceLabel(memory)}. ${priorityNote}`, 'hint'));
+    const savePriority = async (reset = false) => {
+      if (reset) priority.value = 'normal';
+      await request('/api/memory/quality', { memory_id: memory.memory_id, scope: memory.scope || state.scope, importance: priority.value });
+      await refresh(); notify(reset ? 'Priority reset to Normal.' : 'Priority saved.');
+    };
+    const qualityActions = element('div', undefined, 'actions');
+    qualityActions.append(button('Save priority', () => perform(() => savePriority())), button('Reset to normal', () => perform(() => savePriority(true))));
+    quality.append(qualityActions); card.append(quality);
     const details = element('details');
     details.append(element('summary', 'Source & technical details'));
     if (source.excerpt) details.append(element('p', source.excerpt));
@@ -157,6 +231,8 @@ function renderSettings() {
   $('#daily-calls').value = settings.budgets.daily_calls;
   $('#daily-tokens').value = settings.budgets.daily_tokens;
   $('#daily-usd').value = settings.budgets.daily_usd;
+  $('#importance-weight').value = Number.isFinite(settings.ranking?.importance_weight) ? settings.ranking.importance_weight : 0.15;
+  $('#confidence-weight').value = 0;
   $('#schedule-enabled').checked = settings.schedule.enabled;
   $('#interval-hours').value = settings.schedule.interval_hours;
   $('#schedule-scope').value = settings.schedule.scope;
@@ -169,6 +245,7 @@ function collectSettings() {
     else delete state.settings.routes[row.dataset.route];
   });
   state.settings.budgets = { daily_calls: Number($('#daily-calls').value), daily_tokens: Number($('#daily-tokens').value), daily_usd: Number($('#daily-usd').value) };
+  state.settings.ranking = { ...(state.settings.ranking || {}), importance_weight: Number($('#importance-weight').value), confidence_weight: 0 };
   state.settings.schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
 }
 function openProvider(id = '') {
@@ -293,6 +370,7 @@ function renderOperational(data) {
 async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
+  clearRecallResults();
   state.credentials = data.credentials || {};
   state.scopeLabels = data.scope_labels || {};
   renderModules(data);
@@ -410,15 +488,32 @@ $('#refresh').addEventListener('click', () => perform(async () => { await refres
 function changeScope(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) { notify('Use a short scope name, such as global or project:your-project.', true); return; }
   state.scope = value; $('#scope').value = '';
+  clearRecallResults();
   notify('');
   state.sources.forEach(item => { item.preview = null; item.result = ''; item.open = false; }); renderSources(); perform(refresh);
 }
 $('#scope-form').addEventListener('submit', (event) => { event.preventDefault(); changeScope($('#scope').value.trim()); });
 $('#scope-selector').addEventListener('change', event => changeScope(event.target.value));
 $('#inactive').addEventListener('change', () => perform(refresh));
+$('#recall-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const query = event.currentTarget.elements.query.value.trim(), scope = state.scope;
+  const revision = ++state.recallRevision, list = $('#recall-results');
+  list.replaceChildren(element('p', `Searching ${scopeLabel(scope)}…`, 'hint')); list.hidden = false;
+  perform(async () => {
+    try {
+      const hits = await request('/api/recall', { query, scope });
+      if (revision !== state.recallRevision || scope !== state.scope) return;
+      renderRecallResults(Array.isArray(hits) ? hits : [], scope);
+    } catch (error) {
+      if (revision === state.recallRevision && scope === state.scope) list.replaceChildren(element('p', 'Search unavailable. Try again.', 'memory-empty'));
+      throw error;
+    }
+  });
+});
 $('#remember-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget;
-  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope };
+  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope, importance: form.elements.importance.value || 'normal' };
   if (form.elements.key.value.trim()) payload.key = form.elements.key.value.trim();
   perform(async () => { await request('/api/learn', payload); form.reset(); await refresh(); notify('Memory saved.'); });
 });

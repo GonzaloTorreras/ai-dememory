@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from math import isfinite
 from pathlib import Path
 
 from .models import SearchHit
@@ -16,11 +17,41 @@ class SearchError(ValueError):
 
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 
+# These terms add little retrieval signal by themselves.  They are intentionally
+# small and conservative: identifiers, negations, numbers, and ordinary short
+# questions must remain searchable.  This is lexical filtering, not translation
+# or stemming.
+_FILLER_TERMS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "de", "del", "do", "el",
+    "en", "for", "from", "how", "i", "in", "is", "it", "la", "las", "los", "me",
+    "gracias", "hello", "hi", "hola", "my", "of", "ok", "okay", "or", "please", "por",
+    "que", "thanks", "thank", "the", "to", "un", "una", "what", "with", "y", "yo",
+})
+
+
+def _query_tokens(query: str) -> list[str]:
+    """Return bounded, unique whole-word terms with retrieval value.
+
+    Terms are case-folded for deduplication but their original spelling is kept
+    for FTS.  Filtering happens before the twenty-term bound so a useful word
+    after conversational filler is not silently discarded.
+    """
+    selected: list[str] = []
+    seen: set[str] = set()
+    for token in _TOKEN.findall(query):
+        key = token.casefold()
+        if key in seen or key in _FILLER_TERMS:
+            continue
+        seen.add(key)
+        selected.append(token)
+        if len(selected) == 20:
+            break
+    return selected
+
 
 def _canonical_snippet(content: str, tokens: list[str], max_chars: int = 240) -> str:
-    normalized = content.casefold()
-    positions = [normalized.find(token.casefold()) for token in tokens]
-    positions = [position for position in positions if position >= 0]
+    wanted = {token.casefold() for token in tokens}
+    positions = [match.start() for match in _TOKEN.finditer(content) if match.group().casefold() in wanted]
     start = max(0, (min(positions) if positions else 0) - min(60, max_chars // 4))
     snippet = " ".join(content[start : start + max_chars].split())
     if start:
@@ -28,6 +59,11 @@ def _canonical_snippet(content: str, tokens: list[str], max_chars: int = 240) ->
     if start + max_chars < len(content):
         snippet += " …"
     return snippet
+
+
+def _matching_terms(title: str, content: str, tokens: list[str]) -> list[str]:
+    present = {match.group().casefold() for match in _TOKEN.finditer(f"{title} {content}")}
+    return [token.casefold() for token in tokens if token.casefold() in present]
 
 
 class SearchIndex:
@@ -89,6 +125,15 @@ class SearchIndex:
                 connection.execute("DELETE FROM memory_files")
                 connection.execute("DELETE FROM memory_fts")
                 connection.commit()
+                columns.update({"scope", "status"})
+            # The index is disposable, but adding projected metadata lets ranking
+            # stay bounded and avoids rereading every Markdown file per query.
+            for name, default in (("importance", "'normal'"), ("importance_origin", "'default'")):
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE memory_files ADD COLUMN {name} TEXT NOT NULL DEFAULT {default}"
+                    )
+                    columns.add(name)
             return connection
         except Exception:
             connection.close()
@@ -172,8 +217,10 @@ class SearchIndex:
                         )
                     connection.execute(
                         """
-                        INSERT INTO memory_files(memory_id, path, title, created_at, mtime_ns, size, scope, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO memory_files(
+                            memory_id, path, title, created_at, mtime_ns, size, scope, status,
+                            importance, importance_origin
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             memory.memory_id,
@@ -184,6 +231,8 @@ class SearchIndex:
                             stat.st_size,
                             memory.scope,
                             memory.status,
+                            getattr(memory, "importance", "normal"),
+                            getattr(memory, "importance_origin", "default"),
                         ),
                     )
                     connection.execute(
@@ -202,37 +251,57 @@ class SearchIndex:
             connection.close()
         return {"indexed": indexed, "removed": removed, "unchanged": skipped}
 
-    def search(self, query: str, limit: int = 5, scope: str = "global") -> list[SearchHit]:
+    def search(
+        self, query: str, limit: int = 5, scope: str = "global", *, importance_weight: float = 0.15
+    ) -> list[SearchHit]:
         validate_scope(scope)
         if type(limit) is not int or not 1 <= limit <= 50:
             raise SearchError("limit must be between 1 and 50")
         if not isinstance(query, str):
             raise SearchError("query must be a string")
-        tokens = _TOKEN.findall(query)
-        if not tokens:
+        if type(importance_weight) not in {int, float} or not isfinite(importance_weight) or not 0 <= importance_weight <= 0.25:
+            raise SearchError("importance_weight must be a finite number between 0 and 0.25")
+        tokens = _query_tokens(query)
+        if not _TOKEN.findall(query):
             raise SearchError("Search query must contain at least one word or number")
+        if not tokens:
+            return []
         self.sync()
         expression = " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens[:20])
         connection = self._connect()
         try:
             rows = connection.execute(
                 """
-                SELECT f.memory_id, m.path,
-                       bm25(memory_fts, 4.0, 1.0) AS rank
+                SELECT f.memory_id, m.path, m.created_at, m.importance, m.importance_origin,
+                       bm25(memory_fts, 0.0, 4.0, 1.0) AS rank
                 FROM memory_fts AS f
                 JOIN memory_files AS m ON m.memory_id = f.memory_id
                 WHERE memory_fts MATCH ? AND m.scope IN ('global', ?) AND m.status = 'active'
                 ORDER BY rank, m.created_at DESC
-                LIMIT ?
                 """,
-                (expression, scope, limit),
+                (expression, scope),
             ).fetchall()
         except sqlite3.Error as exc:
             raise SearchError(f"Search failed: {exc}") from exc
         finally:
             connection.close()
-        hits: list[SearchHit] = []
+        ranked_rows: list[tuple[float, str, sqlite3.Row]] = []
         for row in rows:
+            importance = row["importance"] or "normal"
+            if importance not in {"low", "normal", "high"}:
+                importance = "normal"
+            importance_applied = row["importance_origin"] != "host"
+            # Host-provided importance is advisory until a user enables such a
+            # policy.  It remains visible in details but cannot affect recall.
+            effective_importance = importance if importance_applied else "normal"
+            importance_value = {"low": 0.0, "normal": 0.5, "high": 1.0}[effective_importance]
+            base_score = float(-row["rank"])
+            score = base_score * (1 + importance_weight * (2 * importance_value - 1))
+            ranked_rows.append((score, row["created_at"], row))
+        ranked_rows.sort(key=lambda value: (value[0], value[1]), reverse=True)
+
+        hits: list[SearchHit] = []
+        for score, _, row in ranked_rows[:limit]:
             relative = Path(row["path"])
             if relative.is_absolute() or ".." in relative.parts:
                 raise SearchError("Generated index contains an unsafe memory path; delete it to rebuild")
@@ -252,13 +321,31 @@ class SearchIndex:
                 raise SearchError("Generated index identity does not match canonical Markdown")
             if memory.scope not in {"global", scope} or memory.status != "active":
                 continue
+            importance = getattr(memory, "importance", row["importance"] or "normal")
+            if importance not in {"low", "normal", "high"}:
+                importance = "normal"
+            importance_origin = getattr(memory, "importance_origin", row["importance_origin"] or "default")
+            if not isinstance(importance_origin, str) or not importance_origin:
+                importance_origin = "default"
+            importance_applied = importance_origin != "host"
+            from .quality import confidence_status
+            details = {
+                "matching_terms": _matching_terms(memory.title, memory.content, tokens),
+                "importance": importance,
+                "importance_origin": importance_origin,
+                "importance_applied": importance_applied,
+                "importance_weight": float(importance_weight),
+                "confidence_status": confidence_status(memory),
+                "confidence_applied": False,
+            }
             hits.append(
                 SearchHit(
                     memory_id=memory.memory_id,
                     title=memory.title,
                     snippet=_canonical_snippet(memory.content, tokens),
-                    score=float(-row["rank"]),
+                    score=score,
                     path=canonical,
+                    details=details,
                 )
             )
         return hits

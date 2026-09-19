@@ -149,6 +149,14 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
                     "scope": {"type": "string"}, "event_id": {"type": "string"},
                     "key": {"type": "string"}, "supersedes": {"type": "string"},
                     "provisional": {"type": "boolean", "default": False},
+                    "importance": {"type": "string", "enum": ["low", "normal", "high"],
+                                   "description": "Priority suggestion, not evidence or truth. User overrides are preserved."},
+                    "confidence": {"type": "object", "properties": {
+                        "support": {"type": "number", "minimum": 0, "maximum": 1},
+                        "certainty": {"type": "number", "minimum": 0, "maximum": 1},
+                        "model": {"type": "string"}, "rubric": {"type": "string"}},
+                        "required": ["support", "model", "rubric"], "additionalProperties": False,
+                        "description": "Optional host assessment; always advisory, never promotes a fact or affects ranking."},
                     "source": {
                         "type": "object",
                         "properties": {
@@ -213,8 +221,8 @@ def instructions(bound_scope: str | None = None) -> str:
 
 
 def _validate(value: Any, schema: dict[str, Any], label: str = "arguments") -> None:
-    expected = {"object": dict, "string": str, "integer": int, "boolean": bool}[schema["type"]]
-    if type(value) is not expected:
+    expected = {"object": (dict,), "string": (str,), "integer": (int,), "boolean": (bool,), "number": (int, float)}[schema["type"]]
+    if type(value) not in expected:
         raise ValueError(f"{label} must be {schema['type']}")
     if isinstance(value, dict):
         properties = schema.get("properties", {})

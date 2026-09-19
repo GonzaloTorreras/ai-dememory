@@ -19,7 +19,37 @@ Earlier implementation/install receipts remain in Git history.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
 
-## Current planning increment: memory quality, weights and optional Jev
+## Current implementation: memory quality, step 1
+
+- Implemented meaningful lexical recall, corrected FTS title weights, importance
+  metadata/overrides and bounded ranking before final top-k. Host suggestions
+  stay neutral; arbitrary confidence stays advisory. The same selector and
+  canonical Markdown serve CLI, MCP and workbench; no bulk rewrite or new DB.
+- Workbench save/edit/reset and Recall explain priority, matched terms and
+  confidence freshness. Advanced settings persist an importance weight in
+  0..0.25; confidence weight stays zero. Short useful hook prompts now retrieve.
+- Fresh read-only functional/maintainability review closed three P2 findings:
+  explicit user re-prioritization, stale recall cards after mutations, and lost
+  confidence freshness. Regression cases accompany the backend fixes; rendered
+  refresh checks cover the UI invalidation. No formal security-scan claim.
+- Rendered Playwright at loopback port 18772 with a synthetic disposable vault:
+  desktop 1280x900 and mobile 390x844; priority edit, recall explanation, refresh
+  invalidation and saved-weight recall pass. Page identity/content, no overlay,
+  no horizontal overflow and no console errors/warnings checked. Screenshots
+  inspected in memory; no private memory or screenshot committed. Browser skill
+  absent; available Playwright integration used. Lifecycle/Jev work is next.
+- No global runtime/vault/provider changes, model calls, version bump or release.
+- Verification: 291 tests, 286 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. A clean temporary build
+  and isolated install pass packaged setup/save-with-priority/recall/status,
+  outside the checkout with `PYTHONPATH` cleared and no dependency installation.
+  Wheel: 126,796 bytes, SHA-256
+  `8a744f38fab261723fc35054525c8d26bb94d27e891670cfdb639430ca237254`.
+  The package version remains `3.0.0a2` for local acceptance only; this is not a
+  replacement release artifact. Roll back via zero importance weight or the
+  previous local wheel; canonical records and operational state remain intact.
+
+## Previous planning increment: memory quality, weights and optional Jev
 
 - User requested a planned update for importance, confidence and a Jev module.
   The sole [roadmap](roadmap.md#now-memory-quality-weights-and-optional-jev) now
