@@ -1,6 +1,6 @@
 # Development status
 
-Updated: 2026-09-16. This is the current handoff, not an accumulated backlog.
+Updated: 2026-09-19. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
 
 ## Checkout and release reality
@@ -18,6 +18,40 @@ Earlier implementation/install receipts remain in Git history.
 - No open PR was found at the start of this slice. No new hosted CI is claimed.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
+
+## Current planning increment: memory quality, weights and optional Jev
+
+- User requested a planned update for importance, confidence and a Jev module.
+  The sole [roadmap](roadmap.md#now-memory-quality-weights-and-optional-jev) now
+  orders three user-visible slices: meaningful weighted recall; lifecycle and
+  project-targeted consolidation; optional typed judgments, initially shadow-only.
+- Source baseline is `61788c0827a62d184a8cdca906edf563e027823d`, one local commit
+  after public `origin/main`. The readable-project changes remain intact, as do
+  the dirty historical parent and untracked `build/`. No open PR for this branch
+  was found through the GitHub connector on 2026-09-19.
+- Rechecked the misplaced BM25 title weight, missing importance/confidence
+  fields, host-supplied evidence-label boundary, global-only summary proposals
+  and generative-only plugin contract. TypeSafe's current official API/model,
+  confidence, citation-check and limitation docs informed the optional module;
+  no model-quality or live-provider acceptance is claimed.
+- Importance is not truth; evidence support is not evaluator certainty. The
+  planned confidence modifier stays neutral until assessor-specific evaluation.
+  Jev cannot generate memories, grant authority or replace the local core.
+- Documentation only: no runtime/package/version changes, private memory copied
+  into the repository, vault edits, provider activation, model calls, scheduled
+  task changes, installation, merge, tag or publication.
+- Validation: three active-documentation checks and 25 existing recall/learning/
+  harness tests pass; `git diff --check` passes. The source tests initially
+  lacked an import path; rerunning with `PYTHONPATH=src` passed without installing
+  or changing dependencies. These baseline checks do not test unimplemented
+  weights/Jev. Full regression, package/UI acceptance and hosted CI were not
+  rerun for this documentation-only diff.
+- Focused read-only review requested two clarifications, both incorporated:
+  weighted ordering before final top-k selection, and evidence-only support
+  judgments separate from existing-memory comparisons. Each has an explicit
+  future regression case; a final read-only spot-check closed both findings
+  with no material planning blocker. Rollback for this increment is reverting
+  only the two documentation files; no installed data or configuration changes.
 
 ## Delivered local product
 
@@ -319,7 +353,7 @@ acceptance; no such model calls were made in this increment.
   merging/ownership, one selector across entry points, reliable native project
   binding, a common scope resolver and client-disable precedence. The existing
   selected-vault resolver and fixed-scope MCP are reused, not replaced by a new
-  framework. The ordered plan lives only in [the roadmap](roadmap.md#now-one-global-v3-installation-isolated-projects).
+  framework. The ordered plan lives only in [the roadmap](roadmap.md).
 - Verification: 49 focused core/harness/MCP tests, 46 passed and three expected
   Windows symlink skips; `git diff --check` passed. Independent read-only review
   found no plan blocker after clarifying that only V2 was uninstalled. This is a
@@ -328,15 +362,11 @@ acceptance; no such model calls were made in this increment.
 
 ## Next development cycle
 
-1. Global Codex installation is delivered below. Next expose project aliases and
-   exclusions in the existing workbench, using the same small local mapping.
-2. Verify a native linked-worktree episode and task relocation/reconnect. Native
-   new-project and simultaneous-task checks pass; do not generalize them to every
-   client lifecycle/version. Keep provider login separate.
-3. Resume native Hermes/Claude episodes, evidence-backed advisory skill export,
-   measured DSH/Hermes reader gaps and selected-provider/fallback acceptance.
-4. Remote service/admin remains later: identity scopes, TLS/key management and
-   two-host restart/restore acceptance before any non-loopback exposure.
+Follow the [roadmap's memory-quality sequence](roadmap.md#now-memory-quality-weights-and-optional-jev),
+not a second backlog here. Finish review/integration of readable scopes, then
+deliver weighted useful recall, lifecycle/scoped consolidation and optional Jev.
+Project-controls UI, wider native client acceptance, skills and networking remain
+visible follow-ups there. No provider or publication gate is implied by this plan.
 
 ## This cycle: installed global V3 and native project isolation
 

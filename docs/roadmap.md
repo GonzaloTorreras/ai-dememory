@@ -1,8 +1,10 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-16 for readable project
-names after first-run Codex hooks and opt-in Windows consolidation. Usable global installation takes priority
-over procedural export, remote networking and further ingestion frameworks.
+This is the single active product plan. Updated 2026-09-19: improve the quality
+of memory already being learned, with importance, evidence confidence and an
+optional Jev evaluator. Finish the local readable-project increment first;
+memory quality now precedes more ingestion, procedural export and networking.
+The new work below is planned, not installed behavior.
 
 ## Product outcome
 
@@ -29,6 +31,10 @@ several hosts.
   default vectors or separate Node runtime.
 
 ## Delivery sequence
+
+Next: deliver the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev)
+in order, each with a working UI-to-core episode. The table below records earlier
+capabilities and remaining integration coverage; it is not a competing sequence.
 
 Current increment: show local project names across the workbench while retaining
 opaque internal scope IDs. Automatic host binding records bounded display-only
@@ -88,7 +94,7 @@ exports and Hermes databases (live local WAL or checkpointed snapshots).
 Compressed DSH and Hermes lineage remain explicit gaps. The Hermes reader is
 bounded recent-window extraction, not exhaustive unattended ingestion.
 
-## Now: one global V3 installation, isolated projects
+## Global V3 installation: delivered baseline and remaining acceptance
 
 V2's owned tool installation is removed. The native V3 command now works outside
 the checkout through one selected configuration. `serve harness-codex install
@@ -174,11 +180,215 @@ and V3 can be moved safely to a standalone checkout. Any later source cleanup is
 a reviewed change in the V3 branch, not recursive deletion of that parent or of
   private V2/test vaults. No V2 memory-format migration is being introduced.
 
-Next small usability slice: expose the existing aliases and per-project
+After the memory-quality slices, expose the existing aliases and per-project
 include/exclude controls in the workbench, without introducing another policy
-store. Then verify a native linked-worktree episode and task relocation/reconnect,
+store. Verify a native linked-worktree episode and task relocation/reconnect
 before extending automatic bindings to other harnesses. The current global
 adapter is Codex-only; Claude/Hermes retain their documented local bindings.
+
+## Now: memory quality, weights and optional Jev
+
+### Baseline and boundaries
+
+The reviewed source at `61788c0` has no importance/confidence fields. Retrieval
+uses lexical FTS with OR over the first 20 tokens and no meaningful-match floor.
+Its `bm25(memory_fts, 4.0, 1.0)` weights the unindexed ID column, not the title as
+intended. Short useful prompts can be skipped by the harness, and snippets can
+center on an uninformative word. Fix these in code, not with a model. Lexical
+search also misses cross-language equivalents; stopwords cannot translate a query.
+
+Admission records source labels/excerpts, but a host-supplied `verified_outcome`
+is not independent verification. Execution receipts and lasting lessons share
+one record shape. Consolidation cleans exact duplicates in one scope; generated
+summary proposals are global-only. A schedule can target an empty scope while
+projects contain useful memory. Direct host MCP learning needs no separate
+DeMemory provider; provider-job usage is not total host-model consumption.
+
+Reuse `models.py`, `vault.py`, `search.py`, `jobs.py`, module/provider settings
+and the workbench. No new top-level command, database, daemon, vector store,
+V2 reader or gate DAG. Optional canonical metadata lives in Markdown; search
+remains disposable and job accounting durable. No bulk vault rewrite on upgrade.
+
+### 1. Useful recall with explainable importance and confidence
+
+**Outcome:** save a lesson, edit its importance in the UI and retrieve the right
+passage in a new conversation, with an explanation of why it was selected.
+
+- Fix FTS column weights to ID/title/body `0, 4, 1`, following
+  [SQLite's column-weight semantics](https://www.sqlite.org/fts5.html#the_bm25_function).
+  Deduplicate/filter uninformative query terms before the limit; preserve identifiers,
+  negations and useful short questions. Center snippets on informative whole-token
+  matches. Return empty context when nothing meaningfully qualifies.
+- Add optional `importance` (`low`, `normal`, `high`; absent means `normal`) and
+  a bounded confidence assessment to memory/API metadata. UI edits, MCP learning
+  and manual save share validation. Record setting origin; automatic importance
+  remains a suggestion unless enabled and cannot overwrite a user's setting.
+
+  | Dimension | Meaning | Default / authority |
+  | --- | --- | --- |
+  | Relevance | How well this passage answers this query | Per-query, never permanent truth |
+  | Importance | How useful it is to retain/surface this lesson | Normal; user setting wins |
+  | Evidence confidence | Estimated support for this claim in its cited evidence | Unassessed, not zero or verified |
+  | Evaluator certainty | Concentration of the evaluator's answer distribution | Diagnostic, not factual support |
+  | Status and validity | Whether the record may enter factual context | Enforced before ranking |
+
+- Assessments name their method, claim/evidence revision and, for model judgments,
+  model/rubric versions. Editing the claim/evidence invalidates the assessment.
+  Manual source confirmation is a label, not a fabricated probability of 1.
+  Arbitrary host self-scores are advisory: native MCP provenance authenticates
+  neither their semantics nor a probability, so they cannot enter ranking.
+- Use a bounded modifier, not adaptive rewards. After scope/status/validity and
+  meaningful-match filtering, let `B = -bm25(...)` (higher is better),
+  `I = 0 / 0.5 / 1` for importance and `C` an eligible evidence-support estimate
+  (`0.5` neutral when absent/stale/unvalidated):
+  `rank = B * (1 + w_importance * (2*I - 1) + w_confidence * (2*C - 1))`.
+  Proposed defaults: `w_importance=0.15`, `w_confidence=0`; both nonnegative,
+  their sum at most `0.25`. Reject nonfinite/out-of-range settings. These are
+  testable starting values, not measured optima. Compare scores only within one
+  query; BM25 is not a probability. No weight admits an irrelevant, provisional,
+  superseded or expired record. Recall/copy counts confer no bonus.
+  Apply weighted ordering over eligible matches before the final result limit,
+  not just to the rows returned by today's lexical top-k. Project required
+  metadata into the disposable index; avoid a full Markdown scan per query.
+- Confidence weighting becomes opt-in only after assessor-specific evaluation
+  below. Initially it stays neutral and the UI says "not assessed". Existing
+  explicit keyed corrections need neither Jev nor a second review. Expose
+  importance, assessment origin/freshness and reset in the memory editor; keep
+  the two bounded weights in advanced settings. Recall details show matching
+  terms and adjustments, never "probability this memory is true".
+
+Acceptance: UI edit -> Markdown -> rebuilt index -> native scoped recall;
+title/body weights, useful term after filler, short questions, missing metadata,
+stale assessments, negative evidence and no-match cases. Include a relevant
+boosted record initially just outside lexical top-k; irrelevant high-priority
+records stay out. Correction/undo and project isolation still pass. Spanish/
+English fixtures expose the language gap; do not claim translation from FTS fixes.
+
+### 2. Less noise and consolidation that reaches the right projects
+
+**Outcome:** temporary execution history stops drowning out reusable lessons;
+one visible schedule maintains the projects the user actually selected.
+
+- Add optional `memory_kind` (`durable`, `episode`, `unspecified`) and explicit
+  `expires_at`; absent fields preserve current V3 behavior. An episode is a dated
+  result/status; a durable record may also expire. Never infer expiry from a
+  vague date or classify old records automatically during installation.
+- Exclude expired records from default factual recall, retaining inspectable
+  history. Offer a reversible episode-age window in UI, initially off, distinct
+  from claim validity. Dates/time zones are checked in Python. No physical delete
+  or new archive subsystem. Remembered authorization never grants permission now.
+- Keep one schedule/cadence/job owner, adding explicit selected scopes or "all
+  project scopes"; global is a separate opt-in. Show target counts, no-op reasons
+  and per-scope progress. Visit scopes separately with a bounded persistent
+  cursor and shared budget/lock; restart or a large scope must not starve others.
+  Never combine projects into global memory. Existing fixed-scope schedules stay
+  unchanged until the user edits them.
+- Give existing proposals an enforced scope before enabling project summaries.
+  Exact dedupe/expiry filtering stays model-free; a configured text provider may
+  suggest a concise source-linked summary, not overwrite originals automatically.
+  Refuse stale summary acceptance after input correction. Routine explicit
+  learning remains automatic; uncertain synthesis, not every fact, is reviewable.
+- Prefer one claim per learning and enough literal context to interpret evidence
+  (a bare year/number usually does not suffice). Use existing key/supersession
+  for explicit changes to the same identified subject. Different entities,
+  conditions or dates are not automatic contradictions. A summary cannot
+  corroborate itself; do not silently merge semantic lookalikes.
+
+Acceptance: empty global plus two populated project scopes; pause/restart,
+fairness, concurrent UI/OS-task jobs, shared budgets, expiry/undo, correction after
+proposal creation and same-value/different-entity cases. Repeated cleanup
+converges, originals remain inspectable and no route means zero model calls.
+This slice does not scan conversation history.
+
+### 3. Optional Jev judgment module, not a second memory engine
+
+**Outcome:** enable a dashboard module, evaluate a small candidate against its
+evidence, inspect the verdict/cost and disable it without breaking memory.
+Initially shadow-only: no effect on admission, canonical text, rank or corrections.
+
+- Implement `jev` through lazy modules, off by default. Add only the small typed
+  `judge` capability needed here. The current provider plugin requires `generate`;
+  do not fake that method for Jev. Extraction/summary drafting keep independent
+  generative routes. Only judgment-capable profiles are judgment fallbacks.
+- Use the official [System One API](https://docs.typesafe.ai/api), not an
+  OpenAI-compatible text endpoint. Pin the evaluated model (currently
+  `jev-1.13.0`, [models checked 2026-09-19](https://docs.typesafe.ai/models)).
+  No SDK dependency/import in the disabled path and no Node runtime.
+- Judge support from the bounded claim + cited evidence only, with `Choice`
+  for `supports / contradicts / insufficient`. In a separate request, compare
+  with a few same-scope candidates using `same claim / update / conflict /
+  unrelated / unknown`. Existing memories must never enter the support request
+  as corroboration. Optional `Score` can suggest low/normal/high usefulness
+  with an explicit rubric. Batch independent questions only when their permitted
+  evidence is identical; dependent decisions stay ordered in Python. Jev does
+  not generate memories or require complete transcripts.
+- Check literal quote inclusion in code when an authorized source window is
+  available, then assess support. Otherwise label source authenticity unverified,
+  not fabricated or validated. Adapt the
+  [citation-check pattern](https://docs.typesafe.ai/cookbooks/citation_check),
+  not its example thresholds/accuracy. Jev's
+  [certainty statistic](https://docs.typesafe.ai/confidence) differs from
+  `probabilities["supports"]`; neither proves real-world truth. Retain the verdict
+  and provenance, not a naked "trust score".
+- Reuse Modules/Providers/Consolidation UI: enablement, permitted operations/scopes,
+  model, credential reference, finite fallback, daily calls/tokens/estimated cost
+  and last result. Accounting covers all attempts. Missing usage is not free.
+  Suggested starting limits: 3 API attempts total per job including retries,
+  8,000 input characters per request, 10-second total request deadline and at
+  most 1 retry within that deadline. Daily limits are explicit on activation.
+  Show deferred/skipped work; no unbounded
+  retry queue. No network calls on prompt-recall hooks.
+- Send only opted-in scopes and sanitized excerpts. No credentials, paths or
+  transcript payloads in diagnostics. Explain external processing:
+  [no training does not mean zero retention](https://docs.typesafe.ai/legal).
+  Preview first use; no private-vault export in development tests. Evidence is
+  untrusted data, not policy. Numeric/date comparisons and permissions stay in
+  code; [known limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13)
+  include numbers, dates and adversarial input.
+- Bounded decision receipts/cache reuse operational state, not raw prompts/
+  responses or a new ledger. Key by local claim/evidence revision, model and
+  rubric; invalidate on change. Disablement stops imports/calls and neutralizes
+  Jev ranking adjustments. Failure/budget exhaustion retains the deterministic
+  path and "unassessed", never synthetic success.
+
+Acceptance: enabled UI-to-judgment episode with mock API, disabled zero-import/
+zero-call checks, malformed responses, timeout/rate-limit/fallback/budget,
+stale-cache invalidation and restart. Adversarial evidence cannot change scope,
+permissions or canonical text. Test an existing memory that agrees with the
+claim while its actual citation does not support it. Live evaluation needs
+credentials and explicit data/cost opt-in; mock success is not model-quality proof.
+
+### Evaluation, release and what stays later
+
+Use one reusable fixture set, not a benchmark platform. Start with at least 30
+labeled synthetic learning/recall/correction episodes covering Spanish/English,
+current vs historical status, negation, insufficient excerpts, units, same-name
+projects and unrelated queries. No private examples in public tests. Compare
+baseline top-3 useful recall, irrelevant context characters, wrong replacements,
+duplicates, interventions, p50/p95, RSS and calls/tokens after each slice. Report
+counts, not an invented production failure probability.
+
+Before confidence-weighted ranking, compare the same eligible candidates with
+and without it on at least 100 held-out judgments/queries using the pinned
+assessor/rubric. Report support precision/calibration by language and abstentions
+as well as useful recall. Require five percentage points of useful top-3
+improvement, no increase in unsupported factual hits, and no scope/provisional
+leakage in the suite. These are proposed adoption gates, not verified benefits;
+if unmet, leave the confidence weight zero. Model certainty never auto-promotes
+inferences or resolves conflicts. Tune on separate cases, not the held-out set.
+
+Each slice ships independently after focused review, full V3 tests, installed
+package smoke and desktop/mobile checks for changed UI. No version bump or
+publication in this planning change. Select the next alpha tag from merged/
+tested scope only; merge, installation and publication stay separate gates.
+Rollback: zero ranking weights, disable Jev, preserve canonical metadata and
+durable receipts. Never erase operational SQLite to rebuild search.
+
+Then resume project-controls UI, native harness acceptance and provider-login/
+fallback coverage. Cross-language candidate generation/reranking needs a measured
+follow-up: Jev cannot recover a memory absent from the lexical shortlist.
+Procedural skills and remote/LAN admin remain later. No all-history ingestion,
+new framework or model-driven autopromotion is implied.
 
 ## Model routing
 
