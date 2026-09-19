@@ -41,6 +41,31 @@ class WorkbenchTests(unittest.TestCase):
         self.assertEqual(code, 200, body)
         self.assertEqual(json.loads(body)["importance"], "low")
 
+    def test_expiry_history_and_restore_through_http(self):
+        code, body, _ = self.request("/api/learn", {"title": "Run receipt", "content": "Deployment passed",
+                         "scope": "project:q", "memory_kind": "episode", "expires_at": "2000-01-01T00:00:00Z"})
+        self.assertEqual(code, 200, body)
+        memory = json.loads(body)
+        self.assertEqual(self.state("?scope=project:q")["memories"], [])
+        history = self.state("?scope=project:q&inactive=true")["memories"]
+        self.assertEqual(len(history), 1)
+        self.assertFalse(history[0]["recall_eligible"])
+        code, body, _ = self.request("/api/memory/quality", {"memory_id": memory["memory_id"], "scope": "project:q",
+                        "memory_kind": "durable", "expires_at": None})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(self.state("?scope=project:q")["memories"]), 1)
+
+    def test_proposal_review_enforces_selected_scope(self):
+        from ai_dememory.proposals import ProposalStore
+        proposal = ProposalStore(self.services.vault).propose("Combined lesson", "Use narrow SQLite transactions", scope="project:q")
+        self.assertEqual(self.state()["proposals"], [])
+        self.assertEqual(len(self.state("?scope=project:q")["proposals"]), 1)
+        action = {"proposal_id": proposal.proposal_id, "scope": "global", "accept": True}
+        self.assertEqual(self.request("/api/proposals/decide", action)[0], 400)
+        code, body, _ = self.request("/api/proposals/decide", {**action, "scope": "project:q"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["memory"]["scope"], "project:q")
+
     def test_history_schedule_progress_through_confirmed_http_flow(self):
         self.request('/api/modules', {'id': 'sources', 'enabled': True})
         root = Path(self.temp.name).resolve() / 'history'; root.mkdir()

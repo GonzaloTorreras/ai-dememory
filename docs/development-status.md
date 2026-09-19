@@ -19,7 +19,35 @@ Earlier implementation/install receipts remain in Git history.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
 
-## Current implementation: memory quality, step 1
+## Current implementation: memory quality, step 2
+
+- Optional durable/episode classification, explicit timezone-aware expiry and an
+  initially disabled episode-age window now filter normal recall before top-k.
+  History retains originals; clearing expiry restores eligibility. No automatic
+  classification, deletion, real-vault rewrite or changed provider configuration.
+- One existing schedule can target fixed/selected/all projects. Global and model
+  summaries of project memories require separate opt-in. Batches visit at most
+  three scopes per interval with restart-safe rotation and shared budgets/lock.
+- Summary proposals stay scoped, retain bounded input revisions and reject stale
+  acceptance. Sources remain canonical and are not overwritten. UI exposes
+  lifecycle editing, project targets, consent, per-scope results and review.
+- Independent read-only review identified manual schedule postponement, budget
+  starvation and reset-priority saving unsaved lifecycle fields. Regression
+  fixes preserve manual/fixed cadence, fair bounded retries and exact unchanged
+  expiry precision. This was a functional review, not a formal security scan.
+- Synthetic Playwright: expired record absent by default, visible in history,
+  reset ignores unsaved expiry, clearing expiry restores it. All-project targets,
+  episode window and default-off global/model consent persist after reload.
+  Desktop 1280x900/mobile 390x844 have no horizontal overflow or console errors;
+  mobile screenshot inspected in memory. Owned test server stopped afterwards.
+- Full regression: 309 tests, 304 passed / five expected Windows symlink skips
+  before the final large-scope fairness case; 35 focused scheduling/proposal
+  tests pass including that regression. JavaScript syntax and diff checks pass. Step 1 includes
+  isolated wheel acceptance; the final combined slice will repeat packaging.
+- No global installation, credentials, model calls, release or version changes.
+  Next: optional Jev shadow module. Deterministic recall remains authoritative.
+
+## Previous implementation: memory quality, step 1 (`89e1e7c`)
 
 - Implemented meaningful lexical recall, corrected FTS title weights, importance
   metadata/overrides and bounded ranking before final top-k. Host suggestions

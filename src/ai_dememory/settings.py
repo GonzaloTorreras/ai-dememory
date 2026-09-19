@@ -15,8 +15,10 @@ from .vault import Vault, _atomic_write, validate_scope
 DEFAULT_SETTINGS = {
     "schema_version": 1, "providers": {}, "routes": {},
     "schedule": {"enabled": False, "interval_hours": 168, "scope": "global"},
+    "consolidation": {"project_summaries": False},
     "budgets": {"daily_calls": 20, "daily_tokens": 50_000, "daily_usd": 0},
     "ranking": {"importance_weight": 0.15, "confidence_weight": 0},
+    "lifecycle": {"episode_recall_days": 0},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
 
@@ -55,7 +57,8 @@ def auth_mode(provider: dict) -> str:
 
 
 def validate_settings(data: dict) -> dict:
-    _shape(data, set(DEFAULT_SETTINGS) - {"ranking"}, {"ranking"})
+    _shape(data, set(DEFAULT_SETTINGS) - {"ranking", "lifecycle", "consolidation"},
+           {"ranking", "lifecycle", "consolidation"})
     reject_high_confidence_secrets(json.dumps(data))
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported settings schema")
@@ -111,17 +114,44 @@ def validate_settings(data: dict) -> dict:
         if len(chain) > 8 or any(not isinstance(item, str) or item not in providers for item in chain) or len(set(chain)) != len(chain):
             raise ValueError("Routes require distinct configured providers (maximum eight)")
         _number(route["max_output_tokens"], 16, 16_384, True)
-    _shape(data["schedule"], {"enabled", "interval_hours"}, {"scope"})
+    _shape(data["schedule"], {"enabled", "interval_hours"},
+           {"scope", "target_mode", "scopes", "include_global"})
     if type(data["schedule"]["enabled"]) is not bool:
         raise ValueError("Schedule enabled must be boolean")
     _number(data["schedule"]["interval_hours"], 1, 8760, True)
-    validate_scope(data["schedule"].get("scope", "global"))
+    schedule = data["schedule"]
+    validate_scope(schedule.get("scope", "global"))
+    target_mode = schedule.get("target_mode")
+    if target_mode is not None:
+        if target_mode not in ("selected_projects", "all_project_scopes"):
+            raise ValueError("Schedule target mode must select projects or all project scopes")
+        if type(schedule.get("include_global", False)) is not bool:
+            raise ValueError("Schedule include_global must be boolean")
+        scopes = schedule.get("scopes", [])
+        if not isinstance(scopes, list) or len(scopes) > 100:
+            raise ValueError("Schedule scopes must contain at most 100 project scopes")
+        if target_mode == "selected_projects" and not scopes:
+            raise ValueError("Selected-project schedules need at least one project scope")
+        if target_mode == "all_project_scopes" and scopes:
+            raise ValueError("All-project schedules cannot also select project scopes")
+        if any(not isinstance(scope, str) or not scope.startswith("project:") for scope in scopes):
+            raise ValueError("Schedule targets must be project scopes")
+        for scope in scopes:
+            validate_scope(scope)
+        if len(set(scopes)) != len(scopes):
+            raise ValueError("Schedule project scopes must be distinct")
+    elif "scopes" in schedule or "include_global" in schedule:
+        raise ValueError("Schedule targets require a target mode")
     _shape(data["budgets"], {"daily_calls", "daily_tokens", "daily_usd"})
     _number(data["budgets"]["daily_calls"], 1, 100_000, True)
     _number(data["budgets"]["daily_tokens"], 1, 100_000_000, True)
     _number(data["budgets"]["daily_usd"], 0, 100_000)
     validated = copy.deepcopy(data)
     validated["schedule"].setdefault("scope", "global")
+    consolidation = validated.setdefault("consolidation", copy.deepcopy(DEFAULT_SETTINGS["consolidation"]))
+    _shape(consolidation, {"project_summaries"})
+    if type(consolidation["project_summaries"]) is not bool:
+        raise ValueError("Project summaries must be explicitly enabled or disabled")
     ranking = validated.setdefault("ranking", copy.deepcopy(DEFAULT_SETTINGS["ranking"]))
     _shape(ranking, {"importance_weight", "confidence_weight"})
     _number(ranking["importance_weight"], 0, 0.25)
@@ -130,6 +160,9 @@ def validate_settings(data: dict) -> dict:
         raise ValueError("Combined ranking weights cannot exceed 0.25")
     if ranking["confidence_weight"] != 0:
         raise ValueError("Confidence weighting is unavailable until an assessor is evaluated; use zero")
+    lifecycle = validated.setdefault("lifecycle", copy.deepcopy(DEFAULT_SETTINGS["lifecycle"]))
+    _shape(lifecycle, {"episode_recall_days"})
+    _number(lifecycle["episode_recall_days"], 0, 36500, True)
     return validated
 
 

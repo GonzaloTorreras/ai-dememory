@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from ai_dememory.builtin_modules.mcp import call_tool
 from ai_dememory.core import CoreServices
@@ -103,3 +105,58 @@ class MemoryQualityTests(V3TestCase):
         code, output, error = self.run_cli("--vault", str(self.vault.root), "--json", "remember", "Prefer Python", "--importance", "high")
         self.assertEqual(code, 0, error)
         self.assertEqual(json.loads(output)["importance"], "high")
+
+    def test_expiry_and_episode_window_hide_not_delete(self):
+        old = self.vault.remember("Old deployment result", memory_kind="episode", scope="project:a")
+        self.vault._write_memory(replace(old, created_at=(datetime.now(timezone.utc) - timedelta(days=40)).isoformat()))
+        expired = self.vault.remember("Expired deployment result", expires_at="2000-01-01T00:00:00Z", scope="project:a")
+        self.assertIsNone(self.services.get(expired.memory_id, scope="project:a"))
+        self.assertEqual(len(self.services.list_memories("project:a")), 1)
+        settings = load_settings(self.vault)
+        settings["lifecycle"]["episode_recall_days"] = 30
+        save_settings(self.vault, settings)
+        self.assertEqual(self.services.context("deployment", scope="project:a")["memory_ids"], [])
+        self.assertEqual(self.services.list_memories("project:a"), [])
+        history = self.services.list_memories("project:a", include_inactive=True)
+        self.assertEqual(len(history), 2)
+        self.assertTrue(all(not row["recall_eligible"] for row in history))
+        self.assertEqual(self.vault.memory_count(), 2)
+        self.vault.update_quality(expired.memory_id, "project:a", {"expires_at": None, "memory_kind": "durable"})
+        self.assertIsNotNone(self.services.get(expired.memory_id, scope="project:a"))
+
+    def test_lifecycle_validation_is_explicit_and_timezone_aware(self):
+        for expiry in ("next week", "2026-10-02", "2026-10-02T00:00:00", True, ""):
+            with self.subTest(expiry=expiry), self.assertRaises(ValueError):
+                self.vault.remember("Synthetic", expires_at=expiry)
+        memory = self.vault.remember("Synthetic", memory_kind="durable", expires_at="2026-10-02T02:00:00+02:00")
+        self.assertEqual(memory.expires_at, "2026-10-02T00:00:00Z")
+        self.assertEqual(self.vault.get(memory.memory_id).memory_kind, "durable")
+
+    def test_thirty_synthetic_recall_episodes(self):
+        # Reusable lexical baseline, not a claim of multilingual semantic accuracy.
+        cases = [
+            ("Python", "Prefer Python for data scripts."), ("PostgreSQL", "Use PostgreSQL for transactional storage."),
+            ("RaspberryPi", "The deployment target is RaspberryPi."), ("Redis", "Redis is a disposable cache."),
+            ("SQLite", "SQLite stays on local disk."), ("Firefox", "Test the interface in Firefox."),
+            ("Tuesday", "Run the maintenance on Tuesday."), ("parquet", "Export the dataset as parquet."),
+            ("Celsius", "Store temperatures in Celsius."), ("invoices", "Keep invoices outside the source repository."),
+            ("backups", "Verify backups before replacing the disk."), ("accessibility", "Include accessibility in UI reviews."),
+            ("Svelte", "Build this interface with Svelte."), ("pagination", "Use cursor pagination for results."),
+            ("timeouts", "Bound network requests with timeouts."),
+            ("presupuesto", "El presupuesto mensual es limitado."), ("caducidad", "La caducidad debe ser explícita."),
+            ("jardín", "El jardín utiliza riego por goteo."), ("escalera", "La escalera de entrada tiene seis peldaños."),
+            ("azulejos", "Los azulejos del baño son blancos."), ("fachada", "La fachada tiene orientación norte."),
+            ("viernes", "La revisión semanal se realiza el viernes."), ("recibos", "Los recibos son historial operativo."),
+            ("contraseñas", "Las contraseñas no deben guardarse en recuerdos."), ("ventilación", "Priorizar la ventilación natural."),
+            ("proveedor", "El proveedor alternativo es local."), ("consolidación", "La consolidación mantiene proyectos separados."),
+            ("aprendizajes", "Guardar aprendizajes estables y concisos."), ("madera", "La mesa del comedor es de madera."),
+            ("calendario", "El calendario usa la zona horaria local."),
+        ]
+        for i, (term, content) in enumerate(cases):
+            with self.subTest(term=term):
+                scope = f"project:case-{i}"
+                saved = self.vault.remember(content, scope=scope, importance="high")
+                query = f"please tell me about the {term}" if i < 15 else f"por favor dime sobre {term}"
+                result = self.services.context(query, scope=scope)
+                self.assertEqual(result["memory_ids"], [saved.memory_id])
+                self.assertEqual(self.services.context(term, scope="project:unrelated")["memory_ids"], [])

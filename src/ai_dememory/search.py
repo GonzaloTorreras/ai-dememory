@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
+from types import SimpleNamespace
 
 from .models import SearchHit
+from .quality import recall_eligible
 from .vault import Vault, VaultError, utc_now, validate_scope
 
 
@@ -128,10 +131,15 @@ class SearchIndex:
                 columns.update({"scope", "status"})
             # The index is disposable, but adding projected metadata lets ranking
             # stay bounded and avoids rereading every Markdown file per query.
-            for name, default in (("importance", "'normal'"), ("importance_origin", "'default'")):
+            for name, declaration in (
+                ("importance", "TEXT NOT NULL DEFAULT 'normal'"),
+                ("importance_origin", "TEXT NOT NULL DEFAULT 'default'"),
+                ("memory_kind", "TEXT NOT NULL DEFAULT 'unspecified'"),
+                ("expires_at", "TEXT"),
+            ):
                 if name not in columns:
                     connection.execute(
-                        f"ALTER TABLE memory_files ADD COLUMN {name} TEXT NOT NULL DEFAULT {default}"
+                        f"ALTER TABLE memory_files ADD COLUMN {name} {declaration}"
                     )
                     columns.add(name)
             return connection
@@ -219,8 +227,8 @@ class SearchIndex:
                         """
                         INSERT INTO memory_files(
                             memory_id, path, title, created_at, mtime_ns, size, scope, status,
-                            importance, importance_origin
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            importance, importance_origin, memory_kind, expires_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             memory.memory_id,
@@ -233,6 +241,8 @@ class SearchIndex:
                             memory.status,
                             getattr(memory, "importance", "normal"),
                             getattr(memory, "importance_origin", "default"),
+                            getattr(memory, "memory_kind", "unspecified"),
+                            getattr(memory, "expires_at", None),
                         ),
                     )
                     connection.execute(
@@ -252,7 +262,8 @@ class SearchIndex:
         return {"indexed": indexed, "removed": removed, "unchanged": skipped}
 
     def search(
-        self, query: str, limit: int = 5, scope: str = "global", *, importance_weight: float = 0.15
+        self, query: str, limit: int = 5, scope: str = "global", *, importance_weight: float = 0.15,
+        episode_days: int = 0,
     ) -> list[SearchHit]:
         validate_scope(scope)
         if type(limit) is not int or not 1 <= limit <= 50:
@@ -261,6 +272,8 @@ class SearchIndex:
             raise SearchError("query must be a string")
         if type(importance_weight) not in {int, float} or not isfinite(importance_weight) or not 0 <= importance_weight <= 0.25:
             raise SearchError("importance_weight must be a finite number between 0 and 0.25")
+        if type(episode_days) is not int or not 0 <= episode_days <= 36500:
+            raise SearchError("episode_days must be an integer between 0 and 36500")
         tokens = _query_tokens(query)
         if not _TOKEN.findall(query):
             raise SearchError("Search query must contain at least one word or number")
@@ -273,6 +286,7 @@ class SearchIndex:
             rows = connection.execute(
                 """
                 SELECT f.memory_id, m.path, m.created_at, m.importance, m.importance_origin,
+                       m.memory_kind, m.expires_at,
                        bm25(memory_fts, 0.0, 4.0, 1.0) AS rank
                 FROM memory_fts AS f
                 JOIN memory_files AS m ON m.memory_id = f.memory_id
@@ -285,8 +299,17 @@ class SearchIndex:
             raise SearchError(f"Search failed: {exc}") from exc
         finally:
             connection.close()
+        now = datetime.now(timezone.utc)
         ranked_rows: list[tuple[float, str, sqlite3.Row]] = []
         for row in rows:
+            indexed_memory = SimpleNamespace(
+                status="active",
+                created_at=row["created_at"],
+                memory_kind=row["memory_kind"] or "unspecified",
+                expires_at=row["expires_at"],
+            )
+            if not recall_eligible(indexed_memory, episode_days=episode_days, now=now):
+                continue
             importance = row["importance"] or "normal"
             if importance not in {"low", "normal", "high"}:
                 importance = "normal"
@@ -319,7 +342,9 @@ class SearchIndex:
                 raise SearchError(str(exc)) from exc
             if memory.memory_id != row["memory_id"]:
                 raise SearchError("Generated index identity does not match canonical Markdown")
-            if memory.scope not in {"global", scope} or memory.status != "active":
+            if memory.scope not in {"global", scope} or not recall_eligible(
+                memory, episode_days=episode_days, now=now
+            ):
                 continue
             importance = getattr(memory, "importance", row["importance"] or "normal")
             if importance not in {"low", "normal", "high"}:

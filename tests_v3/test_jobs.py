@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 from ai_dememory.core import CoreServices
 from ai_dememory.jobs import LearningJobs
+from ai_dememory.providers import ProviderEngine, usage_summary
 from ai_dememory.proposals import ProposalStore
 from ai_dememory.settings import load_settings, save_settings
 from ai_dememory.vault import Vault, VaultError, _exclusive_write_lock
@@ -42,9 +43,13 @@ class LearningJobsTests(unittest.TestCase):
             "primary": "local", "fallback": [], "max_output_tokens": 1000}
         save_settings(self.vault, settings)
 
-    def schedule(self, enabled=True, hours=168, scope="global"):
+    def schedule(self, enabled=True, hours=168, scope="global", *, target_mode=None,
+                 scopes=None, include_global=False):
         settings = load_settings(self.vault)
-        settings["schedule"] = {"enabled": enabled, "interval_hours": hours, "scope": scope}
+        schedule = {"enabled": enabled, "interval_hours": hours, "scope": scope}
+        if target_mode is not None:
+            schedule.update(target_mode=target_mode, scopes=scopes or [], include_global=include_global)
+        settings["schedule"] = schedule
         save_settings(self.vault, settings)
 
     def remember(self, text, scope="global", key=None, supersedes=None):
@@ -260,13 +265,27 @@ class LearningJobsTests(unittest.TestCase):
             self.jobs.consolidate()
         self.assertEqual(ProposalStore(self.vault).count(), 0)
 
-    def test_project_content_never_enters_unscoped_review_proposals(self):
+    def test_project_summary_proposal_is_scoped_and_source_linked(self):
         self.remember("Project private first statement.", "project:one")
         self.remember("Project private second statement.", "project:one")
         self.route()
+        settings = load_settings(self.vault)
+        settings["consolidation"]["project_summaries"] = True
+        save_settings(self.vault, settings)
+        sources = self.services.list_memories("project:one")
+        self.output({"summary": {"title": "Project summary", "content": "Project private summary.",
+                                 "memory_ids": [row["memory_id"] for row in sources]}})
+        self.assertEqual(self.jobs.consolidate("project:one")["proposals"], 1)
+        proposal = ProposalStore(self.vault).list()[0]
+        self.assertEqual(proposal.scope, "project:one")
+        self.assertEqual(set(proposal.source_revisions), {row["memory_id"] for row in sources})
+
+    def test_project_cleanup_with_a_global_route_never_calls_a_model_without_opt_in(self):
+        self.remember("Project duplicate", "project:one")
+        self.remember("Project second statement", "project:one")
+        self.route()
         self.assertTrue(self.jobs.consolidate("project:one")["no_op"])
         self.factory.assert_not_called()
-        self.assertEqual(ProposalStore(self.vault).count(), 0)
 
     def test_schedule_survives_restart_and_reschedules_interval(self):
         self.schedule()
@@ -354,6 +373,126 @@ class LearningJobsTests(unittest.TestCase):
         self.schedule(hours=24, scope="project:two")
         self.assertEqual(self.jobs.schedule_status(resumed)["next_run_at"],
                          (resumed + timedelta(hours=24)).isoformat().replace("+00:00", "Z"))
+
+    def test_legacy_schedule_shape_remains_fixed_scope(self):
+        self.schedule(hours=1, scope="project:one")
+        saved = load_settings(self.vault)["schedule"]
+        self.assertEqual(saved, {"enabled": True, "interval_hours": 1, "scope": "project:one"})
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        with patch.object(self.jobs, "consolidate", return_value={"no_op": True}) as work:
+            result = self.jobs.run_due(due)
+        self.assertEqual(result["scope"], "project:one")
+        work.assert_called_once_with("project:one", None)
+
+    def test_selected_and_all_project_schedules_exclude_global_without_opt_in(self):
+        for scope in ("global", "project:one", "project:two", "project:three"):
+            for title in ("Original", "Copy"):
+                memory = self.vault.remember("Same scoped item", title)
+                self.vault._write_memory(replace(memory, scope=scope))
+        self.schedule(hours=1, target_mode="selected_projects",
+                      scopes=["project:two", "project:one"])
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        selected = self.jobs.run_due(due)
+        self.assertEqual([item["scope"] for item in selected["scope_results"]],
+                         ["project:one", "project:two"])
+        self.assertEqual(len(self.services.list_memories("global")), 2)
+        self.schedule(hours=1, target_mode="all_project_scopes")
+        due = self.jobs.schedule_status(due)["next_run_at"]
+        all_projects = self.jobs.run_due(due)
+        self.assertEqual({item["scope"] for item in all_projects["scope_results"]},
+                         {"project:one", "project:two", "project:three"})
+        self.assertEqual(len(self.services.list_memories("global")), 2)
+        self.schedule(hours=1, target_mode="selected_projects", scopes=["project:one"],
+                      include_global=True)
+        due = self.jobs.schedule_status(due)["next_run_at"]
+        opted_in = self.jobs.run_due(due)
+        self.assertEqual({item["scope"] for item in opted_in["scope_results"]},
+                         {"global", "project:one"})
+
+    def test_multi_scope_cursor_rotates_across_restart_and_failure(self):
+        scopes = [f"project:{name}" for name in ("one", "two", "three", "four")]
+        ordered = sorted(scopes)
+        self.schedule(hours=1, target_mode="selected_projects", scopes=scopes)
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        with patch.object(self.jobs, "consolidate", return_value={"no_op": True}) as work:
+            first = self.jobs.run_due(due)
+        self.assertEqual([row["scope"] for row in first["scope_results"]], ordered[:3])
+        self.assertEqual(work.call_count, 3)
+        restarted = LearningJobs(self.services, self.factory)
+        later = self.now + timedelta(hours=2)
+        with patch.object(restarted, "consolidate", side_effect=[ValueError("private"),
+                                                                  {"no_op": True}, {"no_op": True}]):
+            second = restarted.run_due(later)
+        self.assertEqual([row["scope"] for row in second["scope_results"]],
+                         [ordered[3], ordered[0], ordered[1]])
+        self.assertEqual(second["scope_results"][0]["error"], "consolidation_failed")
+        self.assertEqual(restarted._state()["schedule_cursor"], ordered[1])
+
+    def test_multi_scope_provider_budget_is_shared(self):
+        self.route()
+        settings = load_settings(self.vault)
+        settings["budgets"]["daily_calls"] = 1
+        settings["consolidation"]["project_summaries"] = True
+        settings["schedule"] = {"enabled": True, "interval_hours": 1, "scope": "global",
+                                "target_mode": "selected_projects",
+                                "scopes": ["project:one", "project:two"], "include_global": False}
+        save_settings(self.vault, settings)
+        for scope in ("project:one", "project:two"):
+            self.remember("First " + scope, scope)
+            self.remember("Second " + scope, scope)
+
+        def transport(*_args):
+            return {"choices": [{"message": {"content": '{"summary": null}'}}]}
+
+        jobs = LearningJobs(self.services, lambda vault: ProviderEngine(vault, transport=transport))
+        due = jobs.schedule_status(self.now)["next_run_at"]
+        due_at = datetime.fromisoformat(due.replace("Z", "+00:00"))
+        with patch("ai_dememory.providers._day", return_value="2026-09-06"):
+            result = jobs.run_due(due)
+            self.assertEqual(usage_summary(self.vault)["calls"], 1)
+        self.assertEqual(result["scope_results"][1]["error"], "budget_exhausted")
+        self.assertEqual(jobs._state()["schedule_cursor"], "project:one")
+        with patch("ai_dememory.providers._day", return_value="2026-09-07"):
+            next_day = jobs.run_due(due_at + timedelta(hours=1))
+        self.assertEqual(next_day["scope_results"][0]["scope"], "project:two")
+        self.assertNotIn("error", next_day["scope_results"][0])
+
+    def test_impossible_first_budget_target_yields_to_a_smaller_scope_after_restart(self):
+        self.route()
+        settings = load_settings(self.vault)
+        settings["consolidation"]["project_summaries"] = True
+        settings["budgets"]["daily_tokens"] = 2600
+        settings["schedule"] = {"enabled": True, "interval_hours": 24, "scope": "global",
+                                "target_mode": "selected_projects",
+                                "scopes": ["project:large", "project:small"], "include_global": False}
+        save_settings(self.vault, settings)
+        for text in ("x" * 3_000, "y" * 3_000):
+            self.vault.remember(text, "Large source", scope="project:large")
+        self.remember("Small first statement.", "project:small")
+        self.remember("Small second statement.", "project:small")
+
+        def transport(*_args):
+            return {"choices": [{"message": {"content": '{"summary": null}'}}]}
+
+        jobs = LearningJobs(self.services, lambda vault: ProviderEngine(vault, transport=transport))
+        due = jobs.schedule_status(self.now)["next_run_at"]
+        first = jobs.run_due(due)
+        self.assertEqual(first["scope_results"], [{"scope": "project:large", "error": "budget_exhausted", "no_op": False}])
+        self.assertEqual(jobs._state()["schedule_cursor"], "project:large")
+
+        restarted = LearningJobs(self.services, lambda vault: ProviderEngine(vault, transport=transport))
+        next_day = datetime.fromisoformat(due.replace("Z", "+00:00")) + timedelta(days=1)
+        with patch("ai_dememory.providers._day", return_value="2026-09-07"):
+            second = restarted.run_due(next_day)
+        self.assertEqual(second["scope_results"][0]["scope"], "project:small")
+        self.assertNotIn("error", second["scope_results"][0])
+        self.assertEqual(restarted._state()["schedule_cursor"], "project:small")
+
+    def test_manual_global_run_does_not_postpone_a_multi_project_schedule(self):
+        self.schedule(hours=24, target_mode="selected_projects", scopes=["project:one"])
+        due = self.jobs.schedule_status(self.now)["next_run_at"]
+        self.jobs.run_consolidation("global", now=self.now + timedelta(hours=3))
+        self.assertEqual(self.jobs.schedule_status(self.now + timedelta(hours=3))["next_run_at"], due)
 
     def test_schedule_scope_validation_is_atomic_and_absence_means_global(self):
         settings = load_settings(self.vault)

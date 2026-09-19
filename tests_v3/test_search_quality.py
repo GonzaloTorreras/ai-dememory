@@ -121,6 +121,46 @@ class SearchQualityTests(V3TestCase):
 
         self.assertEqual(hit.details["matching_terms"], ["deployment"])
 
+    def test_expired_high_priority_memory_is_not_disclosed(self) -> None:
+        vault = self._vault()
+        expired = vault.remember(
+            "release target", "EXPIRED high priority", importance="high",
+            expires_at="2000-01-01T01:00:00+01:00",
+        )
+        vault.remember("release target padding", "Eligible")
+
+        hits = SearchIndex(vault).search("release target", limit=5)
+
+        self.assertEqual([hit.title for hit in hits], ["Eligible"])
+        self.assertEqual(vault.get(expired.memory_id).expires_at, "2000-01-01T00:00:00Z")
+        self.assertNotIn("EXPIRED", repr([hit.to_dict() for hit in hits]))
+
+    def test_episode_window_filters_before_limit_without_changing_history(self) -> None:
+        vault = self._vault()
+        with patch("ai_dememory.vault.utc_now", return_value="2020-01-01T00:00:00Z"):
+            episode = vault.remember(
+                "release target", "Old episode", importance="high", memory_kind="episode"
+            )
+        vault.remember("release target padding", "Current lesson")
+        index = SearchIndex(vault)
+
+        self.assertEqual(index.search("release target", limit=1, episode_days=0)[0].title, "Old episode")
+        self.assertEqual(index.search("release target", limit=1, episode_days=30)[0].title, "Current lesson")
+        historical = vault.get(episode.memory_id)
+        self.assertEqual((historical.status, historical.memory_kind, vault.memory_count()), ("active", "episode", 2))
+
+    def test_legacy_invalid_episode_date_is_retained(self) -> None:
+        vault = self._vault()
+        episode = vault.remember("legacy target", "Legacy episode", memory_kind="episode")
+        episode.path.write_text(
+            episode.path.read_text(encoding="utf-8").replace(episode.created_at, "legacy-date"),
+            encoding="utf-8",
+        )
+
+        hits = SearchIndex(vault).search("legacy", episode_days=30)
+
+        self.assertEqual([hit.title for hit in hits], ["Legacy episode"])
+
 
 class HarnessPromptQualityTests(V3TestCase):
     def _vault(self) -> Vault:

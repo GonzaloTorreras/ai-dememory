@@ -240,10 +240,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 from ai_dememory.provider_plugins import provider_descriptions
                 from ai_dememory.scheduled import receipt_status
                 from ai_dememory.projects import scope_labels
+                from ai_dememory.proposals import ProposalStore
                 scopes = self.server.scopes()
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
+                    "proposals": [p.to_dict() for p in ProposalStore(self.server.services.vault).list()
+                                  if p.scope == scope][:100],
                     "settings": settings,
                     "credentials": self.server.credential_status(settings),
                     "schedule": self.server.jobs.schedule_status(),
@@ -342,9 +345,21 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if path == "/api/recall":
             return services.search(data.get("query"), limit=10, scope=scope)
         if path == "/api/memory/quality":
-            if set(data) != {"memory_id", "scope", "importance"}:
-                raise ValueError("Expected memory_id, scope and importance")
-            return services.vault.set_importance(data["memory_id"], scope, data["importance"])
+            if not {"memory_id", "scope"} <= data.keys() or set(data) - {"memory_id", "scope", "importance", "memory_kind", "expires_at"}:
+                raise ValueError("Expected memory identity and quality fields")
+            return services.vault.update_quality(data["memory_id"], scope,
+                      {key: value for key, value in data.items() if key not in {"memory_id", "scope"}})
+        if path == "/api/proposals/decide":
+            from ai_dememory.proposals import ProposalStore
+            if set(data) != {"proposal_id", "scope", "accept"} or type(data["accept"]) is not bool or not isinstance(data["proposal_id"], str):
+                raise ValueError("Expected proposal_id, scope and accept")
+            validate_scope(scope)
+            store = ProposalStore(services.vault)
+            proposal = store.get(data["proposal_id"])
+            if proposal is None or proposal.scope != scope:
+                raise ValueError("Proposal not found in the requested scope")
+            decided, memory = store.decide(proposal.proposal_id, data["accept"])
+            return {"proposal": decided.to_dict(), "memory": memory.to_dict() if memory else None}
         if path == "/api/learn":
             event = uuid4().hex
             content = data.get("content")
@@ -352,7 +367,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                                   {"provider": "workbench", "session": self.server.session,
                                    "turn": event, "evidence_kind": "user_statement",
                                    "excerpt": content.encode("utf-8")[:300].decode("utf-8", errors="ignore") if isinstance(content, str) else ""},
-                                  event, key=data.get("key"), importance=data.get("importance"), importance_origin="user")
+                                  event, key=data.get("key"), importance=data.get("importance"), importance_origin="user",
+                                  memory_kind=data.get("memory_kind", "unspecified"), expires_at=data.get("expires_at"))
         if path == "/api/forget":
             return services.forget(data.get("memory_id"), scope)
         if path == "/api/extract":

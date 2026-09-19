@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import datetime, timedelta, timezone
 
 
 def validate_importance(value: str) -> str:
@@ -50,3 +51,35 @@ def confidence_status(memory) -> str:
     if memory.confidence.get("revision") != evidence_revision(memory.title, memory.content, memory.source):
         return "stale"
     return "advisory"
+
+
+def validate_lifecycle(kind: str, expires_at: str | None) -> tuple[str, str | None]:
+    if not isinstance(kind, str) or kind not in ("durable", "episode", "unspecified"):
+        raise ValueError("Memory kind must be durable, episode or unspecified")
+    if expires_at is not None:
+        if not isinstance(expires_at, str) or len(expires_at) > 40:
+            raise ValueError("Expiry must be an ISO timestamp with a timezone")
+        try:
+            date = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if date.tzinfo is None:
+                raise ValueError("Expiry needs a timezone")
+            expires_at = date.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        except (ValueError, OverflowError) as exc:
+            raise ValueError("Expiry must be an ISO timestamp with a timezone") from exc
+    return kind, expires_at
+
+
+def recall_eligible(memory, episode_days: int = 0, now: datetime | None = None) -> bool:
+    now = now or datetime.now(timezone.utc)
+    if memory.status != "active":
+        return False
+    if memory.expires_at and datetime.fromisoformat(memory.expires_at.replace("Z", "+00:00")) <= now:
+        return False
+    if episode_days and memory.memory_kind == "episode":
+        try:
+            created = datetime.fromisoformat(memory.created_at.replace("Z", "+00:00"))
+            if created.tzinfo is not None and created < now - timedelta(days=episode_days):
+                return False
+        except ValueError:
+            pass  # Unknown historical dates are not invented.
+    return True

@@ -329,15 +329,17 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 ## Consolidation
 
-Choose the **Scheduled scope**, enable the schedule, choose hours (24 daily,
-168 weekly), and save. There is one saved schedule per vault. It processes only
-that scope, independently of the browsing scope above. Select a project by
-name; to add an empty scope, use **New scope** above first. Settings and cadence persist across restarts, and
-missed runs coalesce into one run on resume.
+Choose **Fixed scope**, **Selected projects** or **All projects**, choose hours
+(24 daily, 168 weekly), enable and save. There is still one schedule per vault,
+independent of the browsing scope. Multi-project schedules visit at most three
+scopes per interval and rotate across restarts; a large selection is not all
+visited each week. Global is a separate opt-in. Budget exhaustion resumes with
+the deferred scope at the next interval. Missed runs coalesce, not accumulate.
 
 **Run now** names the browsing scope it will process. Running another scope
-does not postpone the saved schedule. Running the scheduled scope starts its
-next interval, as do changing the scheduled scope or re-enabling the schedule.
+does not postpone the saved schedule. In fixed-scope mode, running the scheduled
+scope starts its next interval, as do retargeting or re-enabling the schedule.
+Manual runs never postpone a multi-project schedule.
 Changing only the interval uses the same schedule's prior cadence anchor, not
 the most recent run of an unrelated scope. Latest run shows its own scope
 separately from the saved scheduled scope.
@@ -347,9 +349,19 @@ exact duplicate unkeyed records without correction ancestry. Keyed/corrected
 records are preserved. With a configured consolidation route, global memory may
 also produce at most one shorter, source-linked review proposal. It does not
 automatically rewrite summaries or consume pending proposals.
-Project-scope cleanup is deterministic and makes no model calls, even when a
-global consolidation route is configured. Retired duplicates remain in memory
-history; cleanup does not delete their Markdown files.
+Project cleanup stays model-free unless **Enable model-generated summaries for
+project memories** is explicitly checked. That authorizes the configured route
+and fallbacks to receive up to eight complete selected memories (20,000 content
+characters). Pending summaries appear only in their own scope; accepting one
+checks that its sources still exist, are current and unexpired. It never
+overwrites the originals. Retired duplicates remain inspectable in history.
+
+Use **Memory kind** to distinguish durable lessons from dated episodes, and
+**Expires at** for an explicit expiry. Dates entered in the UI use the browser's
+local timezone. Expired memories disappear from normal recall, not from disk;
+**Include history** lets you inspect them and clear expiry. An optional **Episode
+recall window** hides old episodes only; zero (the default) disables it. Existing
+unclassified records are not automatically reclassified or expired.
 
 The foreground server runs due jobs; closing the browser tab is fine. An
 [optional Windows task](automation.md) checks consolidation hourly without the

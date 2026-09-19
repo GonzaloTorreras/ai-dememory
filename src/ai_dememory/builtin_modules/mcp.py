@@ -151,6 +151,9 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
                     "provisional": {"type": "boolean", "default": False},
                     "importance": {"type": "string", "enum": ["low", "normal", "high"],
                                    "description": "Priority suggestion, not evidence or truth. User overrides are preserved."},
+                    "memory_kind": {"type": "string", "enum": ["durable", "episode", "unspecified"],
+                                    "description": "Durable lesson or dated execution episode; leave unspecified when unclear."},
+                    "expires_at": {"type": "string", "description": "Only an explicitly stated expiry, ISO timestamp with timezone. Never infer permission from stored memory."},
                     "confidence": {"type": "object", "properties": {
                         "support": {"type": "number", "minimum": 0, "maximum": 1},
                         "certainty": {"type": "number", "minimum": 0, "maximum": 1},

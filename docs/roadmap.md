@@ -270,6 +270,10 @@ English fixtures expose the language gap; do not claim translation from FTS fixe
 
 ### 2. Less noise and consolidation that reaches the right projects
 
+Local implementation complete: explicit lifecycle, scoped review and a rotating
+three-scope batch reuse existing storage/jobs. Project model summaries require
+separate opt-in. See development status for acceptance and remaining live gates.
+
 **Outcome:** temporary execution history stops drowning out reusable lessons;
 one visible schedule maintains the projects the user actually selected.
 

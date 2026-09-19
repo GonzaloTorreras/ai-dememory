@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0 };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0, scopes: [] };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -93,6 +93,24 @@ function importanceOptions(selected = 'normal') {
   select.value = ['low', 'normal', 'high'].includes(selected) ? selected : 'normal';
   return select;
 }
+function memoryKindOptions(selected = 'unspecified') {
+  const select = element('select');
+  for (const [value, label] of [['unspecified', 'Unspecified'], ['durable', 'Durable lesson'], ['episode', 'Episode or status']]) select.add(new Option(label, value));
+  select.value = ['unspecified', 'durable', 'episode'].includes(selected) ? selected : 'unspecified';
+  return select;
+}
+function localDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const part = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}`;
+}
+function isoDateTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 function confidenceLabel(memory) {
   const confidence = memory.confidence && typeof memory.confidence === 'object' ? memory.confidence : {};
   const label = confidence.label || confidence.assessment_label || memory.confidence_label;
@@ -156,22 +174,34 @@ function renderMemories(memories) {
     const source = memory.source || {};
     const metadata = [scopeLabel(memory.scope), source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
     if (memory.key) metadata.push(`Key: ${memory.key}`);
+    if (memory.memory_kind && memory.memory_kind !== 'unspecified') metadata.push(memory.memory_kind === 'episode' ? 'Episode' : 'Durable lesson');
+    if (memory.expires_at) metadata.push(`Expires: ${timestamp(memory.expires_at)}`);
     card.append(element('p', metadata.join(' · '), 'hint'));
     const reason = matchingReason(memory);
     if (reason) card.append(element('p', reason, 'hint'));
     const quality = element('div', undefined, 'memory-quality');
     const priority = importanceOptions(memory.importance || 'normal');
     const priorityLabel = element('label', 'Priority'); priorityLabel.append(priority);
+    const kind = memoryKindOptions(memory.memory_kind);
+    const kindLabel = element('label', 'Memory kind'); kindLabel.append(kind);
+    const originalExpiryLocal = localDateTime(memory.expires_at);
+    const expiry = element('input'); expiry.type = 'datetime-local'; expiry.value = originalExpiryLocal;
+    const expiryLabel = element('label', 'Expires at'); expiryLabel.append(expiry);
     const origin = memory.importance_origin || 'default';
     const priorityNote = origin === 'host' ? `Host suggestion: ${priority.value[0].toUpperCase() + priority.value.slice(1)}. Save priority to apply it as your setting.` : `Priority is ${priorityOriginLabel(origin)} and is not truth.`;
-    quality.append(priorityLabel, element('p', `Confidence: ${confidenceLabel(memory)}. ${priorityNote}`, 'hint'));
+    quality.append(priorityLabel, kindLabel, expiryLabel, element('p', `Confidence: ${confidenceLabel(memory)}. ${priorityNote} Expiry hides a memory from normal recall; it does not delete it.`, 'hint quality-note'));
     const savePriority = async (reset = false) => {
       if (reset) priority.value = 'normal';
-      await request('/api/memory/quality', { memory_id: memory.memory_id, scope: memory.scope || state.scope, importance: priority.value });
+      const payload = { memory_id: memory.memory_id, scope: memory.scope || state.scope, importance: priority.value };
+      if (!reset) {
+        payload.memory_kind = kind.value;
+        payload.expires_at = expiry.value === originalExpiryLocal ? memory.expires_at || null : isoDateTime(expiry.value);
+      }
+      await request('/api/memory/quality', payload);
       await refresh(); notify(reset ? 'Priority reset to Normal.' : 'Priority saved.');
     };
     const qualityActions = element('div', undefined, 'actions');
-    qualityActions.append(button('Save priority', () => perform(() => savePriority())), button('Reset to normal', () => perform(() => savePriority(true))));
+    qualityActions.append(button('Save changes', () => perform(() => savePriority())), button('Reset priority', () => perform(() => savePriority(true))));
     quality.append(qualityActions); card.append(quality);
     const details = element('details');
     details.append(element('summary', 'Source & technical details'));
@@ -233,9 +263,32 @@ function renderSettings() {
   $('#daily-usd').value = settings.budgets.daily_usd;
   $('#importance-weight').value = Number.isFinite(settings.ranking?.importance_weight) ? settings.ranking.importance_weight : 0.15;
   $('#confidence-weight').value = 0;
+  $('#episode-recall-days').value = settings.lifecycle?.episode_recall_days ?? 0;
+  $('#project-summaries').checked = Boolean(settings.consolidation?.project_summaries);
   $('#schedule-enabled').checked = settings.schedule.enabled;
   $('#interval-hours').value = settings.schedule.interval_hours;
   $('#schedule-scope').value = settings.schedule.scope;
+  $('#schedule-mode').value = settings.schedule.target_mode || 'fixed';
+  $('#schedule-include-global').checked = Boolean(settings.schedule.include_global);
+  updateScheduleTargetControls();
+}
+function renderScheduleProjectTargets(scopes, schedule) {
+  const list = $('#schedule-project-list'), selected = new Set(schedule.scopes || []);
+  list.replaceChildren();
+  const projects = scopes.filter((scope) => scope.startsWith('project:'));
+  for (const scope of projects) {
+    const label = element('label', undefined, 'check');
+    const input = element('input'); input.type = 'checkbox'; input.value = scope; input.checked = selected.has(scope);
+    label.append(input, document.createTextNode(scopeLabel(scope))); list.append(label);
+  }
+  if (!projects.length) list.append(element('p', 'No project scopes are known yet. Use a project scope above first.', 'hint'));
+  updateScheduleTargetControls();
+}
+function updateScheduleTargetControls() {
+  const mode = $('#schedule-mode').value, fixed = mode === 'fixed';
+  $('#schedule-fixed-target').hidden = !fixed;
+  $('#schedule-project-targets').hidden = fixed;
+  $('#schedule-project-list').hidden = mode !== 'selected_projects';
 }
 function parseFallback(value) { return value.split(',').map((id) => id.trim()).filter(Boolean); }
 function collectSettings() {
@@ -246,7 +299,16 @@ function collectSettings() {
   });
   state.settings.budgets = { daily_calls: Number($('#daily-calls').value), daily_tokens: Number($('#daily-tokens').value), daily_usd: Number($('#daily-usd').value) };
   state.settings.ranking = { ...(state.settings.ranking || {}), importance_weight: Number($('#importance-weight').value), confidence_weight: 0 };
-  state.settings.schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
+  state.settings.lifecycle = { ...(state.settings.lifecycle || {}), episode_recall_days: Number($('#episode-recall-days').value) };
+  state.settings.consolidation = { ...(state.settings.consolidation || {}), project_summaries: $('#project-summaries').checked };
+  const schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
+  const targetMode = $('#schedule-mode').value;
+  if (targetMode !== 'fixed') {
+    schedule.target_mode = targetMode;
+    schedule.scopes = targetMode === 'selected_projects' ? [...document.querySelectorAll('#schedule-project-list input:checked')].map((input) => input.value) : [];
+    schedule.include_global = $('#schedule-include-global').checked;
+  }
+  state.settings.schedule = schedule;
 }
 function openProvider(id = '') {
   collectSettings(); const form = $('#provider-form'); form.reset(); form.dataset.editId = id; form.dataset.suggestedId = '';
@@ -354,9 +416,12 @@ function dialogError(id, message) { $(id).textContent = message; $(id).hidden = 
 function renderOperational(data) {
   const schedule = data.schedule || {}, facts = $('#schedule-status'); facts.replaceChildren();
   const result = schedule.last_result;
+  const scheduledTarget = schedule.target_mode === 'selected_projects' ? 'Selected projects' : schedule.target_mode === 'all_project_scopes' ? 'All project scopes' : scopeLabel(schedule.scope);
   $('#task-status').textContent = data.scheduled_task?.installed_receipt ? 'Windows task installation recorded. Live health is not polled here; use the status command below. Pausing this schedule stops future consolidation.' : 'No Windows task installation recorded for this vault. Automatic consolidation currently needs the workbench or an external one-shot runner.';
-  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': scopeLabel(schedule.scope), 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope ? scopeLabel(schedule.last_run_scope) : 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': scheduledTarget, 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope ? scopeLabel(schedule.last_run_scope) : 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  if (Number.isInteger(schedule.target_count)) values.Targets = `${schedule.target_count} total · ${schedule.processed_count || 0} visited this run · ${schedule.remaining_count || 0} not visited this run`;
   Object.entries(values).forEach(([label, value]) => facts.append(element('dt', label), element('dd', value)));
+  renderScheduleScopeResults(schedule.scope_results);
   const usage = data.usage || {}, grid = $('#usage'); grid.replaceChildren();
   [['Calls', number(usage.calls)], ['Tokens', number(usage.tokens)], ['Estimated USD', Number(usage.cost_usd || 0).toFixed(4)]].forEach(([label, value]) => { const item = element('div', undefined, 'usage-item'); item.append(element('span', label), element('strong', value)); grid.append(item); });
   const rows = $('#activity-rows'); rows.replaceChildren();
@@ -367,6 +432,43 @@ function renderOperational(data) {
   }
   if (!rows.children.length) emptyRow(rows, 6, 'No provider calls yet. Activity appears after extraction or model consolidation.');
 }
+function resultSummary(result) {
+  if (!result || typeof result !== 'object') return 'No result recorded.';
+  if (result.error) return `Error: ${String(result.error).slice(0, 180)}`;
+  const parts = [];
+  if (Number.isFinite(result.cleaned)) parts.push(`${result.cleaned} duplicates removed`);
+  if (Number.isFinite(result.proposals)) parts.push(`${result.proposals} proposals`);
+  if (result.no_op) parts.push('No changes needed');
+  return parts.join(' · ') || 'Completed.';
+}
+function renderScheduleScopeResults(scopeResults) {
+  const list = $('#schedule-scope-results'); list.replaceChildren();
+  const entries = Array.isArray(scopeResults) ? scopeResults.map((item) => [item.scope, item]) : Object.entries(scopeResults || {});
+  list.hidden = !entries.length;
+  for (const [scope, result] of entries.slice(0, 100)) {
+    const card = element('article', undefined, 'schedule-result');
+    card.append(element('strong', scopeLabel(scope)), element('p', resultSummary(result), 'hint'));
+    list.append(card);
+  }
+}
+function renderProposals(proposals) {
+  const list = $('#proposal-list'); list.replaceChildren();
+  if (!proposals.length) { list.append(element('p', 'No proposals for this scope.', 'hint')); return; }
+  for (const proposal of proposals) {
+    const card = element('article', undefined, 'memory-card');
+    card.append(element('h3', proposal.title || 'Untitled proposal'), element('p', proposal.content || ''));
+    card.append(element('p', `Scope: ${scopeLabel(proposal.scope || state.scope)} · ${proposal.status || 'pending'}`, 'hint'));
+    if (proposal.status === 'pending') {
+      const actions = element('div', undefined, 'actions');
+      for (const [label, accept] of [['Accept', true], ['Reject', false]]) actions.append(button(label, () => perform(async () => {
+        await request('/api/proposals/decide', { proposal_id: proposal.proposal_id, scope: proposal.scope || state.scope, accept });
+        await refresh(); notify(accept ? 'Proposal accepted.' : 'Proposal rejected.');
+      })));
+      card.append(actions);
+    }
+    list.append(card);
+  }
+}
 async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
@@ -375,7 +477,8 @@ async function refresh() {
   state.scopeLabels = data.scope_labels || {};
   renderModules(data);
   const scheduledScope = state.dirty ? $('#schedule-scope').value : data.settings.schedule.scope;
-  const scopes = [...new Set([...(data.scopes || ['global']), state.scope, scheduledScope])].filter(Boolean);
+  const scopes = [...new Set([...(data.scopes || ['global']), ...(data.settings.schedule.scopes || []), state.scope, scheduledScope])].filter(Boolean);
+  state.scopes = scopes;
   scopes.sort((a, b) => a === 'global' ? -1 : b === 'global' ? 1 : scopeLabel(a).localeCompare(scopeLabel(b)));
   $('#scope-selector').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
   $('#scope-selector').value = state.scope;
@@ -385,8 +488,8 @@ async function refresh() {
   $('#run-consolidation').textContent = `Run now in ${scopeLabel(state.scope)}`;
   renderSourceSchedules(data.source_schedules || []);
   state.codexRoot = data.codex_sessions_root;
-  if (!state.dirty) { state.settings = data.settings; renderSettings(); }
-  renderMemories(data.memories || []); renderOperational(data);
+  if (!state.dirty) { state.settings = data.settings; renderScheduleProjectTargets(scopes, data.settings.schedule); renderSettings(); }
+  renderMemories(data.memories || []); renderOperational(data); renderProposals(data.proposals || []);
 }
 
 $('#provider-form').addEventListener('submit', (event) => {
@@ -481,7 +584,11 @@ document.querySelectorAll('.save-settings').forEach((item) => item.addEventListe
   if (invalid) { location.hash = invalid.closest('.page').id; showPage(); invalid.reportValidity(); return; }
   collectSettings(); perform(async () => { await request('/api/settings', state.settings); markDirty(false); await refresh(); notify('Settings saved.'); });
 }));
-for (const id of ['providers', 'consolidation']) $( `#${id}`).addEventListener('input', () => markDirty());
+for (const id of ['providers', 'consolidation']) {
+  $( `#${id}`).addEventListener('input', () => markDirty());
+  $( `#${id}`).addEventListener('change', () => markDirty());
+}
+$('#schedule-mode').addEventListener('change', updateScheduleTargetControls);
 $('#add-provider').addEventListener('click', () => openProvider());
 $('#add-override').addEventListener('click', () => openOverride());
 $('#refresh').addEventListener('click', () => perform(async () => { await refresh(); notify(state.dirty ? 'Activity and memory refreshed. Your unsaved settings are preserved.' : 'Up to date.'); }));
@@ -513,7 +620,7 @@ $('#recall-form').addEventListener('submit', (event) => {
 });
 $('#remember-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget;
-  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope, importance: form.elements.importance.value || 'normal' };
+  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope, importance: form.elements.importance.value || 'normal', memory_kind: form.elements.memory_kind.value || 'unspecified', expires_at: isoDateTime(form.elements.expires_at.value) };
   if (form.elements.key.value.trim()) payload.key = form.elements.key.value.trim();
   perform(async () => { await request('/api/learn', payload); form.reset(); await refresh(); notify('Memory saved.'); });
 });

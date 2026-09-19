@@ -22,6 +22,8 @@ class Memory:
     importance: str = "normal"
     importance_origin: str = "default"
     confidence: dict[str, Any] = field(default_factory=dict)
+    memory_kind: str = "unspecified"
+    expires_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -54,6 +56,8 @@ class Proposal:
     status: str
     created_at: str
     path: Path
+    scope: str = "global"
+    source_revisions: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
