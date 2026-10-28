@@ -1,7 +1,42 @@
 # Development status
 
-Updated: 2026-09-19. This is the current handoff, not an accumulated backlog.
+Updated: 2026-10-29. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
+
+## Current audit and next action — 2026-10-29
+
+- Source remains `e7b2941` on `codex/v3-readable-project-scopes`, with the
+  pre-existing untracked `build/` preserved. No open PR was returned by the
+  GitHub connector today. Public main's Memory fields also lack the local fixes;
+  older public-release and main-commit readbacks below were not refreshed.
+- Read all 141 canonical memories and excerpts: 138 active, two superseded,
+  one forgotten, 12 populated project scopes and zero global records. No exact
+  normalized duplicate bodies; none has explicit importance/kind/expiry.
+- The installed `3.0.0a2` Memory model lacks the locally implemented quality
+  fields. Installed and source version strings are identical despite different
+  behavior. The existing weekly job selects empty global, last ran 2026-10-28
+  with no-op; no providers/routes/attempts exist. MCP host learning still works.
+- Private manifest accounts for every record: 43 keep, 22 split/reconcile,
+  73 review as episodes, three preserve inactive history, zero physical deletion.
+  Private corpus, IDs and decisions are outside Git. The manifest is a proposal,
+  not an applied cleanup or a recovery backup.
+- Shipping alone is insufficient: source extraction jobs still omit lifecycle
+  metadata and treat paraphrases differently from host learning. Align those
+  existing entry points in the planned admission slice rather than add a new
+  subsystem.
+- Seven positive retrieval probes on separate copies find the target in top
+  three, four put it first and six include a dated state candidate, in both
+  installed and source implementations. Two additional probes cover no answer
+  and missing knowledge. This is diagnosis, not a calibrated quality benchmark.
+- All 140 initial hashes matched after inspection. One concurrent completion
+  receipt was read and added; all 141 final hashes/count matched. Original runtime DB
+  was queried read-only. No vault/configuration/provider/task/runtime/release
+  changes or inference calls. Only audit/planning documentation is updated.
+- [Audit and acceptance](memory-quality-audit-2026-10-29.md); the sole active
+  [roadmap](roadmap.md) now orders actual delivery, one state-family repair,
+  reviewed cleanup, effective project maintenance, admission/recall, then optional
+  Jev reranking. Next action: prepare the existing fixes as one uniquely versioned
+  installable candidate and validate on a disposable vault before real cutover.
 
 ## Checkout and release reality
 

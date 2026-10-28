@@ -1,12 +1,11 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-09-19: improve the quality
-of memory already being learned, with importance, evidence confidence and an
-optional Jev evaluator. All three memory-quality slices are implemented locally,
-on top of the readable-project increment; they precede more ingestion,
-procedural export and networking. Jev remains manual/shadow-only with mock
-acceptance, not live model-quality proof. None of these new changes has been
-installed globally or published.
+This is the single active product plan. Updated 2026-10-29 after a complete
+[141-record memory audit](memory-quality-audit-2026-10-29.md). The three local
+memory-quality slices have not reached the installed runtime. Deliver them,
+reconcile current versus historical state and maintain populated project scopes
+before adding more ingestion, semantic reranking, procedural export or networking.
+Jev remains manual/shadow-only in source with mock acceptance.
 
 ## Product outcome
 
@@ -34,11 +33,23 @@ several hosts.
 
 ## Delivery sequence
 
-Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev),
-each with a working UI-to-core episode. Next: reviewed local installation and a
-small explicitly authorized live Jev evaluation with cost limits; confidence
-ranking stays zero until measured. The table below records earlier
-capabilities and remaining integration coverage; it is not a competing sequence.
+Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev).
+The installed runtime still lacks these fields/fixes and its weekly schedule
+targets global despite every stored memory being project-scoped. The next
+vertical slices are, in order:
+
+1. Deliver a uniquely versioned artifact and verify the actual CLI/MCP/hook/UI.
+2. Reconcile one reviewed current-state family with original evidence and undo.
+3. Apply the private 141-record cleanup manifest in bounded per-project batches;
+   preserve originals and extract useful claims before any episode expiry.
+4. Target populated projects with the existing scheduler and visible coverage.
+5. Improve single-claim admission, episode metadata, subject keys and scoped recall.
+6. Evaluate optional Jev reranking against a labeled baseline; confidence ranking
+   stays zero until measured. Live data/cost opt-in follows local fixtures.
+
+The [audit](memory-quality-audit-2026-10-29.md) gives acceptance and recovery
+criteria. It introduces no second backlog, DAG or command family. The table below
+records earlier capabilities and integration coverage, not a competing sequence.
 
 Earlier increment: show local project names across the workbench while retaining
 opaque internal scope IDs. Automatic host binding records bounded display-only
