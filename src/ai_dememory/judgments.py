@@ -21,7 +21,7 @@ from .vault import Vault, validate_scope
 
 
 MODEL = "jev-1.13.0"
-RUBRIC = "evidence-support-v1"
+RUBRIC = "evidence-support-v2"
 MAX_INPUT_CHARS = 8_000
 MAX_ATTEMPTS = 3
 TOTAL_TIMEOUT_SECONDS = 10
@@ -92,6 +92,8 @@ def _answer(data: dict, question_id: str, labels: tuple[str, ...]) -> dict:
     if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1 for value in values):
         raise ProviderError("invalid_response")
     if abs(sum(values) - 1) > 0.001:
+        raise ProviderError("invalid_response")
+    if probabilities[answer["choice"]] < max(values):
         raise ProviderError("invalid_response")
     return {"verdict": answer["choice"], "probabilities": probabilities, "certainty": certainty}
 

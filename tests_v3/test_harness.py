@@ -49,6 +49,7 @@ class HarnessTests(unittest.TestCase):
         self.assertIn("Thursday", context)
         self.assertNotIn("Sunday", context)
         self.assertIn("session=session-test", context)
+        self.assertIn("Preserve useful original-language terms", context)
         self.assertNotIn("must-not-open", context)
         self.assertEqual(self.vault.memory_count(), 2)
 

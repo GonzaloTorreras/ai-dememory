@@ -220,7 +220,9 @@ def instructions(bound_scope: str | None = None) -> str:
         "Label uncertain deductions as inference; they remain provisional. Use a correction key or "
         "supersedes only when an explicit correction identifies the earlier fact. memory.forget can undo "
         "a mistaken learning. Classify reusable facts/preferences as memory_kind=durable and dated outcomes as episode. "
-        "Do not save one-time permissions as reusable memory. Corrections inherit omitted lifecycle/expiry; "
+        "Do not save one-time permissions as reusable memory. "
+        "Preserve useful original-language terms and exact project/product identifiers in titles and claims. "
+        "Corrections inherit omitted lifecycle/expiry; "
         "clear expiry or reset kind explicitly in the memory editor."
     )
 

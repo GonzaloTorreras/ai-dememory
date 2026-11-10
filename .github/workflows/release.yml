@@ -116,29 +116,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish-testpypi:
-    needs: [validate, build]
-    if: needs.validate.outputs.prerelease == 'true'
-    runs-on: ubuntu-24.04
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/ai-dememory
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: python-release-${{ inputs.tag }}
-          path: release-bundle
-      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
-        with:
-          packages-dir: release-bundle/dist/
-          repository-url: https://test.pypi.org/legacy/
-
   publish-pypi:
     needs: [validate, build]
-    if: needs.validate.outputs.prerelease == 'false'
     runs-on: ubuntu-24.04
     environment:
       name: pypi
@@ -156,10 +135,7 @@ jobs:
           packages-dir: release-bundle/dist/
 
   verify-and-release:
-    needs: [validate, build, publish-testpypi, publish-pypi]
-    if: >-
-      always() && needs.build.result == 'success' &&
-      (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
+    needs: [validate, build, publish-pypi]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -175,9 +151,8 @@ jobs:
       - name: Verify published index package
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
-          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
-          if [[ "$PRERELEASE" == "true" ]]; then INDEX=https://test.pypi.org/simple/; else INDEX=https://pypi.org/simple/; fi
+          INDEX=https://pypi.org/simple/
           for attempt in {1..12}; do python -m pip install --no-cache-dir --index-url "$INDEX" "ai-dememory==$RELEASE_VERSION" && ai-dememory --version && exit 0; sleep 10; done
           exit 1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

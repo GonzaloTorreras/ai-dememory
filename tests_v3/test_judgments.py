@@ -89,8 +89,32 @@ class JudgmentEngineTests(V3TestCase):
         malformed["answers"]["support"]["probabilities"] = {"supports": 1}
         result = self.engine(lambda *args: malformed).evaluate(self.memory.memory_id, "project:alpha")
 
-        self.assertEqual((result["status"], result["reason"]), ("unassessed", "invalid_response"))
+        self.assertEqual((result["status"], result.get("reason")), ("unassessed", "invalid_response"))
         self.assertEqual(self.memory.path.read_text(encoding="utf-8"), before)
+
+    def test_choice_must_have_maximum_probability_but_ties_are_valid(self) -> None:
+        set_module_enabled("jev", True)
+        response = self.response()
+        response["answers"]["support"]["choice"] = "contradicts"
+        result = self.engine(lambda *args: response).evaluate(self.memory.memory_id, "project:alpha")
+        self.assertEqual((result["status"], result["reason"]), ("unassessed", "invalid_response"))
+
+        response["answers"]["support"]["probabilities"] = {"supports": 0.45, "contradicts": 0.45, "insufficient": 0.1}
+        result = self.engine(lambda *args: response).evaluate(self.memory.memory_id, "project:alpha")
+        self.assertEqual(result["status"], "assessed")
+
+    def test_pre_upgrade_cached_judgment_is_not_reused(self) -> None:
+        set_module_enabled("jev", True)
+        calls = []
+        engine = self.engine(lambda *args: calls.append(True) or self.response())
+        with patch("ai_dememory.judgments.RUBRIC", "evidence-support-v1"):
+            engine.evaluate(self.memory.memory_id, "project:alpha")
+
+        result = engine.evaluate(self.memory.memory_id, "project:alpha")
+
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(result["cache"]["hit"])
+        self.assertEqual(result["rubric"], "evidence-support-v2")
 
     def test_comparison_is_a_separate_request_without_self_corroboration(self) -> None:
         set_module_enabled("jev", True)

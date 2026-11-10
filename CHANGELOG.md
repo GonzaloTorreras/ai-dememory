@@ -5,6 +5,34 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a4] - 2026-11-10
+
+### Fixed
+
+- Accent-insensitive retrieval now keeps snippets and matching-term details
+  aligned with SQLite's Latin matching. Accented filler no longer consumes the
+  query budget; SQLite-distinct terms are preserved across scripts.
+- Capture guidance preserves useful original-language terms and exact domain
+  identifiers instead of relying on untranslated lexical queries to find them.
+- Reject inconsistent Jev Choice responses whose selected option is not one
+  of the highest-probability options; ties remain valid. Invalidate pre-upgrade
+  judgment caches. Clarify that the existing
+  network deadline is cooperative, not a hard process-kill guarantee.
+
+### Changed
+
+- Reviewed prereleases now publish to production PyPI while retaining their alpha
+  version and GitHub prerelease label. TestPyPI is no longer the delivery channel.
+- The approved tag workflow automatically dispatches the standalone trusted
+  publisher. Existing identity/CI/artifact checks, environment approval and OIDC
+  remain in place; no static token or additional release service.
+
+### Scope
+
+- Memory curation remains a private, reversible operation, never an install side
+  effect. Jev remains optional, disabled by default and shadow-only; no live model
+  quality or semantic translation/reranking is claimed by this release.
+
 ## [3.0.0a3] - 2026-11-10
 
 ### Added

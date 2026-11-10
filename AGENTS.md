@@ -53,6 +53,11 @@ local selector files and generated indexes must never be committed.
 - Prefer the native GitHub integration when available; `gh` is a fallback.
 - Do not merge, tag, publish, deploy, change visibility, rotate secrets or
   dispatch trusted publishing without explicit user approval for that gate.
+- The user has explicitly authorized routine maintainer-owned PR merges, tags
+  and PyPI releases for this repository, including prereleases. Use that standing
+  authority without repeated confirmation while it remains in effect. Exact-head
+  independent review, green CI and normal environment approval still apply;
+  deployment, secrets, visibility and destructive operations are not included.
 - Never force-push, rewrite published tags, weaken OIDC or bypass branch/tag
   protections. Package rollback is yank plus fix-forward, never replacement.
 

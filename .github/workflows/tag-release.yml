@@ -17,8 +17,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 concurrency:
   group: ai-dememory-release-tagger
@@ -27,6 +26,9 @@ concurrency:
 jobs:
   tag:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Validate explicit approval
         env:
@@ -64,8 +66,26 @@ jobs:
           APPROVED_SHA: ${{ inputs.approved_sha }}
         run: |
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
             test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$APPROVED_SHA"
             exit 0
           fi
           tag_sha="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$RELEASE_TAG" -f message="ai-dememory $RELEASE_TAG" -f object="$APPROVED_SHA" -f type=commit -f 'tagger[name]=ai-dememory release operator' -f 'tagger[email]=41898282+github-actions[bot]@users.noreply.github.com' --jq .sha)"
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$tag_sha"
+
+  publish:
+    needs: tag
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Start the standalone trusted publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f tag="$RELEASE_TAG" -f approved_sha="$APPROVED_SHA" \
+            -f confirm="publish-$RELEASE_TAG@$APPROVED_SHA"
