@@ -1,8 +1,8 @@
 # V3 development plan
 
 This is the single active product plan. Updated 2026-11-10. The memory-quality
-baseline shipped as `3.0.0a3`; `3.0.0a4` is published on production PyPI. The
-`3.0.0a5` increment recovers original-language evidence wording and adds optional
+baseline shipped as `3.0.0a3`; `3.0.0a5` is published on production PyPI. This
+increment recovers original-language evidence wording and adds optional
 Jev language/usefulness skills, module-owned settings and a public live pilot.
 Private curation/replay evidence stays outside this repository. Complete measured
 candidate coverage before semantic reranking or networking. Jev remains advisory;
@@ -39,8 +39,8 @@ The installed CLI, fresh MCP/hook and dashboard now include these fields/fixes.
 Reviewed cleanup remains reversible and separate from package installation.
 The current sequence is:
 
-1. Deliver `3.0.0a5` through the reviewed tag-to-PyPI workflow. Keep its alpha
-   label; no new user confirmation is needed for authorized routine releases.
+1. `3.0.0a5` delivery is complete through the reviewed tag-to-PyPI workflow.
+   Preserve its alpha label and verified receipts in development status.
 2. Reconnect long-lived clients so they load the updated package; fresh-process
    acceptance already passes. Runtime identity must be checked, not assumed.
 3. Continue the private manifest's mixed-record and scope reviews in bounded

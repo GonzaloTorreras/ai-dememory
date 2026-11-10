@@ -5,16 +5,23 @@ Private vault inventories, provider identities and replay data stay outside Git.
 
 ## Public baseline
 
-- Base `main`: `c12de9d3abda80d42b1e5a0d9c89c844e8e7b361`; PR #60 merged.
-- `3.0.0a4` is on production PyPI. Tag→standalone-publisher→OIDC→PyPI and exact
-  index installation passed in [run 42808325543](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/42808325543).
-- Its independently reviewed source had 345 tests, 340 passed / five expected
-  Windows symlink skips. The default product remains dependency-free and passive.
+- Published source: `9af5d6531134b0ccbabe936546657913a49780a8`; PR #61 merged.
+- `3.0.0a5` is on production PyPI and is a GitHub prerelease. Main
+  [CI](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/42820733961),
+  [tag](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/42821045067) and
+  [publisher](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/42821084174)
+  passed. Normal environment approval and OIDC were retained.
+- Public wheel SHA256: `10b45b23f4ff2da56202f97b303e0074da0c7611a5bb36fd5209e6266fcaaead`.
+  Downloads match PyPI JSON and GitHub SHA256SUMS. The exact published wheel is
+  installed locally; fresh MCP reports `3.0.0a5`, lifecycle/expired-context and
+  prompt-hook acceptance pass, and owned test children exit. Workbench HTTP is
+  healthy. Long-lived clients must reconnect; they are not silently reloaded.
+- The default product remains dependency-free and passive.
 
-## Current increment: bilingual evidence and Jev metadata skills
+## Delivered increment: bilingual evidence and Jev metadata skills
 
-- Branch `codex/v3-bilingual-jev-skills`, source version `3.0.0a5`.
-  Pre-existing untracked `build/` is preserved.
+- PR #61 completed on `codex/v3-bilingual-jev-skills`. The documentation receipt
+  is on `codex/v3-a5-delivery-receipt`; pre-existing untracked `build/` is preserved.
 - Existing FTS now projects literal evidence at lower weight. Source-only hits
   need every informative term; scopes/lifecycle still filter first. An explicit
   retrieval switch restores title/body-only matching. No translation service.
@@ -52,11 +59,11 @@ Private vault inventories, provider identities and replay data stay outside Git.
 
 ## Remaining acceptance / next action
 
-Finish full suite after final fixes, isolated wheel smoke and fresh exact-head
-review. Then green PR/main CI and ordinary maintainer-owned tag/PyPI workflow.
-A live Jev receipt is still pending: session credentials remain in the running
-workbench process and are never extracted/copied. Re-entry after a runtime
-restart is required; do not claim mock pilot scores as real model gains.
+Full-suite, clean-wheel, exact-head independent correctness/privacy review and
+publication acceptance are complete. Live Jev efficacy is still pending session
+credential re-entry after the dashboard update. Credentials are never extracted
+or copied; do not claim mock pilot scores as real model gains. Run only the
+confirmed public synthetic pilot before considering any private-memory processing.
 
 Keep scopes/automation off until explicitly configured. Do not add semantic
 fallback infrastructure merely because language tagging exists. See
