@@ -18,6 +18,31 @@ def profile(kind="plugin:example"):
 
 
 class ProviderPluginTests(unittest.TestCase):
+    def test_judge_capability_does_not_need_fake_generate(self):
+        provider = SimpleNamespace(validate=Mock(), describe=Mock(), list_models=Mock(), judge=Mock())
+        with patch("ai_dememory.provider_plugins.load_enabled_module", return_value=SimpleNamespace(get_provider=lambda: provider)):
+            self.assertIs(load_provider("plugin:example", capability="judge"), provider)
+            self.assertIs(load_provider("plugin:example", capability=None), provider)
+            with self.assertRaises(ValueError):
+                load_provider("plugin:example")
+
+    def test_judgment_configuration_is_optional_and_never_a_generation_route(self):
+        settings = copy.deepcopy(DEFAULT_SETTINGS)
+        del settings["judgment"]
+        self.assertEqual(validate_settings(settings)["judgment"]["scopes"], [])
+        settings["providers"]["jev"] = {"kind": "plugin:jev", "base_url": "https://api.typesafe.ai/v1",
+            "model": "jev-1.13.0", "auth": "environment", "api_key_env": "TYPESAFE_API_KEY"}
+        settings["judgment"] = {"primary": "jev", "fallback": [], "scopes": ["project:test"], "operations": ["support"]}
+        self.assertEqual(validate_settings(settings)["judgment"]["primary"], "jev")
+        settings["routes"]["extract"] = {"primary": "jev", "fallback": [], "max_output_tokens": 32}
+        with self.assertRaisesRegex(ValueError, "cannot generate"):
+            validate_settings(settings)
+        settings["routes"].clear()
+        for change in ({"operations": ["compare"]}, {"scopes": ["global", "global"]},
+                       {"fallback": ["jev"]}, {"primary": "missing"}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                validate_settings({**settings, "judgment": {**settings["judgment"], **change}})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -66,7 +91,7 @@ class ProviderPluginTests(unittest.TestCase):
             return SimpleNamespace(get_provider=lambda: SimpleNamespace(describe=lambda: {"label": "Custom", "base_url": "https://example.test/v1", "auth": "session"}))
         with patch("ai_dememory.provider_plugins.discover_modules", return_value=descriptors), \
                 patch("ai_dememory.provider_plugins.load_enabled_module", side_effect=module) as loader:
-            self.assertEqual(provider_descriptions(), [{"kind": "plugin:custom", "label": "Custom", "base_url": "https://example.test/v1", "auth": "session"}])
+            self.assertEqual(provider_descriptions(), [{"kind": "plugin:custom", "label": "Custom", "base_url": "https://example.test/v1", "auth": "session", "capabilities": []}])
             self.assertEqual([call.args[0] for call in loader.call_args_list], ["custom", "broken"])
 
     def test_codex_counts_budget_without_paid_api_fallback(self):

@@ -1,13 +1,17 @@
 """Local project identity shared by hooks, CLI and client-bound MCP.
 
-No subprocess, transcript reader or background registry. Automatic IDs derive
-from the local root; explicit aliases/exclusions live beside the vault selector.
+No subprocess or transcript reader. Automatic IDs derive from the local root;
+explicit aliases/exclusions live beside the vault selector. Display names are
+optional local metadata, never input to identity or access decisions.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
+import sqlite3
 import uuid
+from contextlib import closing
 from pathlib import Path
 
 from .config import config_dir, harness_enabled
@@ -93,9 +97,88 @@ def resolve_project(cwd):
     for alias in configured.values():
         if alias.get("scope") == scope:
             excluded.update(alias.get("excluded_clients", []))
-    return {"scope": validate_scope(scope), "root": str(root), "name": root.name,
+    # A linked worktree has a different folder name, but shares the main project.
+    name_root = common.parent if not chosen and common is not None and common.name == ".git" else root
+    return {"scope": validate_scope(scope), "root": str(root), "name": name_root.name,
             "reason": "configured" if chosen else "git_common_directory" if common else "workspace_directory",
             "excluded_clients": sorted(excluded)}
+
+
+def _display_name(value):
+    from .policy import reject_high_confidence_secrets
+    if not isinstance(value, str):
+        return ""
+    name = " ".join(value.split())[:120]
+    try:
+        reject_high_confidence_secrets(name)
+    except ValueError:
+        return ""
+    return name
+
+
+def remember_project_name(vault, project):
+    """Best-effort display metadata from a resolved host project, not a transcript.
+
+    Keep only a bounded basename, not its path or conversation contents. Failure
+    must not interrupt learning/recall. This table never binds or merges scopes.
+    """
+    from .settings import local_file
+    try:
+        scope = validate_scope(project["scope"])
+        name = _display_name(project["name"])
+        if not name:
+            return False
+        path = local_file(vault, "runtime.sqlite")
+        for suffix in ("-journal", "-wal", "-shm"):
+            local_file(vault, "runtime.sqlite" + suffix)
+        with closing(sqlite3.connect(path, timeout=0.05)) as db, db:
+            db.execute("CREATE TABLE IF NOT EXISTS project_names (scope TEXT PRIMARY KEY, name TEXT NOT NULL)")
+            if db.execute("SELECT name FROM project_names WHERE scope=?", (scope,)).fetchone() == (name,):
+                return True
+            db.execute("""INSERT INTO project_names VALUES (?,?) ON CONFLICT(scope)
+                DO UPDATE SET name=excluded.name WHERE name != excluded.name""", (scope, name))
+            db.execute("DELETE FROM project_names WHERE rowid NOT IN (SELECT rowid FROM project_names ORDER BY rowid DESC LIMIT 1000)")
+        return True
+    except (ValueError, OSError, sqlite3.Error):
+        return False
+
+
+def scope_labels(vault, scopes):
+    """Readable labels for UI only; callers must continue routing by raw scope."""
+    from .settings import local_file
+    names = {}
+    try:
+        path = local_file(vault, "runtime.sqlite")
+        if path.exists():
+            for suffix in ("-journal", "-wal", "-shm"):
+                local_file(vault, "runtime.sqlite" + suffix)
+            with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.05)) as db:
+                names.update(db.execute("SELECT scope,name FROM project_names LIMIT 1000"))
+    except (ValueError, OSError, sqlite3.Error):
+        pass
+    try:
+        for root, entry in sorted(bindings().items(), reverse=True):
+            if entry.get("scope"):
+                names[entry["scope"]] = Path(root).name
+    except (ValueError, OSError):
+        pass
+    labels = {}
+    for scope in scopes:
+        short = scope.removeprefix("project:")
+        labels[scope] = ("Global · shared" if scope == "global" else _display_name(names.get(scope))
+                         or ("Unnamed project" if re.fullmatch(r"[a-f0-9]{32}", short) else short))
+    # Same-name folders remain separate. Only ambiguity adds a short identifier.
+    groups = {}
+    for scope, name in labels.items():
+        groups.setdefault(name.casefold(), []).append(scope)
+    for peers in groups.values():
+        if len(peers) > 1:
+            width = 8
+            while len({key.removeprefix("project:")[:width] for key in peers}) < len(peers) and width < 128:
+                width += 1
+            for key in peers:
+                labels[key] = f"{labels[key]} · {key[:width] if width == 128 else key.removeprefix('project:')[:width]}"
+    return labels
 
 
 def project_enabled(cwd, client):

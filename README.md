@@ -5,7 +5,7 @@ to inspect and edit. Markdown is the memory source of truth. Search SQLite is
 disposable; optional provider budgets and job receipts are separate durable state.
 
 The current development branch is rebuilding the product as V3. The source version is
-`3.0.0a2` (alpha). See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
+`3.0.0a3` (alpha). See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
 for published artifacts and the target index. V3 deliberately does not migrate or emulate
 2.x. Existing historical/test vaults remain separate and must not be deleted
 when replacing the installed package.
@@ -117,6 +117,11 @@ optional official Codex browser/device login, and manual local-conversation
 previews. Its Modules page toggles these extensions. API billing and subscription
 usage are distinct. [Provider plugins and replacement dashboards](docs/modules.md)
 reuse the existing trusted Python module contract.
+
+Memory cards support editable importance, explicit expiry and an optional age
+window for dated episodes. The optional [Jev evidence evaluator](docs/workbench.md#optional-evidence-judgments-jev)
+is shadow-only: it can assess a previewed claim/excerpt but cannot rewrite memory
+or change retrieval. It is off by default and unnecessary for normal learning.
 
 Create a community module without copying this repository:
 

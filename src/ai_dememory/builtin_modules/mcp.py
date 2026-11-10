@@ -29,7 +29,9 @@ class ClientBinding:
     def __init__(self, cwd):
         from ai_dememory.projects import resolve_project
         self.cwd = Path(cwd).resolve()
-        self.scope = resolve_project(self.cwd)["scope"]
+        self.project = resolve_project(self.cwd)
+        self.scope = self.project["scope"]
+        self.name_recorded = False
         self.thread = None
 
     def enabled(self):
@@ -147,6 +149,17 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
                     "scope": {"type": "string"}, "event_id": {"type": "string"},
                     "key": {"type": "string"}, "supersedes": {"type": "string"},
                     "provisional": {"type": "boolean", "default": False},
+                    "importance": {"type": "string", "enum": ["low", "normal", "high"],
+                                   "description": "Priority suggestion, not evidence or truth. User overrides are preserved."},
+                    "memory_kind": {"type": "string", "enum": ["durable", "episode", "unspecified"],
+                                    "description": "Durable lesson or dated execution episode; leave unspecified when unclear."},
+                    "expires_at": {"type": "string", "description": "Only an explicitly stated expiry, ISO timestamp with timezone. Never infer permission from stored memory."},
+                    "confidence": {"type": "object", "properties": {
+                        "support": {"type": "number", "minimum": 0, "maximum": 1},
+                        "certainty": {"type": "number", "minimum": 0, "maximum": 1},
+                        "model": {"type": "string"}, "rubric": {"type": "string"}},
+                        "required": ["support", "model", "rubric"], "additionalProperties": False,
+                        "description": "Optional host assessment; always advisory, never promotes a fact or affects ranking."},
                     "source": {
                         "type": "object",
                         "properties": {
@@ -206,13 +219,15 @@ def instructions(bound_scope: str | None = None) -> str:
         "and facts derived only from retrieved memory or your own earlier summaries. "
         "Label uncertain deductions as inference; they remain provisional. Use a correction key or "
         "supersedes only when an explicit correction identifies the earlier fact. memory.forget can undo "
-        "a mistaken learning."
+        "a mistaken learning. Classify reusable facts/preferences as memory_kind=durable and dated outcomes as episode. "
+        "Do not save one-time permissions as reusable memory. Corrections inherit omitted lifecycle/expiry; "
+        "clear expiry or reset kind explicitly in the memory editor."
     )
 
 
 def _validate(value: Any, schema: dict[str, Any], label: str = "arguments") -> None:
-    expected = {"object": dict, "string": str, "integer": int, "boolean": bool}[schema["type"]]
-    if type(value) is not expected:
+    expected = {"object": (dict,), "string": (str,), "integer": (int,), "boolean": (bool,), "number": (int, float)}[schema["type"]]
+    if type(value) not in expected:
         raise ValueError(f"{label} must be {schema['type']}")
     if isinstance(value, dict):
         properties = schema.get("properties", {})
@@ -338,6 +353,9 @@ def serve(
                 try:
                     if binding and request.get("method") == "tools/call":
                         request = binding.check(request)
+                        if not binding.name_recorded:
+                            from ai_dememory.projects import remember_project_name
+                            binding.name_recorded = remember_project_name(services.vault, binding.project)
                     if binding and request.get("method") == "tools/list" and not binding.enabled():
                         response = _response(request.get("id"), {"tools": []})
                     else:

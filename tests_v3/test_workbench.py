@@ -18,6 +18,67 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_judgment_requires_preview_confirmation_and_exact_revision(self):
+        memory = self.services.vault.remember("Use Python", "Runtime", scope="project:q")
+        row = self.state("?scope=project:q")["memories"][0]
+        self.assertEqual(len(row["judgment_revision"]), 64)
+        payload = {"memory_id": memory.memory_id, "scope": "project:q", "expected_revision": row["judgment_revision"]}
+        with patch("ai_dememory.judgments.JudgmentEngine.evaluate", return_value={"status": "unassessed"}) as evaluate:
+            self.assertEqual(self.request("/api/judgment", payload)[0], 400)
+            evaluate.assert_not_called()
+            code, body, _ = self.request("/api/judgment", {**payload, "confirmed": True})
+            self.assertEqual(code, 200, body)
+            evaluate.assert_called_once_with(memory.memory_id, "project:q", None,
+                expected_revision=row["judgment_revision"], comparison_revision=None)
+
+    def test_importance_edit_and_recall_explanation_http_episode(self):
+        code, body, _ = self.request("/api/learn", {"title": "Runtime", "content": "Prefer Python", "scope": "project:q", "importance": "high"})
+        self.assertEqual(code, 200, body)
+        memory = json.loads(body)
+        self.assertEqual(memory["importance_origin"], "user")
+        payload = {"memory_id": memory["memory_id"], "scope": "project:q", "importance": "low"}
+        self.assertEqual(self.request("/api/memory/quality", payload)[0], 200)
+        self.assertEqual(self.request("/api/memory/quality", {**payload, "scope": "project:other"})[0], 400)
+        self.assertEqual(self.request("/api/memory/quality", {**payload, "importance": "urgent"})[0], 400)
+        code, body, _ = self.request("/api/recall", {"query": "Python", "scope": "project:q"})
+        self.assertEqual(code, 200, body)
+        hit = json.loads(body)[0]
+        self.assertEqual(hit["memory_id"], memory["memory_id"])
+        self.assertEqual(hit["details"]["importance"], "low")
+        self.assertTrue(hit["details"]["matching_terms"])
+
+    def test_explicit_user_correction_can_change_its_previous_priority(self):
+        first = {"title": "Runtime", "content": "Prefer Python", "scope": "project:q", "key": "runtime", "importance": "high"}
+        self.assertEqual(self.request("/api/learn", first)[0], 200)
+        code, body, _ = self.request("/api/learn", {**first, "content": "Prefer Rust", "importance": "low"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["importance"], "low")
+
+    def test_expiry_history_and_restore_through_http(self):
+        code, body, _ = self.request("/api/learn", {"title": "Run receipt", "content": "Deployment passed",
+                         "scope": "project:q", "memory_kind": "episode", "expires_at": "2000-01-01T00:00:00Z"})
+        self.assertEqual(code, 200, body)
+        memory = json.loads(body)
+        self.assertEqual(self.state("?scope=project:q")["memories"], [])
+        history = self.state("?scope=project:q&inactive=true")["memories"]
+        self.assertEqual(len(history), 1)
+        self.assertFalse(history[0]["recall_eligible"])
+        code, body, _ = self.request("/api/memory/quality", {"memory_id": memory["memory_id"], "scope": "project:q",
+                        "memory_kind": "durable", "expires_at": None})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(len(self.state("?scope=project:q")["memories"]), 1)
+
+    def test_proposal_review_enforces_selected_scope(self):
+        from ai_dememory.proposals import ProposalStore
+        proposal = ProposalStore(self.services.vault).propose("Combined lesson", "Use narrow SQLite transactions", scope="project:q")
+        self.assertEqual(self.state()["proposals"], [])
+        self.assertEqual(len(self.state("?scope=project:q")["proposals"]), 1)
+        action = {"proposal_id": proposal.proposal_id, "scope": "global", "accept": True}
+        self.assertEqual(self.request("/api/proposals/decide", action)[0], 400)
+        code, body, _ = self.request("/api/proposals/decide", {**action, "scope": "project:q"})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(json.loads(body)["memory"]["scope"], "project:q")
+
     def test_history_schedule_progress_through_confirmed_http_flow(self):
         self.request('/api/modules', {'id': 'sources', 'enabled': True})
         root = Path(self.temp.name).resolve() / 'history'; root.mkdir()
@@ -209,9 +270,25 @@ class WorkbenchTests(unittest.TestCase):
         self.assertNotIn("list", field)
         self.assertTrue(field["placeholder"])
         self.assertEqual(parsed.fields["scope-selector"][0], "select")
-        self.assertEqual(parsed.fields["schedule-scope"][1]["list"], "scope-options")
-        self.assertEqual(parsed.fields["scope-options"][0], "datalist")
+        self.assertEqual(parsed.fields["schedule-scope"][0], "select")
+        self.assertEqual(parsed.fields["scope-details"][0], "details")
+        self.assertEqual(parsed.fields["scope-id"][0], "code")
         self.assertIn(b"needs no DeMemory model provider", body)
+
+    def test_project_labels_are_additive_and_do_not_change_routing(self):
+        from ai_dememory.projects import resolve_project, remember_project_name
+        project = Path(self.temp.name).resolve() / "Readable project"
+        project.mkdir()
+        identity = resolve_project(project)
+        scope = identity["scope"]
+        self.services.vault.remember("Synthetic local learning.", "Project lesson", scope=scope)
+        before = self.state("?scope=" + scope)["memories"]
+        self.assertTrue(remember_project_name(self.services.vault, identity))
+        result = self.state("?scope=" + scope)
+        self.assertIn(scope, result["scopes"])
+        self.assertEqual(result["scope_labels"][scope], "Readable project")
+        self.assertEqual(result["memories"], before)
+        self.assertEqual(self.state("?scope=project:other")["memories"], [])
 
     def test_complete_scoped_save_and_forget(self):
         payload = {"title": "Preference", "content": "Use readable examples. " * 200, "scope": "project:demo"}

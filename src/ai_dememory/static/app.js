@@ -1,6 +1,6 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
-const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', sources: [] };
+const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0, scopes: [], providerExtensions: [], memories: [], judgmentRevision: 0, judgmentMemory: null };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -81,6 +81,88 @@ function button(text, action) {
 }
 function timestamp(value) { return value ? new Date(value).toLocaleString() : 'Not yet'; }
 function number(value) { return Number(value || 0).toLocaleString(); }
+function scopeLabel(scope = 'global') {
+  if (Object.hasOwn(state.scopeLabels, scope)) return state.scopeLabels[scope];
+  if (scope === 'global') return 'Global · shared';
+  const name = scope.replace(/^project:/, '');
+  return /^[a-f0-9]{32}$/.test(name) ? 'Unnamed project' : name;
+}
+function importanceOptions(selected = 'normal') {
+  const select = element('select');
+  for (const value of ['low', 'normal', 'high']) select.add(new Option(value[0].toUpperCase() + value.slice(1), value));
+  select.value = ['low', 'normal', 'high'].includes(selected) ? selected : 'normal';
+  return select;
+}
+function memoryKindOptions(selected = 'unspecified') {
+  const select = element('select');
+  for (const [value, label] of [['unspecified', 'Unspecified'], ['durable', 'Durable lesson'], ['episode', 'Episode or status']]) select.add(new Option(label, value));
+  select.value = ['unspecified', 'durable', 'episode'].includes(selected) ? selected : 'unspecified';
+  return select;
+}
+function localDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const part = (number) => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())}T${part(date.getHours())}:${part(date.getMinutes())}`;
+}
+function isoDateTime(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+function confidenceLabel(memory) {
+  const confidence = memory.confidence && typeof memory.confidence === 'object' ? memory.confidence : {};
+  const label = confidence.label || confidence.assessment_label || memory.confidence_label;
+  if (typeof label === 'string' && label.trim()) return label.trim().slice(0, 120);
+  const status = confidence.status || memory.confidence_status;
+  return confidenceStatusLabel(status);
+}
+function confidenceStatusLabel(status) {
+  if (status === 'advisory') return 'Advisory assessment';
+  if (status === 'not_used') return 'Advisory assessment (not used for ranking)';
+  if (status === 'stale') return 'Assessment stale';
+  return 'Not assessed';
+}
+function matchingReason(memory) {
+  const details = memory.details && typeof memory.details === 'object' ? memory.details : memory;
+  const matchingTerms = Array.isArray(details.matching_terms) ? details.matching_terms : [];
+  if (!matchingTerms.length) return '';
+  const terms = matchingTerms.slice(0, 6).map((term) => String(term).slice(0, 80)).filter(Boolean);
+  return terms.length ? `Matched on: ${terms.join(', ')}` : '';
+}
+function priorityOriginLabel(origin) {
+  if (origin === 'user') return 'set by you';
+  if (origin === 'host') return 'host suggestion';
+  return 'default';
+}
+function recallReason(details) {
+  const reasons = [matchingReason({ details })].filter(Boolean);
+  const importance = ['low', 'normal', 'high'].includes(details.importance) ? details.importance : 'normal';
+  const origin = details.importance_origin || details.origin || 'default';
+  if (origin === 'host') reasons.push(`Priority suggestion: ${importance[0].toUpperCase() + importance.slice(1)} (not weighted)`);
+  else {
+    const weight = Number.isFinite(details.importance_weight) ? ` · weight ${details.importance_weight}` : '';
+    reasons.push(`Priority: ${importance[0].toUpperCase() + importance.slice(1)} · ${priorityOriginLabel(origin)}${weight}`);
+  }
+  reasons.push(`Confidence: ${confidenceStatusLabel(details.confidence_status)}`);
+  return reasons.join(' · ');
+}
+function clearRecallResults() {
+  state.recallRevision += 1;
+  const list = $('#recall-results'); list.replaceChildren(); list.hidden = true;
+}
+function renderRecallResults(hits, scope) {
+  const list = $('#recall-results'); list.replaceChildren(); list.hidden = false;
+  if (!hits.length) { list.append(element('p', `No useful matches in ${scopeLabel(scope)}.`, 'memory-empty')); return; }
+  for (const hit of hits) {
+    const card = element('article', undefined, 'memory-card recall-result');
+    card.append(element('h3', hit.title || 'Untitled memory'), element('p', hit.snippet || 'No preview available.'));
+    const details = hit.details && typeof hit.details === 'object' ? hit.details : {};
+    card.append(element('p', recallReason(details), 'hint'));
+    list.append(card);
+  }
+}
 function renderMemories(memories) {
   const list = $('#memory-list'); list.replaceChildren();
   if (!memories.length) list.append(element('p', 'No memories in this scope yet. Save something useful below.', 'memory-empty'));
@@ -90,10 +172,47 @@ function renderMemories(memories) {
     header.append(element('h2', memory.title), element('span', status, `badge ${status === 'provisional' ? 'provisional' : status === 'active' ? '' : 'inactive'}`));
     card.append(header, element('p', memory.content));
     const source = memory.source || {};
-    const metadata = [memory.scope || 'global', source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
+    const metadata = [scopeLabel(memory.scope), source.provider || 'direct', source.evidence_kind || 'saved memory', timestamp(memory.created_at)];
     if (memory.key) metadata.push(`Key: ${memory.key}`);
+    if (memory.memory_kind && memory.memory_kind !== 'unspecified') metadata.push(memory.memory_kind === 'episode' ? 'Episode' : 'Durable lesson');
+    if (memory.expires_at) metadata.push(`Expires: ${timestamp(memory.expires_at)}`);
     card.append(element('p', metadata.join(' · '), 'hint'));
-    if (source.excerpt) { const details = element('details'); details.append(element('summary', 'Source excerpt'), element('p', source.excerpt)); card.append(details); }
+    const reason = matchingReason(memory);
+    if (reason) card.append(element('p', reason, 'hint'));
+    const quality = element('div', undefined, 'memory-quality');
+    const priority = importanceOptions(memory.importance || 'normal');
+    const priorityLabel = element('label', 'Priority'); priorityLabel.append(priority);
+    const kind = memoryKindOptions(memory.memory_kind);
+    const kindLabel = element('label', 'Memory kind'); kindLabel.append(kind);
+    const originalExpiryLocal = localDateTime(memory.expires_at);
+    const expiry = element('input'); expiry.type = 'datetime-local'; expiry.value = originalExpiryLocal;
+    const expiryLabel = element('label', 'Expires at'); expiryLabel.append(expiry);
+    const origin = memory.importance_origin || 'default';
+    const priorityNote = origin === 'host' ? `Host suggestion: ${priority.value[0].toUpperCase() + priority.value.slice(1)}. Save priority to apply it as your setting.` : `Priority is ${priorityOriginLabel(origin)} and is not truth.`;
+    quality.append(priorityLabel, kindLabel, expiryLabel, element('p', `Confidence: ${confidenceLabel(memory)}. ${priorityNote} Expiry hides a memory from normal recall; it does not delete it.`, 'hint quality-note'));
+    const savePriority = async (reset = false) => {
+      if (reset) priority.value = 'normal';
+      const payload = { memory_id: memory.memory_id, scope: memory.scope || state.scope, importance: priority.value };
+      if (!reset) {
+        payload.memory_kind = kind.value;
+        payload.expires_at = expiry.value === originalExpiryLocal ? memory.expires_at || null : isoDateTime(expiry.value);
+      }
+      await request('/api/memory/quality', payload);
+      await refresh(); notify(reset ? 'Priority reset to Normal.' : 'Priority saved.');
+    };
+    const qualityActions = element('div', undefined, 'actions');
+    qualityActions.append(button('Save changes', () => perform(() => savePriority())), button('Reset priority', () => perform(() => savePriority(true))));
+    const evaluate = button('Evaluate preview with Jev', () => openJudgment(memory));
+    if (!source.excerpt) { evaluate.disabled = true; evaluate.title = 'This memory has no source excerpt to evaluate.'; quality.append(element('p', 'No source excerpt is available, so this memory cannot be evaluated.', 'hint quality-note')); }
+    qualityActions.append(evaluate);
+    quality.append(qualityActions); card.append(quality);
+    const details = element('details');
+    details.append(element('summary', 'Source & technical details'));
+    if (source.excerpt) details.append(element('p', source.excerpt));
+    details.append(element('p', `Scope ID: ${memory.scope || 'global'}`, 'hint'));
+    if (source.session) details.append(element('p', `Conversation ID: ${source.session}`, 'hint'));
+    if (source.turn) details.append(element('p', `Turn ID: ${source.turn}`, 'hint'));
+    card.append(details);
     if (status === 'active' || status === 'provisional') {
       const actions = element('div', undefined, 'actions');
       actions.append(button(memory.supersedes ? 'Undo replacement' : 'Forget', () => perform(async () => {
@@ -104,9 +223,18 @@ function renderMemories(memories) {
     list.append(card);
   }
 }
-function providerOptions(select, selected = '') {
+function providerCapabilities(profile) {
+  if (!profile.kind?.startsWith('plugin:')) return ['generate'];
+  return state.providerExtensions.find((extension) => extension.kind === profile.kind)?.capabilities || [];
+}
+function providerOptions(select, selected = '', capability = 'generate') {
   select.replaceChildren(new Option('Not configured', ''));
-  Object.keys(state.settings.providers).forEach((id) => select.add(new Option(id, id)));
+  const profiles = Object.entries(state.settings.providers);
+  profiles.filter(([, profile]) => providerCapabilities(profile).includes(capability)).forEach(([id]) => select.add(new Option(id, id)));
+  const selectedProfile = state.settings.providers[selected];
+  if (selected && selectedProfile && !providerCapabilities(selectedProfile).includes(capability)) {
+    const unavailable = new Option(`${selected} (unavailable/disabled)`, selected); unavailable.disabled = true; select.add(unavailable);
+  }
   select.value = selected;
 }
 function routeRow(name, title) {
@@ -145,9 +273,47 @@ function renderSettings() {
   $('#daily-calls').value = settings.budgets.daily_calls;
   $('#daily-tokens').value = settings.budgets.daily_tokens;
   $('#daily-usd').value = settings.budgets.daily_usd;
+  $('#importance-weight').value = Number.isFinite(settings.ranking?.importance_weight) ? settings.ranking.importance_weight : 0.15;
+  $('#confidence-weight').value = 0;
+  $('#episode-recall-days').value = settings.lifecycle?.episode_recall_days ?? 0;
+  $('#project-summaries').checked = Boolean(settings.consolidation?.project_summaries);
   $('#schedule-enabled').checked = settings.schedule.enabled;
   $('#interval-hours').value = settings.schedule.interval_hours;
   $('#schedule-scope').value = settings.schedule.scope;
+  $('#schedule-mode').value = settings.schedule.target_mode || 'fixed';
+  $('#schedule-include-global').checked = Boolean(settings.schedule.include_global);
+  renderJudgmentSettings(settings);
+  updateScheduleTargetControls();
+}
+function renderJudgmentSettings(settings) {
+  const config = settings.judgment || {}, selectedScopes = new Set(config.scopes || []), operations = new Set(config.operations || ['support']);
+  providerOptions($('#judgment-primary'), config.primary || '', 'judge');
+  $('#judgment-fallback').value = (config.fallback || []).join(', ');
+  const scopes = $('#judgment-scopes'); scopes.replaceChildren(element('legend', 'Scopes allowed to request a judgment'));
+  for (const scope of state.scopes) {
+    const label = element('label', undefined, 'check'), input = element('input');
+    input.type = 'checkbox'; input.value = scope; input.checked = selectedScopes.has(scope);
+    label.append(input, document.createTextNode(scopeLabel(scope))); scopes.append(label);
+  }
+  $('#judgment-operations').querySelectorAll('input').forEach((input) => { input.checked = operations.has(input.value); });
+}
+function renderScheduleProjectTargets(scopes, schedule) {
+  const list = $('#schedule-project-list'), selected = new Set(schedule.scopes || []);
+  list.replaceChildren();
+  const projects = scopes.filter((scope) => scope.startsWith('project:'));
+  for (const scope of projects) {
+    const label = element('label', undefined, 'check');
+    const input = element('input'); input.type = 'checkbox'; input.value = scope; input.checked = selected.has(scope);
+    label.append(input, document.createTextNode(scopeLabel(scope))); list.append(label);
+  }
+  if (!projects.length) list.append(element('p', 'No project scopes are known yet. Use a project scope above first.', 'hint'));
+  updateScheduleTargetControls();
+}
+function updateScheduleTargetControls() {
+  const mode = $('#schedule-mode').value, fixed = mode === 'fixed';
+  $('#schedule-fixed-target').hidden = !fixed;
+  $('#schedule-project-targets').hidden = fixed;
+  $('#schedule-project-list').hidden = mode !== 'selected_projects';
 }
 function parseFallback(value) { return value.split(',').map((id) => id.trim()).filter(Boolean); }
 function collectSettings() {
@@ -157,7 +323,18 @@ function collectSettings() {
     else delete state.settings.routes[row.dataset.route];
   });
   state.settings.budgets = { daily_calls: Number($('#daily-calls').value), daily_tokens: Number($('#daily-tokens').value), daily_usd: Number($('#daily-usd').value) };
-  state.settings.schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
+  state.settings.ranking = { ...(state.settings.ranking || {}), importance_weight: Number($('#importance-weight').value), confidence_weight: 0 };
+  state.settings.lifecycle = { ...(state.settings.lifecycle || {}), episode_recall_days: Number($('#episode-recall-days').value) };
+  state.settings.consolidation = { ...(state.settings.consolidation || {}), project_summaries: $('#project-summaries').checked };
+  state.settings.judgment = { primary: $('#judgment-primary').value, fallback: parseFallback($('#judgment-fallback').value), scopes: [...document.querySelectorAll('#judgment-scopes input:checked')].map((input) => input.value), operations: [...document.querySelectorAll('#judgment-operations input:checked')].map((input) => input.value) };
+  const schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
+  const targetMode = $('#schedule-mode').value;
+  if (targetMode !== 'fixed') {
+    schedule.target_mode = targetMode;
+    schedule.scopes = targetMode === 'selected_projects' ? [...document.querySelectorAll('#schedule-project-list input:checked')].map((input) => input.value) : [];
+    schedule.include_global = $('#schedule-include-global').checked;
+  }
+  state.settings.schedule = schedule;
 }
 function openProvider(id = '') {
   collectSettings(); const form = $('#provider-form'); form.reset(); form.dataset.editId = id; form.dataset.suggestedId = '';
@@ -179,6 +356,9 @@ function applyProviderPreset() {
   Object.entries(preset).forEach(([field, value]) => { form.elements[field].value = value; });
   form.elements.api_key.value = ''; form.elements.model.value = ''; form.elements.reasoning_effort.value = '';
   form.elements.input_cost_per_million.value = ''; form.elements.output_cost_per_million.value = '';
+  if (preset.kind === 'plugin:jev') {
+    form.elements.model.value = 'jev-1.13.0'; form.elements.auth.value = 'environment'; form.elements.api_key_env.value = 'TYPESAFE_API_KEY';
+  }
   $('#provider-models').replaceChildren(); $('#models-status').textContent = 'Load available models for this provider after choosing authentication.';
   if (!form.dataset.editId && (!form.elements.id.value || form.elements.id.value === form.dataset.suggestedId)) {
     form.dataset.suggestedId = form.elements.preset.value.replace('plugin:', '') + '-learning';
@@ -187,11 +367,13 @@ function applyProviderPreset() {
   updateProviderFields();
 }
 function updateProviderFields() {
-  const form = $('#provider-form'), auth = form.elements.auth.value, anthropic = form.elements.kind.value === 'anthropic', codex = form.elements.kind.value === 'codex';
+  const form = $('#provider-form'), jev = form.elements.kind.value === 'plugin:jev', anthropic = form.elements.kind.value === 'anthropic', codex = form.elements.kind.value === 'codex';
+  if (jev) { form.elements.base_url.value = providerPresets['plugin:jev']?.base_url || 'https://api.typesafe.ai/v1'; form.elements.model.value = 'jev-1.13.0'; if (form.elements.auth.value === 'none') form.elements.auth.value = 'environment'; }
+  const auth = form.elements.auth.value;
   $('#codex-login').hidden = !codex; $('#provider-auth-field').hidden = codex;
-  $('#custom-endpoint-fields').hidden = form.elements.preset.value !== 'custom' && form.elements.preset.value !== 'local';
-  $('#preset-endpoint-help').hidden = !$('#custom-endpoint-fields').hidden;
-  form.elements.base_url.required = !codex;
+  $('#custom-endpoint-fields').hidden = jev || (form.elements.preset.value !== 'custom' && form.elements.preset.value !== 'local');
+  $('#preset-endpoint-help').hidden = jev || !$('#custom-endpoint-fields').hidden; $('#jev-provider-help').hidden = !jev;
+  form.elements.base_url.required = !codex && !jev;
   $('#provider-prices').hidden = codex;
   for (const id of ['codex-device', 'codex-browser', 'codex-check', 'codex-cancel']) $('#' + id).hidden = !moduleEnabled('codex-subscription');
   $('#enable-codex').hidden = moduleEnabled('codex-subscription');
@@ -200,8 +382,10 @@ function updateProviderFields() {
   $('#environment-key-field').hidden = $('#environment-key-help').hidden = auth !== 'environment';
   form.elements.api_key.disabled = auth !== 'session';
   if (auth !== 'session') form.elements.api_key.value = '';
+  form.elements.auth.querySelector('option[value="none"]').hidden = jev;
   form.elements.api_key_env.disabled = auth !== 'environment'; form.elements.api_key_env.required = auth === 'environment';
-  form.elements.reasoning_effort.disabled = anthropic; $('#reasoning-help').hidden = !anthropic;
+  form.elements.model.disabled = jev;
+  form.elements.reasoning_effort.disabled = anthropic || jev; form.elements.reasoning_effort.closest('label').hidden = jev; $('#reasoning-help').hidden = !anthropic || jev;
   if (anthropic) form.elements.reasoning_effort.value = '';
   const id = form.dataset.editId, credential = state.credentials[id];
   $('#credential-status').textContent = auth === 'session' && credential?.mode === 'session' && credential.configured ? 'A session key is set. Leave blank to keep it, or paste a replacement. Endpoint changes require a new key.' : '';
@@ -218,6 +402,7 @@ function providerDraft() {
 function moduleEnabled(id) { return state.modules.some((item) => item.module_id === id && item.enabled); }
 function renderModules(data) {
   state.modules = data.modules || [];
+  state.providerExtensions = data.provider_extensions || [];
   const list = $('#module-list'); list.replaceChildren();
   for (const item of state.modules) {
     if (item.module_id === 'harness') continue;
@@ -236,7 +421,7 @@ function renderModules(data) {
   const form = $('#provider-form'), selected = form.elements.preset.value, selectedKind = form.elements.kind.value;
   document.querySelectorAll('#provider-form option[data-plugin]').forEach((option) => option.remove());
   for (const key of Object.keys(providerPresets)) if (key.startsWith('plugin:')) delete providerPresets[key];
-  for (const extension of data.provider_extensions || []) {
+  for (const extension of state.providerExtensions) {
     const {kind, label, base_url, auth} = extension;
     providerPresets[kind] = {kind, base_url, auth, api_key_env: ''};
     const preset = new Option(label + ' (plugin)', kind); preset.dataset.plugin = 'true'; form.elements.preset.add(preset);
@@ -248,7 +433,8 @@ function renderModules(data) {
 function removeProvider(id) {
   collectSettings();
   const used = Object.entries(state.settings.routes).filter(([, route]) => [route.primary, ...route.fallback].includes(id)).map(([name]) => name);
-  if (used.length) { notify(`Remove this provider from these routes first: ${used.join(', ')}.`, true); return; }
+  const judgment = state.settings.judgment || {}, judgmentUsed = [judgment.primary, ...(judgment.fallback || [])].includes(id);
+  if (used.length || judgmentUsed) { notify(`Remove this provider from ${[used.length ? `these routes: ${used.join(', ')}` : '', judgmentUsed ? 'Jev judgment settings' : ''].filter(Boolean).join(' and ')} first.`, true); return; }
   delete state.settings.providers[id]; markDirty(); renderSettings();
 }
 function openOverride(id = '') {
@@ -265,9 +451,12 @@ function dialogError(id, message) { $(id).textContent = message; $(id).hidden = 
 function renderOperational(data) {
   const schedule = data.schedule || {}, facts = $('#schedule-status'); facts.replaceChildren();
   const result = schedule.last_result;
+  const scheduledTarget = schedule.target_mode === 'selected_projects' ? 'Selected projects' : schedule.target_mode === 'all_project_scopes' ? 'All project scopes' : scopeLabel(schedule.scope);
   $('#task-status').textContent = data.scheduled_task?.installed_receipt ? 'Windows task installation recorded. Live health is not polled here; use the status command below. Pausing this schedule stops future consolidation.' : 'No Windows task installation recorded for this vault. Automatic consolidation currently needs the workbench or an external one-shot runner.';
-  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': schedule.scope || 'global', 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope || 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  const values = { Status: schedule.running ? 'Running' : schedule.busy ? 'Busy in another process' : schedule.enabled ? 'Scheduled' : 'Manual', 'Scheduled scope': scheduledTarget, 'Last run': timestamp(schedule.last_run_at), 'Last run scope': schedule.last_run_scope ? scopeLabel(schedule.last_run_scope) : 'No run yet', 'Next run': schedule.enabled ? timestamp(schedule.next_run_at) : 'Not scheduled', Result: result ? `${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed` : 'No completed run', 'Last error': schedule.last_error || 'None' };
+  if (Number.isInteger(schedule.target_count)) values.Targets = `${schedule.target_count} total · ${schedule.processed_count || 0} visited this run · ${schedule.remaining_count || 0} not visited this run`;
   Object.entries(values).forEach(([label, value]) => facts.append(element('dt', label), element('dd', value)));
+  renderScheduleScopeResults(schedule.scope_results);
   const usage = data.usage || {}, grid = $('#usage'); grid.replaceChildren();
   [['Calls', number(usage.calls)], ['Tokens', number(usage.tokens)], ['Estimated USD', Number(usage.cost_usd || 0).toFixed(4)]].forEach(([label, value]) => { const item = element('div', undefined, 'usage-item'); item.append(element('span', label), element('strong', value)); grid.append(item); });
   const rows = $('#activity-rows'); rows.replaceChildren();
@@ -278,20 +467,117 @@ function renderOperational(data) {
   }
   if (!rows.children.length) emptyRow(rows, 6, 'No provider calls yet. Activity appears after extraction or model consolidation.');
 }
+function resultSummary(result) {
+  if (!result || typeof result !== 'object') return 'No result recorded.';
+  if (result.error) return `Error: ${String(result.error).slice(0, 180)}`;
+  const parts = [];
+  if (Number.isFinite(result.cleaned)) parts.push(`${result.cleaned} duplicates removed`);
+  if (Number.isFinite(result.proposals)) parts.push(`${result.proposals} proposals`);
+  if (result.no_op) parts.push('No changes needed');
+  return parts.join(' · ') || 'Completed.';
+}
+function renderScheduleScopeResults(scopeResults) {
+  const list = $('#schedule-scope-results'); list.replaceChildren();
+  const entries = Array.isArray(scopeResults) ? scopeResults.map((item) => [item.scope, item]) : Object.entries(scopeResults || {});
+  list.hidden = !entries.length;
+  for (const [scope, result] of entries.slice(0, 100)) {
+    const card = element('article', undefined, 'schedule-result');
+    card.append(element('strong', scopeLabel(scope)), element('p', resultSummary(result), 'hint'));
+    list.append(card);
+  }
+}
+function renderProposals(proposals) {
+  const list = $('#proposal-list'); list.replaceChildren();
+  if (!proposals.length) { list.append(element('p', 'No proposals for this scope.', 'hint')); return; }
+  for (const proposal of proposals) {
+    const card = element('article', undefined, 'memory-card');
+    card.append(element('h3', proposal.title || 'Untitled proposal'), element('p', proposal.content || ''));
+    card.append(element('p', `Scope: ${scopeLabel(proposal.scope || state.scope)} · ${proposal.status || 'pending'}`, 'hint'));
+    if (proposal.status === 'pending') {
+      const actions = element('div', undefined, 'actions');
+      for (const [label, accept] of [['Accept', true], ['Reject', false]]) actions.append(button(label, () => perform(async () => {
+        await request('/api/proposals/decide', { proposal_id: proposal.proposal_id, scope: proposal.scope || state.scope, accept });
+        await refresh(); notify(accept ? 'Proposal accepted.' : 'Proposal rejected.');
+      })));
+      card.append(actions);
+    }
+    list.append(card);
+  }
+}
+function judgmentNumber(value) { return Number.isFinite(value) ? value.toFixed(3) : 'not supplied'; }
+function judgmentAssessment(label, assessment) {
+  if (!assessment || typeof assessment !== 'object') return '';
+  const probability = label === 'Evidence support' ? assessment.probabilities?.supports : assessment.probabilities?.[assessment.verdict];
+  const probabilityLabel = label === 'Evidence support' ? 'support probability' : 'comparison probability';
+  return `${label}: ${assessment.verdict || 'unknown'} · ${probabilityLabel} ${judgmentNumber(probability)} · evaluator certainty ${judgmentNumber(assessment.certainty)}`;
+}
+function renderJudgmentResult(response) {
+  const target = $('#judgment-result'); target.replaceChildren();
+  const metadata = [`Status: ${response.status || 'unassessed'}`, `Shadow-only: ${response.shadow_only === true ? 'yes' : 'no'}`, `Canonical writes: ${response.writes_canonical_memory === true ? 'yes' : 'no'}`, `Source authenticity: ${response.source_authenticity || 'unverified'}`];
+  if (response.model) metadata.push(`Model: ${response.model}`);
+  if (response.rubric) metadata.push(`Rubric: ${response.rubric}`);
+  if (response.cache && typeof response.cache.hit === 'boolean') metadata.push(`Cached: ${response.cache.hit ? 'yes' : 'no'}`);
+  target.append(element('span', metadata.join(' · ')));
+  if (response.status !== 'assessed') {
+    target.append(document.createTextNode(` · ${response.reason === 'preview_stale' ? 'Preview is stale; refresh and review it again.' : response.reason || 'Not assessed.'}`));
+    return;
+  }
+  const support = judgmentAssessment('Evidence support', response.result?.support);
+  const comparison = judgmentAssessment('Comparison', response.result?.comparison);
+  if (support) target.append(element('span', support, 'judgment-line'));
+  if (comparison) target.append(element('span', comparison, 'judgment-line'));
+  target.append(element('span', 'Typed probability and evaluator certainty describe this assessment, not whether a memory is true.', 'judgment-line'));
+}
+function clearJudgment() {
+  state.judgmentRevision += 1; state.judgmentMemory = null;
+  const dialog = $('#judgment-dialog');
+  if (dialog.open) dialog.close();
+  $('#judgment-preview').replaceChildren(); $('#judgment-result').replaceChildren(); $('#judgment-confirm').checked = false;
+  $('#run-judgment').disabled = true;
+}
+function updateJudgmentRun() {
+  const allowed = Boolean(state.judgmentMemory?.source?.excerpt) && $('#judgment-confirm').checked;
+  $('#run-judgment').disabled = !allowed;
+}
+function renderJudgmentPreview(memory, comparison) {
+  const preview = $('#judgment-preview'); preview.replaceChildren();
+  preview.append(element('h3', memory.title), element('p', memory.content), element('p', 'Source excerpt', 'hint'), element('pre', memory.source.excerpt));
+  if (comparison) preview.append(element('h3', 'Comparison candidate'), element('p', comparison.title), element('p', comparison.content));
+}
+function openJudgment(memory) {
+  if (!memory.source?.excerpt) return;
+  state.judgmentRevision += 1; state.judgmentMemory = memory;
+  const comparison = $('#judgment-comparison'); comparison.replaceChildren(new Option('No comparison', ''));
+  for (const candidate of state.memories.filter((item) => item.memory_id !== memory.memory_id && item.scope === memory.scope)) comparison.add(new Option(candidate.title, candidate.memory_id));
+  const compareEnabled = Boolean(state.settings?.judgment?.operations?.includes('compare'));
+  comparison.disabled = !compareEnabled;
+  if (!compareEnabled) comparison.title = 'Enable Same-scope comparison in Jev settings before using this option.';
+  renderJudgmentPreview(memory);
+  $('#judgment-confirm').checked = false; $('#judgment-result').replaceChildren(); updateJudgmentRun();
+  $('#judgment-dialog').showModal();
+}
 async function refresh() {
   const query = new URLSearchParams({ scope: state.scope, inactive: String($('#inactive').checked) });
   const data = await request(`/api/state?${query}`);
+  clearRecallResults(); clearJudgment();
   state.credentials = data.credentials || {};
+  state.scopeLabels = data.scope_labels || {};
   renderModules(data);
-  const scopes = [...new Set([...(data.scopes || ['global']), state.scope])];
-  $('#scope-selector').replaceChildren(...scopes.map(name => new Option(name, name)));
+  const scheduledScope = state.dirty ? $('#schedule-scope').value : data.settings.schedule.scope;
+  const scopes = [...new Set(['global', ...(data.scopes || []), ...(data.settings.schedule.scopes || []), state.scope, scheduledScope])].filter(Boolean);
+  state.scopes = scopes;
+  scopes.sort((a, b) => a === 'global' ? -1 : b === 'global' ? 1 : scopeLabel(a).localeCompare(scopeLabel(b)));
+  $('#scope-selector').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
   $('#scope-selector').value = state.scope;
-  $('#scope-options').replaceChildren(...scopes.map(name => new Option(name, name)));
-  $('#run-consolidation').textContent = `Run now in ${state.scope}`;
+  $('#schedule-scope').replaceChildren(...scopes.map(id => new Option(scopeLabel(id), id)));
+  $('#schedule-scope').value = scheduledScope;
+  $('#scope-id').textContent = state.scope;
+  $('#run-consolidation').textContent = `Run now in ${scopeLabel(state.scope)}`;
   renderSourceSchedules(data.source_schedules || []);
   state.codexRoot = data.codex_sessions_root;
-  if (!state.dirty) { state.settings = data.settings; renderSettings(); }
-  renderMemories(data.memories || []); renderOperational(data);
+  if (!state.dirty) { state.settings = data.settings; renderScheduleProjectTargets(scopes, data.settings.schedule); renderSettings(); }
+  state.memories = data.memories || [];
+  renderMemories(state.memories); renderOperational(data); renderProposals(data.proposals || []);
 }
 
 $('#provider-form').addEventListener('submit', (event) => {
@@ -381,27 +667,78 @@ $('#override-form').addEventListener('submit', (event) => {
   state.settings.routes[id] = route; markDirty(); renderSettings(); $('#override-dialog').close(); notify('Override applied. Save settings to use it.');
 });
 document.querySelectorAll('[data-close]').forEach((item) => item.addEventListener('click', () => document.getElementById(item.dataset.close).close()));
+$('#judgment-confirm').addEventListener('change', updateJudgmentRun);
+$('#judgment-comparison').addEventListener('change', () => {
+  const memory = state.judgmentMemory, comparison = state.memories.find((item) => item.memory_id === $('#judgment-comparison').value && item.scope === memory?.scope);
+  state.judgmentRevision += 1; $('#judgment-result').replaceChildren(); $('#judgment-confirm').checked = false;
+  if (memory) renderJudgmentPreview(memory, comparison); updateJudgmentRun();
+});
+$('#run-judgment').addEventListener('click', () => {
+  const memory = state.judgmentMemory;
+  if (!memory?.source?.excerpt || !$('#judgment-confirm').checked) return;
+  const comparisonId = $('#judgment-comparison').value;
+  const comparison = state.memories.find((item) => item.memory_id === comparisonId && item.scope === memory.scope);
+  const revision = ++state.judgmentRevision;
+  const payload = { memory_id: memory.memory_id, scope: memory.scope, expected_revision: memory.judgment_revision, confirmed: true };
+  if (comparison) { payload.comparison_id = comparison.memory_id; payload.comparison_revision = comparison.judgment_revision; }
+  perform(async () => {
+    try {
+      const response = await request('/api/judgment', payload);
+      if (revision !== state.judgmentRevision || state.judgmentMemory?.memory_id !== memory.memory_id || state.scope !== memory.scope) return;
+      renderJudgmentResult(response);
+      try {
+        const operational = await request(`/api/state?scope=${encodeURIComponent(state.scope)}`);
+        renderOperational(operational);
+        $('#judgment-result').append(element('span', `Today's shared usage: ${operational.usage.calls} attempts · ${operational.usage.tokens} tokens. See Activity for estimates; missing model prices do not mean free usage.`, 'judgment-line'));
+      } catch (_) { notify('Assessment completed; refresh Activity to update usage.'); }
+    } catch (error) {
+      if (revision === state.judgmentRevision && state.judgmentMemory?.memory_id === memory.memory_id) renderJudgmentResult({ status: 'unassessed', shadow_only: true, writes_canonical_memory: false, source_authenticity: 'unverified', reason: 'request_failed', result: {} });
+      throw error;
+    }
+  });
+});
 document.querySelectorAll('.save-settings').forEach((item) => item.addEventListener('click', () => {
   const invalid = [...document.querySelectorAll('#providers input, #consolidation input')].find((input) => !input.checkValidity());
   if (invalid) { location.hash = invalid.closest('.page').id; showPage(); invalid.reportValidity(); return; }
   collectSettings(); perform(async () => { await request('/api/settings', state.settings); markDirty(false); await refresh(); notify('Settings saved.'); });
 }));
-for (const id of ['providers', 'consolidation']) $( `#${id}`).addEventListener('input', () => markDirty());
+for (const id of ['providers', 'consolidation']) {
+  $( `#${id}`).addEventListener('input', () => markDirty());
+  $( `#${id}`).addEventListener('change', () => markDirty());
+}
+$('#schedule-mode').addEventListener('change', updateScheduleTargetControls);
 $('#add-provider').addEventListener('click', () => openProvider());
 $('#add-override').addEventListener('click', () => openOverride());
 $('#refresh').addEventListener('click', () => perform(async () => { await refresh(); notify(state.dirty ? 'Activity and memory refreshed. Your unsaved settings are preserved.' : 'Up to date.'); }));
 function changeScope(value) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value)) { notify('Use a short scope name, such as global or project:your-project.', true); return; }
   state.scope = value; $('#scope').value = '';
+  clearRecallResults(); clearJudgment();
   notify('');
   state.sources.forEach(item => { item.preview = null; item.result = ''; item.open = false; }); renderSources(); perform(refresh);
 }
 $('#scope-form').addEventListener('submit', (event) => { event.preventDefault(); changeScope($('#scope').value.trim()); });
 $('#scope-selector').addEventListener('change', event => changeScope(event.target.value));
 $('#inactive').addEventListener('change', () => perform(refresh));
+$('#recall-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const query = event.currentTarget.elements.query.value.trim(), scope = state.scope;
+  const revision = ++state.recallRevision, list = $('#recall-results');
+  list.replaceChildren(element('p', `Searching ${scopeLabel(scope)}…`, 'hint')); list.hidden = false;
+  perform(async () => {
+    try {
+      const hits = await request('/api/recall', { query, scope });
+      if (revision !== state.recallRevision || scope !== state.scope) return;
+      renderRecallResults(Array.isArray(hits) ? hits : [], scope);
+    } catch (error) {
+      if (revision === state.recallRevision && scope === state.scope) list.replaceChildren(element('p', 'Search unavailable. Try again.', 'memory-empty'));
+      throw error;
+    }
+  });
+});
 $('#remember-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget;
-  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope };
+  const payload = { title: form.elements.title.value.trim(), content: form.elements.content.value.trim(), scope: state.scope, importance: form.elements.importance.value || 'normal', memory_kind: form.elements.memory_kind.value || 'unspecified', expires_at: isoDateTime(form.elements.expires_at.value) };
   if (form.elements.key.value.trim()) payload.key = form.elements.key.value.trim();
   perform(async () => { await request('/api/learn', payload); form.reset(); await refresh(); notify('Memory saved.'); });
 });
@@ -426,7 +763,7 @@ function updateSourceSelection() {
   const ready = selected.length > 0 && selected.every(item => item.preview?.messages.length && item.preview.destinations.length);
   $('#extract-source').disabled = state.busy || !ready;
   $('#preview-selected').disabled = state.busy || !selected.length;
-  $('#source-selection').textContent = `${selected.length} selected · destination ${state.scope}. Preview each selected conversation before extracting. Each conversation uses its own bounded model call.`;
+  $('#source-selection').textContent = `${selected.length} selected · destination ${scopeLabel(state.scope)}. Preview each selected conversation before extracting. Each conversation uses its own bounded model call.`;
 }
 async function previewItem(item) {
   item.preview = await request('/api/sources/preview', {root:item.root,format:item.format,file:item.path,session_id:item.session_id,scope:state.scope});
@@ -449,7 +786,7 @@ function renderSources() {
     details.append(element('p',item.path,'source-path'),button(item.preview ? 'Refresh preview' : 'Preview user messages',()=>perform(()=>previewItem(item))));
     if (item.preview) {
       const p = item.preview;
-      details.append(element('p',`${p.messages.length} user messages → ${p.scope} · ${p.destinations.join(' → ') || 'No extraction route configured'}`, 'hint'));
+      details.append(element('p',`${p.messages.length} user messages → ${scopeLabel(p.scope)} · ${p.destinations.join(' → ') || 'No extraction route configured'}`, 'hint'));
       details.append(element('pre',p.messages.map((message,i)=>`${i+1}. ${message.content}`).join('\n\n') || 'No eligible human messages.', 'conversation-preview'));
       if (p.truncated || p.notice) details.append(element('p',[p.truncated?'Latest bounded window; older messages are not included.':'',p.notice || ''].join(' '),'hint'));
       const diagnostics = element('details'); diagnostics.append(element('summary','Reader details'),element('p',Object.entries(p.counts || {}).map(([k,v])=>`${k.replaceAll('_',' ')}: ${v}`).join(' · '),'hint')); details.append(diagnostics);
@@ -468,7 +805,7 @@ $('#extract-source').addEventListener('click', () => perform(async () => {
   await request('/api/sources/validate',{tokens:state.sources.filter(item=>item.selected).map(item=>item.preview?.preview_token)});
   for (const item of state.sources.filter(item=>item.selected)) {
     if (!item.preview) throw new Error('Preview all selected conversations first.');
-    try { const result = await request('/api/sources/extract',{preview_token:item.preview.preview_token,confirmed:true}); item.result = `${(result.learned || []).length} learnings saved to ${item.preview.scope}`; item.selected = false; }
+    try { const result = await request('/api/sources/extract',{preview_token:item.preview.preview_token,confirmed:true}); item.result = `${(result.learned || []).length} learnings saved to ${scopeLabel(item.preview.scope)}`; item.selected = false; }
     catch (error) { item.result = error.message; renderSources(); throw error; }
   }
   renderSources(); await refresh(); notify('Selected conversations processed. Results are shown inline.');
@@ -492,7 +829,7 @@ function renderSourceSchedules(rules) {
   const list=$('#source-schedules'); list.replaceChildren();
   for (const rule of rules) {
     const card=element('article',undefined,'memory-card');
-    card.append(element('h3',`${rule.format} → ${rule.scope}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
+    card.append(element('h3',`${rule.format} → ${scopeLabel(rule.scope)}`),element('p',rule.root,'source-path'),element('p',`${rule.enabled?'Enabled':'Paused'} · every ${rule.interval_hours}h · ${rule.last_result}${rule.enabled?' · next '+new Date(rule.next_run*1000).toLocaleString():''}`,'hint'));
     if (rule.mode === 'history') {
       const p = rule.progress || {};
       card.append(element('p',`History and new messages · ${p.messages || 0} user messages in ${p.windows || 0} windows · ${p.tracked_conversations || 0} conversations tracked · ${p.passes || 0} discovery passes completed`));
@@ -509,7 +846,7 @@ function renderSourceSchedules(rules) {
     card.append(button('Remove schedule',()=>perform(async()=>{await request('/api/source-schedules/change',{id:rule.id,action:'delete'}); await refresh();}))); list.append(card);
   }
 }
-$('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${state.scope}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${result.scope} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
+$('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${scopeLabel(state.scope)}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${scopeLabel(result.scope)} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
 window.addEventListener('hashchange', showPage);
 window.addEventListener('beforeunload', (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });
 showPage(); perform(refresh);

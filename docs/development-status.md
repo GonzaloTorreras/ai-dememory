@@ -1,29 +1,272 @@
 # Development status
 
-Updated: 2026-09-16. This is the current handoff, not an accumulated backlog.
+Updated: 2026-11-10. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
+
+## Current delivery: 3.0.0a3 and first private cleanup
+
+- User authorized installation, audited cleanup and package publication. Source
+  now has unique version `3.0.0a3`; publication follows the existing alpha policy
+  (TestPyPI and GitHub prerelease). Tag/publisher gates still require green main.
+- Fixed review findings before unattended maintenance: duplicate cleanup compares
+  provenance/quality/lifecycle and cannot use keyed/correcting records as anchors;
+  corrections inherit omitted lifecycle/expiry, with explicit editor reset.
+  Extraction carries validated kind and literal quote/claim expiry; omitted kind
+  stays unspecified and semantic uncertainty remains provisional.
+- Full source suite: 337 tests, 332 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. Synthetic tests required
+  normal temporary-directory permissions; sandbox-only failures are not product
+  regressions. An isolated wheel setup/priority/episode/expiry/recall smoke passed.
+- Final local candidate wheel: 143,144 bytes, SHA-256
+  `4e174855b50733c55db7373b6a3544b42010d58cb9dcb05217a8e791a85491c1`.
+  Installed global CLI reports `3.0.0a3`, using the existing selector and vault.
+  Fresh installed stdio MCP and prompt-hook tests pass, including lifecycle schema,
+  expired-context exclusion and reaped test children.
+- A pre-update private backup preserved all 154 source records, configuration,
+  runtime and consistent operational SQLite; original byte hashes and database
+  integrity passed. Cleanup first passed on a copy, then on the real vault with
+  per-record preimage checks and a private mutation journal.
+- First cleanup: 150 active records classified, 19 reviewed obsolete states
+  expired from default recall, three existing claims separated from their dated
+  receipts, three ambiguous paragraphs narrowed without inventing evidence.
+  All 154 original records remain; total 157. No physical deletion, global-scope
+  promotion, external memory export or inference. Four scoped state queries now
+  place their reviewed target first; this is acceptance, not a broad benchmark.
+- Daily all-project scheduling now covers 14 populated scopes in rotating batches
+  of three; global/project model summaries stay off and the episode-age window
+  stays zero pending the remaining mixed-record reviews. No new scheduler/process.
+- Dashboard restored at loopback port 8765. Installed UI history changes this
+  project's visible count from one to four, and Recall shows the expected lesson.
+  Desktop/mobile 390px show no overflow or console warnings/errors; screenshot
+  inspected in memory. Browser plugin absent; available Playwright used.
+- Existing long-lived Codex MCP connections retain their old imported code:
+  this session reproduced that behavior. Fresh processes have verified new
+  behavior. Reconnect existing clients/reopen Codex before relying on lifecycle
+  filtering there; no unrelated client or process was terminated.
+- Final review also closed expired/aged same-content admission: a new source
+  occurrence can renew an ineligible assertion, while replaying the original
+  event remains idempotent. Explicit future expiry changes are no longer ignored.
+- Remaining product work: reconcile the other mixed records and ambiguous scope
+  candidates; measure bilingual/current/history retrieval before optional Jev
+  reranking. Jev stays disabled; no live quality/billing acceptance is claimed.
+  Release PR/head, CI, tag and publisher receipts belong in the PR handoff.
+
+## Previous audit and plan — 2026-10-29
+
+- Source remains `e7b2941` on `codex/v3-readable-project-scopes`, with the
+  pre-existing untracked `build/` preserved. No open PR was returned by the
+  GitHub connector today. Public main's Memory fields also lack the local fixes;
+  older public-release and main-commit readbacks below were not refreshed.
+- Read all 141 canonical memories and excerpts: 138 active, two superseded,
+  one forgotten, 12 populated project scopes and zero global records. No exact
+  normalized duplicate bodies; none has explicit importance/kind/expiry.
+- The installed `3.0.0a2` Memory model lacks the locally implemented quality
+  fields. Installed and source version strings are identical despite different
+  behavior. The existing weekly job selects empty global, last ran 2026-10-28
+  with no-op; no providers/routes/attempts exist. MCP host learning still works.
+- Private manifest accounts for every record: 43 keep, 22 split/reconcile,
+  73 review as episodes, three preserve inactive history, zero physical deletion.
+  Private corpus, IDs and decisions are outside Git. The manifest is a proposal,
+  not an applied cleanup or a recovery backup.
+- Shipping alone is insufficient: source extraction jobs still omit lifecycle
+  metadata and treat paraphrases differently from host learning. Align those
+  existing entry points in the planned admission slice rather than add a new
+  subsystem.
+- Seven positive retrieval probes on separate copies find the target in top
+  three, four put it first and six include a dated state candidate, in both
+  installed and source implementations. Two additional probes cover no answer
+  and missing knowledge. This is diagnosis, not a calibrated quality benchmark.
+- All 140 initial hashes matched after inspection. One concurrent completion
+  receipt was read and added; all 141 final hashes/count matched. Original runtime DB
+  was queried read-only. No vault/configuration/provider/task/runtime/release
+  changes or inference calls. Only audit/planning documentation is updated.
+- [Audit and acceptance](memory-quality-audit-2026-10-29.md); the sole active
+  [roadmap](roadmap.md) now orders actual delivery, one state-family repair,
+  reviewed cleanup, effective project maintenance, admission/recall, then optional
+  Jev reranking. Next action: prepare the existing fixes as one uniquely versioned
+  installable candidate and validate on a disposable vault before real cutover.
 
 ## Checkout and release reality
 
 - Active worktree: `working/worktrees/product-reset-v3` under the historical
-  checkout; branch `codex/v3-learning-workbench`.
+  checkout; branch `codex/v3-readable-project-scopes`.
 - Public `main` read back through GitHub at
-  `e7f823ecf223d544b1f2f4cd909fbc42afb3aea3` (PR #57).
-- This line builds on V3 baseline `a04a0cd`; this increment starts at `0b45e42`.
+  `99195c1be61afb25b6a8d91e224f5983878fe8b6` (PR #58 merged).
+- The readable-project increment starts at that public main commit.
   The large dirty historical V2 checkout and pre-existing `build/` are preserved.
-- Source is prepared as `3.0.0a2`, not yet published at this checkpoint. The user's isolated V3 runtime now
-  includes the global Codex integration recorded below. The default selector and
-  global client connection were configured; existing account state and unrelated
-  settings were preserved. No release tag, package publication or merge yet.
-- PR #58 remains the original V3 baseline, not a current workbench readiness
-  receipt. No new hosted CI is claimed for these local changes.
-- GitHub search found no PR for `codex/v3-learning-workbench` on 2026-09-14.
+- `v3.0.0a2` was published as a GitHub prerelease and on TestPyPI, not production
+  PyPI. Publisher [run 35035252460](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/35035252460)
+  completed successfully; the release was read back on 2026-09-16. This new slice
+  leaves the version unchanged and is not a new publication.
+- No open PR was found at the start of this slice. No new hosted CI is claimed.
 - [Roadmap](roadmap.md) is the only active product plan. V2 DAGs/TODOs are
   historical input; there is no V2 migration or compatibility backlog.
 
+## Current implementation: memory quality, step 3
+
+- All three vertical slices are implemented locally. Step 1 is `89e1e7c`;
+  lifecycle/scoped consolidation is `a7c6500`. This increment adds optional Jev
+  shadow judgments through existing modules, provider settings and workbench.
+- Jev is disabled by default. Separate typed judgment capability, exact scope
+  opt-in and preview/revision confirmation prevent accidental generative-route
+  use or sending a changed preview. Support uses claim + excerpt only; optional
+  same-scope comparison is a different request, never corroborating evidence.
+- Shared provider reservations/activity, three-attempt cap, 8,000-character
+  inputs, ten-second job deadline/bounded HTTP and 200-entry metadata cache reuse
+  existing runtime storage. Missing usage stays estimated. No new SDK, database,
+  runtime dependency, command, daemon, worker thread or hook network call.
+- No canonical writes or ranking/admission effect. Support probability and
+  evaluator certainty are displayed separately; source authenticity stays
+  unverified. Disabled modules invalidate cached fallback judgments, and saved
+  unavailable provider selections survive unrelated settings changes.
+- Fresh independent read-only review closed four P2 findings: mislabeled support
+  probability, unpreviewed comparison/reconfirmation, lost disabled selections
+  and cached disabled fallback results. No formal security-scan claim.
+- Synthetic browser acceptance covers module enable/profile session key, scoped
+  opt-in, preview, separate comparison, typed results and shared usage refresh;
+  disable/save retains configuration and canonical memory. Desktop 1280x900 and
+  mobile 390x844 show no horizontal overflow or console errors/warnings. Rendered
+  screenshots were inspected in memory, not committed. Mock HTTP only; no real
+  memory, provider credentials or external inference calls used.
+- Full suite: 330 tests, 325 passed / five expected Windows symlink skips;
+  compilation, JS syntax and diff checks pass. After the final per-profile input
+  cap check, 20 focused judgment/documentation tests pass. Clean-wheel acceptance
+  passes in an isolated temporary venv, outside the checkout with `PYTHONPATH`
+  cleared: setup, high-priority episode with expiry, recall, old optional-field
+  settings load, status and nine-module listing with Jev disabled. Build/install
+  use no dependency downloads and preserve the pre-existing `build/` directory.
+  Wheel is 142,502 bytes; SHA-256
+  `de5ff6bba36e4d5a3d32b98a4128e1c94c8772687eaaf0b53c16c0117a965bf2`.
+  Source version remains `3.0.0a2`; this is not a replacement release artifact.
+- Live TypeSafe accuracy (including Spanish), authenticated API behavior and
+  billing are not validated. The next gate is a small explicitly authorized
+  evidence set with reviewed cost limits, before any ranking/admission effect.
+  No real-vault installation, publication, tag, merge or scheduled-task changes.
+  The owned synthetic test server was stopped and its URL no longer responds;
+  the test browser page was closed. Package smoke children all exited.
+
+## Previous implementation: memory quality, step 2 (`a7c6500`)
+
+- Optional durable/episode classification, explicit timezone-aware expiry and an
+  initially disabled episode-age window now filter normal recall before top-k.
+  History retains originals; clearing expiry restores eligibility. No automatic
+  classification, deletion, real-vault rewrite or changed provider configuration.
+- One existing schedule can target fixed/selected/all projects. Global and model
+  summaries of project memories require separate opt-in. Batches visit at most
+  three scopes per interval with restart-safe rotation and shared budgets/lock.
+- Summary proposals stay scoped, retain bounded input revisions and reject stale
+  acceptance. Sources remain canonical and are not overwritten. UI exposes
+  lifecycle editing, project targets, consent, per-scope results and review.
+- Independent read-only review identified manual schedule postponement, budget
+  starvation and reset-priority saving unsaved lifecycle fields. Regression
+  fixes preserve manual/fixed cadence, fair bounded retries and exact unchanged
+  expiry precision. This was a functional review, not a formal security scan.
+- Synthetic Playwright: expired record absent by default, visible in history,
+  reset ignores unsaved expiry, clearing expiry restores it. All-project targets,
+  episode window and default-off global/model consent persist after reload.
+  Desktop 1280x900/mobile 390x844 have no horizontal overflow or console errors;
+  mobile screenshot inspected in memory. Owned test server stopped afterwards.
+- Full regression: 309 tests, 304 passed / five expected Windows symlink skips
+  before the final large-scope fairness case; 35 focused scheduling/proposal
+  tests pass including that regression. JavaScript syntax and diff checks pass. Step 1 includes
+  isolated wheel acceptance; the final combined slice will repeat packaging.
+- No global installation, credentials, model calls, release or version changes.
+  Next: optional Jev shadow module. Deterministic recall remains authoritative.
+
+## Previous implementation: memory quality, step 1 (`89e1e7c`)
+
+- Implemented meaningful lexical recall, corrected FTS title weights, importance
+  metadata/overrides and bounded ranking before final top-k. Host suggestions
+  stay neutral; arbitrary confidence stays advisory. The same selector and
+  canonical Markdown serve CLI, MCP and workbench; no bulk rewrite or new DB.
+- Workbench save/edit/reset and Recall explain priority, matched terms and
+  confidence freshness. Advanced settings persist an importance weight in
+  0..0.25; confidence weight stays zero. Short useful hook prompts now retrieve.
+- Fresh read-only functional/maintainability review closed three P2 findings:
+  explicit user re-prioritization, stale recall cards after mutations, and lost
+  confidence freshness. Regression cases accompany the backend fixes; rendered
+  refresh checks cover the UI invalidation. No formal security-scan claim.
+- Rendered Playwright at loopback port 18772 with a synthetic disposable vault:
+  desktop 1280x900 and mobile 390x844; priority edit, recall explanation, refresh
+  invalidation and saved-weight recall pass. Page identity/content, no overlay,
+  no horizontal overflow and no console errors/warnings checked. Screenshots
+  inspected in memory; no private memory or screenshot committed. Browser skill
+  absent; available Playwright integration used. Lifecycle/Jev work is next.
+- No global runtime/vault/provider changes, model calls, version bump or release.
+- Verification: 291 tests, 286 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. A clean temporary build
+  and isolated install pass packaged setup/save-with-priority/recall/status,
+  outside the checkout with `PYTHONPATH` cleared and no dependency installation.
+  Wheel: 126,796 bytes, SHA-256
+  `8a744f38fab261723fc35054525c8d26bb94d27e891670cfdb639430ca237254`.
+  The package version remains `3.0.0a2` for local acceptance only; this is not a
+  replacement release artifact. Roll back via zero importance weight or the
+  previous local wheel; canonical records and operational state remain intact.
+
+## Previous planning increment: memory quality, weights and optional Jev
+
+- User requested a planned update for importance, confidence and a Jev module.
+  The sole [roadmap](roadmap.md#now-memory-quality-weights-and-optional-jev) now
+  orders three user-visible slices: meaningful weighted recall; lifecycle and
+  project-targeted consolidation; optional typed judgments, initially shadow-only.
+- Source baseline is `61788c0827a62d184a8cdca906edf563e027823d`, one local commit
+  after public `origin/main`. The readable-project changes remain intact, as do
+  the dirty historical parent and untracked `build/`. No open PR for this branch
+  was found through the GitHub connector on 2026-09-19.
+- Rechecked the misplaced BM25 title weight, missing importance/confidence
+  fields, host-supplied evidence-label boundary, global-only summary proposals
+  and generative-only plugin contract. TypeSafe's current official API/model,
+  confidence, citation-check and limitation docs informed the optional module;
+  no model-quality or live-provider acceptance is claimed.
+- Importance is not truth; evidence support is not evaluator certainty. The
+  planned confidence modifier stays neutral until assessor-specific evaluation.
+  Jev cannot generate memories, grant authority or replace the local core.
+- Documentation only: no runtime/package/version changes, private memory copied
+  into the repository, vault edits, provider activation, model calls, scheduled
+  task changes, installation, merge, tag or publication.
+- Validation: three active-documentation checks and 25 existing recall/learning/
+  harness tests pass; `git diff --check` passes. The source tests initially
+  lacked an import path; rerunning with `PYTHONPATH=src` passed without installing
+  or changing dependencies. These baseline checks do not test unimplemented
+  weights/Jev. Full regression, package/UI acceptance and hosted CI were not
+  rerun for this documentation-only diff.
+- Focused read-only review requested two clarifications, both incorporated:
+  weighted ordering before final top-k selection, and evidence-only support
+  judgments separate from existing-memory comparisons. Each has an explicit
+  future regression case; a final read-only spot-check closed both findings
+  with no material planning blocker. Rollback for this increment is reverting
+  only the two documentation files; no installed data or configuration changes.
+
 ## Delivered local product
 
-## Current increment: optional first-run hooks and Windows consolidation
+## Current increment: readable project scopes
+
+- The workbench shows project names in memory, scope selection, source targets
+  and consolidation. Option values and requests retain the exact stable scope
+  ID. Full scope/conversation/turn IDs remain in collapsed technical details.
+- Native auto binding/hooks capture only a bounded basename in the existing
+  `runtime.sqlite` operational file. No transcript scan, model calls, automatic
+  project bindings or canonical memory rewrites. Same-name projects stay separate;
+  linked worktrees use their common checkout's name.
+- Old memories gain a name when their project next uses its enabled integration;
+  unknown scopes remain explicitly unnamed. Existing folder bindings also supply
+  labels. Optional metadata failures never block memory, with a 50ms SQLite wait
+  limit per connection; at most 1,000 names of 120 characters are retained.
+- Tests cover old-memory preservation, disabled/rebound integrations, worktrees,
+  same-name separation, contention, bounded storage, forged hook names and raw-ID
+  API routing. Rendered Edge/Playwright at 1280x900 and 390x844 passes selection,
+  saving, collapsed IDs, same-name disambiguation, HTML-as-text, dirty schedule
+  refresh and save/reload; no console errors or horizontal overflow. Synthetic
+  temporary vault and server only. Browser plugin unavailable; bundled Playwright.
+- Full regression: 270 tests, 265 passed / five expected Windows symlink skips.
+  The isolated installed wheel also passes the rendered named-scope flow at both
+  viewports. JavaScript syntax and diff checks pass. No model/provider calls or
+  private-vault data were needed for these tests.
+- Rollback: restore the previous package; optional display rows may remain and
+  are ignored. Never delete the operational DB to remove display labels because
+  it also holds budgets and job receipts. No package publication/merge in this slice.
+
+## Previous increment: optional first-run hooks and Windows consolidation
 
 - Setup offers global Codex integration and optional Windows scheduled work;
   explicit `--with-codex` / `--with-schedule` support repeatable installation.
@@ -60,7 +303,8 @@ Earlier implementation/install receipts remain in Git history.
 - First hosted CI passed both Linux versions but exposed fixture path aliases
   on macOS and Windows (including short-name vs resolved-name mock comparison).
   Fixtures now use canonical temporary directories; runtime link checks and
-  containment remain unchanged. Re-run all four matrix jobs before merge.
+  containment remain unchanged. All four matrix jobs subsequently passed before
+  PR #58 merged and `v3.0.0a2` was published.
 
 Known boundaries: custom provider plugins are trusted code; five minutes is the
 Windows task execution limit, not a sandbox for arbitrary plugin descendants.
@@ -293,7 +537,7 @@ acceptance; no such model calls were made in this increment.
   merging/ownership, one selector across entry points, reliable native project
   binding, a common scope resolver and client-disable precedence. The existing
   selected-vault resolver and fixed-scope MCP are reused, not replaced by a new
-  framework. The ordered plan lives only in [the roadmap](roadmap.md#now-one-global-v3-installation-isolated-projects).
+  framework. The ordered plan lives only in [the roadmap](roadmap.md).
 - Verification: 49 focused core/harness/MCP tests, 46 passed and three expected
   Windows symlink skips; `git diff --check` passed. Independent read-only review
   found no plan blocker after clarifying that only V2 was uninstalled. This is a
@@ -302,15 +546,11 @@ acceptance; no such model calls were made in this increment.
 
 ## Next development cycle
 
-1. Global Codex installation is delivered below. Next expose project aliases and
-   exclusions in the existing workbench, using the same small local mapping.
-2. Verify a native linked-worktree episode and task relocation/reconnect. Native
-   new-project and simultaneous-task checks pass; do not generalize them to every
-   client lifecycle/version. Keep provider login separate.
-3. Resume native Hermes/Claude episodes, evidence-backed advisory skill export,
-   measured DSH/Hermes reader gaps and selected-provider/fallback acceptance.
-4. Remote service/admin remains later: identity scopes, TLS/key management and
-   two-host restart/restore acceptance before any non-loopback exposure.
+Follow the [roadmap's memory-quality sequence](roadmap.md#now-memory-quality-weights-and-optional-jev),
+not a second backlog here. Finish review/integration of readable scopes, then
+deliver weighted useful recall, lifecycle/scoped consolidation and optional Jev.
+Project-controls UI, wider native client acceptance, skills and networking remain
+visible follow-ups there. No provider or publication gate is implied by this plan.
 
 ## This cycle: installed global V3 and native project isolation
 

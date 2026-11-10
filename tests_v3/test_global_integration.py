@@ -13,7 +13,7 @@ from ai_dememory.config import harness_enabled, load_config, set_module_enabled
 from ai_dememory.core import CoreServices
 from ai_dememory.harness import install_project
 from ai_dememory.integration_install import install_user, _replace_block, _transaction, BEGIN, END
-from ai_dememory.projects import configure_project, resolve_project
+from ai_dememory.projects import configure_project, resolve_project, scope_labels
 from ai_dememory.builtin_modules.mcp import ClientBinding, serve
 from ai_dememory.vault import Vault
 
@@ -105,6 +105,7 @@ class GlobalIntegrationTests(unittest.TestCase):
         rows = CoreServices(self.vault).list_memories(scope)
         self.assertEqual(rows[0]["source"]["session"], "t1")
         self.assertEqual(rows[0]["source"]["provider"], "codex")
+        self.assertEqual(scope_labels(self.vault, [scope])[scope], "same")
         self.assertEqual(args["source"]["session"], "current")
         self.assertEqual(CoreServices(self.vault).context("synthetic window", scope=resolve_project(self.b)["scope"])["memory_ids"], [])
 
@@ -117,6 +118,39 @@ class GlobalIntegrationTests(unittest.TestCase):
         result = json.loads(output.getvalue())
         self.assertEqual(result["id"], request["id"])
         self.assertEqual(result["error"]["code"], -32602)
+        self.assertFalse((self.vault.root / "runtime.sqlite").exists())
+
+    def test_auto_hook_records_name_without_transcript_capture(self):
+        from ai_dememory.harness import main
+        payload = {"hook_event_name": "UserPromptSubmit", "cwd": str(self.a), "prompt": "hello",
+                   "project_name": "forged display name"}
+        source = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode()))
+        output = io.StringIO()
+        with patch("sys.stdin", source), patch("sys.stdout", output):
+            self.assertEqual(main(["--vault", str(self.vault.root), "--config-dir", str(self.config), "--auto-scope"]), 0)
+        scope = resolve_project(self.a)["scope"]
+        self.assertEqual(scope_labels(self.vault, [scope])[scope], "same")
+        self.assertEqual(self.vault.memory_count(), 0)
+
+    def test_disabled_auto_hook_does_not_record_a_name(self):
+        from ai_dememory.harness import main
+        configure_project(self.a, client="codex", enabled=False)
+        payload = {"hook_event_name": "UserPromptSubmit", "cwd": str(self.a), "prompt": "hello"}
+        source = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode()))
+        with patch("sys.stdin", source), patch("sys.stdout", io.StringIO()):
+            self.assertEqual(main(["--vault", str(self.vault.root), "--config-dir", str(self.config), "--auto-scope"]), 0)
+        self.assertFalse((self.vault.root / "runtime.sqlite").exists())
+
+    def test_name_capture_is_once_per_mcp_connection_and_failure_is_optional(self):
+        for captured, expected_calls in ((True, 1), (False, 2)):
+            output = io.StringIO()
+            incoming = io.StringIO((json.dumps(self.request()) + "\n") * 2)
+            with patch("ai_dememory.builtin_modules.mcp.Path.cwd", return_value=self.a), patch(
+                    "ai_dememory.projects.remember_project_name", return_value=captured) as record:
+                serve(CoreServices(self.vault), ["--auto-scope"], incoming, output)
+            self.assertEqual(record.call_count, expected_calls)
+            for response in output.getvalue().splitlines():
+                self.assertNotIn("error", json.loads(response))
 
     def test_global_merge_repeat_uninstall_preserves_unrelated_changes(self):
         config = self.home / "config.toml"

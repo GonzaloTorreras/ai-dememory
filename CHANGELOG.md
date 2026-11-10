@@ -5,6 +5,36 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a3] - 2026-11-10
+
+### Added
+
+- Editable importance, advisory evidence confidence, explicit memory kind/expiry
+  and reversible episode-age filtering in the local dashboard, CLI and MCP.
+- Selected/all-project consolidation with bounded restart-safe rotation, shared
+  budgets, explicit project-summary opt-in and scoped, revision-checked proposals.
+- Optional Jev typed evidence judgments with preview, scope consent, finite
+  attempts, shared accounting and a bounded metadata cache. Disabled by default;
+  results remain shadow-only and never modify memory or ranking.
+
+### Fixed
+
+- Correct title weights, filter query filler and select relevant whole-token
+  snippets before importance-adjusted result limits. Host confidence is neutral.
+- Preserve lifecycle/expiry through corrections, protect distinct provenance and
+  metadata during duplicate cleanup, and pass validated lifecycle through extraction.
+- Renew expired/aged assertions on a genuinely new source occurrence while
+  keeping same-event retries idempotent; accept explicit lifecycle changes.
+- Display readable project names while retaining stable identities. Explain
+  retrieval adjustments, preserve user priority and invalidate stale UI results.
+
+### Release scope
+
+- Dependency-free local alpha; existing V3 Markdown remains readable. Local
+  memory cleanup is a private reviewed operation, never a package-install side effect.
+- Jev has mocked contract acceptance; live model quality, remote service and full
+  native Hermes/Claude acceptance remain later work. Prerelease channel: TestPyPI.
+
 ## [3.0.0a2] - 2026-09-15
 
 ### Added

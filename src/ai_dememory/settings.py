@@ -15,7 +15,11 @@ from .vault import Vault, _atomic_write, validate_scope
 DEFAULT_SETTINGS = {
     "schema_version": 1, "providers": {}, "routes": {},
     "schedule": {"enabled": False, "interval_hours": 168, "scope": "global"},
+    "consolidation": {"project_summaries": False},
     "budgets": {"daily_calls": 20, "daily_tokens": 50_000, "daily_usd": 0},
+    "ranking": {"importance_weight": 0.15, "confidence_weight": 0},
+    "lifecycle": {"episode_recall_days": 0},
+    "judgment": {"primary": "", "fallback": [], "scopes": [], "operations": ["support"]},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
 
@@ -54,7 +58,8 @@ def auth_mode(provider: dict) -> str:
 
 
 def validate_settings(data: dict) -> dict:
-    _shape(data, DEFAULT_SETTINGS)
+    optional = {"ranking", "lifecycle", "consolidation", "judgment"}
+    _shape(data, set(DEFAULT_SETTINGS) - optional, optional)
     reject_high_confidence_secrets(json.dumps(data))
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported settings schema")
@@ -100,6 +105,10 @@ def validate_settings(data: dict) -> dict:
         for field in ("input_cost_per_million", "output_cost_per_million"):
             if field in provider:
                 _number(provider[field], 0, 100_000)
+        if kind == "plugin:jev" and (provider["base_url"].rstrip("/") != "https://api.typesafe.ai/v1"
+                or provider["model"] != "jev-1.13.0"
+                or mode not in ("environment", "session") or "reasoning_effort" in provider):
+            raise ValueError("Jev requires its pinned System One endpoint/model and API-key authentication")
     for name, route in routes.items():
         if not isinstance(name, str) or (name not in ("extract", "consolidate") and not re.fullmatch(r"(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name)):
             raise ValueError("Invalid operation or override route")
@@ -109,18 +118,78 @@ def validate_settings(data: dict) -> dict:
         chain = [route["primary"], *route["fallback"]]
         if len(chain) > 8 or any(not isinstance(item, str) or item not in providers for item in chain) or len(set(chain)) != len(chain):
             raise ValueError("Routes require distinct configured providers (maximum eight)")
+        if any(providers[item]["kind"] == "plugin:jev" for item in chain):
+            raise ValueError("Jev judges evidence; it cannot generate extraction or consolidation text")
         _number(route["max_output_tokens"], 16, 16_384, True)
-    _shape(data["schedule"], {"enabled", "interval_hours"}, {"scope"})
+    _shape(data["schedule"], {"enabled", "interval_hours"},
+           {"scope", "target_mode", "scopes", "include_global"})
     if type(data["schedule"]["enabled"]) is not bool:
         raise ValueError("Schedule enabled must be boolean")
     _number(data["schedule"]["interval_hours"], 1, 8760, True)
-    validate_scope(data["schedule"].get("scope", "global"))
+    schedule = data["schedule"]
+    validate_scope(schedule.get("scope", "global"))
+    target_mode = schedule.get("target_mode")
+    if target_mode is not None:
+        if target_mode not in ("selected_projects", "all_project_scopes"):
+            raise ValueError("Schedule target mode must select projects or all project scopes")
+        if type(schedule.get("include_global", False)) is not bool:
+            raise ValueError("Schedule include_global must be boolean")
+        scopes = schedule.get("scopes", [])
+        if not isinstance(scopes, list) or len(scopes) > 100:
+            raise ValueError("Schedule scopes must contain at most 100 project scopes")
+        if target_mode == "selected_projects" and not scopes:
+            raise ValueError("Selected-project schedules need at least one project scope")
+        if target_mode == "all_project_scopes" and scopes:
+            raise ValueError("All-project schedules cannot also select project scopes")
+        if any(not isinstance(scope, str) or not scope.startswith("project:") for scope in scopes):
+            raise ValueError("Schedule targets must be project scopes")
+        for scope in scopes:
+            validate_scope(scope)
+        if len(set(scopes)) != len(scopes):
+            raise ValueError("Schedule project scopes must be distinct")
+    elif "scopes" in schedule or "include_global" in schedule:
+        raise ValueError("Schedule targets require a target mode")
     _shape(data["budgets"], {"daily_calls", "daily_tokens", "daily_usd"})
     _number(data["budgets"]["daily_calls"], 1, 100_000, True)
     _number(data["budgets"]["daily_tokens"], 1, 100_000_000, True)
     _number(data["budgets"]["daily_usd"], 0, 100_000)
     validated = copy.deepcopy(data)
     validated["schedule"].setdefault("scope", "global")
+    consolidation = validated.setdefault("consolidation", copy.deepcopy(DEFAULT_SETTINGS["consolidation"]))
+    _shape(consolidation, {"project_summaries"})
+    if type(consolidation["project_summaries"]) is not bool:
+        raise ValueError("Project summaries must be explicitly enabled or disabled")
+    ranking = validated.setdefault("ranking", copy.deepcopy(DEFAULT_SETTINGS["ranking"]))
+    _shape(ranking, {"importance_weight", "confidence_weight"})
+    _number(ranking["importance_weight"], 0, 0.25)
+    _number(ranking["confidence_weight"], 0, 0.25)
+    if ranking["importance_weight"] + ranking["confidence_weight"] > 0.25:
+        raise ValueError("Combined ranking weights cannot exceed 0.25")
+    if ranking["confidence_weight"] != 0:
+        raise ValueError("Confidence weighting is unavailable until an assessor is evaluated; use zero")
+    lifecycle = validated.setdefault("lifecycle", copy.deepcopy(DEFAULT_SETTINGS["lifecycle"]))
+    _shape(lifecycle, {"episode_recall_days"})
+    _number(lifecycle["episode_recall_days"], 0, 36500, True)
+    judgment = validated.setdefault("judgment", copy.deepcopy(DEFAULT_SETTINGS["judgment"]))
+    _shape(judgment, {"primary", "fallback", "scopes", "operations"})
+    if not isinstance(judgment["primary"], str) or not isinstance(judgment["fallback"], list):
+        raise ValueError("Invalid judgment provider chain")
+    chain = ([judgment["primary"]] if judgment["primary"] else []) + judgment["fallback"]
+    if (len(chain) > 3 or any(not isinstance(item, str) or item not in providers
+            or not providers[item]["kind"].startswith("plugin:") for item in chain)
+            or len(chain) != len(set(chain)) or (not judgment["primary"] and chain)):
+        raise ValueError("Judgment needs up to three distinct plugin profiles, not generative API fallbacks")
+    scopes = judgment["scopes"]
+    if (not isinstance(scopes, list) or len(scopes) > 100
+            or any(not isinstance(scope, str) for scope in scopes) or len(scopes) != len(set(scopes))):
+        raise ValueError("Select up to 100 distinct scopes for external judgment")
+    for scope in scopes:
+        validate_scope(scope)
+    operations = judgment["operations"]
+    if (not isinstance(operations, list) or not operations or len(operations) > 2
+            or any(value not in ("support", "compare") for value in operations)
+            or "support" not in operations or len(operations) != len(set(operations))):
+        raise ValueError("Judgment operations require support with optional compare")
     return validated
 
 

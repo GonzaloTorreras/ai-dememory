@@ -60,6 +60,9 @@ def _parser() -> argparse.ArgumentParser:
     remember = commands.add_parser("remember", help="Write one human-approved Markdown memory.")
     remember.add_argument("content")
     remember.add_argument("--title")
+    remember.add_argument("--importance", choices=("low", "normal", "high"), help="Recall priority, not truth or authority.")
+    remember.add_argument("--kind", choices=("unspecified", "durable", "episode"), default="unspecified")
+    remember.add_argument("--expires-at", help="Explicit expiry, ISO timestamp with timezone; hides from recall, never deletes.")
     remember.add_argument("--scope", default="global", help="Memory scope, or auto for the current project (default: global).")
 
     recall = commands.add_parser("recall", help="Search canonical memories with local SQLite FTS.")
@@ -326,7 +329,8 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         from .projects import resolve_project
         args.scope = resolve_project(Path.cwd())["scope"]
     if args.command == "remember":
-        memory = vault.remember(args.content, args.title, scope=args.scope)
+        memory = vault.remember(args.content, args.title, scope=args.scope, importance=args.importance,
+                                 memory_kind=args.kind, expires_at=args.expires_at)
         result = memory.to_dict()
         result.update({"saved": True, "verified": True})
         if json_output:
@@ -336,7 +340,11 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             print(f"  {memory.path}")
         return 0
     if args.command == "recall":
-        hits = SearchIndex(vault).search(args.query, args.limit, args.scope)
+        from .settings import load_settings
+        settings = load_settings(vault)
+        hits = SearchIndex(vault).search(args.query, args.limit, args.scope,
+                                        importance_weight=settings["ranking"]["importance_weight"],
+                                        episode_days=settings["lifecycle"]["episode_recall_days"])
         if json_output:
             _emit(
                 {

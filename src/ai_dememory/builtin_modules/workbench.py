@@ -239,9 +239,18 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 settings = load_settings(self.server.services.vault)
                 from ai_dememory.provider_plugins import provider_descriptions
                 from ai_dememory.scheduled import receipt_status
+                from ai_dememory.projects import scope_labels
+                from ai_dememory.proposals import ProposalStore
+                from ai_dememory.quality import evidence_revision
+                scopes = self.server.scopes()
+                memories = self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"])
+                for memory in memories:
+                    memory["judgment_revision"] = evidence_revision(memory["title"], memory["content"], memory["source"])
                 self._send(200, {
                     "status": self.server.services.status(),
-                    "memories": self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"]),
+                    "memories": memories,
+                    "proposals": [p.to_dict() for p in ProposalStore(self.server.services.vault).list()
+                                  if p.scope == scope][:100],
                     "settings": settings,
                     "credentials": self.server.credential_status(settings),
                     "schedule": self.server.jobs.schedule_status(),
@@ -249,7 +258,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
                     "modules": [item.to_dict() for item in discover_modules().values()],
-                    "scopes": self.server.scopes(),
+                    "scopes": scopes,
+                    "scope_labels": scope_labels(self.server.services.vault, {*scopes, scope}),
                     "source_schedules": self.server.source_jobs.public(),
                     "codex_sessions_root": str(Path(os.environ.get("CODEX_HOME", str(Path.home()/".codex"))) / "sessions"),
                     "provider_extensions": provider_descriptions(),
@@ -298,6 +308,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return self.server.set_credential(data)
         if path == "/api/provider-models":
             return self.server.draft_models(data)
+        if path == "/api/judgment":
+            if (not {"memory_id", "scope", "confirmed", "expected_revision"} <= data.keys()
+                    or data.keys() - {"memory_id", "scope", "confirmed", "comparison_id", "expected_revision", "comparison_revision"}
+                    or not isinstance(data["expected_revision"], str) or len(data["expected_revision"]) != 64
+                    or ("comparison_id" in data and not isinstance(data.get("comparison_revision"), str))
+                    or data["confirmed"] is not True):
+                raise ValueError("Preview and confirm the selected memory and excerpt before external judgment")
+            from ai_dememory.judgments import JudgmentEngine
+            return JudgmentEngine(services.vault, credential_resolver=self.server.resolve_credential).evaluate(
+                data["memory_id"], data["scope"], data.get("comparison_id"),
+                expected_revision=data["expected_revision"], comparison_revision=data.get("comparison_revision"))
         if path == "/api/modules":
             name, enabled = data.get("id"), data.get("enabled")
             if not isinstance(name, str) or type(enabled) is not bool:
@@ -336,14 +357,33 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/sources/"):
             return self.server.source_action(path.rsplit("/", 1)[-1], data)
         scope = data.get("scope", "global")
+        if path == "/api/recall":
+            return services.search(data.get("query"), limit=10, scope=scope)
+        if path == "/api/memory/quality":
+            if not {"memory_id", "scope"} <= data.keys() or set(data) - {"memory_id", "scope", "importance", "memory_kind", "expires_at"}:
+                raise ValueError("Expected memory identity and quality fields")
+            return services.vault.update_quality(data["memory_id"], scope,
+                      {key: value for key, value in data.items() if key not in {"memory_id", "scope"}})
+        if path == "/api/proposals/decide":
+            from ai_dememory.proposals import ProposalStore
+            if set(data) != {"proposal_id", "scope", "accept"} or type(data["accept"]) is not bool or not isinstance(data["proposal_id"], str):
+                raise ValueError("Expected proposal_id, scope and accept")
+            validate_scope(scope)
+            store = ProposalStore(services.vault)
+            proposal = store.get(data["proposal_id"])
+            if proposal is None or proposal.scope != scope:
+                raise ValueError("Proposal not found in the requested scope")
+            decided, memory = store.decide(proposal.proposal_id, data["accept"])
+            return {"proposal": decided.to_dict(), "memory": memory.to_dict() if memory else None}
         if path == "/api/learn":
             event = uuid4().hex
             content = data.get("content")
-            return services.learn(data.get("title"), content, scope,
+            return services.vault.learn(data.get("title"), content, scope,
                                   {"provider": "workbench", "session": self.server.session,
                                    "turn": event, "evidence_kind": "user_statement",
                                    "excerpt": content.encode("utf-8")[:300].decode("utf-8", errors="ignore") if isinstance(content, str) else ""},
-                                  event, key=data.get("key"))
+                                  event, key=data.get("key"), importance=data.get("importance"), importance_origin="user",
+                                  memory_kind=data.get("memory_kind", "unspecified"), expires_at=data.get("expires_at"))
         if path == "/api/forget":
             return services.forget(data.get("memory_id"), scope)
         if path == "/api/extract":

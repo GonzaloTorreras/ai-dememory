@@ -166,6 +166,23 @@ keeps an estimated reservation. Disabled plugins are not imported or executable,
 even if a saved profile still refers to one. Removing a profile does not uninstall
 the module. Disable/uninstall the package separately when appropriate.
 
+## Optional Jev judgments
+
+`jev` is a disabled-by-default typed judgment module, not a text generator or
+another memory store. Enable it from **Modules**, add its provider profile, then
+choose permitted scopes in **Providers → Evidence judgments**. See the
+[workbench walkthrough](workbench.md#optional-evidence-judgments-jev).
+It uses the official TypeSafe System One endpoint with `jev-1.13.0`, no SDK,
+daemon, Node runtime or child process. It is not a dependency of recall or MCP.
+
+Provider plugins may implement `judge(profile, payload, credential, transport,
+timeout)` instead of `generate`. The shared `validate`, `describe` and
+`list_models` methods still apply. Judgment responses use the bounded Choice
+contract documented by [TypeSafe](https://docs.typesafe.ai/api); generation and
+judgment capabilities are selected separately. An explicit judgment fallback
+must implement `judge`; a text-only provider is never used as an implicit judge.
+Installed plugins remain trusted Python code, not a sandbox.
+
 ## Custom dashboards
 
 The bundled UI is ordinary packaged HTML/CSS/JavaScript. A community module may

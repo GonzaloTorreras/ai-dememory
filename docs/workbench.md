@@ -18,14 +18,45 @@ Start with scope `global`. Use `project:my-project` for project-only information
 **Current scope** selects an existing scope. **New scope** is a blank text field
 with an example placeholder; selecting or applying a scope clears that field.
 It is not a second selector and does not copy the current scope.
+Automatically bound projects appear by their folder name in the selector,
+memory cards, source destinations and consolidation controls. Linked Git
+worktrees use the common checkout's name. Same-name projects stay separate and
+receive a short distinguishing suffix. The stable scope ID is still used for
+every operation; a display name never binds or merges projects. Expand
+**Project details** for the full scope ID or **Source & technical details** on
+a memory for its evidence and conversation/turn IDs.
+
+Names are captured locally when an enabled automatic hook or native MCP
+connection resolves the project. Already-saved memories gain that name without
+being rewritten. Older unknown IDs show **Unnamed project** until the project
+is used again; explicit folder bindings can supply the name immediately. No
+conversation scan or model is needed. These are project folder names, not
+guessed conversation titles. If the name cache is unavailable, memory still
+works. Only names (up to 120 characters, at most 1,000 projects), not full paths
+or conversation content, are stored as display metadata in `runtime.sqlite`.
+
 The management list shows the exact selected scope; retrieval returns that
-scope plus global, never another project's records. These labels are routing,
-not user authentication or tenant isolation.
+scope plus global, never another project's records. Scope routing is not user
+authentication or tenant isolation.
 
 Save an explicit statement, optionally with a stable key such as
 `preferred-language`. A new explicit statement with that key replaces the old
 one in the same scope. Forgetting the latest correction restores its predecessor.
 Inactive records remain inspectable; forgetting is not secure erasure.
+
+**Recall** searches the selected project plus global memory and shows the matched
+passage and terms. **Priority** is Low / Normal / High: it slightly adjusts useful
+matches, not truth or access. Save priority on a card to override a host suggestion;
+Reset returns it to Normal. Host suggestions are visible but not weighted.
+Corrections preserve your priority unless you explicitly choose another one.
+
+Providers -> **Advanced retrieval** controls the importance weight (0 to 0.25,
+default 0.15). Zero disables the adjustment. Confidence weighting is locked at
+zero until an assessor has been evaluated. A host assessment is advisory and
+becomes stale if its claim or evidence changes; it cannot activate an inference.
+No provider, model call or transcript scan is required for these controls.
+Search is lexical: English and Spanish filler is filtered, but it does not
+translate between languages. Empty results are preferable to irrelevant context.
 
 The extraction panel is for **your own messages**, not an unlabeled transcript
 containing assistant replies. Text goes to the selected extractor and may go to
@@ -155,6 +186,44 @@ Your Codex/Claude client can still authenticate using its own supported login
 and use the [DeMemory MCP integration](integrations.md). That does not export
 its OAuth tokens or turn its subscription into a direct extraction API key.
 No login-token scraping or Claude subscription token reuse is implemented.
+
+## Optional evidence judgments (Jev)
+
+This is a manual shadow evaluation, not automatic memory approval. Recall and
+explicit learning work without it. To try it:
+
+1. Enable **jev** in **Modules** and add the **TypeSafe Jev judgments** provider.
+   The endpoint and model are pinned; supply your own API-key environment
+   variable or a browser-session key. Never put keys in memory or source files.
+2. In **Providers → Evidence judgments**, select that profile, optional
+   judgment-capable fallbacks and the exact allowed scopes. Global is not
+   implicitly included. Review the shared daily call/token/cost limits and save.
+3. Open a memory's judgment preview. Inspect its claim and stored source excerpt;
+   without an excerpt the evaluator has no evidence and makes no call. Optionally
+   select another active memory in the same scope for a separate comparison.
+4. Explicitly confirm the preview. If the memory or excerpt has changed, refresh
+   first. The result distinguishes evidence-support probabilities from evaluator
+   certainty. Neither establishes real-world truth or authenticates the source.
+
+Only selected claim text and its excerpt go to the support request. The optional
+comparison is separate: existing memories never corroborate the evidence. No
+conversation transcript, source file path or tool output is loaded. Inputs over
+8,000 characters are skipped, not silently truncated. There are at most three
+provider attempts per job, one attempt per profile per question, with a ten-second
+job deadline and bounded HTTP timeouts. No retry queue or prompt-hook calls.
+All reservations share provider budgets; missing usage remains estimated, not
+free. Check **Activity** for attempts, duration and configured-price estimates.
+
+The result never changes Markdown, priority, confidence ranking, permissions or
+corrections. A bounded metadata-only cache in existing `runtime.sqlite` expires
+by eviction (200 entries); revisions, model/rubric or routing changes invalidate
+reuse. Disabling Jev prevents subsequent adapter imports/calls and cached verdict
+reuse; deterministic memory remains available.
+
+External processing is opt-in. [TypeSafe's no-training policy](https://docs.typesafe.ai/legal)
+does not imply zero retention. This integration has synthetic/mock acceptance,
+not demonstrated live accuracy, Spanish calibration or billing acceptance.
+Do not interpret a convincing numeric score as proof.
 
 ## Local conversation sources
 
@@ -298,15 +367,27 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 ## Consolidation
 
-Choose the **Scheduled scope**, enable the schedule, choose hours (24 daily,
-168 weekly), and save. There is one saved schedule per vault. It processes only
-that scope, independently of the browsing scope above; you can enter a scope
-before it has any memories. Settings and cadence persist across restarts, and
-missed runs coalesce into one run on resume.
+Corrections inherit existing kind and unexpired expiry when omitted. A genuinely
+new occurrence can renew an expired/aged assertion; replaying the original event
+does not revive it. Memory never grants permission to execute an action. Clear expiry or reset
+kind explicitly in the memory editor. Automatic duplicate cleanup requires
+matching title, provenance and quality/lifecycle metadata as well as body text.
+Conversation extraction accepts validated kind and only an expiry timestamp
+literally present in both its quoted evidence and claim; paraphrases remain
+provisional. Missing classification stays unspecified. Literal presence is a
+bounded provenance check, not proof that a model interpreted the date correctly.
+
+Choose **Fixed scope**, **Selected projects** or **All projects**, choose hours
+(24 daily, 168 weekly), enable and save. There is still one schedule per vault,
+independent of the browsing scope. Multi-project schedules visit at most three
+scopes per interval and rotate across restarts; a large selection is not all
+visited each week. Global is a separate opt-in. Budget exhaustion resumes with
+the deferred scope at the next interval. Missed runs coalesce, not accumulate.
 
 **Run now** names the browsing scope it will process. Running another scope
-does not postpone the saved schedule. Running the scheduled scope starts its
-next interval, as do changing the scheduled scope or re-enabling the schedule.
+does not postpone the saved schedule. In fixed-scope mode, running the scheduled
+scope starts its next interval, as do retargeting or re-enabling the schedule.
+Manual runs never postpone a multi-project schedule.
 Changing only the interval uses the same schedule's prior cadence anchor, not
 the most recent run of an unrelated scope. Latest run shows its own scope
 separately from the saved scheduled scope.
@@ -316,9 +397,19 @@ exact duplicate unkeyed records without correction ancestry. Keyed/corrected
 records are preserved. With a configured consolidation route, global memory may
 also produce at most one shorter, source-linked review proposal. It does not
 automatically rewrite summaries or consume pending proposals.
-Project-scope cleanup is deterministic and makes no model calls, even when a
-global consolidation route is configured. Retired duplicates remain in memory
-history; cleanup does not delete their Markdown files.
+Project cleanup stays model-free unless **Enable model-generated summaries for
+project memories** is explicitly checked. That authorizes the configured route
+and fallbacks to receive up to eight complete selected memories (20,000 content
+characters). Pending summaries appear only in their own scope; accepting one
+checks that its sources still exist, are current and unexpired. It never
+overwrites the originals. Retired duplicates remain inspectable in history.
+
+Use **Memory kind** to distinguish durable lessons from dated episodes, and
+**Expires at** for an explicit expiry. Dates entered in the UI use the browser's
+local timezone. Expired memories disappear from normal recall, not from disk;
+**Include history** lets you inspect them and clear expiry. An optional **Episode
+recall window** hides old episodes only; zero (the default) disables it. Existing
+unclassified records are not automatically reclassified or expired.
 
 The foreground server runs due jobs; closing the browser tab is fine. An
 [optional Windows task](automation.md) checks consolidation hourly without the
