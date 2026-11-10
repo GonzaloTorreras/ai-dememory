@@ -1,11 +1,11 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-10-29 after a complete
-[141-record memory audit](memory-quality-audit-2026-10-29.md). The three local
-memory-quality slices have not reached the installed runtime. Deliver them,
-reconcile current versus historical state and maintain populated project scopes
-before adding more ingestion, semantic reranking, procedural export or networking.
-Jev remains manual/shadow-only in source with mock acceptance.
+This is the single active product plan. Updated 2026-11-10 after the
+[memory audit](memory-quality-audit-2026-10-29.md): the quality slices are now
+installed locally as `3.0.0a3`, with a first reversible cleanup and populated-scope
+maintenance. Complete mixed-record reconciliation and measure current/history
+retrieval before more ingestion, semantic reranking or networking. Jev remains
+optional, disabled locally and shadow-only with mock acceptance.
 
 ## Product outcome
 
@@ -34,16 +34,18 @@ several hosts.
 ## Delivery sequence
 
 Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev).
-The installed runtime still lacks these fields/fixes and its weekly schedule
-targets global despite every stored memory being project-scoped. The next
-vertical slices are, in order:
+The installed CLI, fresh MCP/hook and dashboard now include these fields/fixes.
+The first cleanup preserved 154 originals, separated three useful claims and
+retired 19 obsolete states from normal recall. The current sequence is:
 
-1. Deliver a uniquely versioned artifact and verify the actual CLI/MCP/hook/UI.
-2. Reconcile one reviewed current-state family with original evidence and undo.
-3. Apply the private 141-record cleanup manifest in bounded per-project batches;
-   preserve originals and extract useful claims before any episode expiry.
-4. Target populated projects with the existing scheduler and visible coverage.
-5. Improve single-claim admission, episode metadata, subject keys and scoped recall.
+1. Finish reviewed PR/main/tag publication of the installed `3.0.0a3` candidate.
+2. Reconnect long-lived clients so they load the updated package; fresh-process
+   acceptance already passes. Runtime identity must be checked, not assumed.
+3. Continue the private manifest's mixed-record and scope reviews in bounded
+   per-project batches; preserve originals and extract claims before expiry.
+4. Observe the now-active daily all-project schedule and visible batch coverage.
+5. Refine single-claim admission and bilingual/current/history replay. Validated
+   extraction lifecycle, neutral omission and correction inheritance are delivered.
 6. Evaluate optional Jev reranking against a labeled baseline; confidence ranking
    stays zero until measured. Live data/cost opt-in follows local fixtures.
 

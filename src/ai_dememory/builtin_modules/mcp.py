@@ -219,7 +219,9 @@ def instructions(bound_scope: str | None = None) -> str:
         "and facts derived only from retrieved memory or your own earlier summaries. "
         "Label uncertain deductions as inference; they remain provisional. Use a correction key or "
         "supersedes only when an explicit correction identifies the earlier fact. memory.forget can undo "
-        "a mistaken learning."
+        "a mistaken learning. Classify reusable facts/preferences as memory_kind=durable and dated outcomes as episode. "
+        "Do not save one-time permissions as reusable memory. Corrections inherit omitted lifecycle/expiry; "
+        "clear expiry or reset kind explicitly in the memory editor."
     )
 
 

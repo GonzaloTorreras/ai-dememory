@@ -367,6 +367,14 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 ## Consolidation
 
+Corrections inherit existing kind/expiry when omitted. Clear expiry or reset
+kind explicitly in the memory editor. Automatic duplicate cleanup requires
+matching title, provenance and quality/lifecycle metadata as well as body text.
+Conversation extraction accepts validated kind and only an expiry timestamp
+literally present in both its quoted evidence and claim; paraphrases remain
+provisional. Missing classification stays unspecified. Literal presence is a
+bounded provenance check, not proof that a model interpreted the date correctly.
+
 Choose **Fixed scope**, **Selected projects** or **All projects**, choose hours
 (24 daily, 168 weekly), enable and save. There is still one schedule per vault,
 independent of the browsing scope. Multi-project schedules visit at most three

@@ -1,9 +1,54 @@
 # Development status
 
-Updated: 2026-10-29. This is the current handoff, not an accumulated backlog.
+Updated: 2026-11-10. This is the current handoff, not an accumulated backlog.
 Earlier implementation/install receipts remain in Git history.
 
-## Current audit and next action — 2026-10-29
+## Current delivery: 3.0.0a3 and first private cleanup
+
+- User authorized installation, audited cleanup and package publication. Source
+  now has unique version `3.0.0a3`; publication follows the existing alpha policy
+  (TestPyPI and GitHub prerelease). Tag/publisher gates still require green main.
+- Fixed review findings before unattended maintenance: duplicate cleanup compares
+  provenance/quality/lifecycle and cannot use keyed/correcting records as anchors;
+  corrections inherit omitted lifecycle/expiry, with explicit editor reset.
+  Extraction carries validated kind and literal quote/claim expiry; omitted kind
+  stays unspecified and semantic uncertainty remains provisional.
+- Full source suite: 335 tests, 330 passed / five expected Windows symlink skips;
+  compilation, JavaScript syntax and diff checks pass. Synthetic tests required
+  normal temporary-directory permissions; sandbox-only failures are not product
+  regressions. An isolated wheel setup/priority/episode/expiry/recall smoke passed.
+- Final local candidate wheel: 143,031 bytes, SHA-256
+  `1a96568ceb62460282ee2d01a4cb951ad2e2649205f4a68cc53cba36e65a4afb`.
+  Installed global CLI reports `3.0.0a3`, using the existing selector and vault.
+  Fresh installed stdio MCP and prompt-hook tests pass, including lifecycle schema,
+  expired-context exclusion and reaped test children.
+- A pre-update private backup preserved all 154 source records, configuration,
+  runtime and consistent operational SQLite; original byte hashes and database
+  integrity passed. Cleanup first passed on a copy, then on the real vault with
+  per-record preimage checks and a private mutation journal.
+- First cleanup: 150 active records classified, 19 reviewed obsolete states
+  expired from default recall, three existing claims separated from their dated
+  receipts, three ambiguous paragraphs narrowed without inventing evidence.
+  All 154 original records remain; total 157. No physical deletion, global-scope
+  promotion, external memory export or inference. Four scoped state queries now
+  place their reviewed target first; this is acceptance, not a broad benchmark.
+- Daily all-project scheduling now covers 14 populated scopes in rotating batches
+  of three; global/project model summaries stay off and the episode-age window
+  stays zero pending the remaining mixed-record reviews. No new scheduler/process.
+- Dashboard restored at loopback port 8765. Installed UI history changes this
+  project's visible count from one to four, and Recall shows the expected lesson.
+  Desktop/mobile 390px show no overflow or console warnings/errors; screenshot
+  inspected in memory. Browser plugin absent; available Playwright used.
+- Existing long-lived Codex MCP connections retain their old imported code:
+  this session reproduced that behavior. Fresh processes have verified new
+  behavior. Reconnect existing clients/reopen Codex before relying on lifecycle
+  filtering there; no unrelated client or process was terminated.
+- Remaining product work: reconcile the other mixed records and ambiguous scope
+  candidates; measure bilingual/current/history retrieval before optional Jev
+  reranking. Jev stays disabled; no live quality/billing acceptance is claimed.
+  Release PR/head, CI, tag and publisher receipts belong in the PR handoff.
+
+## Previous audit and plan — 2026-10-29
 
 - Source remains `e7b2941` on `codex/v3-readable-project-scopes`, with the
   pre-existing untracked `build/` preserved. No open PR was returned by the

@@ -213,7 +213,7 @@ class LearningJobsTests(unittest.TestCase):
 
     def test_deterministic_cleanup_stays_in_exact_scope_without_provider(self):
         self.vault.remember("Same content", "One")
-        self.vault.remember("Same content", "Two")
+        self.vault.remember("Same content", "One")
         self.remember("Same content", "project:other")
         result = self.jobs.consolidate()
         self.assertEqual(result, {"cleaned": 1, "proposals": 0, "no_op": False})
@@ -221,6 +221,41 @@ class LearningJobsTests(unittest.TestCase):
         self.assertEqual(len(self.services.list_memories("project:other")), 1)
         self.factory.assert_not_called()
         self.assertTrue(self.jobs.consolidate()["no_op"])
+
+    def test_cleanup_preserves_distinct_evidence_priority_and_lifecycle(self):
+        self.vault.remember("Same content", "One", importance="low")
+        self.vault.remember("Same content", "One", importance="high", memory_kind="durable")
+        self.vault._remember("Same content", "One", source={"provider": "test", "session": "s", "turn": "t",
+                             "evidence_kind": "user_statement", "excerpt": "Same content"})
+        self.assertTrue(self.jobs.consolidate()["no_op"])
+        self.assertEqual(len(self.services.list_memories()), 3)
+
+    def test_extraction_preserves_kind_and_only_explicit_expiry(self):
+        message = "Temporary decision, valid until 2030-01-01T00:00:00Z."
+        candidate = {"title": "Decision", "content": message, "evidence": message, "message_index": 0,
+                     "memory_kind": "episode", "expires_at": "2030-01-01T00:00:00Z"}
+        self.output({"memories": [candidate]})
+        saved = self.jobs.extract([{"role": "user", "content": message}], "global")["learned"][0]
+        self.assertEqual((saved["memory_kind"], saved["expires_at"]), ("episode", "2030-01-01T00:00:00Z"))
+        self.output({"memories": [{**candidate, "expires_at": "2031-01-01T00:00:00Z"}]})
+        result = self.jobs.extract([{"role": "user", "content": message}], "global")
+        self.assertEqual((result["learned"], result["rejected"]), ([], 1))
+
+    def test_cleanup_does_not_use_keyed_records_as_duplicate_anchors(self):
+        first = self.vault._remember("Same content", "One", key="subject")
+        self.vault._write_memory(replace(first, created_at="2020-01-01T00:00:00Z"))
+        self.vault.remember("Same content", "One")
+        self.assertTrue(self.jobs.consolidate()["no_op"])
+        self.assertEqual(len(self.services.list_memories()), 2)
+
+    def test_extraction_omitted_classification_is_neutral(self):
+        candidate = {"title": "Language", "content": "Use Python.", "evidence": "Use Python.", "message_index": 0}
+        self.output({"memories": [candidate]})
+        saved = self.jobs.extract([{"role": "user", "content": "Use Python. Another task expires 2030-01-01T00:00:00Z."}], "global")["learned"][0]
+        self.assertEqual(saved["memory_kind"], "unspecified")
+        self.output({"memories": [{**candidate, "expires_at": "2030-01-01T00:00:00Z"}]})
+        result = self.jobs.extract([{"role": "user", "content": "Use Python. Another task expires 2030-01-01T00:00:00Z."}], "global")
+        self.assertEqual((result["learned"], result["rejected"]), ([], 1))
 
     def test_summary_is_proposal_with_valid_sources_and_deduplicated(self):
         a = self.remember("This project uses Python for the command line interface.")
@@ -319,7 +354,7 @@ class LearningJobsTests(unittest.TestCase):
     def test_scheduled_project_cleanup_is_isolated_and_survives_restart(self):
         # Simulate manually copied Markdown records; ordinary learn deduplicates.
         for scope in ("global", "project:one", "project:two"):
-            for title in ("Original", "Manual copy"):
+            for title in ("Original", "Original"):
                 memory = self.vault.remember("Same synthetic recipe", title)
                 self.vault._write_memory(replace(memory, scope=scope))
         self.route()

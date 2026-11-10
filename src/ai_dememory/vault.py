@@ -478,7 +478,9 @@ class Vault:
                                                else importance or "normal"),
                                    importance_origin=("user" if keep_user_priority
                                                       else importance_origin if importance is not None else "default"),
-                                   confidence=confidence, memory_kind=memory_kind, expires_at=expires_at)
+                                   confidence=confidence,
+                                   memory_kind=(prior.memory_kind if prior and memory_kind == "unspecified" else memory_kind),
+                                   expires_at=prior.expires_at if prior and expires_at is None else expires_at)
             if prior:
                 try:
                     self._write_memory(replace(prior, status="superseded"))

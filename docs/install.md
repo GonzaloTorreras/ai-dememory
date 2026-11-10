@@ -17,6 +17,12 @@ The default vault is saved in your user configuration. You can subsequently run
 `ai-dememory status`, `remember`, `recall` and `serve` from any directory; you do
 not need to enter the vault. `--vault PATH` is only an intentional override.
 
+After updating an existing installation, reconnect already-running MCP clients
+or reopen Codex so they load the new code and tool schema. A running Python
+process retains imported modules from its earlier package version. Check the
+global CLI with `ai-dememory --version`; reopening the dashboard alone does not
+refresh an agent's separate MCP connection.
+
 ## Codex and optional scheduled work
 
 ```powershell

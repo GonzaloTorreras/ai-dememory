@@ -36,6 +36,15 @@ class MemoryQualityTests(V3TestCase):
         self.assertEqual((read.importance, read.importance_origin, read.confidence), ("normal", "default", {}))
         self.assertEqual(memory.path.read_bytes(), before)
 
+    def test_correction_inherits_lifecycle_until_explicit_editor_reset(self):
+        first = self.learn(key="runtime", memory_kind="episode", expires_at="2030-01-01T00:00:00Z")
+        corrected = self.learn("two", key="runtime", content="Prefer Rust")
+        self.assertEqual((corrected["memory_kind"], corrected["expires_at"]),
+                         ("episode", "2030-01-01T00:00:00Z"))
+        reset = self.vault.update_quality(corrected["memory_id"], "project:a",
+                                          {"memory_kind": "durable", "expires_at": None})
+        self.assertEqual((reset["memory_kind"], reset["expires_at"]), ("durable", None))
+
     def test_manual_metadata_edit_survives_reopen_and_index_rebuild(self):
         memory = self.vault.remember("Prefer Python", scope="project:a")
         self.services.search("Python", scope="project:a")
