@@ -2,12 +2,11 @@
 
 A small, local-first memory for people and AI tools.
 
-This is the V3 alpha, a clean reset. Use an explicitly versioned V3 artifact
-from the [releases page](https://github.com/GonzaloTorreras/ai-dememory/releases)
-or its V3 checkout; an unpinned stable package install may still select V2.
+This is the V3 alpha, a clean reset. Install the explicitly versioned V3 package
+from PyPI; an unpinned stable package install may still select V2.
 
 ```bash
-python -m pip install .
+python -m pip install "ai-dememory==3.0.0a4"
 ai-dememory setup
 ai-dememory remember "Something worth remembering"
 ```

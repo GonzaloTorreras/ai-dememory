@@ -93,6 +93,8 @@ def _answer(data: dict, question_id: str, labels: tuple[str, ...]) -> dict:
         raise ProviderError("invalid_response")
     if abs(sum(values) - 1) > 0.001:
         raise ProviderError("invalid_response")
+    if probabilities[answer["choice"]] < max(values):
+        raise ProviderError("invalid_response")
     return {"verdict": answer["choice"], "probabilities": probabilities, "certainty": certainty}
 
 

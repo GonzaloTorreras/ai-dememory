@@ -1,13 +1,17 @@
 # Install V3 and start using memory
 
 V3 is an alpha and deliberately does not migrate V2. Keep historical vaults
-separate. Use a versioned V3 wheel from [Releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
-or the V3 source checkout with Python 3.11 or newer:
+separate. With Python 3.11 or newer, install the V3 alpha directly from PyPI:
 
 ```bash
-python -m pip install .
+python -m pip install "ai-dememory==3.0.0a4"
 ai-dememory setup
 ```
+
+The alpha suffix remains intentional; an unpinned stable install can still select
+V2. Release wheels and checksums are also available in
+[Releases](https://github.com/GonzaloTorreras/ai-dememory/releases). For development
+from a checked-out V3 source tree, use `python -m pip install .` instead.
 
 The setup explains the vault location, then offers optional global Codex
 integration and, on Windows, scheduled consolidation. Decline both for a purely

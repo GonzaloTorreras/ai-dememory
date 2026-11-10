@@ -28,6 +28,18 @@ class SearchQualityTests(V3TestCase):
         self.assertEqual(_query_tokens(query), ["Deployment"])
         self.assertEqual(_query_tokens("no NO no deploy"), ["no", "deploy"])
 
+    def test_accent_equivalent_terms_share_filler_and_deduplication(self) -> None:
+        self.assertEqual(_query_tokens("qué configuración configuracion CONFIGURACIÓN"), ["configuración"])
+
+    def test_accent_insensitive_hit_keeps_its_relevant_context_and_match_details(self) -> None:
+        vault = self._vault()
+        vault.remember("Unrelated introduction. " * 30 + "La configuración usa SQLite local.", "Storage")
+
+        hit = SearchIndex(vault).search("configuracion")[0]
+
+        self.assertIn("configuración usa SQLite", hit.snippet)
+        self.assertEqual(hit.details["matching_terms"], ["configuracion"])
+
     def test_snippet_centers_on_a_whole_token_match(self) -> None:
         content = "reconfiguration " + ("filler " * 40) + "config is the selected value."
 

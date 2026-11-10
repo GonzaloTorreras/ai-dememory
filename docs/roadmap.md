@@ -1,11 +1,11 @@
 # V3 development plan
 
-This is the single active product plan. Updated 2026-11-10 after the
-[memory audit](memory-quality-audit-2026-10-29.md): the quality slices are now
-installed locally as `3.0.0a3`, with a first reversible cleanup and populated-scope
-maintenance. Complete mixed-record reconciliation and measure current/history
-retrieval before more ingestion, semantic reranking or networking. Jev remains
-optional, disabled locally and shadow-only with mock acceptance.
+This is the single active product plan. Updated 2026-11-10. The memory-quality
+baseline shipped as `3.0.0a3`. The next increment, `3.0.0a4`, fixes accent-aware
+recall presentation and Jev response validation, and delivers reviewed alphas on
+production PyPI. Private curation/replay evidence stays outside this repository.
+Complete targeted reconciliation and vocabulary coverage before semantic
+reranking or networking. Jev remains optional and shadow-only with mock acceptance.
 
 ## Product outcome
 
@@ -35,19 +35,22 @@ several hosts.
 
 Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev).
 The installed CLI, fresh MCP/hook and dashboard now include these fields/fixes.
-The first cleanup preserved 154 originals, separated three useful claims and
-retired 19 obsolete states from normal recall. The current sequence is:
+Reviewed cleanup remains reversible and separate from package installation.
+The current sequence is:
 
-1. Finish reviewed PR/main/tag publication of the installed `3.0.0a3` candidate.
+1. Deliver `3.0.0a4` through the reviewed tag-to-PyPI workflow. Keep its alpha
+   label; no new user confirmation is needed for authorized routine releases.
 2. Reconnect long-lived clients so they load the updated package; fresh-process
    acceptance already passes. Runtime identity must be checked, not assumed.
 3. Continue the private manifest's mixed-record and scope reviews in bounded
    per-project batches; preserve originals and extract claims before expiry.
 4. Observe the now-active daily all-project schedule and visible batch coverage.
-5. Refine single-claim admission and bilingual/current/history replay. Validated
-   extraction lifecycle, neutral omission and correction inheritance are delivered.
-6. Evaluate optional Jev reranking against a labeled baseline; confidence ranking
-   stays zero until measured. Live data/cost opt-in follows local fixtures.
+5. Preserve original-language terms and exact domain identifiers during admission;
+   measure candidate coverage before adding semantic search. Accent-aware snippet
+   and query tests do not establish translation/paraphrase quality.
+6. Evaluate optional Jev only on candidates actually retrieved. Its current
+   evidence-checking connector exists and is reviewed; confidence ranking stays
+   zero. Live data/cost opt-in follows local fixtures, not automatic vault export.
 
 The [audit](memory-quality-audit-2026-10-29.md) gives acceptance and recovery
 criteria. It introduces no second backlog, DAG or command family. The table below
@@ -129,8 +132,9 @@ daemon or top-level CLI.
 
 1. **One discoverable command and one selector.** Install the exact local V3 wheel
    into one stable per-user runtime and expose its packaged entry point on PATH.
-   V3 alpha `3.0.0a2` is on TestPyPI, not production PyPI; an unpinned public
-   package install is not this artifact.
+   Reviewed V3 alphas now use production PyPI; pin the alpha version because an
+   unpinned stable install may still select V2. Older `3.0.0a2`/`3.0.0a3` deliveries
+   used TestPyPI under the former policy.
    Reuse `config.py`; selected-vault lookup already works outside the checkout.
    Align CLI, workbench, hooks and MCP on the same selector without merging V2
    config. Keep explicit isolated selectors available for tests. Extend existing

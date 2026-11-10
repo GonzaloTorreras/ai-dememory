@@ -210,7 +210,9 @@ comparison is separate: existing memories never corroborate the evidence. No
 conversation transcript, source file path or tool output is loaded. Inputs over
 8,000 characters are skipped, not silently truncated. There are at most three
 provider attempts per job, one attempt per profile per question, with a ten-second
-job deadline and bounded HTTP timeouts. No retry queue or prompt-hook calls.
+cooperative job deadline and bounded HTTP timeouts. This is not a hard wall-clock
+kill: an in-flight blocking connection/read can overrun that deadline before the
+timeout check regains control. No retry queue or prompt-hook calls.
 All reservations share provider budgets; missing usage remains estimated, not
 free. Check **Activity** for attempts, duration and configured-price estimates.
 
