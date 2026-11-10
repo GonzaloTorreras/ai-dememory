@@ -37,6 +37,12 @@ def config_key(settings, config):
     return hashlib.sha256(json.dumps([RUBRIC, semantic, profiles], sort_keys=True).encode()).hexdigest()
 
 
+def confirmation_key(settings, config):
+    # Confirmation binds what can be sent, not merely reusable cached answers.
+    return hashlib.sha256(json.dumps([config_key(settings, config), config, settings["judgment"]],
+                                     sort_keys=True).encode()).hexdigest()
+
+
 def database(vault):
     db = _database(vault)
     db.execute("""CREATE TABLE IF NOT EXISTS jev_skill_receipts (
@@ -78,7 +84,19 @@ def assess(services, memory_id, scope, **kwargs):
         return {"status":"unassessed", "reason":"skills_disabled", "advisory_only":True, "result":{}}
     try:
         with _exclusive_write_lock(services.vault.root / ".jev-skills.lock"):
-            return _assess(services, memory_id, scope, **kwargs)
+            automatic = kwargs.get("automatic", False)
+            if automatic:
+                with closing(database(services.vault)) as db:
+                    if db.execute("SELECT 1 FROM jev_skill_receipts WHERE memory_id=?", (memory_id,)).fetchone():
+                        return {"status":"idle", "reason":"already_processed"}
+            result = _assess(services, memory_id, scope, **kwargs)
+            if automatic and result["status"] == "unassessed" and result.get("reason") not in ("budget", "missing_credentials", "busy"):
+                settings = load_settings(services.vault)
+                config = configuration(settings)
+                memory = services.vault.get(memory_id)
+                if config and memory and memory.scope == scope:
+                    record(services.vault, memory, config_key(settings, config), result)
+            return result
     except VaultBusyError:
         return {"status":"unassessed", "reason":"busy", "advisory_only":True, "result":{}}
 
@@ -104,7 +122,8 @@ def _assess(services, memory_id, scope, *, expected_revision=None, expected_conf
     if route is None:
         return empty("judgment_not_enabled")
     key = config_key(settings, config)
-    if expected_config is not None and expected_config != key:
+    confirmed = confirmation_key(settings, config)
+    if expected_config is not None and expected_config != confirmed:
         return empty("preview_stale")
     old = cached(vault, memory, key)
     wanted = {name for name in ("language", "usefulness") if config[name]}
@@ -135,21 +154,35 @@ def _assess(services, memory_id, scope, *, expected_revision=None, expected_conf
         return empty("sensitive_content")
     provider_engine = ProviderEngine(vault, settings, engine.transport, engine.credential_resolver)
     deadline, result = time.monotonic() + TOTAL_TIMEOUT_SECONDS, empty("provider_unavailable")
+    attempted = False
     for name in chain:
+        current = vault.get(memory_id)
+        current_settings = load_settings(vault)
+        current_config = configuration(current_settings)
+        if (not current or not recall_eligible(current) or current.scope != scope
+                or evidence_revision(current.title, current.content, current.source) != revision
+                or not current_config or confirmation_key(current_settings, current_config) != confirmed):
+            return empty("preview_stale")
         try:
             answers, meta = engine._request_many(provider_engine, settings["providers"][name], name, payload, schemas, deadline)
             result = {"status":"assessed", "advisory_only":True, "writes_canonical_memory":False,
                       "rubric":RUBRIC, **meta, "cache":{"hit":False}, "result":{**previous, **answers}}
             break
         except BudgetExceeded:
-            return empty("budget")
+            if not attempted:
+                return empty("budget")
+            break
         except ProviderError as exc:
-            result = empty(exc.reason)
+            if exc.reason != "missing_credentials":
+                attempted = True
+                result = empty(exc.reason)
+            elif not attempted:
+                result = empty("missing_credentials")
     current = vault.get(memory_id)
     if (not current or not recall_eligible(current) or current.scope != scope
             or evidence_revision(current.title, current.content, current.source) != revision
             or configuration(load_settings(vault)) != config
-            or config_key(load_settings(vault), config) != key):
+            or confirmation_key(load_settings(vault), config) != confirmed):
         return empty("preview_stale")
     if result.get("reason") != "missing_credentials":
         record(vault, memory, key, result)
@@ -202,8 +235,6 @@ def process_new(services, credential_resolver=None):
         if memory.memory_id not in seen and memory.scope in config["automatic_scopes"] and recall_eligible(memory):
             result = assess(services, memory.memory_id, memory.scope, automatic=True,
                             engine=JudgmentEngine(services.vault, settings, credential_resolver=credential_resolver))
-            if result["status"] == "unassessed" and result.get("reason") not in ("budget", "missing_credentials", "busy"):
-                record(services.vault, memory, config_key(settings, config), result)
             return result
     return {"status":"idle"}
 

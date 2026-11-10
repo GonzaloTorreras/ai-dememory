@@ -37,8 +37,12 @@ Private vault inventories, provider identities and replay data stay outside Git.
 - Public synthetic pilot previews eight fixed examples and measures live language
   and retention judgments against labels and a keep-all baseline. No private
   memories/purpose enter that request; mocks test transport/UI, not model quality.
-- Full suite: 364 tests, 359 passed / five expected Windows symlink skips.
-  Final focused checks: 40 passed. Clean wheel installed outside checkout with
+- Review regression checks cover exact question consent, revocation before
+  fallback, missing-credential/budget tails after a failed attempt and interleaved
+  automatic workers. Confirmation and semantic cache identities are separate;
+  automatic receipt checks and terminal writes share the assessment lock.
+- Full suite: 368 tests, 363 passed / five expected Windows symlink skips.
+  Final focused checks: 67 passed. Clean wheel installed outside checkout with
   bilingual save/recall and optional-skill availability; disabled Jev remained
   unimported. Compilation, JavaScript syntax and diff checks pass.
 - Backend/UI checks pass on synthetic data. Desktop 1280×900 and

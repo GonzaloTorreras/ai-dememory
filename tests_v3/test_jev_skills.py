@@ -5,7 +5,9 @@ from unittest.mock import patch
 from ai_dememory.config import set_module_enabled
 from ai_dememory.core import CoreServices
 from ai_dememory.judgments import JudgmentEngine
-from ai_dememory.jev_skills import arm, assess, process_new
+from ai_dememory.jev_skills import arm, assess, process_new, config_key, confirmation_key, database, record
+from ai_dememory.providers import BudgetExceeded
+from contextlib import closing
 from ai_dememory.settings import DEFAULT_SETTINGS, save_settings, load_settings
 from ai_dememory.vault import Vault
 from tests_v3.test_core import V3TestCase
@@ -129,6 +131,79 @@ class JevSkillTests(V3TestCase):
         from ai_dememory.vault import _exclusive_write_lock
         with _exclusive_write_lock(self.vault.root / ".jev-skills.lock"):
             self.assertEqual(assess(self.services, self.memory.memory_id, "project:alpha", engine=self.engine())["reason"], "busy")
+        self.assertEqual(self.calls, [])
+
+    def test_confirmation_binds_enabled_questions_without_invalidating_cached_answers(self):
+        config = self.settings["module_settings"]["jev"]
+        config["usefulness"] = False
+        first = save_settings(self.vault, self.settings)
+        from ai_dememory.jev_skills import configuration
+        semantic = config_key(first, configuration(first))
+        confirmed = confirmation_key(first, configuration(first))
+        config["usefulness"] = True
+        second = save_settings(self.vault, self.settings)
+        self.assertEqual(semantic, config_key(second, configuration(second)))
+        result = assess(self.services, self.memory.memory_id, "project:alpha",
+                        expected_config=confirmed, engine=self.engine())
+        self.assertEqual(result["reason"], "preview_stale")
+        self.assertEqual(self.calls, [])
+
+    def test_failed_primary_then_missing_credentials_or_budget_is_not_automatically_retried(self):
+        self.settings["providers"]["backup"] = copy.deepcopy(self.settings["providers"]["jev"])
+        self.settings["judgment"]["fallback"] = ["backup"]
+        self.settings["module_settings"]["jev"].update({"after_save":True,"automatic_scopes":["project:alpha"]})
+        save_settings(self.vault, self.settings); arm(self.services)
+        fresh = self.vault.remember("A new fact", "New", scope="project:alpha")
+        calls = []
+        def failed(*args):
+            calls.append(1)
+            raise ConnectionError
+        with patch("ai_dememory.builtin_modules.jev.http_transport", failed):
+            resolver = lambda name, profile: "synthetic-key" if name == "jev" else ""
+            self.assertEqual(process_new(self.services, resolver)["reason"], "provider_unavailable")
+            self.assertEqual(process_new(self.services, resolver)["status"], "idle")
+        self.assertEqual(len(calls), 1)
+        with closing(database(self.vault)) as db, db:
+            db.execute("DELETE FROM jev_skill_receipts WHERE memory_id=?", (fresh.memory_id,))
+        original = JudgmentEngine._request_many
+        def request(engine, provider_engine, profile, name, *args):
+            if name == "backup":
+                raise BudgetExceeded("synthetic budget")
+            return original(engine, provider_engine, profile, name, *args)
+        with patch("ai_dememory.builtin_modules.jev.http_transport", failed), patch.object(JudgmentEngine, "_request_many", request):
+            self.assertEqual(process_new(self.services, lambda *args:"synthetic-key")["reason"], "provider_unavailable")
+            self.assertEqual(process_new(self.services, lambda *args:"synthetic-key")["status"], "idle")
+        self.assertEqual(len(calls), 2)
+
+    def test_revoked_automation_stops_fallback_before_egress(self):
+        self.settings["providers"]["backup"] = copy.deepcopy(self.settings["providers"]["jev"])
+        self.settings["judgment"]["fallback"] = ["backup"]
+        self.settings["module_settings"]["jev"].update({"after_save":True,"automatic_scopes":["project:alpha"]})
+        save_settings(self.vault, self.settings); arm(self.services)
+        self.vault.remember("A new fact", "New", scope="project:alpha")
+        calls = []
+        def revoke(*args):
+            calls.append(1)
+            self.settings["module_settings"]["jev"].update({"after_save":False,"automatic_scopes":[]})
+            save_settings(self.vault, self.settings)
+            raise ConnectionError
+        with patch("ai_dememory.builtin_modules.jev.http_transport", revoke):
+            self.assertEqual(process_new(self.services, lambda *args:"synthetic-key")["reason"], "preview_stale")
+        self.assertEqual(len(calls), 1)
+
+    def test_automatic_selection_rechecks_receipt_after_waiting_for_lock(self):
+        self.settings["module_settings"]["jev"].update({"after_save":True,"automatic_scopes":["project:alpha"]})
+        saved = save_settings(self.vault, self.settings); arm(self.services)
+        fresh = self.vault.remember("A new fact", "New", scope="project:alpha")
+        from ai_dememory.jev_skills import configuration
+        real_assess = assess
+        def intervening_worker(*args, **kwargs):
+            # Another worker completed after this sweep read its initial seen set.
+            record(self.vault, fresh, config_key(saved, configuration(saved)),
+                   {"status":"unassessed","reason":"provider_unavailable","result":{}})
+            return real_assess(*args, **kwargs)
+        with patch("ai_dememory.jev_skills.assess", intervening_worker), patch("ai_dememory.builtin_modules.jev.http_transport", self.transport):
+            self.assertEqual(process_new(self.services, lambda *args:"synthetic-key")["reason"], "already_processed")
         self.assertEqual(self.calls, [])
 
     def test_public_pilot_measures_mock_answers_without_disclosing_canonical_memory(self):

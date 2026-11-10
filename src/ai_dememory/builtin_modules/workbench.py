@@ -259,8 +259,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 skill_key = ""
                 if any(item.module_id == "jev" and item.enabled for item in discover_modules().values()):
                     try:
-                        from ai_dememory.jev_skills import configuration, config_key
-                        skill_key = config_key(settings, configuration(settings))
+                        from ai_dememory.jev_skills import configuration, confirmation_key
+                        skill_key = confirmation_key(settings, configuration(settings))
                     except (ValueError, OSError):
                         pass
                 self._send(200, {
