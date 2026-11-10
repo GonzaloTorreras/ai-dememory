@@ -44,6 +44,8 @@ class WorkbenchServer(HTTPServer):
         self.session = uuid4().hex
         self.last_tick = 0.0
         self.last_source_tick = 0.0
+        self.last_jev_tick = 0.0
+        self.jev_status = {"status":"disabled"}
         from ai_dememory.source_jobs import SourceJobs
         self.source_jobs = SourceJobs(services.vault, self.jobs)
         super().__init__(("127.0.0.1", port), WorkbenchHandler)
@@ -185,6 +187,14 @@ class WorkbenchServer(HTTPServer):
             if self.last_tick - self.last_source_tick >= 60:
                 self.last_source_tick = self.last_tick
                 self.source_jobs.run()
+            if self.last_tick - self.last_jev_tick >= 60:
+                self.last_jev_tick = self.last_tick
+                from ai_dememory.config import load_config
+                if "jev" in load_config().enabled_modules:
+                    from ai_dememory.jev_skills import process_new
+                    self.jev_status = process_new(self.services, self.resolve_credential)
+                else:
+                    self.jev_status = {"status":"disabled"}
         except (ValueError, OSError, sqlite3.Error):
             # Job failures have their own safe status; never stop serving the UI.
             pass
@@ -246,6 +256,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 memories = self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"])
                 for memory in memories:
                     memory["judgment_revision"] = evidence_revision(memory["title"], memory["content"], memory["source"])
+                skill_key = ""
+                if any(item.module_id == "jev" and item.enabled for item in discover_modules().values()):
+                    try:
+                        from ai_dememory.jev_skills import configuration, config_key
+                        skill_key = config_key(settings, configuration(settings))
+                    except (ValueError, OSError):
+                        pass
                 self._send(200, {
                     "status": self.server.services.status(),
                     "memories": memories,
@@ -257,6 +274,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "scheduled_task": receipt_status(self.server.services.vault),
                     "activity": activity(self.server.services.vault),
                     "usage": usage_summary(self.server.services.vault),
+                    "jev_skills": self.server.jev_status,
+                    "jev_skill_config_key": skill_key,
                     "modules": [item.to_dict() for item in discover_modules().values()],
                     "scopes": scopes,
                     "scope_labels": scope_labels(self.server.services.vault, {*scopes, scope}),
@@ -303,7 +322,34 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             settings = save_settings(services.vault, data)
             self.server.prune_credentials(settings)
+            from ai_dememory.config import load_config
+            if "jev" in load_config().enabled_modules:
+                from ai_dememory.jev_skills import arm
+                arm(services)
             return settings
+        if path == "/api/jev-skills":
+            if (set(data) != {"memory_id", "scope", "expected_revision", "expected_config", "confirmed"}
+                    or data["confirmed"] is not True or not isinstance(data["expected_revision"], str)
+                    or len(data["expected_revision"]) != 64 or not isinstance(data["expected_config"], str)
+                    or len(data["expected_config"]) != 64):
+                raise ValueError("Confirm the displayed memory before external skill assessment")
+            from ai_dememory.jev_skills import assess
+            from ai_dememory.judgments import JudgmentEngine
+            return assess(services, data["memory_id"], data["scope"], expected_revision=data["expected_revision"],
+                          expected_config=data["expected_config"],
+                          engine=JudgmentEngine(services.vault, credential_resolver=self.server.resolve_credential))
+        if path == "/api/jev-evaluation/preview":
+            if data:
+                raise ValueError("The synthetic pilot does not accept memory or conversation input")
+            from ai_dememory.jev_evaluation import preview
+            return preview(services.vault)
+        if path == "/api/jev-evaluation":
+            if set(data) != {"confirmed", "expected_config"} or data["confirmed"] is not True:
+                raise ValueError("Preview and confirm the public synthetic pilot first")
+            from ai_dememory.jev_evaluation import run
+            from ai_dememory.judgments import JudgmentEngine
+            return run(services.vault, data["expected_config"],
+                       engine=JudgmentEngine(services.vault, credential_resolver=self.server.resolve_credential))
         if path == "/api/credentials":
             return self.server.set_credential(data)
         if path == "/api/provider-models":
@@ -327,6 +373,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 raise ValueError("Stop the workbench process to disable this dashboard")
             if enabled:
                 enable_module(name)
+                if name == "jev":
+                    from ai_dememory.jev_skills import arm
+                    arm(services)
             else:
                 if name == "codex-subscription" and self.server._codex_module is not None:
                     self.server._codex_module.cancel_login()

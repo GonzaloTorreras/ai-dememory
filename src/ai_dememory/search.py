@@ -131,10 +131,17 @@ class SearchIndex:
                     memory_id UNINDEXED,
                     title,
                     body,
+                    source_excerpt,
                     tokenize='unicode61'
                 );
                 """
             )
+            if "source_excerpt" not in {row["name"] for row in connection.execute("PRAGMA table_info(memory_fts)")}:
+                # Only the disposable projection is rebuilt; canonical memory and
+                # durable operational receipts are untouched.
+                connection.execute("DROP TABLE memory_fts")
+                connection.execute("CREATE VIRTUAL TABLE memory_fts USING fts5(memory_id UNINDEXED, title, body, source_excerpt, tokenize='unicode61')")
+                connection.execute("DELETE FROM memory_files")
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(memory_files)")}
             if "scope" not in columns:
                 connection.execute("ALTER TABLE memory_files ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'")
@@ -260,8 +267,8 @@ class SearchIndex:
                         ),
                     )
                     connection.execute(
-                        "INSERT INTO memory_fts(memory_id, title, body) VALUES (?, ?, ?)",
-                        (memory.memory_id, memory.title, memory.content),
+                        "INSERT INTO memory_fts(memory_id, title, body, source_excerpt) VALUES (?, ?, ?, ?)",
+                        (memory.memory_id, memory.title, memory.content, memory.source.get("excerpt", "")),
                     )
                     indexed += 1
 
@@ -278,6 +285,7 @@ class SearchIndex:
     def search(
         self, query: str, limit: int = 5, scope: str = "global", *, importance_weight: float = 0.15,
         episode_days: int = 0,
+        include_source: bool = True,
     ) -> list[SearchHit]:
         validate_scope(scope)
         if type(limit) is not int or not 1 <= limit <= 50:
@@ -288,20 +296,27 @@ class SearchIndex:
             raise SearchError("importance_weight must be a finite number between 0 and 0.25")
         if type(episode_days) is not int or not 0 <= episode_days <= 36500:
             raise SearchError("episode_days must be an integer between 0 and 36500")
+        if type(include_source) is not bool:
+            raise SearchError("include_source must be boolean")
         tokens = _query_tokens(query)
         if not _TOKEN.findall(query):
             raise SearchError("Search query must contain at least one word or number")
         if not tokens:
             return []
         self.sync()
-        expression = " OR ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens[:20])
+        terms = [f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens[:20]]
+        expression = "{title body} : (" + " OR ".join(terms) + ")"
+        if include_source:
+            # Original wording can recover a translated summary, but source-only
+            # additions must satisfy every informative term to limit noisy OR hits.
+            expression += " OR (source_excerpt : (" + " AND ".join(terms) + "))"
         connection = self._connect()
         try:
             rows = connection.execute(
                 """
                 SELECT f.memory_id, m.path, m.created_at, m.importance, m.importance_origin,
                        m.memory_kind, m.expires_at,
-                       bm25(memory_fts, 0.0, 4.0, 1.0) AS rank
+                       bm25(memory_fts, 0.0, 4.0, 1.0, 0.5) AS rank
                 FROM memory_fts AS f
                 JOIN memory_files AS m ON m.memory_id = f.memory_id
                 WHERE memory_fts MATCH ? AND m.scope IN ('global', ?) AND m.status = 'active'
@@ -369,7 +384,10 @@ class SearchIndex:
             importance_applied = importance_origin != "host"
             from .quality import confidence_status
             details = {
-                "matching_terms": _matching_terms(memory.title, memory.content, tokens),
+                "matching_terms": _matching_terms(memory.title, memory.content + (" " + memory.source.get("excerpt", "") if include_source else ""), tokens),
+                "match_fields": [name for name, value in (("title", memory.title), ("content", memory.content),
+                                  ("source_excerpt", memory.source.get("excerpt", "") if include_source else ""))
+                                 if _matching_terms("", value, tokens)],
                 "importance": importance,
                 "importance_origin": importance_origin,
                 "importance_applied": importance_applied,
@@ -377,6 +395,15 @@ class SearchIndex:
                 "confidence_status": confidence_status(memory),
                 "confidence_applied": False,
             }
+            from .config import load_config
+            if "jev" in load_config().enabled_modules:
+                try:
+                    from .jev_skills import recall_tags
+                    tags = recall_tags(self.vault, memory)
+                    if tags:
+                        details["jev"] = tags
+                except (ValueError, OSError, sqlite3.Error):
+                    pass  # Optional advisory metadata cannot break core recall.
             hits.append(
                 SearchHit(
                     memory_id=memory.memory_id,

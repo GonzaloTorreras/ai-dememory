@@ -4,7 +4,7 @@ V3 is an alpha and deliberately does not migrate V2. Keep historical vaults
 separate. With Python 3.11 or newer, install the V3 alpha directly from PyPI:
 
 ```bash
-python -m pip install "ai-dememory==3.0.0a4"
+python -m pip install "ai-dememory==3.0.0a5"
 ai-dememory setup
 ```
 

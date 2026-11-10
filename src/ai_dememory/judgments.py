@@ -73,11 +73,17 @@ def _usage(data: dict) -> dict | None:
     return None
 
 
-def _answer(data: dict, question_id: str, labels: tuple[str, ...]) -> dict:
+def _answer(data: dict, question_id: str, labels: tuple[str, ...] | None) -> dict:
     answers = data.get("answers")
     if not isinstance(answers, dict):
         raise ProviderError("invalid_response")
     answer = answers.get(question_id)
+    if labels is None:
+        value = answer.get("noul") if isinstance(answer, dict) else None
+        if (not isinstance(answer, dict) or answer.get("type") != "noul"
+                or type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1):
+            raise ProviderError("invalid_response")
+        return {"probability": value}
     if not isinstance(answer, dict) or answer.get("type") != "choice" or answer.get("choice") not in labels:
         raise ProviderError("invalid_response")
     probabilities = answer.get("probabilities")
@@ -111,11 +117,11 @@ class JudgmentEngine:
         self.transport = transport
         self.credential_resolver = credential_resolver
 
-    def _configuration(self, scope: str) -> tuple[dict, list[str]] | tuple[None, None]:
+    def _configuration(self, scope: str, allowed_scopes=None) -> tuple[dict, list[str]] | tuple[None, None]:
         config = self.settings.get("judgment", {}) if isinstance(self.settings, dict) else {}
         if not isinstance(config, dict) or config.get("primary", "") == "":
             return None, None
-        scopes, operations = config.get("scopes", []), config.get("operations", ["support"])
+        scopes, operations = config.get("scopes", []) if allowed_scopes is None else allowed_scopes, config.get("operations", ["support"])
         if not isinstance(scopes, list) or len(scopes) > 100 or scope not in scopes:
             return None, None
         if not isinstance(operations, list) or "support" not in operations:
@@ -171,6 +177,10 @@ class JudgmentEngine:
 
     def _request(self, engine: ProviderEngine, provider, name: str, payload: dict, question_id: str,
                  labels: tuple[str, ...], deadline: float) -> tuple[dict, dict]:
+        answers, meta = self._request_many(engine, provider, name, payload, {question_id: labels}, deadline)
+        return answers[question_id], meta
+
+    def _request_many(self, engine, provider, name, payload, questions, deadline):
         remaining = max(0, deadline - time.monotonic())
         if remaining <= 0:
             raise ProviderError("provider_timeout")
@@ -189,14 +199,18 @@ class JudgmentEngine:
         attempt = engine._reserve("judgment", "judgment", name, provider, inputs, 256)
         started = time.monotonic()
         try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProviderError("provider_timeout")
             data = adapter.judge(provider, payload, credential, self.transport, min(10, remaining))
             if data.get("model") is not None and data["model"] != provider["model"]:
                 raise ProviderError("invalid_response")
-            parsed = _answer(data, question_id, labels)
+            parsed = {qid: {**_answer(data, qid, labels), "provider": name, "model": provider["model"]}
+                      for qid, labels in questions.items()}
             if time.monotonic() > deadline:
                 raise ProviderError("provider_timeout")
             engine._finish(attempt, "success", "", started, _usage(data), provider)
-            return {**parsed, "provider": name, "model": provider["model"]}, {"provider": name, "model": provider["model"]}
+            return parsed, {"provider": name, "model": provider["model"]}
         except urllib.error.HTTPError as exc:
             reason = "provider_quota" if exc.code == 429 else "provider_http_error"
             exc.close()

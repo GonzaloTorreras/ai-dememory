@@ -276,7 +276,7 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             "enabled": manifest.module_id,
             "capabilities": list(manifest.capabilities),
             "resource_budget": manifest.resource_budget,
-            "next": ("ai-dememory module enable workbench" if manifest.module_id in ("sources", "codex-subscription")
+            "next": ("ai-dememory module enable workbench" if manifest.module_id in ("sources", "codex-subscription", "jev")
                      else f"ai-dememory serve {manifest.module_id} --help" if manifest.module_id.startswith("harness") or manifest.module_id == "hermes-memory"
                      else f"ai-dememory serve {manifest.module_id}"),
         }
@@ -344,7 +344,8 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
         settings = load_settings(vault)
         hits = SearchIndex(vault).search(args.query, args.limit, args.scope,
                                         importance_weight=settings["ranking"]["importance_weight"],
-                                        episode_days=settings["lifecycle"]["episode_recall_days"])
+                                        episode_days=settings["lifecycle"]["episode_recall_days"],
+                                        include_source=settings["retrieval"]["source_excerpt"])
         if json_output:
             _emit(
                 {

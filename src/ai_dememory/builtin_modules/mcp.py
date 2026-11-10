@@ -222,6 +222,7 @@ def instructions(bound_scope: str | None = None) -> str:
         "a mistaken learning. Classify reusable facts/preferences as memory_kind=durable and dated outcomes as episode. "
         "Do not save one-time permissions as reusable memory. "
         "Preserve useful original-language terms and exact project/product identifiers in titles and claims. "
+        "If recall misses across languages, try one short English/Spanish keyword query, preserving entities, numbers and negations. "
         "Corrections inherit omitted lifecycle/expiry; "
         "clear expiry or reset kind explicitly in the memory editor."
     )

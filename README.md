@@ -5,7 +5,7 @@ to inspect and edit. Markdown is the memory source of truth. Search SQLite is
 disposable; optional provider budgets and job receipts are separate durable state.
 
 The current development branch is rebuilding the product as V3. The source version is
-`3.0.0a4` (alpha). Install from PyPI with `python -m pip install 'ai-dememory==3.0.0a4'`.
+`3.0.0a5` (alpha). Install from PyPI with `python -m pip install 'ai-dememory==3.0.0a5'`.
 See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
 for published artifacts and the target index. V3 deliberately does not migrate or emulate
 2.x. Existing historical/test vaults remain separate and must not be deleted

@@ -273,9 +273,13 @@ class JudgmentEngineTests(V3TestCase):
         set_module_enabled("jev", True)
         self.settings["providers"]["fallback"] = {**self.settings["providers"]["jev"]}
         self.settings["judgment"]["fallback"] = ["fallback"]
-        calls, clock = [], iter([0, 0, 0, 11, *([11] * 20)])
-        with patch("ai_dememory.judgments.time.monotonic", side_effect=lambda: next(clock)):
-            result = self.engine(lambda *args: calls.append(args) or self.response()).evaluate(
+        calls, clock = [], [0]
+        def transport(*args):
+            calls.append(args)
+            clock[0] = 11
+            return self.response()
+        with patch("ai_dememory.judgments.time.monotonic", side_effect=lambda: clock[0]):
+            result = self.engine(transport).evaluate(
                 self.memory.memory_id, "project:alpha"
             )
         self.assertEqual((result["status"], result["reason"], len(calls)), ("unassessed", "provider_timeout", 1))

@@ -5,6 +5,31 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a5] - 2026-11-10
+
+### Added
+
+- Search literal source wording alongside translated summaries, using the same
+  disposable FTS index. Source-only additions require all informative terms;
+  the feature can be disabled. No translator, vector store or model call.
+- Per-module settings namespace with optional module-owned validation and a
+  workbench editor. Jev has separate language/usefulness/recall-metadata switches,
+  configurable language codes/names and an optional archive-purpose prompt.
+- Opt-in new-memory assessment on the existing foreground workbench, one item
+  per minute with existing budgets and metadata-only receipts. No historical
+  backfill, native-hook network calls, canonical writes or admission/ranking effect.
+- Confirmed public synthetic Jev pilot with frozen labels and a keep-all baseline,
+  so users can measure actual model behavior without exporting their vault.
+- Enabling Jev points to the workbench instead of suggesting a nonexistent
+  standalone Jev server.
+
+### Scope
+
+- Independent lexical holdout recovers original-language vocabulary, not arbitrary
+  translation. Automated usefulness remains advisory until efficacy is measured.
+- No new runtime dependency, daemon, thread, event bus or top-level CLI command.
+  Session API keys still need re-entry after restarting the workbench.
+
 ## [3.0.0a4] - 2026-11-10
 
 ### Fixed
