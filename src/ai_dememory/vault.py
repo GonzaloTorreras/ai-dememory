@@ -456,12 +456,18 @@ class Vault:
                            event_id], ensure_ascii=False)
         memory_id = uuid.uuid5(uuid.NAMESPACE_URL, seed).hex
         with _exclusive_write_lock(self.root / ".ai-dememory.write.lock"):
+            from .settings import load_settings
+            from .quality import recall_eligible
+            episode_days = load_settings(self)["lifecycle"]["episode_recall_days"]
             memories = [self.read_memory(path) for path in self.iter_memory_paths()]
             for memory in memories:
                 if memory.memory_id == memory_id:
                     return {**memory.to_dict(), "admission": "duplicate"}
                 if memory.scope == scope and memory.content == content and memory.key == key:
-                    if memory.status == "active" or (memory.status == "provisional" and provisional):
+                    if ((recall_eligible(memory, episode_days)
+                         and memory_kind in ("unspecified", memory.memory_kind)
+                         and (expires_at is None or expires_at == memory.expires_at))
+                            or (memory.status == "provisional" and provisional)):
                         return {**memory.to_dict(), "admission": "duplicate"}
             prior = next((memory for memory in memories if memory.memory_id == supersedes), None)
             if supersedes and (prior is None or prior.scope != scope or prior.status != "active"):
@@ -480,7 +486,8 @@ class Vault:
                                                       else importance_origin if importance is not None else "default"),
                                    confidence=confidence,
                                    memory_kind=(prior.memory_kind if prior and memory_kind == "unspecified" else memory_kind),
-                                   expires_at=prior.expires_at if prior and expires_at is None else expires_at)
+                                   expires_at=(prior.expires_at if prior and expires_at is None
+                                               and recall_eligible(prior) else expires_at))
             if prior:
                 try:
                     self._write_memory(replace(prior, status="superseded"))

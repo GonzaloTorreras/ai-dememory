@@ -45,6 +45,31 @@ class MemoryQualityTests(V3TestCase):
                                           {"memory_kind": "durable", "expires_at": None})
         self.assertEqual((reset["memory_kind"], reset["expires_at"]), ("durable", None))
 
+    def test_new_assertion_renews_expired_memory_but_retry_does_not(self):
+        for keyed in (False, True):
+            with self.subTest(keyed=keyed):
+                extra = {"key": "expired"} if keyed else {}
+                first = self.learn("expired-" + str(keyed), memory_kind="episode", expires_at="2000-01-01T00:00:00Z", **extra)
+                retry = self.learn("expired-" + str(keyed), **extra)
+                self.assertEqual(retry["memory_id"], first["memory_id"])
+                fresh = self.learn("renewed-" + str(keyed), **extra)
+                self.assertNotEqual(fresh["memory_id"], first["memory_id"])
+                self.assertIsNone(fresh["expires_at"])
+                self.assertIn(fresh["memory_id"], self.services.context("Python", scope="project:a")["memory_ids"])
+
+    def test_new_assertion_renews_aged_episode_and_accepts_explicit_expiry(self):
+        first = self.learn("old", key="episode", memory_kind="episode")
+        old = self.vault.get(first["memory_id"])
+        self.vault._write_memory(replace(old, created_at="2000-01-01T00:00:00Z"))
+        settings = load_settings(self.vault); settings["lifecycle"]["episode_recall_days"] = 7
+        save_settings(self.vault, settings)
+        self.assertEqual(self.services.context("Python", scope="project:a")["memory_ids"], [])
+        fresh = self.learn("new", key="episode", expires_at="2030-01-01T00:00:00Z")
+        self.assertEqual(fresh["memory_kind"], "episode")
+        self.assertIn(fresh["memory_id"], self.services.context("Python", scope="project:a")["memory_ids"])
+        extended = self.learn("extended", key="episode", expires_at="2031-01-01T00:00:00Z")
+        self.assertEqual(extended["expires_at"], "2031-01-01T00:00:00Z")
+
     def test_manual_metadata_edit_survives_reopen_and_index_rebuild(self):
         memory = self.vault.remember("Prefer Python", scope="project:a")
         self.services.search("Python", scope="project:a")

@@ -13,12 +13,12 @@ Earlier implementation/install receipts remain in Git history.
   corrections inherit omitted lifecycle/expiry, with explicit editor reset.
   Extraction carries validated kind and literal quote/claim expiry; omitted kind
   stays unspecified and semantic uncertainty remains provisional.
-- Full source suite: 335 tests, 330 passed / five expected Windows symlink skips;
+- Full source suite: 337 tests, 332 passed / five expected Windows symlink skips;
   compilation, JavaScript syntax and diff checks pass. Synthetic tests required
   normal temporary-directory permissions; sandbox-only failures are not product
   regressions. An isolated wheel setup/priority/episode/expiry/recall smoke passed.
-- Final local candidate wheel: 143,031 bytes, SHA-256
-  `1a96568ceb62460282ee2d01a4cb951ad2e2649205f4a68cc53cba36e65a4afb`.
+- Final local candidate wheel: 143,144 bytes, SHA-256
+  `4e174855b50733c55db7373b6a3544b42010d58cb9dcb05217a8e791a85491c1`.
   Installed global CLI reports `3.0.0a3`, using the existing selector and vault.
   Fresh installed stdio MCP and prompt-hook tests pass, including lifecycle schema,
   expired-context exclusion and reaped test children.
@@ -43,6 +43,9 @@ Earlier implementation/install receipts remain in Git history.
   this session reproduced that behavior. Fresh processes have verified new
   behavior. Reconnect existing clients/reopen Codex before relying on lifecycle
   filtering there; no unrelated client or process was terminated.
+- Final review also closed expired/aged same-content admission: a new source
+  occurrence can renew an ineligible assertion, while replaying the original
+  event remains idempotent. Explicit future expiry changes are no longer ignored.
 - Remaining product work: reconcile the other mixed records and ambiguous scope
   candidates; measure bilingual/current/history retrieval before optional Jev
   reranking. Jev stays disabled; no live quality/billing acceptance is claimed.

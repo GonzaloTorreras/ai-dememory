@@ -367,7 +367,9 @@ shows recent attempts, not host-wide process/memory telemetry.
 
 ## Consolidation
 
-Corrections inherit existing kind/expiry when omitted. Clear expiry or reset
+Corrections inherit existing kind and unexpired expiry when omitted. A genuinely
+new occurrence can renew an expired/aged assertion; replaying the original event
+does not revive it. Memory never grants permission to execute an action. Clear expiry or reset
 kind explicitly in the memory editor. Automatic duplicate cleanup requires
 matching title, provenance and quality/lifecycle metadata as well as body text.
 Conversation extraction accepts validated kind and only an expiry timestamp

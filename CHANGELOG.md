@@ -23,6 +23,8 @@ accepted by the release identity guard.
   snippets before importance-adjusted result limits. Host confidence is neutral.
 - Preserve lifecycle/expiry through corrections, protect distinct provenance and
   metadata during duplicate cleanup, and pass validated lifecycle through extraction.
+- Renew expired/aged assertions on a genuinely new source occurrence while
+  keeping same-event retries idempotent; accept explicit lifecycle changes.
 - Display readable project names while retaining stable identities. Explain
   retrieval adjustments, preserve user priority and invalidate stale UI results.
 
