@@ -32,7 +32,7 @@ class CommunityModuleMvpTests(V3TestCase):
         )
 
     def test_workbench_extension_enable_does_not_suggest_missing_server(self) -> None:
-        for module_id in ("sources", "codex-subscription"):
+        for module_id in ("sources", "codex-subscription", "jev"):
             code, output, error = self.run_cli("module", "enable", module_id)
             self.assertEqual(code, 0, error)
             self.assertIn("Next: ai-dememory module enable workbench", output)

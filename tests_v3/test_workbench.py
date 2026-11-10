@@ -18,6 +18,16 @@ from ai_dememory.vault import Vault
 
 
 class WorkbenchTests(unittest.TestCase):
+    def test_jev_metadata_and_pilot_require_explicit_confirmed_preview(self):
+        memory = self.services.vault.remember("Public synthetic preference", "Fixture", scope="project:q")
+        payload = {"memory_id":memory.memory_id,"scope":"project:q","expected_revision":"0"*64,"expected_config":"1"*64}
+        self.assertEqual(self.request("/api/jev-skills", payload)[0], 400)
+        with patch("ai_dememory.jev_skills.assess", return_value={"status":"unassessed"}) as assess:
+            self.assertEqual(self.request("/api/jev-skills", {**payload,"confirmed":True})[0], 200)
+            self.assertEqual(assess.call_count, 1)
+        self.assertEqual(self.request("/api/jev-evaluation", {"expected_config":"1"*64})[0], 400)
+        self.assertEqual(self.request("/api/jev-evaluation/preview", {"content":"Never accept arbitrary private text"})[0], 400)
+
     def test_judgment_requires_preview_confirmation_and_exact_revision(self):
         memory = self.services.vault.remember("Use Python", "Runtime", scope="project:q")
         row = self.state("?scope=project:q")["memories"][0]

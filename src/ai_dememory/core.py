@@ -23,7 +23,8 @@ class CoreServices:
         settings = load_settings(self.vault)
         return [hit.to_dict() for hit in SearchIndex(self.vault).search(query, limit, scope,
                 importance_weight=settings["ranking"]["importance_weight"],
-                episode_days=settings["lifecycle"]["episode_recall_days"])]
+                episode_days=settings["lifecycle"]["episode_recall_days"],
+                include_source=settings["retrieval"]["source_excerpt"])]
 
     def get(self, memory_id: str, max_chars: int = 20_000, scope: str = "global") -> dict[str, Any] | None:
         validate_scope(scope)
@@ -45,7 +46,8 @@ class CoreServices:
         settings = load_settings(self.vault)
         hits = SearchIndex(self.vault).search(query, limit, scope,
                 importance_weight=settings["ranking"]["importance_weight"],
-                episode_days=settings["lifecycle"]["episode_recall_days"])
+                episode_days=settings["lifecycle"]["episode_recall_days"],
+                include_source=settings["retrieval"]["source_excerpt"])
         text = ""
         included: list[str] = []
         sources: list[dict[str, Any]] = []
@@ -59,6 +61,8 @@ class CoreServices:
                 break
             budget = max(80, remaining // (len(hits) - index))
             heading = f"## {memory.title[:min(72, budget // 3)]}\n\n"
+            if budget >= 160 and hit.details.get("jev", {}).get("language"):
+                heading += f"[language: {hit.details['jev']['language']['verdict']}; advisory]\n"
             excerpt = _canonical_snippet(memory.content, _query_tokens(query),
                                          max_chars=max(1, budget - len(heading) - 4))
             text += separator + (heading + excerpt)[:remaining]

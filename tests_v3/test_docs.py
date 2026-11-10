@@ -19,6 +19,7 @@ ACTIVE = (
     ROOT / "docs" / "integrations.md",
     ROOT / "docs" / "automation.md",
     ROOT / "docs" / "workbench.md",
+    ROOT / "docs" / "bilingual-recall.md",
     ROOT / "docs" / "ai-operated-releases.md",
     ROOT / "docs" / "roadmap.md",
     ROOT / "docs" / "development-status.md",

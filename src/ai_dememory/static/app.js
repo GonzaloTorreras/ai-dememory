@@ -33,6 +33,11 @@ function notify(message, error = false) {
 function markDirty(value = true) {
   state.dirty = value;
   $('#dirty-notice').hidden = !value;
+  if (value) {
+    state.jevEvaluationKey = null;
+    $('#jev-evaluation-confirm').checked = false;
+    $('#run-jev-evaluation').disabled = true;
+  }
 }
 function showPage() {
   const name = location.hash.slice(1) in pages ? location.hash.slice(1) : 'memory';
@@ -146,6 +151,9 @@ function recallReason(details) {
     reasons.push(`Priority: ${importance[0].toUpperCase() + importance.slice(1)} · ${priorityOriginLabel(origin)}${weight}`);
   }
   reasons.push(`Confidence: ${confidenceStatusLabel(details.confidence_status)}`);
+  if (details.match_fields?.includes('source_excerpt')) reasons.push('Original evidence wording matched');
+  if (details.jev?.language) reasons.push(`Language: ${details.jev.language.verdict} (advisory)`);
+  if (details.jev?.usefulness) reasons.push(`Usefulness: ${judgmentNumber(details.jev.usefulness.probability)} (not weighted)`);
   return reasons.join(' · ');
 }
 function clearRecallResults() {
@@ -202,9 +210,13 @@ function renderMemories(memories) {
     };
     const qualityActions = element('div', undefined, 'actions');
     qualityActions.append(button('Save changes', () => perform(() => savePriority())), button('Reset priority', () => perform(() => savePriority(true))));
-    const evaluate = button('Evaluate preview with Jev', () => openJudgment(memory));
-    if (!source.excerpt) { evaluate.disabled = true; evaluate.title = 'This memory has no source excerpt to evaluate.'; quality.append(element('p', 'No source excerpt is available, so this memory cannot be evaluated.', 'hint quality-note')); }
-    qualityActions.append(evaluate);
+    if (moduleEnabled('jev')) {
+      const evaluate = button('Evaluate evidence preview', () => openJudgment(memory));
+      if (!source.excerpt) { evaluate.disabled = true; evaluate.title = 'No source excerpt for an evidence-support check.'; }
+      qualityActions.append(evaluate);
+      const skills = state.settings?.module_settings?.jev;
+      if (skills?.language || skills?.usefulness) qualityActions.append(button('Assess language / usefulness', () => openJudgment(memory, true)));
+    }
     quality.append(qualityActions); card.append(quality);
     const details = element('details');
     details.append(element('summary', 'Source & technical details'));
@@ -266,7 +278,7 @@ function renderSettings() {
   for (const [id, route] of Object.entries(settings.routes).filter(([id]) => id.includes(':'))) {
     const row = element('tr'); row.append(element('td', id), element('td', [route.primary, ...route.fallback].join(' → ') + ` · ${route.max_output_tokens} tokens`));
     const cell = element('td'), actions = element('div', undefined, 'row-actions');
-    actions.append(button('Edit', () => openOverride(id)), button('Remove', () => { collectSettings(); delete settings.routes[id]; markDirty(); renderSettings(); }));
+    actions.append(button('Edit', () => openOverride(id)), button('Remove', () => { if (!collectOrNotify()) return; delete settings.routes[id]; markDirty(); renderSettings(); }));
     cell.append(actions); row.append(cell); overrides.append(row);
   }
   if (!overrides.children.length) emptyRow(overrides, 3, 'No overrides. Operations use their default route.');
@@ -296,6 +308,18 @@ function renderJudgmentSettings(settings) {
     label.append(input, document.createTextNode(scopeLabel(scope))); scopes.append(label);
   }
   $('#judgment-operations').querySelectorAll('input').forEach((input) => { input.checked = operations.has(input.value); });
+  const skills = settings.module_settings?.jev || {};
+  for (const name of ['language', 'usefulness', 'recall-tags', 'after-save']) $('#jev-' + name).checked = Boolean(skills[name.replaceAll('-', '_')]);
+  $('#jev-languages').value = Object.entries(skills.languages || {es:'Spanish', en:'English'}).map(([code, name]) => `${code}=${name}`).join('\n');
+  $('#jev-purpose').value = skills.purpose || '';
+  const automatic = $('#jev-auto-scopes'); automatic.replaceChildren(element('legend', 'Explicit scopes for automatic external processing'));
+  for (const scope of state.scopes) {
+    const label = element('label', undefined, 'check'), input = element('input');
+    input.type = 'checkbox'; input.value = scope; input.checked = (skills.automatic_scopes || []).includes(scope);
+    label.append(input, document.createTextNode(scopeLabel(scope))); automatic.append(label);
+  }
+  $('#module-extra-json').value = JSON.stringify(Object.fromEntries(Object.entries(settings.module_settings || {}).filter(([id]) => id !== 'jev')), null, 2);
+  $('#source-excerpt-recall').checked = settings.retrieval?.source_excerpt !== false;
 }
 function renderScheduleProjectTargets(scopes, schedule) {
   const list = $('#schedule-project-list'), selected = new Set(schedule.scopes || []);
@@ -317,6 +341,14 @@ function updateScheduleTargetControls() {
 }
 function parseFallback(value) { return value.split(',').map((id) => id.trim()).filter(Boolean); }
 function collectSettings() {
+  const extra = JSON.parse($('#module-extra-json').value || '{}');
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) throw new Error('Other module settings must be a JSON object.');
+  const languages = {};
+  for (const line of $('#jev-languages').value.split('\n').map((value) => value.trim()).filter(Boolean)) {
+    const separator = line.indexOf('='), code = line.slice(0, separator).trim(), name = line.slice(separator + 1).trim();
+    if (separator < 1 || !name || Object.hasOwn(languages, code)) throw new Error('Use one unique language code=name per line.');
+    languages[code] = name;
+  }
   document.querySelectorAll('.route-row').forEach((row) => {
     const field = (name) => row.querySelector(`[data-field="${name}"]`).value;
     if (field('primary')) state.settings.routes[row.dataset.route] = { primary: field('primary'), fallback: parseFallback(field('fallback')), max_output_tokens: Number(field('max_output_tokens')) };
@@ -327,6 +359,10 @@ function collectSettings() {
   state.settings.lifecycle = { ...(state.settings.lifecycle || {}), episode_recall_days: Number($('#episode-recall-days').value) };
   state.settings.consolidation = { ...(state.settings.consolidation || {}), project_summaries: $('#project-summaries').checked };
   state.settings.judgment = { primary: $('#judgment-primary').value, fallback: parseFallback($('#judgment-fallback').value), scopes: [...document.querySelectorAll('#judgment-scopes input:checked')].map((input) => input.value), operations: [...document.querySelectorAll('#judgment-operations input:checked')].map((input) => input.value) };
+  state.settings.retrieval = { source_excerpt: $('#source-excerpt-recall').checked };
+  state.settings.module_settings = {...extra, jev:{language:$('#jev-language').checked, usefulness:$('#jev-usefulness').checked,
+    recall_tags:$('#jev-recall-tags').checked, after_save:$('#jev-after-save').checked, languages, purpose:$('#jev-purpose').value,
+    automatic_scopes:[...document.querySelectorAll('#jev-auto-scopes input:checked')].map((input) => input.value)}};
   const schedule = { enabled: $('#schedule-enabled').checked, interval_hours: Number($('#interval-hours').value), scope: $('#schedule-scope').value.trim() };
   const targetMode = $('#schedule-mode').value;
   if (targetMode !== 'fixed') {
@@ -336,8 +372,13 @@ function collectSettings() {
   }
   state.settings.schedule = schedule;
 }
+function collectOrNotify() {
+  try { collectSettings(); return true; }
+  catch (error) { notify(error.message, true); return false; }
+}
 function openProvider(id = '') {
-  collectSettings(); const form = $('#provider-form'); form.reset(); form.dataset.editId = id; form.dataset.suggestedId = '';
+  if (!collectOrNotify()) return;
+  const form = $('#provider-form'); form.reset(); form.dataset.editId = id; form.dataset.suggestedId = '';
   $('#provider-error').hidden = true; $('#provider-title').textContent = id ? 'Edit provider' : 'Add provider';
   form.elements.id.value = id; form.elements.id.disabled = Boolean(id);
   $('#provider-models').replaceChildren(); $('#provider-advanced').open = false;
@@ -431,14 +472,15 @@ function renderModules(data) {
   form.elements.kind.value = selectedKind;
 }
 function removeProvider(id) {
-  collectSettings();
+  if (!collectOrNotify()) return;
   const used = Object.entries(state.settings.routes).filter(([, route]) => [route.primary, ...route.fallback].includes(id)).map(([name]) => name);
   const judgment = state.settings.judgment || {}, judgmentUsed = [judgment.primary, ...(judgment.fallback || [])].includes(id);
   if (used.length || judgmentUsed) { notify(`Remove this provider from ${[used.length ? `these routes: ${used.join(', ')}` : '', judgmentUsed ? 'Jev judgment settings' : ''].filter(Boolean).join(' and ')} first.`, true); return; }
   delete state.settings.providers[id]; markDirty(); renderSettings();
 }
 function openOverride(id = '') {
-  collectSettings(); const form = $('#override-form'); form.reset(); form.dataset.editId = id;
+  if (!collectOrNotify()) return;
+  const form = $('#override-form'); form.reset(); form.dataset.editId = id;
   $('#override-error').hidden = true; $('#override-title').textContent = id ? 'Edit override' : 'Add override';
   const route = state.settings.routes[id] || {};
   form.elements.id.value = id; form.elements.id.disabled = Boolean(id);
@@ -508,12 +550,12 @@ function judgmentNumber(value) { return Number.isFinite(value) ? value.toFixed(3
 function judgmentAssessment(label, assessment) {
   if (!assessment || typeof assessment !== 'object') return '';
   const probability = label === 'Evidence support' ? assessment.probabilities?.supports : assessment.probabilities?.[assessment.verdict];
-  const probabilityLabel = label === 'Evidence support' ? 'support probability' : 'comparison probability';
+  const probabilityLabel = label === 'Evidence support' ? 'support probability' : 'label probability';
   return `${label}: ${assessment.verdict || 'unknown'} · ${probabilityLabel} ${judgmentNumber(probability)} · evaluator certainty ${judgmentNumber(assessment.certainty)}`;
 }
 function renderJudgmentResult(response) {
   const target = $('#judgment-result'); target.replaceChildren();
-  const metadata = [`Status: ${response.status || 'unassessed'}`, `Shadow-only: ${response.shadow_only === true ? 'yes' : 'no'}`, `Canonical writes: ${response.writes_canonical_memory === true ? 'yes' : 'no'}`, `Source authenticity: ${response.source_authenticity || 'unverified'}`];
+  const metadata = [`Status: ${response.status || 'unassessed'}`, `Advisory/shadow-only: ${response.shadow_only === true || response.advisory_only === true ? 'yes' : 'no'}`, `Canonical writes: ${response.writes_canonical_memory === true ? 'yes' : 'no'}`, `Source authenticity: ${response.source_authenticity || 'unverified'}`];
   if (response.model) metadata.push(`Model: ${response.model}`);
   if (response.rubric) metadata.push(`Rubric: ${response.rubric}`);
   if (response.cache && typeof response.cache.hit === 'boolean') metadata.push(`Cached: ${response.cache.hit ? 'yes' : 'no'}`);
@@ -526,6 +568,9 @@ function renderJudgmentResult(response) {
   const comparison = judgmentAssessment('Comparison', response.result?.comparison);
   if (support) target.append(element('span', support, 'judgment-line'));
   if (comparison) target.append(element('span', comparison, 'judgment-line'));
+  const language = judgmentAssessment('Language', response.result?.language);
+  if (language) target.append(element('span', language, 'judgment-line'));
+  if (response.result?.usefulness) target.append(element('span', `Usefulness probability: ${judgmentNumber(response.result.usefulness.probability)}. Retention value, not truth or authority.`, 'judgment-line'));
   target.append(element('span', 'Typed probability and evaluator certainty describe this assessment, not whether a memory is true.', 'judgment-line'));
 }
 function clearJudgment() {
@@ -536,21 +581,35 @@ function clearJudgment() {
   $('#run-judgment').disabled = true;
 }
 function updateJudgmentRun() {
-  const allowed = Boolean(state.judgmentMemory?.source?.excerpt) && $('#judgment-confirm').checked;
+  const allowed = Boolean(state.judgmentMemory && (state.judgmentMode === 'skills' || state.judgmentMemory.source?.excerpt)) && $('#judgment-confirm').checked;
   $('#run-judgment').disabled = !allowed;
 }
 function renderJudgmentPreview(memory, comparison) {
   const preview = $('#judgment-preview'); preview.replaceChildren();
-  preview.append(element('h3', memory.title), element('p', memory.content), element('p', 'Source excerpt', 'hint'), element('pre', memory.source.excerpt));
+  preview.append(element('h3', memory.title), element('p', memory.content));
+  if (state.judgmentMode === 'skills') {
+    const config = state.settings.module_settings?.jev || {};
+    preview.append(element('p', `Scope ID: ${memory.scope}. Purpose: ${config.purpose || '(generic scoped archive)'}.`, 'hint'),
+      element('p', `Skills: ${[config.language ? 'language' : '', config.usefulness ? 'usefulness' : ''].filter(Boolean).join(', ') || 'none enabled'}. Languages: ${Object.entries(config.languages || {es:'Spanish',en:'English'}).map(([id, label]) => `${id}=${label}`).join(', ')}.`, 'hint'));
+    const chain = [state.settings.judgment.primary, ...(state.settings.judgment.fallback || [])].filter(Boolean);
+    preview.append(element('p', `Provider order: ${chain.map((id) => `${id} (${state.settings.providers[id]?.model || 'unavailable'})`).join(' → ') || 'not configured'}.`, 'hint'));
+  } else preview.append(element('p', 'Source excerpt', 'hint'), element('pre', memory.source.excerpt));
   if (comparison) preview.append(element('h3', 'Comparison candidate'), element('p', comparison.title), element('p', comparison.content));
 }
-function openJudgment(memory) {
-  if (!memory.source?.excerpt) return;
+function openJudgment(memory, skills = false) {
+  if (!skills && !memory.source?.excerpt) return;
+  if (state.dirty) { notify('Save settings before previewing an external assessment.', true); return; }
+  state.judgmentMode = skills ? 'skills' : 'support'; state.judgmentConfigKey = state.jevConfigKey;
+  $('#judgment-title').textContent = skills ? 'Assess language and usefulness' : 'Evaluate evidence preview';
   state.judgmentRevision += 1; state.judgmentMemory = memory;
   const comparison = $('#judgment-comparison'); comparison.replaceChildren(new Option('No comparison', ''));
   for (const candidate of state.memories.filter((item) => item.memory_id !== memory.memory_id && item.scope === memory.scope)) comparison.add(new Option(candidate.title, candidate.memory_id));
-  const compareEnabled = Boolean(state.settings?.judgment?.operations?.includes('compare'));
+  const compareEnabled = !skills && Boolean(state.settings?.judgment?.operations?.includes('compare'));
   comparison.disabled = !compareEnabled;
+  comparison.closest('label').hidden = skills;
+  $('#judgment-disclosure').textContent = skills
+    ? 'Send only this displayed title/content, scope ID, archive purpose and the displayed skill instructions to the saved provider. No source excerpt or transcript is sent. Results are advisory; canonical memory and ranking stay unchanged.'
+    : 'Your local service sends this displayed claim and source excerpt to the configured external judgment provider. An optional comparison sends the two displayed claims separately, never as supporting evidence. It does not write canonical memory.';
   if (!compareEnabled) comparison.title = 'Enable Same-scope comparison in Jev settings before using this option.';
   renderJudgmentPreview(memory);
   $('#judgment-confirm').checked = false; $('#judgment-result').replaceChildren(); updateJudgmentRun();
@@ -561,6 +620,8 @@ async function refresh() {
   const data = await request(`/api/state?${query}`);
   clearRecallResults(); clearJudgment();
   state.credentials = data.credentials || {};
+  state.jevConfigKey = data.jev_skill_config_key || '';
+  $('#jev-auto-status').textContent = `Automatic assessment: ${data.jev_skills?.status || 'off'}${data.jev_skills?.reason ? ' · ' + data.jev_skills.reason : ''}. No canonical memory changes.`;
   state.scopeLabels = data.scope_labels || {};
   renderModules(data);
   const scheduledScope = state.dirty ? $('#schedule-scope').value : data.settings.schedule.scope;
@@ -675,15 +736,17 @@ $('#judgment-comparison').addEventListener('change', () => {
 });
 $('#run-judgment').addEventListener('click', () => {
   const memory = state.judgmentMemory;
-  if (!memory?.source?.excerpt || !$('#judgment-confirm').checked) return;
+  const skills = state.judgmentMode === 'skills';
+  if (!memory || (!skills && !memory.source?.excerpt) || !$('#judgment-confirm').checked) return;
   const comparisonId = $('#judgment-comparison').value;
   const comparison = state.memories.find((item) => item.memory_id === comparisonId && item.scope === memory.scope);
   const revision = ++state.judgmentRevision;
   const payload = { memory_id: memory.memory_id, scope: memory.scope, expected_revision: memory.judgment_revision, confirmed: true };
-  if (comparison) { payload.comparison_id = comparison.memory_id; payload.comparison_revision = comparison.judgment_revision; }
+  if (skills) payload.expected_config = state.judgmentConfigKey;
+  else if (comparison) { payload.comparison_id = comparison.memory_id; payload.comparison_revision = comparison.judgment_revision; }
   perform(async () => {
     try {
-      const response = await request('/api/judgment', payload);
+      const response = await request(skills ? '/api/jev-skills' : '/api/judgment', payload);
       if (revision !== state.judgmentRevision || state.judgmentMemory?.memory_id !== memory.memory_id || state.scope !== memory.scope) return;
       renderJudgmentResult(response);
       try {
@@ -698,15 +761,35 @@ $('#run-judgment').addEventListener('click', () => {
   });
 });
 document.querySelectorAll('.save-settings').forEach((item) => item.addEventListener('click', () => {
-  const invalid = [...document.querySelectorAll('#providers input, #consolidation input')].find((input) => !input.checkValidity());
+  const invalid = [...document.querySelectorAll('#providers input, #consolidation input, #modules input, #modules textarea')].find((input) => !input.checkValidity());
   if (invalid) { location.hash = invalid.closest('.page').id; showPage(); invalid.reportValidity(); return; }
-  collectSettings(); perform(async () => { await request('/api/settings', state.settings); markDirty(false); await refresh(); notify('Settings saved.'); });
+  perform(async () => { collectSettings(); await request('/api/settings', state.settings); markDirty(false); await refresh(); notify('Settings saved.'); });
 }));
-for (const id of ['providers', 'consolidation']) {
-  $( `#${id}`).addEventListener('input', () => markDirty());
-  $( `#${id}`).addEventListener('change', () => markDirty());
+for (const id of ['providers', 'consolidation', 'modules']) {
+  const changed = (event) => { if (!event.target.closest('#jev-evaluation-panel')) markDirty(); };
+  $( `#${id}`).addEventListener('input', changed);
+  $( `#${id}`).addEventListener('change', changed);
 }
 $('#schedule-mode').addEventListener('change', updateScheduleTargetControls);
+$('#preview-jev-evaluation').addEventListener('click', () => perform(async () => {
+  if (state.dirty) throw new Error('Save module/provider settings before previewing the pilot.');
+  const preview = await request('/api/jev-evaluation/preview', {});
+  state.jevEvaluationKey = preview.config_key;
+  const target = $('#jev-evaluation-preview'); target.hidden = false; target.textContent = JSON.stringify(preview, null, 2);
+  $('#jev-evaluation-confirm').disabled = false; $('#jev-evaluation-confirm').checked = false;
+  $('#run-jev-evaluation').disabled = true; $('#jev-evaluation-result').hidden = true;
+}));
+$('#jev-evaluation-confirm').addEventListener('change', () => { $('#run-jev-evaluation').disabled = !$('#jev-evaluation-confirm').checked; });
+$('#run-jev-evaluation').addEventListener('click', () => perform(async () => {
+  if (state.dirty || !state.jevEvaluationKey || !$('#jev-evaluation-confirm').checked) throw new Error('Preview and confirm the saved configuration first.');
+  const result = await request('/api/jev-evaluation', {confirmed:true, expected_config:state.jevEvaluationKey});
+  const target = $('#jev-evaluation-result'); target.hidden = false; target.textContent = JSON.stringify(result, null, 2);
+  $('#jev-evaluation-summary').textContent = result.status === 'assessed'
+    ? `Synthetic pilot: language ${result.measured.language_correct}/8; usefulness ${result.measured.usefulness_correct}/8 vs keep-all 4/8. Useful records rejected: ${result.measured.useful_rejected}; noise kept: ${result.measured.noise_kept}. Cached: ${result.cached ? 'yes' : 'no'}. This is not production efficacy or a calibrated threshold.`
+    : `Not assessed: ${result.reason || result.status}. No memory changed.`;
+  $('#jev-evaluation-confirm').checked = false; $('#run-jev-evaluation').disabled = true;
+  const operational = await request(`/api/state?scope=${encodeURIComponent(state.scope)}`); renderOperational(operational);
+}));
 $('#add-provider').addEventListener('click', () => openProvider());
 $('#add-override').addEventListener('click', () => openOverride());
 $('#refresh').addEventListener('click', () => perform(async () => { await refresh(); notify(state.dirty ? 'Activity and memory refreshed. Your unsaved settings are preserved.' : 'Up to date.'); }));

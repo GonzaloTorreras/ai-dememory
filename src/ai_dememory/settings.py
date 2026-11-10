@@ -20,6 +20,8 @@ DEFAULT_SETTINGS = {
     "ranking": {"importance_weight": 0.15, "confidence_weight": 0},
     "lifecycle": {"episode_recall_days": 0},
     "judgment": {"primary": "", "fallback": [], "scopes": [], "operations": ["support"]},
+    "retrieval": {"source_excerpt": True},
+    "module_settings": {},
 }
 _ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}")
 
@@ -58,9 +60,9 @@ def auth_mode(provider: dict) -> str:
 
 
 def validate_settings(data: dict) -> dict:
-    optional = {"ranking", "lifecycle", "consolidation", "judgment"}
+    optional = {"ranking", "lifecycle", "consolidation", "judgment", "retrieval", "module_settings"}
     _shape(data, set(DEFAULT_SETTINGS) - optional, optional)
-    reject_high_confidence_secrets(json.dumps(data))
+    reject_high_confidence_secrets(json.dumps(data, allow_nan=False))
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise ValueError("Unsupported settings schema")
     providers, routes = data["providers"], data["routes"]
@@ -190,6 +192,17 @@ def validate_settings(data: dict) -> dict:
             or any(value not in ("support", "compare") for value in operations)
             or "support" not in operations or len(operations) != len(set(operations))):
         raise ValueError("Judgment operations require support with optional compare")
+    retrieval = validated.setdefault("retrieval", copy.deepcopy(DEFAULT_SETTINGS["retrieval"]))
+    _shape(retrieval, {"source_excerpt"})
+    if type(retrieval["source_excerpt"]) is not bool:
+        raise ValueError("Original-source retrieval must be enabled or disabled")
+    configs = validated.setdefault("module_settings", {})
+    if not isinstance(configs, dict) or len(configs) > 32:
+        raise ValueError("Select at most 32 module configurations")
+    for name, config in configs.items():
+        if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{1,48}", name)
+                or not isinstance(config, dict) or len(json.dumps(config)) > 16_000):
+            raise ValueError("Module settings require a bounded object keyed by module ID")
     return validated
 
 
@@ -204,7 +217,19 @@ def load_settings(vault: Vault) -> dict:
 
 def save_settings(vault: Vault, data: dict) -> dict:
     validated = validate_settings(data)
-    _atomic_write(local_file(vault, "settings.json"), json.dumps(validated, indent=2) + "\n")
+    # Modules own detailed validation. Reading disabled module configuration
+    # preserves it without importing optional code.
+    from .config import load_config
+    from .modules import load_enabled_module
+    for name in set(validated["module_settings"]) & set(load_config().enabled_modules):
+        validator = getattr(load_enabled_module(name), "validate_config", None)
+        if callable(validator):
+            validated["module_settings"][name] = validator(validated["module_settings"][name])
+    validated = validate_settings(validated)
+    encoded = json.dumps(validated, indent=2) + "\n"
+    if len(encoded.encode("utf-8")) > 100_000:
+        raise ValueError("Settings file exceeds size limit")
+    _atomic_write(local_file(vault, "settings.json"), encoded)
     return validated
 
 

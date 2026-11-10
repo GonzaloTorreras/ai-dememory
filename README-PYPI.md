@@ -6,7 +6,7 @@ This is the V3 alpha, a clean reset. Install the explicitly versioned V3 package
 from PyPI; an unpinned stable package install may still select V2.
 
 ```bash
-python -m pip install "ai-dememory==3.0.0a4"
+python -m pip install "ai-dememory==3.0.0a5"
 ai-dememory setup
 ai-dememory remember "Something worth remembering"
 ```

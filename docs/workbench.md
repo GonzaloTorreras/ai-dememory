@@ -195,7 +195,7 @@ explicit learning work without it. To try it:
 1. Enable **jev** in **Modules** and add the **TypeSafe Jev judgments** provider.
    The endpoint and model are pinned; supply your own API-key environment
    variable or a browser-session key. Never put keys in memory or source files.
-2. In **Providers → Evidence judgments**, select that profile, optional
+2. In **Modules → Jev**, select that profile, optional
    judgment-capable fallbacks and the exact allowed scopes. Global is not
    implicitly included. Review the shared daily call/token/cost limits and save.
 3. Open a memory's judgment preview. Inspect its claim and stored source excerpt;
@@ -221,6 +221,31 @@ corrections. A bounded metadata-only cache in existing `runtime.sqlite` expires
 by eviction (200 entries); revisions, model/rubric or routing changes invalidate
 reuse. Disabling Jev prevents subsequent adapter imports/calls and cached verdict
 reuse; deterministic memory remains available.
+
+The same module now has separate **language** (Choice) and **usefulness** (Noul)
+skills. They can assess a manually saved memory without an evidence excerpt,
+because they judge language/retention value, not evidence support. Configure
+allowed language codes/names, an optional archive purpose and cache-only recall
+tags in **Modules**. `mixed`, `other` and `undetermined` remain available.
+
+**Automatically send NEW active memories** is separate ongoing consent, off by
+default, with its own exact scope selection. It sends only the new claim,
+scope ID and archive purpose. The existing workbench scans at most once/minute
+and assesses one item, batching the enabled questions in one request plus bounded
+fallbacks. No network runs under memory-write locks or from CLI/MCP/prompt hooks.
+Existing memories become a baseline on activation/reconfiguration/re-enablement;
+there is no implicit backfill. Unrelated global module changes conservatively
+re-arm processing and may skip pending advisory work, never canonical memory.
+Receipts survive restart/index rebuild; missing credentials/budget wait without
+spending, other failed chains require explicit manual retry. No endless paid queue.
+
+The optional **public synthetic evaluation** previews eight fixed examples and
+compares live usefulness decisions against keeping all examples. No canonical
+memory or private archive purpose is sent, and labels never enter the model
+request. Results include false rejections/noise kept, language accuracy and the
+model/latency; shared Activity shows actual/estimated usage. Mocks validate the
+plumbing only. Eight examples do not establish production efficacy or justify
+automatic filtering/reranking. See [measurement details](bilingual-recall.md).
 
 External processing is opt-in. [TypeSafe's no-training policy](https://docs.typesafe.ai/legal)
 does not imply zero retention. This integration has synthetic/mock acceptance,

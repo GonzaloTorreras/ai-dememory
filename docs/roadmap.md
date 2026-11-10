@@ -1,11 +1,12 @@
 # V3 development plan
 
 This is the single active product plan. Updated 2026-11-10. The memory-quality
-baseline shipped as `3.0.0a3`. The next increment, `3.0.0a4`, fixes accent-aware
-recall presentation and Jev response validation, and delivers reviewed alphas on
-production PyPI. Private curation/replay evidence stays outside this repository.
-Complete targeted reconciliation and vocabulary coverage before semantic
-reranking or networking. Jev remains optional and shadow-only with mock acceptance.
+baseline shipped as `3.0.0a3`; `3.0.0a4` is published on production PyPI. The
+`3.0.0a5` increment recovers original-language evidence wording and adds optional
+Jev language/usefulness skills, module-owned settings and a public live pilot.
+Private curation/replay evidence stays outside this repository. Complete measured
+candidate coverage before semantic reranking or networking. Jev remains advisory;
+its live usefulness must be evaluated, not inferred from passing transport mocks.
 
 ## Product outcome
 
@@ -38,19 +39,20 @@ The installed CLI, fresh MCP/hook and dashboard now include these fields/fixes.
 Reviewed cleanup remains reversible and separate from package installation.
 The current sequence is:
 
-1. Deliver `3.0.0a4` through the reviewed tag-to-PyPI workflow. Keep its alpha
+1. Deliver `3.0.0a5` through the reviewed tag-to-PyPI workflow. Keep its alpha
    label; no new user confirmation is needed for authorized routine releases.
 2. Reconnect long-lived clients so they load the updated package; fresh-process
    acceptance already passes. Runtime identity must be checked, not assumed.
 3. Continue the private manifest's mixed-record and scope reviews in bounded
    per-project batches; preserve originals and extract claims before expiry.
 4. Observe the now-active daily all-project schedule and visible batch coverage.
-5. Preserve original-language terms and exact domain identifiers during admission;
-   measure candidate coverage before adding semantic search. Accent-aware snippet
-   and query tests do not establish translation/paraphrase quality.
-6. Evaluate optional Jev only on candidates actually retrieved. Its current
-   evidence-checking connector exists and is reviewed; confidence ranking stays
-   zero. Live data/cost opt-in follows local fixtures, not automatic vault export.
+5. Preserve original-language terms and use literal evidence for lexical coverage.
+   The [independent holdout](bilingual-recall.md) recovers source vocabulary, not
+   monolingual translation. Keep the recall toggle and negative controls.
+6. Use the confirmed public Jev pilot to measure language and usefulness against
+   frozen labels. Metadata is cache-only at recall; optional new-memory processing
+   needs explicit scope/ongoing consent. No rejection, ranking or vectors until a
+   representative follow-up shows useful gains without harmful false rejections.
 
 The [audit](memory-quality-audit-2026-10-29.md) gives acceptance and recovery
 criteria. It introduces no second backlog, DAG or command family. The table below
