@@ -28,8 +28,20 @@ class SearchQualityTests(V3TestCase):
         self.assertEqual(_query_tokens(query), ["Deployment"])
         self.assertEqual(_query_tokens("no NO no deploy"), ["no", "deploy"])
 
-    def test_accent_equivalent_terms_share_filler_and_deduplication(self) -> None:
-        self.assertEqual(_query_tokens("qué configuración configuracion CONFIGURACIÓN"), ["configuración"])
+    def test_accented_filler_is_ignored_without_conflating_query_terms(self) -> None:
+        self.assertEqual(_query_tokens("qué configuración configuracion CONFIGURACIÓN"),
+                         ["configuración", "configuracion"])
+
+    def test_sqlite_distinct_unicode_terms_keep_both_matches(self) -> None:
+        vault = self._vault()
+        for words in (("йод", "иод"), ("ộ", "o")):
+            with self.subTest(words=words):
+                self.assertEqual(_query_tokens(" ".join(words)), list(words))
+                memories = [vault.remember(word, word) for word in words]
+                hits = SearchIndex(vault).search(" ".join(words))
+                self.assertEqual({hit.memory_id for hit in hits}, {m.memory_id for m in memories})
+                for hit in hits:
+                    self.assertEqual(hit.details["matching_terms"], [hit.title])
 
     def test_accent_insensitive_hit_keeps_its_relevant_context_and_match_details(self) -> None:
         vault = self._vault()

@@ -21,7 +21,7 @@ from .vault import Vault, validate_scope
 
 
 MODEL = "jev-1.13.0"
-RUBRIC = "evidence-support-v1"
+RUBRIC = "evidence-support-v2"
 MAX_INPUT_CHARS = 8_000
 MAX_ATTEMPTS = 3
 TOTAL_TIMEOUT_SECONDS = 10

@@ -20,16 +20,19 @@ Private memory inventories, query fixtures and curation journals stay outside Gi
 - Candidate version `3.0.0a4`; publication is pending reviewed PR/main CI/tag.
   User explicitly chose production PyPI for reviewed alphas and standing
   maintainer ownership without repetitive confirmation.
-- Focused checks: 49 passed. Full source suite: 343 tests, 338 passed / five
+- Final focused checks: 42 passed. Full source suite: 345 tests, 340 passed / five
   expected Windows symlink skips. Clean-wheel setup/save/accent-recall smoke
   passed outside the checkout with no dependencies or network.
-- Accent folding aligns Latin query deduplication/filler, snippets and matching
+- Accent folding aligns Latin query filler, snippets and matching
   details with SQLite. This fixes dropped relevant context, not semantic search
   or translation. Synthetic regressions reproduced the failures before changes.
 - Existing Jev connector is present and matches the current TypeSafe Choice API.
   Retain its supported pinned model, optional module, scope consent, preview,
   shared budgets and shadow-only behavior. Reject a selected answer below the
   maximum reported probability, while allowing ties. No new SDK or connector.
+- The rubric/cache identity changes with the stricter validator so pre-upgrade
+  cached results cannot bypass it. Query deduplication retains SQLite-distinct
+  terms in other scripts and multi-diacritic Latin letters.
 - Clarified the existing ten-second deadline: cooperative timeout checks can
   overrun during blocking network I/O; there is no hard wall-clock process kill.
 - Tag workflow now dispatches the standalone PyPI publisher automatically.

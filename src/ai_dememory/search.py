@@ -23,9 +23,16 @@ _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def _term_key(token: str) -> str:
-    # Keep Latin accent-insensitive snippets/details consistent with unicode61.
-    return "".join(char for char in unicodedata.normalize("NFD", token.casefold())
-                   if not unicodedata.combining(char))
+    # Default unicode61 folds single-diacritic Latin letters, not other scripts
+    # or multi-diacritic letters such as Vietnamese ộ (remove_diacritics=1).
+    result = []
+    for char in token.casefold():
+        parts = unicodedata.normalize("NFD", char)
+        if (len(parts) == 2 and unicodedata.name(parts[0], "").startswith("LATIN ")
+                and unicodedata.combining(parts[1])):
+            char = parts[0]
+        result.append(char)
+    return "".join(result)
 
 # These terms add little retrieval signal by themselves.  They are intentionally
 # small and conservative: identifiers, negations, numbers, and ordinary short
@@ -42,15 +49,15 @@ _FILLER_TERMS = frozenset({
 def _query_tokens(query: str) -> list[str]:
     """Return bounded, unique whole-word terms with retrieval value.
 
-    Terms are case/accent-folded for deduplication but their spelling is kept
+    Terms are case-folded for deduplication but their spelling is kept
     for FTS.  Filtering happens before the twenty-term bound so a useful word
     after conversational filler is not silently discarded.
     """
     selected: list[str] = []
     seen: set[str] = set()
     for token in _TOKEN.findall(query):
-        key = _term_key(token)
-        if key in seen or key in _FILLER_TERMS:
+        key = token.casefold()
+        if key in seen or _term_key(token) in _FILLER_TERMS:
             continue
         seen.add(key)
         selected.append(token)

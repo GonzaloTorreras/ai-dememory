@@ -10,12 +10,13 @@ accepted by the release identity guard.
 ### Fixed
 
 - Accent-insensitive retrieval now keeps snippets and matching-term details
-  aligned with SQLite's Latin matching. Accented filler and repeated terms no
-  longer consume the query budget unnecessarily.
+  aligned with SQLite's Latin matching. Accented filler no longer consumes the
+  query budget; SQLite-distinct terms are preserved across scripts.
 - Capture guidance preserves useful original-language terms and exact domain
   identifiers instead of relying on untranslated lexical queries to find them.
 - Reject inconsistent Jev Choice responses whose selected option is not one
-  of the highest-probability options; ties remain valid. Clarify that the existing
+  of the highest-probability options; ties remain valid. Invalidate pre-upgrade
+  judgment caches. Clarify that the existing
   network deadline is cooperative, not a hard process-kill guarantee.
 
 ### Changed
