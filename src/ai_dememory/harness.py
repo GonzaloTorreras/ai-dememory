@@ -60,7 +60,7 @@ def project_files(vault, project, client, scope):
     if project.is_symlink():
         raise ValueError("Project cannot be a symbolic link")
     project = project.expanduser().resolve()
-    interpreter = str(Path(sys.executable).resolve())
+    interpreter = str(Path(sys.executable).absolute())
     selector = str(config_dir())
     args = ["-m", "ai_dememory", "--vault", str(vault.root), "serve", "mcp", "--scope", scope]
     hook_args = [interpreter, "-m", "ai_dememory.harness", "--vault", str(vault.root),
