@@ -109,7 +109,7 @@ def install_user(vault, *, remove=False, projects=()):
             raise ValueError("Global integration receipt belongs to another client home")
         if remove and not receipt:
             return {"installed": False, "changed": False}
-        python, selector = str(Path(sys.executable).resolve()), str(config_dir())
+        python, selector = str(Path(sys.executable).absolute()), str(config_dir())
         args = ["-m", "ai_dememory", "--vault", str(vault.root), "serve", "mcp", "--auto-scope"]
         block = (BEGIN + f"[mcp_servers.{SERVER_NAME}]\ncommand = {json.dumps(python)}\nargs = {json.dumps(args)}\n"
                  f"startup_timeout_sec = 10\ntool_timeout_sec = 8\n[mcp_servers.{SERVER_NAME}.env]\n"
