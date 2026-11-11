@@ -5,6 +5,14 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a7] - Unreleased
+
+### Fixed
+
+- Native auto-scope MCP and prompt hooks can recall shared global memory from
+  an unbound home or filesystem root. Project bindings and client exclusions
+  still apply.
+
 ## [3.0.0a6] - 2026-11-21
 
 ### Added

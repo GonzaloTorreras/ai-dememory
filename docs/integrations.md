@@ -52,8 +52,11 @@ owned by the same OS user. Other clients retain explicit scope bindings.
 
 - Explicit folder aliases win; Git worktrees otherwise share their local common
   Git directory. Different clones and same-name folders stay separate.
-- Projectless task folders have independent scopes. A bare home/filesystem root
-  requires explicit binding; it never silently becomes a global writer.
+- Projectless task folders have independent scopes. From an unbound home or
+  filesystem root, native auto-scope MCP and recall hooks use shared global
+  memory. Learning there writes global facts. Proposals enter the global review
+  queue. An explicit binding takes precedence. If the home directory itself
+  is a Git checkout, bind it explicitly before using automatic scope there.
 - Automatic IDs are deterministic from local identity, with no discovery daemon
   or auto-written binding registry. Rebind a moved project explicitly to retain its scope.
 - The workbench displays project folder names instead of opaque IDs. Enabled
@@ -136,8 +139,8 @@ budgets. Configured extraction/consolidation routes are a separate mechanism.
 
 The installed MCP process is bound to the project scope. Cross-scope access is
 rejected; reads can include global memory, but global writes require a separate
-unbound or appropriately bound connection. The currently unscoped proposal
-store is unavailable through a bound connection. This is tool-level isolation,
+unbound or appropriately bound connection. Project-bound and explicit-scope connections use provisional
+learning for candidates. Automatic global fallback also accepts global proposals. This is tool-level isolation,
 not a sandbox against another local process with access to the same vault.
 
 ## Local acceptance checklist
