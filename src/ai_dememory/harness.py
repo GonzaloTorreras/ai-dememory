@@ -186,12 +186,15 @@ def main(argv=None):
                 scope = args.scope
                 vault = Vault.open(args.vault)
                 if args.auto_scope:
-                    from .projects import project_enabled, resolve_project, remember_project_name
+                    from .projects import resolve_project, remember_project_name
                     cwd = payload.get("cwd") if isinstance(payload, dict) else None
-                    if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
+                    if not isinstance(cwd, str):
                         print("{}")
                         return 0
-                    project = resolve_project(cwd)
+                    project = resolve_project(cwd, allow_global=True)
+                    if args.client in project["excluded_clients"]:
+                        print("{}")
+                        return 0
                     scope = project["scope"]
                     remember_project_name(vault, project)
                 output = recall_hook(vault, payload, scope, args.client)
