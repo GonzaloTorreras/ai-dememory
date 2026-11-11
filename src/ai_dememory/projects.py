@@ -77,7 +77,7 @@ def _git_root(cwd):
     return cwd, None
 
 
-def resolve_project(cwd):
+def resolve_project(cwd, *, allow_global=False):
     cwd = _path(cwd)
     root, common = _git_root(cwd)
     configured = bindings()
@@ -89,18 +89,19 @@ def resolve_project(cwd):
     entry = configured.get(chosen, {})
     if chosen:
         root = Path(chosen)
-    if not chosen and (root == Path.home().resolve() or root.parent == root):
+    global_fallback = not chosen and (root == Path.home().resolve() or root.parent == root)
+    if global_fallback and not allow_global:
         raise ValueError("No project binding here; choose a project directory or an explicit scope")
     identity = common if common is not None and not chosen else root
-    scope = entry.get("scope") or "project:" + uuid.uuid5(uuid.NAMESPACE_URL, _key(identity)).hex
+    scope = "global" if global_fallback else entry.get("scope") or "project:" + uuid.uuid5(uuid.NAMESPACE_URL, _key(identity)).hex
     excluded = set(entry.get("excluded_clients", []))
     for alias in configured.values():
         if alias.get("scope") == scope:
             excluded.update(alias.get("excluded_clients", []))
     # A linked worktree has a different folder name, but shares the main project.
     name_root = common.parent if not chosen and common is not None and common.name == ".git" else root
-    return {"scope": validate_scope(scope), "root": str(root), "name": name_root.name,
-            "reason": "configured" if chosen else "git_common_directory" if common else "workspace_directory",
+    return {"scope": validate_scope(scope), "root": str(root), "name": "" if global_fallback else name_root.name,
+            "reason": "global" if global_fallback else "configured" if chosen else "git_common_directory" if common else "workspace_directory",
             "excluded_clients": sorted(excluded)}
 
 
