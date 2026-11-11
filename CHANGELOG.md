@@ -5,6 +5,13 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a7] - Unreleased
+
+### Fixed
+
+- Generated MCP, recall-hook and Windows task commands keep the active virtual
+  environment’s interpreter path when Python is a symlink.
+
 ## [3.0.0a6] - 2026-11-21
 
 ### Added

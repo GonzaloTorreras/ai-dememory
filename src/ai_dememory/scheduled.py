@@ -85,7 +85,7 @@ def receipt_status(vault):
 
 
 def _task_xml(vault, user):
-    python = Path(sys.executable).resolve().with_name("pythonw.exe")
+    python = Path(sys.executable).absolute().with_name("pythonw.exe")
     if not python.is_file():
         raise ValueError("This Python installation needs pythonw.exe for a windowless scheduled task")
     root = ET.Element("Task", version="1.2", xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task")
