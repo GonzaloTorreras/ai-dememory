@@ -55,13 +55,14 @@ class WikiCliTests(V3TestCase):
         result = self.setup_wiki("--with-codex", "--with-claude")
         self.assertTrue(all(p.read_bytes() == value for p, value in before.items()))
         self.assertTrue(all(not h["changed"] for h in result["hooks"]))
+        self.assertNotIn("mcp", load_config().enabled_modules)
+        self.assertNotIn("harness-claude", load_config().enabled_modules)
         self.assertFalse((self.project / ".mcp.json").exists())
         self.assertFalse((self.project / ".codex/config.toml").exists())
 
     def test_invalid_mixed_modes_and_disabled_module_do_not_import_wiki(self):
         for args in (("setup", str(self.root / "vault"), "--project", str(self.project), "--yes"),
                      ("setup", "--project", str(self.project), "--with-schedule", "--yes"),
-                     ("setup", "--with-claude", "--yes"),
                      ("status", "--project", str(self.project), "--vault", str(self.root / "vault")),
                      ("remember", "x", "--page", "lessons.md")):
             code, _, _ = self.run_cli(*args)

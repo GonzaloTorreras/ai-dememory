@@ -4,7 +4,7 @@ from .config import load_config, save_config
 from .modules import enable_module
 
 
-def install_extras(vault, *, codex=False, schedule=False, scope=None, hours=None):
+def install_extras(vault, *, codex=False, claude=False, schedule=False, scope=None, hours=None):
     result = {}
     if codex:
         from .integration_install import install_user
@@ -15,6 +15,10 @@ def install_extras(vault, *, codex=False, schedule=False, scope=None, hours=None
         except Exception:
             save_config(before)
             raise
+        enable_module("workbench")
+    if claude:
+        from .integration_install import install_claude_user
+        result["claude"] = install_claude_user(vault)
         enable_module("workbench")
     if schedule:
         from .scheduled import manage_task

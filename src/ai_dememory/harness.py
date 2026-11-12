@@ -40,7 +40,7 @@ def install_parser():
     parser.add_argument("action", choices=["install", "uninstall", "bind", "exclude", "include"])
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--project", type=Path)
-    target.add_argument("--user", action="store_true", help="Install once for this user's Codex projects")
+    target.add_argument("--user", action="store_true", help="Install once for this user's client")
     parser.add_argument("--retire-project", action="append", default=[], type=Path, help="Retire an exact generated project-local connection")
     parser.add_argument("--client", choices=["codex", "claude"], default="codex")
     parser.add_argument("--scope")
@@ -116,7 +116,7 @@ def _record(vault, scope, payload, count, elapsed):
         db.execute("DELETE FROM hook_calls WHERE rowid NOT IN (SELECT rowid FROM hook_calls ORDER BY rowid DESC LIMIT 1000)")
 
 
-def recall_hook(vault, payload, scope, client="codex"):
+def recall_hook(vault, payload, scope, client="codex", *, user_claude=False):
     start = time.monotonic()
     validate_scope(scope)
     if not isinstance(payload, dict):
@@ -129,11 +129,16 @@ def recall_hook(vault, payload, scope, client="codex"):
         project = find_project(payload.get("cwd"))
         if project is not None:
             return recall(project, payload, client)
-    if client == "codex" and payload.get("hook_event_name") == "SessionStart":
+    mcp_scope_hint = (
+        "The user-level Claude MCP connection reads and writes shared global memory. "
+        "Use memory.learn there only for facts intended for every project. "
+        if user_claude else ""
+    )
+    if client in {"codex", "claude"} and payload.get("hook_event_name") == "SessionStart":
         if payload.get("source") not in {"startup", "resume", "clear", "compact"}:
             return {}
         guidance = (
-            f"DeMemory is available for scope {scope}. Before a relevant task, use memory.context "
+            f"DeMemory is available for scope {scope}. {mcp_scope_hint}Before a relevant task, use memory.context "
             "with the current question; never reuse another project's scope. Use memory.learn for "
             "useful explicit durable user facts or verified outcomes, with a short source excerpt. "
             "Skip transient tasks, guesses, secrets and facts merely recalled from memory. "
@@ -159,7 +164,7 @@ def recall_hook(vault, payload, scope, client="codex"):
     if all(isinstance(value, str) and 0 < len(value) <= 128 for value in (session, turn)):
         trace = f"Source provider={client}, session={session}, turn={turn}. "
     guidance = (
-        f"DeMemory scope: {scope}. {trace}Use dememory_v3 MCP for useful stable memory. "
+        f"DeMemory scope: {scope}. {mcp_scope_hint}{trace}Use dememory_v3 MCP for useful stable memory. "
         "Automatically learn explicit durable user facts or verified outcomes with a short source excerpt; "
         "skip transient tasks, greetings, guesses and facts merely recalled from memory. "
         "Use user_statement only for the user's actual statement; inference remains provisional. "
@@ -194,15 +199,26 @@ def main(argv=None):
                 scope = args.scope
                 vault = Vault.open(args.vault)
                 if args.auto_scope:
-                    from .projects import project_enabled, resolve_project, remember_project_name
+                    from .projects import bindings, remember_project_name, resolve_project
                     cwd = payload.get("cwd") if isinstance(payload, dict) else None
-                    if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
-                        print("{}")
-                        return 0
-                    project = resolve_project(cwd)
-                    scope = project["scope"]
-                    remember_project_name(vault, project)
-                output = recall_hook(vault, payload, scope, args.client)
+                    if cwd is None and args.client == "claude":
+                        scope = "global"
+                        if any(entry.get("scope") == scope and "claude" in entry.get("excluded_clients", [])
+                               for entry in bindings().values()):
+                            print("{}")
+                            return 0
+                    else:
+                        if not isinstance(cwd, str):
+                            print("{}")
+                            return 0
+                        project = resolve_project(cwd, allow_global=args.client == "claude")
+                        if args.client in project["excluded_clients"]:
+                            print("{}")
+                            return 0
+                        scope = project["scope"]
+                        remember_project_name(vault, project)
+                output = recall_hook(vault, payload, scope, args.client,
+                                     user_claude=args.auto_scope and args.client == "claude")
     except (ValueError, TypeError, OSError, sqlite3.Error, RecursionError):
         # Never exit 2, block a prompt or print a sensitive exception in a hook.
         output = {}
