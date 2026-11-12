@@ -40,7 +40,7 @@ def install_parser():
     parser.add_argument("action", choices=["install", "uninstall", "bind", "exclude", "include"])
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--project", type=Path)
-    target.add_argument("--user", action="store_true", help="Install once for this user's Codex projects")
+    target.add_argument("--user", action="store_true", help="Install once for this user's client")
     parser.add_argument("--retire-project", action="append", default=[], type=Path, help="Retire an exact generated project-local connection")
     parser.add_argument("--client", choices=["codex", "claude"], default="codex")
     parser.add_argument("--scope")
@@ -121,7 +121,7 @@ def recall_hook(vault, payload, scope, client="codex"):
     validate_scope(scope)
     if not isinstance(payload, dict):
         return {}
-    if client == "codex" and payload.get("hook_event_name") == "SessionStart":
+    if client in {"codex", "claude"} and payload.get("hook_event_name") == "SessionStart":
         if payload.get("source") not in {"startup", "resume", "clear", "compact"}:
             return {}
         guidance = (
@@ -188,12 +188,27 @@ def main(argv=None):
                 if args.auto_scope:
                     from .projects import project_enabled, resolve_project, remember_project_name
                     cwd = payload.get("cwd") if isinstance(payload, dict) else None
-                    if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
-                        print("{}")
-                        return 0
-                    project = resolve_project(cwd)
-                    scope = project["scope"]
-                    remember_project_name(vault, project)
+                    if args.client == "claude":
+                        # Claude has no native thread binding. Projectless hooks
+                        # may recall shared memory; invalid config still fails open.
+                        try:
+                            project = resolve_project(cwd) if isinstance(cwd, str) else None
+                        except ValueError as exc:
+                            if not str(exc).startswith("No project binding here;"):
+                                raise
+                            project = None
+                        if project and "claude" in project["excluded_clients"]:
+                            print("{}")
+                            return 0
+                        scope = project["scope"] if project else "global"
+                    else:
+                        if not isinstance(cwd, str) or not project_enabled(cwd, args.client):
+                            print("{}")
+                            return 0
+                        project = resolve_project(cwd)
+                        scope = project["scope"]
+                    if project:
+                        remember_project_name(vault, project)
                 output = recall_hook(vault, payload, scope, args.client)
     except (ValueError, TypeError, OSError, sqlite3.Error, RecursionError):
         # Never exit 2, block a prompt or print a sensitive exception in a hook.

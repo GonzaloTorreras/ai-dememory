@@ -53,6 +53,7 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("--yes", action="store_true", help="Apply without an interactive confirmation.")
     setup.add_argument("--no-select", action="store_true", help="Do not make this the default vault.")
     setup.add_argument("--with-codex", action="store_true", help="Install global Codex MCP and recall/session hooks; enable the local dashboard.")
+    setup.add_argument("--with-claude", action="store_true", help="Install global Claude Code MCP and recall/session hooks; enable the local dashboard.")
     setup.add_argument("--with-schedule", action="store_true", help="Install an opt-in Windows one-shot consolidation task; no history ingestion.")
     setup.add_argument("--schedule-scope", help="Exact consolidation scope (new schedule: global; existing: preserved).")
     setup.add_argument("--schedule-hours", type=int, help="Consolidation interval, 1-8760 hours (new schedule: 168; existing: preserved).")
@@ -194,10 +195,10 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
     vault = Vault.create(target, args.name)
     if not args.no_select:
         select_vault(vault.root)
-    if args.with_codex or args.with_schedule:
+    if args.with_codex or args.with_claude or args.with_schedule:
         from .setup_options import install_extras
         try:
-            plan["integrations"] = install_extras(vault, codex=args.with_codex, schedule=args.with_schedule,
+            plan["integrations"] = install_extras(vault, codex=args.with_codex, claude=args.with_claude, schedule=args.with_schedule,
                                                    scope=args.schedule_scope, hours=args.schedule_hours)
         except ValueError as exc:
             raise CliError(f"Vault is ready; an optional integration failed: {exc}") from exc
@@ -222,7 +223,10 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
     )
     if args.with_codex:
         plan["next"] = ["Restart Codex, then trust UserPromptSubmit and SessionStart in /hooks."]
-    if args.with_codex or args.with_schedule:
+    if args.with_claude:
+        claude_next = "Restart Claude Code to load the user MCP connection and recall/session hooks."
+        plan["next"] = [plan["next"][0] + " " + claude_next] if args.with_codex else [claude_next]
+    if args.with_codex or args.with_claude or args.with_schedule:
         plan["optional_later"] = ["ai-dememory serve workbench"]
     return plan
 
@@ -244,6 +248,8 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             print(f"Network: {'on' if result['network'] else 'off'}")
             if "codex" in result.get("integrations", {}):
                 print("Codex: global project-aware MCP + UserPromptSubmit and SessionStart hooks installed.")
+            if "claude" in result.get("integrations", {}):
+                print("Claude Code: global-scope MCP + project-aware UserPromptSubmit and SessionStart hooks installed.")
             if "consolidation" in result.get("integrations", {}):
                 task = result["integrations"]["consolidation"]
                 print(f"Windows task: {task['name']} (hourly check; five-minute maximum; logged-in user only).")
