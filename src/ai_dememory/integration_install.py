@@ -1,4 +1,4 @@
-"""Owned, reversible global Codex configuration. No client trust edits."""
+"""Owned, reversible global client configuration. No client trust edits."""
 from __future__ import annotations
 
 import json
@@ -17,10 +17,10 @@ BEGIN = "# BEGIN ai DeMemory V3 managed MCP\n"
 END = "# END ai DeMemory V3 managed MCP\n"
 
 
-def _read(path):
+def _read(path, *, max_bytes=1_000_000):
     if path.is_symlink() or path.resolve().parent != path.parent.absolute():
         raise ValueError("Integration configuration cannot be linked")
-    if path.exists() and path.stat().st_size > 1_000_000:
+    if path.exists() and path.stat().st_size > max_bytes:
         raise ValueError("Client configuration is too large")
     return path.read_text(encoding="utf-8") if path.exists() else None
 
@@ -76,19 +76,19 @@ def _replace_hook(text, old, new, event="UserPromptSubmit"):
     return json.dumps(data, indent=2) + "\n"
 
 
-def _transaction(changes):
+def _transaction(changes, *, max_bytes=1_000_000):
     """Rollback only writes still identical to ours; never overwrite later edits."""
     completed = []
     try:
         for path, before, after in changes:
-            if _read(path) != before:
+            if _read(path, max_bytes=max_bytes) != before:
                 raise ValueError("Client settings changed during installation; retry after review")
             if before != after:
                 _atomic_write(path, after)
                 completed.append((path, before, after))
     except Exception:
         for path, before, after in reversed(completed):
-            if _read(path) == after:
+            if _read(path, max_bytes=max_bytes) == after:
                 if before is None:
                     path.unlink()
                 else:
@@ -172,5 +172,128 @@ def install_user(vault, *, remove=False, projects=()):
             changes.append((receipt_path, receipt_raw, json.dumps(new_receipt, indent=2) + "\n"))
         # Everything, including restore targets, is parsed/preflighted before writes.
         _transaction(changes)
+    return {"installed": not remove, "changed": any(before != after for _, before, after in changes),
+            "client_home": str(home), "receipt": str(receipt_path), "trust_required": not remove}
+
+
+def _claude_hook(settings, event, previous, desired, remove):
+    """Own one command and its matcher, preserving sibling hooks and metadata."""
+    if remove and not previous["owned"]:
+        return previous
+    events = settings.setdefault("hooks", {})
+    groups = events.setdefault(event, [])
+    if not isinstance(groups, list) or any(
+        not isinstance(g, dict) or not isinstance(g.get("hooks", []), list)
+        or any(not isinstance(h, dict) for h in g.get("hooks", [])) for g in groups
+    ):
+        raise ValueError(f"Invalid Claude {event} hooks")
+    expected = previous["definition"] if previous else desired
+    old_hook = expected["hooks"][0]
+    matches = [(g, i) for g in groups for i, h in enumerate(g.get("hooks", [])) if h == old_hook]
+    if previous or matches:
+        if len(matches) != 1 or matches[0][0].get("matcher") != expected.get("matcher"):
+            raise ValueError("Managed Claude hook was edited or duplicated; review before reinstalling")
+        group, index = matches[0]
+        owned = previous["owned"] if previous else False
+        if remove:
+            group["hooks"].pop(index)
+            if not group["hooks"] and set(group) == set(expected):
+                groups.remove(group)
+            return previous
+        if any("ai_dememory.harness" in str(h.get("command", ""))
+               for g in groups for i, h in enumerate(g.get("hooks", [])) if g is not group or i != index):
+            raise ValueError("Unowned DeMemory hook needs explicit cleanup before global install")
+        if not owned and old_hook != desired["hooks"][0]:
+            raise ValueError("An unowned Claude hook differs from this installation")
+        group["hooks"][index] = desired["hooks"][0]
+    else:
+        if any("ai_dememory.harness" in str(h.get("command", "")) for g in groups for h in g.get("hooks", [])):
+            raise ValueError("Unowned DeMemory hook needs explicit cleanup before global install")
+        groups.append(desired)
+        owned = True
+    return {"definition": desired, "owned": owned}
+
+
+def install_claude_user(vault, *, remove=False):
+    """Merge Claude's user JSON files; receipts contain only our definitions."""
+    home = Path.home().absolute()
+    if home.is_symlink() or home.resolve() != home:
+        raise ValueError("Claude configuration home cannot be linked")
+    receipt_path = config_dir() / "integrations" / "claude-global.json"
+    # Claude keeps project state in this file, so it can exceed Codex's limit.
+    max_bytes = 16_000_000
+    config_dir().mkdir(parents=True, exist_ok=True)
+    with _exclusive_write_lock(config_dir() / ".integration.lock"):
+        receipt_raw = _read(receipt_path)
+        receipt = json.loads(receipt_raw) if receipt_raw else {}
+        if not isinstance(receipt, dict) or receipt and (
+            receipt.get("schema_version") != 1 or receipt.get("home") != str(home)
+        ):
+            raise ValueError("Invalid Claude integration receipt or different client home")
+        if remove and not receipt:
+            return {"installed": False, "changed": False}
+        python, selector = str(Path(sys.executable).absolute()), str(config_dir())
+        server = {"command": python, "args": ["-m", "ai_dememory", "--vault", str(vault.root),
+                  "serve", "mcp", "--scope", "global"], "env": {"AI_DEMEMORY_CONFIG_DIR": selector}}
+        hook = {"type": "command", "command": _shell_command([
+            python, "-m", "ai_dememory.harness", "--vault", str(vault.root),
+            "--config-dir", selector, "--auto-scope", "--client", "claude"]), "timeout": 3}
+        hooks = {"UserPromptSubmit": {"hooks": [hook]},
+                 "SessionStart": {"matcher": "startup|resume|clear|compact", "hooks": [hook]}}
+        if receipt:
+            if not isinstance(receipt.get("hooks"), dict):
+                raise ValueError("Invalid Claude hook ownership receipt")
+            records = [receipt.get("server"), *(receipt.get("hooks", {}).get(event) for event in hooks)]
+            if any(not isinstance(r, dict) or not isinstance(r.get("definition"), dict)
+                   or type(r.get("owned")) is not bool for r in records):
+                raise ValueError("Invalid Claude integration ownership receipt")
+            if any(not isinstance(r["definition"].get("hooks"), list)
+                   or len(r["definition"]["hooks"]) != 1
+                   or not isinstance(r["definition"]["hooks"][0], dict) for r in records[1:]):
+                raise ValueError("Invalid Claude hook ownership receipt")
+        server_path, settings_path = home / ".claude.json", home / ".claude" / "settings.json"
+        old_server = _read(server_path, max_bytes=max_bytes)
+        old_settings = _read(settings_path)
+        data, settings = json.loads(old_server or "{}"), json.loads(old_settings or "{}")
+        if not isinstance(data, dict) or not isinstance(data.get("mcpServers", {}), dict):
+            raise ValueError("Invalid Claude MCP configuration")
+        if not isinstance(settings, dict) or not isinstance(settings.get("hooks", {}), dict):
+            raise ValueError("Invalid Claude settings hooks")
+        servers = data.setdefault("mcpServers", {})
+        previous = receipt.get("server")
+        owned = previous["owned"] if previous else SERVER_NAME not in servers
+        if previous and (not remove or owned):
+            if servers.get(SERVER_NAME) != previous["definition"]:
+                raise ValueError("Managed Claude MCP server was edited; review before reinstalling")
+        elif not remove and SERVER_NAME in servers and servers[SERVER_NAME] != server:
+            raise ValueError("An unowned Claude MCP server differs from this installation")
+        if remove:
+            if owned:
+                del servers[SERVER_NAME]
+        else:
+            if not owned and servers[SERVER_NAME] != server:
+                raise ValueError("An unowned Claude MCP server differs from this installation")
+            servers[SERVER_NAME] = server
+        hook_receipts = {event: _claude_hook(settings, event, receipt.get("hooks", {}).get(event), group, remove)
+                         for event, group in hooks.items()}
+        # Keep original bytes on no-op reruns, including Claude's formatting.
+        changes = [(path, before, before if before is not None and json.loads(before) == after
+                    else json.dumps(after, indent=2, ensure_ascii=False) + "\n")
+                   for path, before, after in ((server_path, old_server, data), (settings_path, old_settings, settings))]
+        if remove:
+            new_receipt = {}
+        else:
+            before = _read(selector_path())
+            selected = load_config()
+            enabled = tuple(sorted(set(selected.enabled_modules) | {"mcp", "harness-claude"}))
+            changes.append((selector_path(), before, config_text(replace(selected, enabled_modules=enabled))))
+            new_receipt = {"schema_version": 1, "home": str(home),
+                           "server": {"definition": server, "owned": owned}, "hooks": hook_receipts}
+        changes.append((receipt_path, receipt_raw, json.dumps(new_receipt, indent=2) + "\n"))
+        for path, _, after in changes:
+            limit = max_bytes if path == server_path else 1_000_000
+            if len(after.encode("utf-8")) > limit:
+                raise ValueError("Client configuration would become too large; no integration files were changed")
+        _transaction(changes, max_bytes=max_bytes)
     return {"installed": not remove, "changed": any(before != after for _, before, after in changes),
             "client_home": str(home), "receipt": str(receipt_path), "trust_required": not remove}

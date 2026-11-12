@@ -5,6 +5,18 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## Unreleased
+
+### Added
+
+- Optional `setup --with-claude`, combinable with `--with-codex`, installs
+  user-scope Claude Code MCP and UserPromptSubmit/SessionStart hooks. JSON merges
+  preserve unrelated settings; a private receipt supports idempotent installation
+  and exact owned-entry uninstall through `serve harness-claude uninstall --user`.
+- Claude SessionStart guidance and project-aware hook recall with a local global
+  fallback for unbound sessions. Claude MCP stays explicitly global; generated
+  commands preserve the active virtual environment's interpreter symlink path.
+
 ## [3.0.0a5] - 2026-11-10
 
 ### Added

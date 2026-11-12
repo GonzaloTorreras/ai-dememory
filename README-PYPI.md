@@ -28,6 +28,27 @@ then restart Codex and trust UserPromptSubmit and SessionStart in `/hooks`.
 Native learning uses the host assistant, not
 an additional extraction model. Existing Codex tool approval policy still applies.
 
+## Claude Code user installation
+
+Run `ai-dememory setup --with-claude --yes`, then restart Claude Code. Combine
+`--with-claude --with-codex` to install both clients. Setup enables
+`harness-claude`, MCP and the local dashboard. It merges the `dememory_v3` MCP
+entry into `~/.claude.json` and UserPromptSubmit/SessionStart hooks into
+`~/.claude/settings.json`, preserving other settings and hooks. Repeating setup
+is a no-op; conflicting entries are refused.
+
+Claude MCP uses explicit **global scope**, so its learning is shared across
+projects. Hooks recall by the payload's working directory and fall back to
+global memory when there is no project binding. SessionStart provides guidance
+on startup/resume/clear/compact. No transcript scan or extra model is involved.
+
+Remove with `ai-dememory serve harness-claude uninstall --user`, then restart
+Claude Code. The `<config>/integrations/claude-global.json` receipt identifies
+unchanged owned entries; other settings, memories and module settings remain.
+Review existing project-local DeMemory connections before enabling user hooks.
+
+## Optional local dashboard
+
 ```bash
 ai-dememory module enable workbench
 ai-dememory serve workbench

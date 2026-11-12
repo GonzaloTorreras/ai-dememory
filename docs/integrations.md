@@ -1,8 +1,8 @@
 # Local harness integrations
 
 The optional harness modules connect the existing memory core to a client.
-Codex supports user-wide project-aware installation; Claude remains project-local.
-Each uses MCP settings and a prompt-recall hook; global Codex also adds session-start guidance. Neither integration
+Codex and Claude support user-wide installation as well as project-local setup.
+Each uses MCP settings and a prompt-recall hook; user installations also add session-start guidance. Neither integration
 imports transcripts, starts a daemon, or selects another model. The host assistant
 uses its own model to decide when to call the evidenced learning tools.
 
@@ -92,6 +92,50 @@ Restart Codex afterwards. Removal changes only still-owned global entries and
 restores unchanged retired project configs. Later user edits are preserved.
 Vaults, module settings and project aliases remain. Never remove a vault or run
 historical V2 scripts to repair an integration.
+
+## Claude Code: user-scope installation
+
+```bash
+ai-dememory setup --with-claude --yes
+# Both clients can be installed together:
+ai-dememory setup --with-claude --with-codex --yes
+```
+
+Restart Claude Code to load the connection. Setup enables `harness-claude`, MCP
+and the local dashboard without starting them. It adds `mcpServers.dememory_v3`
+to `~/.claude.json` and two command hooks to `~/.claude/settings.json`:
+UserPromptSubmit and SessionStart with matcher `startup|resume|clear|compact`.
+Both hooks have a three-second timeout and use the installing Python interpreter,
+including its virtual-environment symlink path. Keep that environment installed.
+
+Both JSON files are preflighted before atomic replacement, with rollback on
+write failure and checks for intervening edits. Unrelated keys, servers and
+hooks are preserved. Claude's state file may be up to 16 MB; hook settings retain
+the 1 MB integration limit. Same-name differing servers and conflicting DeMemory
+hooks are refused. Identical pre-existing definitions are reused without claiming
+ownership. The receipt at `<config>/integrations/claude-global.json` stores only
+the integration definitions, never a copy of Claude's other state.
+
+Claude has no Codex thread metadata: its MCP server is bound explicitly to
+**global**, so MCP reads and learning are shared global memory. Hook recall
+resolves the payload's `cwd` using existing folder/Git/project bindings and
+includes shared global memory. Missing `cwd` or an unbound home/filesystem root
+falls back to global; malformed paths/configuration fail open without context.
+Excluded projects and a disabled `harness-claude` module suppress hook recall.
+These hook controls do not disable the separate global MCP connection. Use a
+project-local Claude connection when MCP learning must stay project-scoped.
+
+```bash
+ai-dememory serve harness-claude uninstall --user
+```
+
+Removal checks the receipt and removes only unchanged owned server/hook entries,
+preserving later unrelated edits and pre-existing identical definitions. Edited
+owned definitions require manual review. Restart Claude Code after removal;
+vault memories and module settings remain. Reinstall can also use
+`ai-dememory serve harness-claude install --user` once the module is enabled.
+There is no automatic Claude project retirement: review existing project-local
+MCP and recall hooks before adding user hooks to avoid duplicate connections.
 
 ## Try it in an empty project
 

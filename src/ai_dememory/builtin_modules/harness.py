@@ -13,8 +13,20 @@ def get_manifest():
 def serve(services, argv=None):
     args = install_parser().parse_args(argv)
     if args.user:
-        if args.client != "codex" or args.action not in {"install", "uninstall"} or args.scope:
-            raise ValueError("User installation supports Codex automatic project scopes only")
+        if args.action not in {"install", "uninstall"} or args.scope:
+            raise ValueError("User installation supports install/uninstall with the client's automatic scope policy only")
+        if args.client == "claude":
+            from ai_dememory.modules import ModuleError
+            if args.retire_project:
+                raise ModuleError("Claude project retirement is not supported; review project-local entries manually")
+            from ai_dememory.integration_install import install_claude_user
+            try:
+                result = install_claude_user(services.vault, remove=args.action == "uninstall")
+            except ValueError as exc:
+                raise ModuleError(str(exc)) from exc
+            print("Global Claude Code integration installed." if result["installed"] else "Global Claude Code integration removed.")
+            print("Restart Claude Code to reload its user MCP connection and hooks. Vault memories are preserved.")
+            return 0
         from ai_dememory.integration_install import install_user
         result = install_user(services.vault, remove=args.action == "uninstall", projects=args.retire_project)
         print("Global Codex integration installed." if result["installed"] else "Global Codex integration removed.")

@@ -71,6 +71,36 @@ without leaving the dashboard open. Existing cadence/scope are preserved; change
 them in the dashboard. This is one hourly check, not a resident service. See
 [setup, hooks and scheduled work](docs/automation.md) for costs, limits and removal.
 
+### Claude Code: install for your user
+
+```bash
+ai-dememory setup --with-claude --yes
+# Or connect both clients:
+ai-dememory setup --with-claude --with-codex --yes
+```
+
+Restart Claude Code. Setup enables `harness-claude`, MCP and the local dashboard,
+adds `dememory_v3` under `mcpServers` in `~/.claude.json`, and merges
+UserPromptSubmit and SessionStart hooks into `~/.claude/settings.json`. Other
+settings and hooks are preserved; repeating setup is a no-op. SessionStart runs
+on startup, resume, clear and compact. Hooks use the payload's working directory
+for project recall, falling back to global memory when no project can be bound.
+Claude's MCP connection uses **global scope** because it has no Codex thread
+metadata; MCP learning through this connection creates shared global memories.
+Use a project-local connection for project-only MCP learning.
+
+Remove only the unchanged entries owned by the installation receipt with:
+
+```bash
+ai-dememory serve harness-claude uninstall --user
+```
+
+The receipt lives at `<config>/integrations/claude-global.json`. Edited owned
+entries cause a conflict; identical pre-existing entries remain user-owned.
+Restart Claude Code after removal. Memories and module settings remain. Existing
+project-local Claude connections require manual review before combining them
+with user hooks. See [Claude integration details](docs/integrations.md#claude-code-user-scope-installation).
+
 Manual `remember` and `recall` default to shared global memory. Add `--scope auto`
 to use the current project, or `--scope project:NAME` for an explicit scope.
 `status` shows the runtime, selected configuration and current project scope.
