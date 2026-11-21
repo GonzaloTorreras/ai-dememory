@@ -171,4 +171,3 @@ class ProjectWikiTests(V3TestCase):
         with self.assertRaisesRegex(ValueError, "Malformed"):
             self.wiki.rebuild()
         self.assertNotEqual((self.wiki.root / "index.md").read_bytes(), original)
-
