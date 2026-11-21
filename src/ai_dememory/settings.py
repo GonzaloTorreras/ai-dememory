@@ -112,7 +112,7 @@ def validate_settings(data: dict) -> dict:
                 or mode not in ("environment", "session") or "reasoning_effort" in provider):
             raise ValueError("Jev requires its pinned System One endpoint/model and API-key authentication")
     for name, route in routes.items():
-        if not isinstance(name, str) or (name not in ("extract", "consolidate") and not re.fullmatch(r"(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name)):
+        if not isinstance(name, str) or (name not in ("extract", "consolidate", "recall") and not re.fullmatch(r"(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name)):
             raise ValueError("Invalid operation or override route")
         _shape(route, {"primary", "fallback", "max_output_tokens"})
         if not isinstance(route["primary"], str) or not isinstance(route["fallback"], list):
@@ -234,8 +234,8 @@ def save_settings(vault: Vault, data: dict) -> dict:
 
 
 def resolve_route(settings: dict, operation: str, route_key: str | None = None) -> dict:
-    if operation not in ("extract", "consolidate"):
-        raise ValueError("Operation must be extract or consolidate")
+    if operation not in ("extract", "consolidate", "recall"):
+        raise ValueError("Operation must be extract, consolidate or recall")
     if route_key is not None and not re.fullmatch(r"(?:hook|skill):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", route_key):
         raise ValueError("Invalid hook or skill override")
     route = settings["routes"].get(route_key) or settings["routes"].get(operation)

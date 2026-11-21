@@ -53,6 +53,10 @@ jobs:
           ai-dememory remember "CI remembers deterministic local state" --title "CI memory"
           ai-dememory recall deterministic
           ai-dememory status --json
+          ai-dememory setup --project "$RUNNER_TEMP/wiki-project" --with-codex --yes
+          ai-dememory remember "Check attachments during restoration." --title "Restore lesson" --project "$RUNNER_TEMP/wiki-project" --page lessons.md
+          ai-dememory recall "restore attachments" --project "$RUNNER_TEMP/wiki-project"
+          ai-dememory status --project "$RUNNER_TEMP/wiki-project" --json
 
   verify:
     name: verify

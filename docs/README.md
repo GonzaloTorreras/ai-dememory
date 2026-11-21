@@ -3,6 +3,8 @@
 The active V3 documentation is intentionally small:
 
 - [Installation](install.md): one setup flow, default vault and optional extras.
+- [Project wiki](project-wiki.md): portable pages, English templates, librarian and native hooks.
+- [Wiki delivery plan](project-wiki-update.md): current implementation scope and acceptance.
 - [Harness integrations](integrations.md): native Codex, Claude and Hermes setup.
 - [Hooks and scheduled work](automation.md): first-run options, costs and removal.
 - [Architecture](architecture.md): what runs and where data lives.

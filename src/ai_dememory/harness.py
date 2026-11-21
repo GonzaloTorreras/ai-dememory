@@ -121,6 +121,14 @@ def recall_hook(vault, payload, scope, client="codex"):
     validate_scope(scope)
     if not isinstance(payload, dict):
         return {}
+    if os.environ.get("AI_DEMEMORY_WIKI_WORKER") == "1":
+        return {}
+    from .config import load_config
+    if "wiki" in load_config().enabled_modules:
+        from .wiki_hook import find_project, recall
+        project = find_project(payload.get("cwd"))
+        if project is not None:
+            return recall(project, payload, client)
     if client == "codex" and payload.get("hook_event_name") == "SessionStart":
         if payload.get("source") not in {"startup", "resume", "clear", "compact"}:
             return {}

@@ -12,6 +12,15 @@ Open `http://127.0.0.1:8765`. Use `--port 8766` after `workbench` if the default
 port is occupied. Ctrl+C stops this service. Only the optional Codex subscription
 module starts a bounded child process for explicit login, catalog or generation.
 
+## Project wiki (source candidate a6)
+
+Enable `wiki` in Modules, then open **Project wiki** to attach an existing project
+folder, edit linked Markdown pages and configure read-only shared knowledge,
+assisted retrieval or local navigation maintenance. Only chosen project folders
+are attached; no vault export or conversation ingestion happens implicitly.
+See [project wiki](project-wiki.md). The Memory screen below remains the private
+vault workflow, separate from project-owned pages.
+
 ## Memory
 
 Start with scope `global`. Use `project:my-project` for project-only information.

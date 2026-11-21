@@ -1,9 +1,45 @@
 # Development status
 
-Updated: 2026-11-10. Current handoff only; prior receipts remain in Git history.
+Updated: 2026-11-21. Current handoff only; prior receipts remain in Git history.
 Private vault inventories, provider identities and replay data stay outside Git.
 
-## Public baseline
+## Current increment: project-owned wiki
+
+- Branch: `codex/v3-project-wiki`, isolated checkout `working/worktrees/project-wiki-v3`.
+  Base: public `origin/main` at `237ac72907867940269a8fc572ddc4b589ba6ab3`.
+  The historical root checkout and other V3 worktree were not consolidated or reset.
+- Source candidate: `3.0.0a6`, unreleased and not installed globally. Scope and
+  acceptance are in [the approved delivery plan](project-wiki-update.md);
+  [the user guide](project-wiki.md) describes actual behavior, not future promises.
+- Implemented: ordinary project Markdown, additive AGENTS guidance, bounded
+  root/topic navigation, complete catalog, revision-bound edits, lifecycle-aware
+  local recall, explicit read-only shared root, optional extractive librarian,
+  UI settings/editor/preview and deterministic foreground maintenance.
+- Local Codex/Claude hooks need client trust. Existing short-deadline global hooks
+  stay local-only. New wiki prompt hooks reserve cleanup time for an explicitly
+  consented provider; session-end only refreshes navigation, with no transcript
+  read, model call, Stop continuation or resident worker.
+- Review fixes: preserve whole excerpt conditions/provenance; recheck disabled
+  module before provider dispatch; distinguish shared sources; show broken links;
+  preserve unsaved UI drafts; tolerate an unavailable optional vault at project
+  setup; keep empty navigation truthful. No private memory was imported.
+- Regression: 419 tests, 413 passed / six expected Windows symlink skips.
+  A stalled synthetic Codex child exits with its reader and scratch cleaned.
+  Compilation, JavaScript syntax and diff checks pass.
+- Clean candidate wheel installed outside checkout: standalone CLI
+  setup/save/recall/correct and both command-hook protocols pass, zero external
+  calls. SHA256 `31152bdbaeffe078e394e50d051ee421c8b4dbdba81c5b5c146c0967d25f90b2`.
+  One-page warm scan, 100 synthetic replays: p50 1.11 ms / p95 1.36 ms;
+  this is not a production, cold-start or model-quality benchmark.
+- UI QA: desktop 1280x900 and mobile 390x844, no horizontal overflow or console
+  errors. Attach/template/save/correct/local recall, confirmed assisted selection
+  with mocked transport and real broken-link rendering exercised. Browser plugin
+  unavailable; existing Playwright integration used. Screenshots stay in scratch.
+- Pending: exact-head independent correctness/privacy readback and remote CI.
+  Merge, tag/publication and installed-runtime replacement remain separate gates.
+  Other open PRs #63/#64/#65 are not part of this branch.
+
+## Prior public baseline / a5 delivery receipt
 
 - Published source: `9af5d6531134b0ccbabe936546657913a49780a8`; PR #61 merged.
 - `3.0.0a5` is on production PyPI and is a GitHub prerelease. Main
@@ -18,7 +54,7 @@ Private vault inventories, provider identities and replay data stay outside Git.
   healthy. Long-lived clients must reconnect; they are not silently reloaded.
 - The default product remains dependency-free and passive.
 
-## Delivered increment: bilingual evidence and Jev metadata skills
+## Prior increment: bilingual evidence and Jev metadata skills
 
 - PR #61 completed on `codex/v3-bilingual-jev-skills`. The documentation receipt
   is on `codex/v3-a5-delivery-receipt`; pre-existing untracked `build/` is preserved.
@@ -57,13 +93,12 @@ Private vault inventories, provider identities and replay data stay outside Git.
   and the public-pilot UI ran with mocked transport. Browser plugin unavailable,
   existing Playwright integration used. Screenshots are tool-managed scratch.
 
-## Remaining acceptance / next action
+## Prior Jev acceptance boundary
 
-Full-suite, clean-wheel, exact-head independent correctness/privacy review and
-publication acceptance are complete. Live Jev efficacy is still pending session
-credential re-entry after the dashboard update. Credentials are never extracted
-or copied; do not claim mock pilot scores as real model gains. Run only the
-confirmed public synthetic pilot before considering any private-memory processing.
+The a5 full-suite, clean-wheel, review and publication receipts belong to that
+release, not to this wiki candidate. Do not reuse them as proof of current native
+client acceptance or model efficacy. Credentials are never extracted or copied;
+public synthetic pilots do not authorize private-memory processing.
 
 Keep scopes/automation off until explicitly configured. Do not add semantic
 fallback infrastructure merely because language tagging exists. See

@@ -1,5 +1,12 @@
 # V3 Hybrid Visual And Multiplatform Roadmap
 
+> 2026-11-21: the user approved the project-local wiki product update. Its
+> implementation/acceptance plan is [project-wiki-update.md](project-wiki-update.md),
+> mapped to the existing IDs without claiming the C0 gates below are complete.
+> The C0 table and `contracts/planning` remain historical contract evidence for
+> that earlier design; they must not reintroduce V2 migration into the public V3
+> reset or turn this wiki into another execution DAG.
+
 Status: C0 planning contract. This document does not claim V3 runtime delivery,
 external evidence, or gate completion.
 

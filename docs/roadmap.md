@@ -1,5 +1,14 @@
 # V3 development plan
 
+## Current approved update: project wiki
+
+The 2026-11-21 project-wiki update is the current user-approved implementation
+scope. Follow [delivery and acceptance](project-wiki-update.md): portable linked
+Markdown per project, English on-demand templates, a bounded optional librarian,
+explicit read-only shared knowledge, additive hooks and a usable workbench.
+The earlier receipts below remain historical baselines, not competing work.
+No private-vault migration or legacy external gate is inferred as complete.
+
 This is the single active product plan. Updated 2026-11-10. The memory-quality
 baseline shipped as `3.0.0a3`; `3.0.0a5` is published on production PyPI. This
 increment recovers original-language evidence wording and adds optional
