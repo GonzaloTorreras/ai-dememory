@@ -5,6 +5,26 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a6] - Unreleased
+
+### Added
+
+- Project-owned linked Markdown wiki with additive AGENTS guidance, on-demand
+  English templates, revision-bound editing and small generated navigation.
+- Project options on existing setup/remember/recall/status commands, native
+  Codex/Claude command hooks without mandatory MCP, and the Wiki workbench page.
+- Explicit read-only shared wiki binding, separately consented optional
+  extractive fast-librarian recall with provider budgets/cache/local fallback,
+  and local scheduled navigation maintenance. No transcript scan or new daemon.
+
+### Boundaries
+
+- Existing private vaults are not migrated, exported or deleted. Canonical wiki
+  content is usable without the optional module, provider or management chat.
+- No automatic semantic consolidation, value promotion, model-generated facts,
+  graph database or mandatory dependency. Publication and native-client
+  acceptance are not inferred from source tests.
+
 ## [3.0.0a5] - 2026-11-10
 
 ### Added

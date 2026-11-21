@@ -171,7 +171,10 @@ def list_provider_models(profile: dict, credential: str = "", transport=None) ->
 
 
 class ProviderEngine:
-    def __init__(self, vault: Vault, settings: dict | None = None, transport=None, credential_resolver=None):
+    def __init__(self, vault: Vault, settings: dict | None = None, transport=None, credential_resolver=None, timeout_seconds=TIMEOUT_SECONDS):
+        if type(timeout_seconds) not in (int, float) or not 1 <= timeout_seconds <= TIMEOUT_SECONDS:
+            raise ValueError("Provider timeout must be between 1 and 30 seconds")
+        self.timeout_seconds = timeout_seconds
         self.vault = vault
         self.settings = validate_settings(settings) if settings is not None else load_settings(vault)
         self.transport = transport or http_transport
@@ -250,7 +253,8 @@ class ProviderEngine:
                         if provider["kind"] == "codex":
                             module = load_enabled_module("codex-subscription")
                             module.validate_vault(self.vault.root)
-                            data = module.generate(provider, prompt, outputs)
+                            data = (module.generate(provider, prompt, outputs, timeout_seconds=self.timeout_seconds)
+                                    if operation == "recall" else module.generate(provider, prompt, outputs))
                         else:
                             plugin = load_provider(provider["kind"])
                             plugin.validate(provider)
@@ -267,7 +271,7 @@ class ProviderEngine:
                             raise ProviderError(reason) from None
                         raise ProviderError("extension_failed") from None
                 else:
-                    data = self.transport(url, payload, headers, TIMEOUT_SECONDS)
+                    data = self.transport(url, payload, headers, self.timeout_seconds)
                 if extension:
                     text = data["text"]
                 elif anthropic:

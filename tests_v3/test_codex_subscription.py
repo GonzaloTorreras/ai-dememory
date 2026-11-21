@@ -164,6 +164,23 @@ class CodexSubscriptionTests(unittest.TestCase):
         self.assertNotIn("max_output_tokens", turn)  # No invented server cap.
         self.assertEqual(turn["sandboxPolicy"]["access"]["readableRoots"], [thread["cwd"]])
 
+    def test_short_recall_deadline_reaps_stalled_owned_child_before_outer_hook_budget(self):
+        children = []
+        spawn = codex.subprocess.Popen
+        def record(*args, **kwargs):
+            child = spawn(*args, **kwargs)
+            children.append(child)
+            return child
+        started = time.monotonic()
+        with self.server("hang"), patch.object(codex.subprocess, "Popen", side_effect=record), \
+                self.assertRaisesRegex(codex.CodexSubscriptionError, "codex_timeout"):
+            codex.generate({"model":"test-model"}, "Select source IDs", 128, timeout_seconds=1)
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertTrue(children)
+        self.assertTrue(all(child.poll() is not None for child in children))
+        self.assertFalse(any(t.name == "dememory-codex-reader" and t.is_alive() for t in threading.enumerate()))
+        self.assertEqual(list((self.root / "config/codex-account").glob("request-*")), [])
+
     def test_unsupported_isolation_aborts_before_model_request(self):
         with self.server("unsafe"), self.assertRaisesRegex(codex.CodexSubscriptionError, "unsupported_tools_isolation"):
             codex.generate({"model": "test-model"}, "Summarize this", 128)

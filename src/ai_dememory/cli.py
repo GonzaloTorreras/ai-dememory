@@ -51,8 +51,10 @@ def _parser() -> argparse.ArgumentParser:
     setup.add_argument("path", nargs="?", help="Vault path; defaults to ~/ai-dememory-vault.")
     setup.add_argument("--name", help="Human-readable vault name.")
     setup.add_argument("--yes", action="store_true", help="Apply without an interactive confirmation.")
+    setup.add_argument("--project", type=Path, help="Initialize a portable docs/dememory wiki in this project; no vault required.")
     setup.add_argument("--no-select", action="store_true", help="Do not make this the default vault.")
-    setup.add_argument("--with-codex", action="store_true", help="Install global Codex MCP and recall/session hooks; enable the local dashboard.")
+    setup.add_argument("--with-codex", action="store_true", help="Vault setup: global Codex MCP/hooks. With --project: local wiki hooks without MCP.")
+    setup.add_argument("--with-claude", action="store_true", help="With --project, install project-local Claude wiki hooks, without MCP.")
     setup.add_argument("--with-schedule", action="store_true", help="Install an opt-in Windows one-shot consolidation task; no history ingestion.")
     setup.add_argument("--schedule-scope", help="Exact consolidation scope (new schedule: global; existing: preserved).")
     setup.add_argument("--schedule-hours", type=int, help="Consolidation interval, 1-8760 hours (new schedule: 168; existing: preserved).")
@@ -64,13 +66,18 @@ def _parser() -> argparse.ArgumentParser:
     remember.add_argument("--kind", choices=("unspecified", "durable", "episode"), default="unspecified")
     remember.add_argument("--expires-at", help="Explicit expiry, ISO timestamp with timezone; hides from recall, never deletes.")
     remember.add_argument("--scope", default="global", help="Memory scope, or auto for the current project (default: global).")
+    remember.add_argument("--project", type=Path, help="Write a portable project wiki page instead of vault memory.")
+    remember.add_argument("--page", help="Wiki-relative Markdown path, for example lessons.md.")
+    remember.add_argument("--expected-revision", help="Exact current page revision required when replacing a wiki page.")
 
     recall = commands.add_parser("recall", help="Search canonical memories with local SQLite FTS.")
     recall.add_argument("query")
     recall.add_argument("--limit", type=int, default=5)
     recall.add_argument("--scope", default="global", help="Memory scope, or auto for the current project (default: global).")
+    recall.add_argument("--project", type=Path, help="Read a portable project wiki without a vault or model.")
 
-    commands.add_parser("status", help="Show useful state and resource use.")
+    status = commands.add_parser("status", help="Show useful state and resource use.")
+    status.add_argument("--project", type=Path, help="Inspect a portable project wiki without a vault.")
 
     review = commands.add_parser("review", help="Review proposals created by AI modules.")
     review_commands = review.add_subparsers(dest="review_command")
@@ -146,6 +153,8 @@ def _emit(value: Any, json_output: bool) -> None:
 
 
 def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
+    if args.with_claude:
+        raise CliError("--with-claude currently requires --project for the portable wiki integration")
     if (args.schedule_scope is not None or args.schedule_hours is not None) and not args.with_schedule:
         raise CliError("Schedule options need --with-schedule")
     if args.schedule_scope is not None:
@@ -227,7 +236,87 @@ def _setup(args: argparse.Namespace, json_output: bool) -> dict[str, Any]:
     return plan
 
 
+def _run_project(args, explicit_vault, json_output):
+    from .config import set_module_enabled
+    if explicit_vault:
+        raise CliError("Project wiki commands do not use --vault; select --project or --vault")
+    if args.command != "setup" and "wiki" not in load_config().enabled_modules:
+        raise CliError("Project wiki is disabled. Enable it with `ai-dememory module enable wiki`.")
+    from .wiki import ProjectWiki
+    try:
+        wiki = ProjectWiki(args.project)
+        if args.command == "setup":
+            if args.path or explicit_vault:
+                raise CliError("Choose a project wiki or a vault setup, not both")
+            if args.with_schedule or args.schedule_scope is not None or args.schedule_hours is not None:
+                raise CliError("Project wiki maintenance is configured in the dashboard; --with-schedule is for vault consolidation")
+            if not args.yes:
+                if json_output or not sys.stdin.isatty():
+                    raise CliError("Setup needs confirmation; rerun with --yes")
+                print(f"Initialize project wiki at {wiki.root} and add a small managed AGENTS.md pointer?")
+                print("No conversations are read, no model is called, and no commit or publication is made.")
+                if input("Continue? [Y/n] ").strip().lower() not in ("", "y", "yes"):
+                    raise CliError("Setup cancelled")
+            result = {**wiki.initialize(), "project": str(wiki.project),
+                      "wiki": str(wiki.root), "background_processes": 0, "model_calls": 0, "network": False}
+            if "wiki" not in load_config().enabled_modules:
+                set_module_enabled("wiki", True)
+            selected = load_config().default_vault
+            if selected:
+                try:
+                    private_vault = Vault.open(Path(selected))
+                except (OSError, VaultError):
+                    result["registration"] = {"registered":False, "reason":"configured_vault_unavailable"}
+                    result.setdefault("warnings", []).append(
+                        "Project wiki is ready, but the configured private vault is unavailable; dashboard registration was skipped.")
+                else:
+                    from .wiki_runtime import WikiService
+                    result["registration"] = WikiService(private_vault).attach(wiki.project, confirmed=True)
+            if args.with_codex or args.with_claude:
+                from .wiki_hook import install
+                result["hooks"] = [install(args.project, client) for client, enabled in
+                                   (("codex", args.with_codex), ("claude", args.with_claude)) if enabled]
+            result["next"] = "Write a useful page with ai-dememory remember --project PATH --page lessons.md CONTENT"
+        elif getattr(args, "scope", "global") != "global":
+            raise CliError("--project selects the wiki; do not combine it with --scope")
+        elif args.command == "remember":
+            if not args.page:
+                raise CliError("Project remember requires --page, for example lessons.md; it never creates one file per turn")
+            if args.importance is not None or args.kind != "unspecified" or args.expires_at:
+                raise CliError("Vault lifecycle/importance flags do not apply to plain wiki pages")
+            content = args.content
+            if args.title and not content.lstrip().startswith("# "):
+                content = f"# {args.title}\n\n{content}"
+            result = {**wiki.save(args.page, content, expected_revision=args.expected_revision), "saved": True}
+        elif args.command == "recall":
+            result = wiki.context(args.query, limit=args.limit, max_chars=2400)
+        else:
+            result = wiki.status()
+    except ValueError as exc:
+        raise CliError(str(exc)) from exc
+    if json_output:
+        _emit(result, True)
+    elif args.command == "setup":
+        print(f"Project wiki ready: {wiki.root}")
+        print("AGENTS.md: managed pointer added; unrelated instructions preserved.")
+        print("Background processes: 0 · Model calls: 0 · No MCP required.")
+        for warning in result.get("warnings", []):
+            print(f"Warning: {warning}")
+        if result.get("hooks"):
+            print("Local hooks installed. Review and trust them in your client before they can run.")
+        print(result["next"])
+    elif args.command == "recall":
+        print(result.get("context") or "No matching wiki knowledge.")
+    else:
+        _emit(result, False)
+    return 0
+
+
 def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool) -> int:
+    if getattr(args, "project", None) is not None:
+        return _run_project(args, explicit_vault, json_output)
+    if args.command == "remember" and (args.page is not None or args.expected_revision is not None):
+        raise CliError("--page and --expected-revision require --project")
     if args.command == "setup":
         result = _setup(args, json_output)
         if json_output:
@@ -276,7 +365,7 @@ def _run(args: argparse.Namespace, explicit_vault: str | None, json_output: bool
             "enabled": manifest.module_id,
             "capabilities": list(manifest.capabilities),
             "resource_budget": manifest.resource_budget,
-            "next": ("ai-dememory module enable workbench" if manifest.module_id in ("sources", "codex-subscription", "jev")
+            "next": ("ai-dememory module enable workbench" if manifest.module_id in ("sources", "codex-subscription", "jev", "wiki")
                      else f"ai-dememory serve {manifest.module_id} --help" if manifest.module_id.startswith("harness") or manifest.module_id == "hermes-memory"
                      else f"ai-dememory serve {manifest.module_id}"),
         }

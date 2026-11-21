@@ -13,6 +13,12 @@ V2. Release wheels and checksums are also available in
 [Releases](https://github.com/GonzaloTorreras/ai-dememory/releases). For development
 from a checked-out V3 source tree, use `python -m pip install .` instead.
 
+The `3.0.0a6` source candidate also supports a portable project wiki with
+`ai-dememory setup --project . --yes`, without a vault or provider. This is not
+in the published `a5` wheel yet. See [project wiki](project-wiki.md) for local
+hooks, templates and the optional dashboard. The following vault setup remains
+available for private/shared memory and existing integrations.
+
 The setup explains the vault location, then offers optional global Codex
 integration and, on Windows, scheduled consolidation. Decline both for a purely
 manual local vault. Package installation itself does not modify harness settings.

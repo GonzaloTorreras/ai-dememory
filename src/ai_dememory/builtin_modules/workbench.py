@@ -45,6 +45,8 @@ class WorkbenchServer(HTTPServer):
         self.last_tick = 0.0
         self.last_source_tick = 0.0
         self.last_jev_tick = 0.0
+        self.last_wiki_tick = 0.0
+        self._wiki_service = None
         self.jev_status = {"status":"disabled"}
         from ai_dememory.source_jobs import SourceJobs
         self.source_jobs = SourceJobs(services.vault, self.jobs)
@@ -107,6 +109,17 @@ class WorkbenchServer(HTTPServer):
         self._codex_module = load_enabled_module("codex-subscription")
         self._codex_module.validate_vault(self.services.vault.root)
         return self._codex_module
+
+    def wiki(self):
+        from ai_dememory.config import load_config
+        if "wiki" not in load_config().enabled_modules:
+            self._wiki_service = None
+            raise ValueError("Enable the optional wiki module first")
+        if self._wiki_service is None:
+            load_enabled_module("wiki")
+            from ai_dememory.wiki_runtime import WikiService
+            self._wiki_service = WikiService(self.services.vault, credential_resolver=self.resolve_credential)
+        return self._wiki_service
 
     def draft_models(self, data):
         from ai_dememory.providers import list_provider_models
@@ -195,6 +208,13 @@ class WorkbenchServer(HTTPServer):
                     self.jev_status = process_new(self.services, self.resolve_credential)
                 else:
                     self.jev_status = {"status":"disabled"}
+            if self.last_tick - self.last_wiki_tick >= 60:
+                self.last_wiki_tick = self.last_tick
+                from ai_dememory.config import load_config
+                if "wiki" in load_config().enabled_modules:
+                    self.wiki().tick()
+                else:
+                    self._wiki_service = None
         except (ValueError, OSError, sqlite3.Error):
             # Job failures have their own safe status; never stop serving the UI.
             pass
@@ -252,6 +272,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 from ai_dememory.projects import scope_labels
                 from ai_dememory.proposals import ProposalStore
                 from ai_dememory.quality import evidence_revision
+                from ai_dememory.config import load_config
                 scopes = self.server.scopes()
                 memories = self.server.services.list_memories(scope, 100, query.get("inactive") == ["true"])
                 for memory in memories:
@@ -276,6 +297,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     "usage": usage_summary(self.server.services.vault),
                     "jev_skills": self.server.jev_status,
                     "jev_skill_config_key": skill_key,
+                    "wiki_enabled": "wiki" in load_config().enabled_modules,
                     "modules": [item.to_dict() for item in discover_modules().values()],
                     "scopes": scopes,
                     "scope_labels": scope_labels(self.server.services.vault, {*scopes, scope}),
@@ -319,6 +341,11 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _action(self, path, data):
         services, jobs = self.server.services, self.server.jobs
+        if path.startswith("/api/wiki/"):
+            action = path.removeprefix("/api/wiki/")
+            if action not in {"list", "attach", "state", "save", "recall", "maintain", "configure", "preview"}:
+                raise ValueError("Unknown wiki action")
+            return self.server.wiki().action(action, data)
         if path == "/api/settings":
             settings = save_settings(services.vault, data)
             self.server.prune_credentials(settings)

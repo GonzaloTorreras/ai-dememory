@@ -1,6 +1,7 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
 const state = { settings: null, credentials: {}, modules: [], dirty: false, busy: false, scope: 'global', scopeLabels: {}, sources: [], recallRevision: 0, scopes: [], providerExtensions: [], memories: [], judgmentRevision: 0, judgmentMemory: null };
+const wikiState = { projects: [], project: null, pages: [], templates: [], page: null, settings: {}, preview: null, dirty: false };
 const providerPresets = {
   codex: { kind: 'codex', base_url: '', auth: 'chatgpt', api_key_env: '' },
   openai: { kind: 'responses', base_url: 'https://api.openai.com/v1', auth: 'session', api_key_env: 'OPENAI_API_KEY' },
@@ -11,6 +12,7 @@ const providerPresets = {
 function profileAuth(profile) { return profile.auth || (profile.api_key_env ? 'environment' : 'none'); }
 const pages = {
   memory: ['Memory', 'Useful knowledge, with its source and scope.'],
+  wiki: ['Project wiki', 'Portable pages and compact, source-linked project memory.'],
   providers: ['Providers & routing', 'Choose how learning and consolidation run.'],
   sources: ['Local conversation sources', 'Your conversations, organized by workspace.'],
   modules: ['Modules', 'Keep only the capabilities you need.'],
@@ -49,6 +51,9 @@ function showPage() {
   $('#page-title').textContent = pages[name][0];
   $('#page-description').textContent = pages[name][1];
   document.title = `ai DeMemory · ${pages[name][0]}`;
+  $('#scope-form').hidden = name === 'wiki';
+  $('#scope-details').hidden = name === 'wiki';
+  if (name === 'wiki' && state.settings && !state.busy) perform(refreshWiki);
 }
 async function request(path, body) {
   const options = body === undefined ? {} : {
@@ -73,6 +78,7 @@ async function perform(action) {
     state.busy = false;
     controls.forEach((control, index) => { control.disabled = (hadSettings && disabled[index]) || (!state.settings && control.id !== 'refresh'); });
     updateSourceSelection();
+    syncWikiControls();
     if ($('#provider-dialog').open) { updateProviderFields(); $('#provider-form').elements.id.disabled = Boolean($('#provider-form').dataset.editId); }
   }
 }
@@ -620,6 +626,7 @@ async function refresh() {
   const data = await request(`/api/state?${query}`);
   clearRecallResults(); clearJudgment();
   state.credentials = data.credentials || {};
+  state.wikiEnabled = Boolean(data.wiki_enabled);
   state.jevConfigKey = data.jev_skill_config_key || '';
   $('#jev-auto-status').textContent = `Automatic assessment: ${data.jev_skills?.status || 'off'}${data.jev_skills?.reason ? ' · ' + data.jev_skills.reason : ''}. No canonical memory changes.`;
   state.scopeLabels = data.scope_labels || {};
@@ -639,7 +646,175 @@ async function refresh() {
   if (!state.dirty) { state.settings = data.settings; renderScheduleProjectTargets(scopes, data.settings.schedule); renderSettings(); }
   state.memories = data.memories || [];
   renderMemories(state.memories); renderOperational(data); renderProposals(data.proposals || []);
+  syncWikiControls();
+  if (location.hash === '#wiki' && !wikiState.dirty) await refreshWiki();
 }
+
+function wikiAction(action, data = {}) { return request(`/api/wiki/${action}`, data); }
+function syncWikiControls() {
+  const enabled = Boolean(state.wikiEnabled);
+  $('#wiki-disabled').hidden = enabled; $('#wiki-controls').hidden = !enabled;
+  $('#wiki-empty').hidden = Boolean(wikiState.project);
+  $('#wiki-project-content').hidden = !wikiState.project;
+  $('#wiki-run-assisted').disabled = state.busy || !wikiState.preview || !$('#wiki-recall-confirm').checked;
+}
+function discardWikiEdits() {
+  return !wikiState.dirty || confirm('Discard the unsaved wiki page edits?');
+}
+function clearWikiPreview() {
+  wikiState.preview = null; $('#wiki-recall-confirm').checked = false;
+  $('#wiki-run-assisted').disabled = true;
+}
+function resetWikiEditor() {
+  wikiState.page = null; wikiState.dirty = false;
+  $('#wiki-editor-title').textContent = 'New page'; $('#wiki-page-path').value = '';
+  $('#wiki-page-path').readOnly = false; $('#wiki-page-content').value = '';
+  $('#wiki-template').value = '';
+  $('#wiki-page-revision').textContent = 'A new file is created only when you save. Existing pages require their displayed revision.';
+}
+function editWikiPage(page) {
+  wikiState.page = page; wikiState.dirty = false;
+  $('#wiki-editor-title').textContent = page.title || page.path;
+  $('#wiki-page-path').value = page.path; $('#wiki-page-path').readOnly = true;
+  $('#wiki-page-content').value = page.content || ''; $('#wiki-template').value = '';
+  $('#wiki-page-revision').textContent = `Editing ${page.path} · revision ${page.revision}. A concurrent change will be rejected, not overwritten.`;
+}
+function renderWikiReport(report = {}, warnings = []) {
+  const target = $('#wiki-report'); target.replaceChildren();
+  const brokenLinks = (report.broken_links || []).map(link => typeof link === 'string' ? `Broken link: ${link}` : `Broken link: ${link.page || link.source || 'page'} → ${link.target || 'missing target'}`);
+  const items = [...(report.warnings || []), ...warnings, ...brokenLinks];
+  const unique = [...new Set(items.map(item => typeof item === 'string' ? item : JSON.stringify(item)))];
+  if (unique.length) {
+    target.append(element('p', 'Review these navigation or page warnings:'));
+    const list = element('ul'); unique.forEach(item => list.append(element('li', item))); target.append(list);
+  } else target.append(element('p', 'No page or link warnings reported.'));
+  if (report.pages !== undefined) target.append(element('p', `${Array.isArray(report.pages) ? report.pages.length : report.pages} pages inspected. Maintenance makes no model calls.`, 'hint'));
+}
+function renderWikiState(data) {
+  wikiState.project = data.project; wikiState.pages = data.pages || [];
+  wikiState.templates = data.templates || []; wikiState.settings = data.settings || {};
+  $('#wiki-location').textContent = `${data.project.name || 'Project wiki'} · ${data.project.root} · docs/dememory/`;
+  const list = $('#wiki-pages'); list.replaceChildren();
+  if (!wikiState.pages.length) list.append(element('p', 'No content pages yet. Create a page below; the index is maintained separately.', 'hint'));
+  for (const page of wikiState.pages) {
+    const card = element('article', undefined, 'memory-card');
+    card.append(button(page.title || page.path, () => perform(async () => {
+      if (!discardWikiEdits()) return;
+      const result = await wikiAction('state', { project_id: wikiState.project.id, path: page.path });
+      renderWikiState(result); if (result.page) editWikiPage(result.page);
+    })), element('p', `${page.path} · ${page.status || 'current'}`, 'hint'));
+    if (page.summary) card.append(element('p', page.summary, 'hint')); list.append(card);
+  }
+  $('#wiki-template').replaceChildren(new Option('Blank page', ''), ...wikiState.templates.map(template => new Option(template.title || template.id, template.id)));
+  $('#wiki-recall-mode').value = wikiState.settings.recall_mode || 'direct';
+  $('#wiki-max-chars').value = wikiState.settings.max_chars || 2400;
+  const providers = Object.entries(state.settings?.providers || {}).filter(([, profile]) => !profile.kind?.startsWith('plugin:jev'));
+  $('#wiki-provider').replaceChildren(new Option('Not configured · local recall remains available', ''), ...providers.map(([id, profile]) => new Option(`${id} · ${profile.model}`, id)));
+  $('#wiki-provider').value = wikiState.settings.recall_provider || '';
+  $('#wiki-shared-root').value = wikiState.settings.shared_root || '';
+  $('#wiki-automatic-recall').checked = Boolean(wikiState.settings.automatic_recall);
+  $('#wiki-schedule-enabled').checked = Boolean(wikiState.settings.schedule_enabled);
+  $('#wiki-schedule-hours').value = wikiState.settings.schedule_hours || 168;
+  if (data.page) editWikiPage(data.page);
+  renderWikiReport(data.report || {}, data.warnings || []); clearWikiPreview(); syncWikiControls();
+}
+async function loadWikiProject(id) {
+  const changed = wikiState.project?.id !== id;
+  const data = await wikiAction('state', { project_id: id, ...(!changed && wikiState.page && !wikiState.dirty ? { path: wikiState.page.path } : {}) });
+  if (changed) { resetWikiEditor(); $('#wiki-recall-result').hidden = true; }
+  renderWikiState(data);
+}
+async function refreshWiki() {
+  syncWikiControls();
+  if (!state.wikiEnabled) { wikiState.project = null; clearWikiPreview(); return; }
+  const data = await wikiAction('list'); wikiState.projects = data.projects || [];
+  const id = wikiState.projects.some(project => project.id === wikiState.project?.id) ? wikiState.project.id : wikiState.projects[0]?.id;
+  $('#wiki-project').replaceChildren(new Option('Choose a project', ''), ...wikiState.projects.map(project => new Option(project.name || project.root, project.id)));
+  $('#wiki-project').value = id || '';
+  if (id) await loadWikiProject(id);
+  else { wikiState.project = null; syncWikiControls(); }
+}
+function renderWikiRecall(result) {
+  const target = $('#wiki-recall-result'); target.replaceChildren(); target.hidden = false;
+  target.append(element('p', result.context || 'No relevant memory found.'));
+  const sources = element('div', undefined, 'actions');
+  for (const source of result.sources || []) {
+    if (source.shared) sources.append(element('code', `Shared: ${source.path}`));
+    else sources.append(button(`Open ${source.path}`, () => perform(async () => {
+      if (!discardWikiEdits()) return;
+      const data = await wikiAction('state', { project_id: wikiState.project.id, path: source.path });
+      renderWikiState(data); if (data.page) editWikiPage(data.page);
+      $('#wiki-editor-title').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    })));
+  }
+  target.append(sources, element('p', `Model calls: ${result.model_calls || 0}${result.cache?.hit || result.cached ? ' · cached result' : ''}. Returned memory is reference data, not authorization.`, 'hint'));
+  if (result.reason) target.append(element('p', result.reason, 'hint'));
+  const warnings = [...(result.warnings || [])];
+  if ((result.sources || []).some(source => source.partial)) warnings.push('Some source excerpts are partial. Open the full page to check all conditions and exceptions before applying them.');
+  for (const warning of new Set(warnings.map(item => typeof item === 'string' ? item : JSON.stringify(item)))) target.append(element('p', warning, 'hint'));
+}
+function renderWikiPreview(data, query, maxChars) {
+  wikiState.preview = { ...data, project_id: wikiState.project.id, query, max_chars: maxChars };
+  const info = data.preview || {}, target = $('#wiki-recall-preview'); target.replaceChildren();
+  target.append(element('p', `Query: ${info.query || query}`), element('p', `Provider: ${info.provider || 'Not configured'} · Model: ${info.model || 'Not configured'}`, 'hint'));
+  if (info.notice) target.append(element('p', info.notice, 'hint'));
+  for (const candidate of info.candidates || []) {
+    target.append(element('h3', candidate.title || candidate.path), element('p', candidate.path, 'hint'), element('pre', candidate.excerpt || ''));
+  }
+  $('#wiki-recall-confirm').checked = false; syncWikiControls(); $('#wiki-recall-dialog').showModal();
+}
+$('#enable-wiki').addEventListener('click', () => perform(async () => { await request('/api/modules', { id: 'wiki', enabled: true }); await refresh(); }));
+$('#refresh-wiki').addEventListener('click', () => perform(async () => { if (!discardWikiEdits()) return; resetWikiEditor(); await refreshWiki(); }));
+$('#wiki-project').addEventListener('change', event => perform(async () => {
+  if (!discardWikiEdits()) { event.target.value = wikiState.project?.id || ''; return; }
+  const id = event.target.value;
+  if (id) await loadWikiProject(id); else { wikiState.project = null; resetWikiEditor(); clearWikiPreview(); syncWikiControls(); }
+}));
+$('#wiki-attach-form').addEventListener('submit', event => {
+  event.preventDefault(); const form = event.currentTarget;
+  perform(async () => { if (!discardWikiEdits()) return; const result = await wikiAction('attach', { root: form.elements.root.value.trim(), confirmed: form.elements.confirmed.checked });
+    wikiState.project = result.project; form.reset(); $('#wiki-attach').open = false; resetWikiEditor(); await refreshWiki(); notify('Project wiki is ready. No files were published.'); });
+});
+$('#wiki-template').addEventListener('change', event => {
+  const template = wikiState.templates.find(item => item.id === event.target.value); if (!template) return;
+  if (!discardWikiEdits()) { event.target.value = ''; return; }
+  resetWikiEditor(); $('#wiki-template').value = template.id; $('#wiki-page-path').value = `${template.id}.md`;
+  $('#wiki-page-content').value = template.body || `# ${template.title}\n\n`; wikiState.dirty = true;
+});
+$('#wiki-new-page').addEventListener('click', () => { if (discardWikiEdits()) resetWikiEditor(); });
+for (const id of ['wiki-page-path', 'wiki-page-content']) $( `#${id}`).addEventListener('input', () => { wikiState.dirty = true; });
+$('#wiki-page-form').addEventListener('submit', event => {
+  event.preventDefault(); const path = $('#wiki-page-path').value.trim(), content = $('#wiki-page-content').value;
+  perform(async () => { const result = await wikiAction('save', { project_id: wikiState.project.id, path, content, expected_revision: wikiState.page?.revision || null });
+    wikiState.dirty = false; const data = await wikiAction('state', { project_id: wikiState.project.id, path: result.page?.path || path });
+    renderWikiState(data); notify('Wiki page saved. Navigation is current; no model was called.'); });
+});
+$('#wiki-recall-form').addEventListener('submit', event => {
+  event.preventDefault(); const query = event.currentTarget.elements.query.value.trim(), maxChars = Number($('#wiki-max-chars').value);
+  perform(async () => {
+    if ($('#wiki-recall-mode').value === 'assisted') renderWikiPreview(await wikiAction('preview', { project_id: wikiState.project.id, query, max_chars: maxChars }), query, maxChars);
+    else renderWikiRecall(await wikiAction('recall', { project_id: wikiState.project.id, query, mode: 'direct', max_chars: maxChars }));
+  });
+});
+$('#wiki-recall-confirm').addEventListener('change', syncWikiControls);
+$('#wiki-run-assisted').addEventListener('click', () => perform(async () => {
+  if (!wikiState.preview || !$('#wiki-recall-confirm').checked) throw new Error('Preview and confirm the displayed query first.');
+  const preview = wikiState.preview;
+  const result = await wikiAction('recall', { project_id: preview.project_id, query: preview.query, max_chars: preview.max_chars, mode: 'assisted', confirmed: true, expected_config: preview.expected_config });
+  $('#wiki-recall-dialog').close(); clearWikiPreview(); renderWikiRecall(result);
+}));
+$('#wiki-maintain').addEventListener('click', () => perform(async () => { const report = await wikiAction('maintain', { project_id: wikiState.project.id }); renderWikiReport(report); notify('Local navigation maintenance complete. No model was called.'); }));
+$('#wiki-settings-form').addEventListener('submit', event => {
+  event.preventDefault();
+  perform(async () => { const settings = { ...wikiState.settings, recall_mode: $('#wiki-recall-mode').value, recall_provider: $('#wiki-provider').value,
+    shared_root: $('#wiki-shared-root').value.trim(), automatic_recall: $('#wiki-automatic-recall').checked,
+    schedule_enabled: $('#wiki-schedule-enabled').checked, schedule_hours: Number($('#wiki-schedule-hours').value), max_chars: Number($('#wiki-max-chars').value) };
+    const result = await wikiAction('configure', { project_id: wikiState.project.id, settings });
+    // Saving settings must not replace the user's unsaved Markdown draft.
+    renderWikiState({ ...result, page: wikiState.dirty ? undefined : result.page });
+    notify('Project settings saved. The schedule performs local navigation maintenance only.'); });
+});
+for (const id of ['wiki-recall-mode', 'wiki-max-chars', 'wiki-provider', 'wiki-shared-root', 'wiki-automatic-recall']) $( `#${id}`).addEventListener('change', clearWikiPreview);
 
 $('#provider-form').addEventListener('submit', (event) => {
   event.preventDefault(); const form = event.currentTarget, id = form.elements.id.value.trim();
@@ -931,5 +1106,5 @@ function renderSourceSchedules(rules) {
 }
 $('#run-consolidation').addEventListener('click', () => perform(async () => { notify(`Running consolidation in ${scopeLabel(state.scope)}…`); const result = await request('/api/consolidate', { scope: state.scope }); await refresh(); notify(`Consolidation in ${scopeLabel(result.scope)} complete: ${result.cleaned || 0} duplicates removed; ${result.proposals || 0} summaries proposed.`); }));
 window.addEventListener('hashchange', showPage);
-window.addEventListener('beforeunload', (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ''; } });
+window.addEventListener('beforeunload', (event) => { if (state.dirty || wikiState.dirty) { event.preventDefault(); event.returnValue = ''; } });
 showPage(); perform(refresh);

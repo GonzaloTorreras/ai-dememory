@@ -35,6 +35,12 @@ class ModuleDescriptor:
 
 
 _BUILTINS = {
+    "wiki": ModuleDescriptor(
+        module_id="wiki", version="1", summary="Portable project Markdown wiki, bounded recall and local maintenance.",
+        entrypoint="ai_dememory.builtin_modules.wiki", capabilities=("project-wiki", "recall", "maintenance"),
+        resource_budget={"network":"explicit assisted recall only", "child_processes":"configured native provider only", "persistent":False},
+        builtin=True, enabled=False,
+    ),
     "jev": ModuleDescriptor(
         module_id="jev", version="2", summary="Optional TypeSafe Jev evidence, language and usefulness judgments.",
         entrypoint="ai_dememory.builtin_modules.jev", capabilities=("provider", "judge"),

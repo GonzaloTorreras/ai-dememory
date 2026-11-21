@@ -2,6 +2,11 @@
 
 Modules keep integrations out of the default runtime.
 
+The optional `wiki` module adds [portable project memory](project-wiki.md),
+read-only local/assisted recall and navigation maintenance. Project setup enables
+it explicitly. It adds no database or provider requirement to ordinary Markdown;
+its dashboard routing/cache remains in the selected private runtime.
+
 ```bash
 ai-dememory module list
 ai-dememory module enable mcp

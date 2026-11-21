@@ -5,13 +5,32 @@ to inspect and edit. Markdown is the memory source of truth. Search SQLite is
 disposable; optional provider budgets and job receipts are separate durable state.
 
 The current development branch is rebuilding the product as V3. The source version is
-`3.0.0a5` (alpha). Install from PyPI with `python -m pip install 'ai-dememory==3.0.0a5'`.
+`3.0.0a6` (unreleased alpha candidate). The last published baseline is
+`3.0.0a5`: `python -m pip install 'ai-dememory==3.0.0a5'`.
 See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
 for published artifacts and the target index. V3 deliberately does not migrate or emulate
 2.x. Existing historical/test vaults remain separate and must not be deleted
 when replacing the installed package.
 
 ## Start in under five minutes
+
+### Project-owned wiki (source candidate)
+
+The project wiki works without a vault, provider or MCP server. From the source
+candidate installation, run this in an existing project:
+
+```bash
+ai-dememory setup --project . --yes
+ai-dememory remember "Verify attachments as well as records during restore tests." --project . --page lessons.md --title "Restore lessons"
+ai-dememory recall "restore attachments" --project .
+```
+
+Only `docs/dememory/index.md` and a managed pointer in `AGENTS.md` are created at
+setup. English templates appear when needed, not as empty folders. Use the Wiki
+workbench page to edit safely, inspect sources and configure optional assistance.
+See [project wiki](docs/project-wiki.md) for hooks, limits and shared knowledge.
+
+### Private shared vault
 
 Use Python 3.11 or newer from a source checkout:
 

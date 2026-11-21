@@ -401,7 +401,7 @@ def list_models():
         raise CodexSubscriptionError("codex_model_catalog_too_large")
 
 
-def generate(profile, prompt, max_output_tokens):
+def generate(profile, prompt, max_output_tokens, *, timeout_seconds=None):
     """Request one text-only turn; max_output_tokens is guidance, not a server cap."""
     if not isinstance(prompt, str) or not prompt or len(prompt.encode()) > MAX_PROMPT_BYTES:
         raise CodexSubscriptionError("invalid_prompt")
@@ -413,7 +413,10 @@ def generate(profile, prompt, max_output_tokens):
     effort = profile.get("reasoning_effort")
     if effort is not None and (not isinstance(effort, str) or not effort or len(effort) > 32):
         raise CodexSubscriptionError("invalid_reasoning_effort")
-    with _AppServer() as server:
+    lifetime = GENERATION_TIMEOUT if timeout_seconds is None else timeout_seconds
+    if type(lifetime) not in (int, float) or not 1 <= lifetime <= GENERATION_TIMEOUT:
+        raise CodexSubscriptionError("invalid_timeout")
+    with _AppServer(lifetime=lifetime) as server:
         if not server.authenticated():
             raise CodexSubscriptionError("chatgpt_login_required")
         if effort is not None:
@@ -462,7 +465,7 @@ def generate(profile, prompt, max_output_tokens):
                                 "readableRoots": [server.scratch.name]}},
         })
         turn_id = response.get("turn", {}).get("id")
-        deadline = time.monotonic() + GENERATION_TIMEOUT
+        deadline = time.monotonic() + lifetime
         text, usage = "", None
         while True:
             event = server.events.pop(0) if server.events else server.receive(deadline)
