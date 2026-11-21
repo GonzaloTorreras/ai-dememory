@@ -5,13 +5,18 @@ Private vault inventories, provider identities and replay data stay outside Git.
 
 ## Current increment: project-owned wiki
 
-- Release-preparation branch: `codex/v3-a6-release`, isolated checkout
+- Delivery-receipt branch: `codex/v3-a6-delivery-receipt`, isolated checkout
   `working/worktrees/project-wiki-v3`, based on public `origin/main` at
-  `990b3b9db86a19198270306418b0591144395239` (PR #66 merged).
+  `3834506fe2172ffabac820072252d4174824b743` (PRs #66 and #67 merged).
   The historical root checkout and other V3 worktree were not consolidated or reset.
-- Source: `3.0.0a6`, release-prepared with dated changelog and matching install
-  pins. Tag, PyPI publication and local upgrade are authorized but not yet
-  completed; do not infer them from this preparation commit. Scope and
+- `3.0.0a6` is published on production PyPI and as a
+  [GitHub prerelease](https://github.com/GonzaloTorreras/ai-dememory/releases/tag/v3.0.0a6).
+  Source/tag target: `3834506fe2172ffabac820072252d4174824b743`.
+  [Main CI](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44937209741),
+  [tagger](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44937415412)
+  and [publisher](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44937438041)
+  passed. Normal environment approval/OIDC and the immutable annotated tag were retained.
+  Scope and
   acceptance are in [the approved delivery plan](project-wiki-update.md);
   [the user guide](project-wiki.md) describes actual behavior, not future promises.
 - Implemented: ordinary project Markdown, additive AGENTS guidance, bounded
@@ -29,7 +34,7 @@ Private vault inventories, provider identities and replay data stay outside Git.
 - Regression: 419 tests, 413 passed / six expected Windows symlink skips.
   A stalled synthetic Codex child exits with its reader and scratch cleaned.
   Compilation, JavaScript syntax and diff checks pass.
-- Clean candidate wheel installed outside checkout: standalone CLI
+- Earlier candidate wheel installed outside checkout: standalone CLI
   setup/save/recall/correct and both command-hook protocols pass, zero external
   calls. SHA256 `31152bdbaeffe078e394e50d051ee421c8b4dbdba81c5b5c146c0967d25f90b2`.
   One-page warm scan, 100 synthetic replays: p50 1.11 ms / p95 1.36 ms;
@@ -49,9 +54,35 @@ Private vault inventories, provider identities and replay data stay outside Git.
   read-only review and [receipt CI](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44888365715)
   before merge.
   The synthetic QA server was stopped; no owned provider reader remains.
-  Release preparation still needs fresh review/CI; tagging requires green push
-  CI on its exact main SHA. Preserve normal environment approval and OIDC.
   Other open PRs #63/#64/#65 are not part of this branch.
+
+## Published artifact and local acceptance
+
+- Published wheel SHA256:
+  `69378f48e5a42f1c97942a151d2d8bf8733b512403b7229d8756dd706e7c5f48`.
+  Published sdist SHA256:
+  `9bdcab637aff2e31dcfb53d3fa88472a2d86c009afcd08f2c18784999f86b36d`.
+  PyPI metadata, downloaded wheel and GitHub SHA256SUMS agree. These are the
+  release artifacts, not the earlier candidate wheel.
+- The verified published wheel is installed in the existing local runtime.
+  Fresh global CLI reports a6; the launcher, selected vault and canonical memory
+  remain intact. No credential copying or private-vault export was performed.
+- Installed dashboard: loopback HTTP, wiki load/edit/revision/save/recall and
+  navigation maintenance pass. Desktop 1280x900/mobile 390x844 have no horizontal
+  overflow, framework overlay or console warning/error. Only public synthetic
+  wiki content was used; no external model call was made by the dashboard test.
+- Native Codex `hooks/list` confirms enabled, trusted user SessionStart and
+  UserPromptSubmit hooks. The installed command hook returns bounded attributed
+  synthetic wiki context with a separate no-vault configuration; owned checker
+  children exit. This is not a claim of a full private-vault model round trip.
+- The first native model test used ignore-user-config and returned NOT_FOUND
+  with hooks both off/on; it did not establish native injection. The follow-up
+  real-configuration model test was blocked by security policy because private
+  vault content might be injected. It was not bypassed; local metadata and
+  synthetic-only checks were completed instead. Full real-config model
+  acceptance requires explicit approval of that data boundary or a user-run test.
+- Long-lived MCP clients retain old imported modules until reconnecting. Fresh
+  CLI/hooks use the upgraded package; restarting Windows is not required.
 
 ## Prior public baseline / a5 delivery receipt
 
