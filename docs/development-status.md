@@ -35,7 +35,15 @@ Private vault inventories, provider identities and replay data stay outside Git.
   errors. Attach/template/save/correct/local recall, confirmed assisted selection
   with mocked transport and real broken-link rendering exercised. Browser plugin
   unavailable; existing Playwright integration used. Screenshots stay in scratch.
-- Pending: exact-head independent correctness/privacy readback and remote CI.
+- Independent correctness/privacy readback passed for runtime head
+  `80a7947f6d3c4d68faeb1f49a02224a907f685f0`: 77 focused tests (one expected
+  symlink skip) and 50 provider/hook/privacy tests respectively. These were scoped
+  read-only reviews, not a formal security scan.
+- [PR #66](https://github.com/GonzaloTorreras/ai-dememory/pull/66) has a green
+  [compatibility matrix](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44888152954)
+  for Linux Python 3.11/3.13, macOS 3.12 and Windows 3.12 plus the installed CLI
+  flow. This final documentation-only receipt requires its own CI/readback.
+  The synthetic QA server was stopped; no owned provider reader remains.
   Merge, tag/publication and installed-runtime replacement remain separate gates.
   Other open PRs #63/#64/#65 are not part of this branch.
 

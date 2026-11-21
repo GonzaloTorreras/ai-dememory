@@ -79,6 +79,11 @@ SessionEnd refreshes navigation locally after file edits. There is no blocking
 Stop continuation, transcript reader or resident worker. A recursion marker keeps
 memory worker invocations from calling themselves.
 
+SessionEnd is a session lifecycle event, not every assistant reply. In Codex it
+can occur on close/archive or after an inactive disconnected session; do not
+expect an immediate refresh merely from switching chats. Run UI maintenance when
+you need navigation refreshed immediately.
+
 Existing global DeMemory prompt hooks prefer an initialized wiki for an enabled
 project, but remain local-only: their short legacy timeout cannot safely host a
 provider child. Newly installed wiki prompt hooks reserve a 25-second outer
@@ -139,3 +144,10 @@ Private registry, locks, budgets and cache stay outside `docs/dememory/` and Git
 
 Disable the wiki module to stop future hook/assisted/scheduled work. Plain pages
 remain readable. Never delete the private vault as part of trying this feature.
+
+## Native contract references
+
+The generated events and timeout limits were checked against the official
+[Codex hooks reference](https://developers.openai.com/codex/hooks) and
+[Claude Code hooks reference](https://code.claude.com/docs/en/hooks) on 2026-11-21.
+Protocol fixtures do not replace trust/acceptance testing in the installed client.

@@ -9,7 +9,12 @@ explicit read-only shared knowledge, additive hooks and a usable workbench.
 The earlier receipts below remain historical baselines, not competing work.
 No private-vault migration or legacy external gate is inferred as complete.
 
-This is the single active product plan. Updated 2026-11-10. The memory-quality
+The a6 candidate implements these delivery units. Next: verify the trusted hooks
+in the intended native clients, then measure assisted selection against local
+recall on a small representative set before enabling it by default anywhere.
+Semantic rewriting or additional infrastructure needs a measured gap first.
+
+The following is the previous release baseline, recorded 2026-11-10. The memory-quality
 baseline shipped as `3.0.0a3`; `3.0.0a5` is published on production PyPI. This
 increment recovers original-language evidence wording and adds optional
 Jev language/usefulness skills, module-owned settings and a public live pilot.
@@ -28,7 +33,8 @@ several hosts.
 ## Keep / change
 
 - Keep Python, canonical Markdown, disposable search indexes, atomic writes,
-  one selected vault, lazy modules and a small public CLI.
+  lazy modules and a small public CLI. Project wikis need no vault; optional UI,
+  provider budgets and existing private memory use a selected private vault.
 - Replace universal proposal-only integration with evidence-aware admission,
   provenance, scoped retrieval and reversible corrections. Inferences remain
   provisional; explicit user corrections need no second approval.
@@ -41,12 +47,12 @@ several hosts.
 - No V2 migration, new gate DAG, per-function ADRs, adaptive ranking reward,
   default vectors or separate Node runtime.
 
-## Delivery sequence
+## Prior a5 delivery sequence (historical)
 
 Completed locally: the three [memory-quality slices](#now-memory-quality-weights-and-optional-jev).
 The installed CLI, fresh MCP/hook and dashboard now include these fields/fixes.
 Reviewed cleanup remains reversible and separate from package installation.
-The current sequence is:
+The recorded a5 sequence was:
 
 1. `3.0.0a5` delivery is complete through the reviewed tag-to-PyPI workflow.
    Preserve its alpha label and verified receipts in development status.
