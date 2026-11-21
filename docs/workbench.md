@@ -12,7 +12,7 @@ Open `http://127.0.0.1:8765`. Use `--port 8766` after `workbench` if the default
 port is occupied. Ctrl+C stops this service. Only the optional Codex subscription
 module starts a bounded child process for explicit login, catalog or generation.
 
-## Project wiki (source candidate a6)
+## Project wiki (a6)
 
 Enable `wiki` in Modules, then open **Project wiki** to attach an existing project
 folder, edit linked Markdown pages and configure read-only shared knowledge,
