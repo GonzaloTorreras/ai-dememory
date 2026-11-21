@@ -9,7 +9,7 @@ explicit read-only shared knowledge, additive hooks and a usable workbench.
 The earlier receipts below remain historical baselines, not competing work.
 No private-vault migration or legacy external gate is inferred as complete.
 
-The a6 candidate implements these delivery units. Next: verify the trusted hooks
+The a6 release implements these delivery units. Next: verify the trusted hooks
 in the intended native clients, then measure assisted selection against local
 recall on a small representative set before enabling it by default anywhere.
 Semantic rewriting or additional infrastructure needs a measured gap first.

@@ -5,10 +5,13 @@ Private vault inventories, provider identities and replay data stay outside Git.
 
 ## Current increment: project-owned wiki
 
-- Branch: `codex/v3-project-wiki`, isolated checkout `working/worktrees/project-wiki-v3`.
-  Base: public `origin/main` at `237ac72907867940269a8fc572ddc4b589ba6ab3`.
+- Release-preparation branch: `codex/v3-a6-release`, isolated checkout
+  `working/worktrees/project-wiki-v3`, based on public `origin/main` at
+  `990b3b9db86a19198270306418b0591144395239` (PR #66 merged).
   The historical root checkout and other V3 worktree were not consolidated or reset.
-- Source candidate: `3.0.0a6`, unreleased and not installed globally. Scope and
+- Source: `3.0.0a6`, release-prepared with dated changelog and matching install
+  pins. Tag, PyPI publication and local upgrade are authorized but not yet
+  completed; do not infer them from this preparation commit. Scope and
   acceptance are in [the approved delivery plan](project-wiki-update.md);
   [the user guide](project-wiki.md) describes actual behavior, not future promises.
 - Implemented: ordinary project Markdown, additive AGENTS guidance, bounded
@@ -42,9 +45,12 @@ Private vault inventories, provider identities and replay data stay outside Git.
 - [PR #66](https://github.com/GonzaloTorreras/ai-dememory/pull/66) has a green
   [compatibility matrix](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44888152954)
   for Linux Python 3.11/3.13, macOS 3.12 and Windows 3.12 plus the installed CLI
-  flow. This final documentation-only receipt requires its own CI/readback.
+  flow. Final head `897821b08a7eaeb7e996d0a14653693a33efdc46` passed fresh
+  read-only review and [receipt CI](https://github.com/GonzaloTorreras/ai-dememory/actions/runs/44888365715)
+  before merge.
   The synthetic QA server was stopped; no owned provider reader remains.
-  Merge, tag/publication and installed-runtime replacement remain separate gates.
+  Release preparation still needs fresh review/CI; tagging requires green push
+  CI on its exact main SHA. Preserve normal environment approval and OIDC.
   Other open PRs #63/#64/#65 are not part of this branch.
 
 ## Prior public baseline / a5 delivery receipt

@@ -5,8 +5,8 @@ to inspect and edit. Markdown is the memory source of truth. Search SQLite is
 disposable; optional provider budgets and job receipts are separate durable state.
 
 The current development branch is rebuilding the product as V3. The source version is
-`3.0.0a6` (unreleased alpha candidate). The last published baseline is
-`3.0.0a5`: `python -m pip install 'ai-dememory==3.0.0a5'`.
+`3.0.0a6` (alpha). Install the exact version with
+`python -m pip install 'ai-dememory==3.0.0a6'` after its release is available.
 See [releases](https://github.com/GonzaloTorreras/ai-dememory/releases)
 for published artifacts and the target index. V3 deliberately does not migrate or emulate
 2.x. Existing historical/test vaults remain separate and must not be deleted
@@ -14,10 +14,10 @@ when replacing the installed package.
 
 ## Start in under five minutes
 
-### Project-owned wiki (source candidate)
+### Project-owned wiki
 
-The project wiki works without a vault, provider or MCP server. From the source
-candidate installation, run this in an existing project:
+The project wiki works without a vault, provider or MCP server. With a6 installed,
+run this in an existing project:
 
 ```bash
 ai-dememory setup --project . --yes

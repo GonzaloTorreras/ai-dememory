@@ -4,7 +4,7 @@ V3 is an alpha and deliberately does not migrate V2. Keep historical vaults
 separate. With Python 3.11 or newer, install the V3 alpha directly from PyPI:
 
 ```bash
-python -m pip install "ai-dememory==3.0.0a5"
+python -m pip install "ai-dememory==3.0.0a6"
 ai-dememory setup
 ```
 
@@ -13,9 +13,9 @@ V2. Release wheels and checksums are also available in
 [Releases](https://github.com/GonzaloTorreras/ai-dememory/releases). For development
 from a checked-out V3 source tree, use `python -m pip install .` instead.
 
-The `3.0.0a6` source candidate also supports a portable project wiki with
-`ai-dememory setup --project . --yes`, without a vault or provider. This is not
-in the published `a5` wheel yet. See [project wiki](project-wiki.md) for local
+Version `3.0.0a6` also supports a portable project wiki with
+`ai-dememory setup --project . --yes`, without a vault or provider. See
+[project wiki](project-wiki.md) for local
 hooks, templates and the optional dashboard. The following vault setup remains
 available for private/shared memory and existing integrations.
 

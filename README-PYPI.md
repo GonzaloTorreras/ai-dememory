@@ -6,7 +6,34 @@ This is the V3 alpha, a clean reset. Install the explicitly versioned V3 package
 from PyPI; an unpinned stable package install may still select V2.
 
 ```bash
-python -m pip install "ai-dememory==3.0.0a5"
+python -m pip install "ai-dememory==3.0.0a6"
+```
+
+## Portable project wiki
+
+Use ordinary, linked Markdown in each project without a vault, provider or MCP:
+
+```bash
+ai-dememory setup --project . --yes
+ai-dememory remember "Verify attachments during restore tests." --project . --page lessons.md --title "Restore lessons"
+ai-dememory recall "restore attachments" --project .
+```
+
+Setup creates a small `docs/dememory/index.md` and adds a managed pointer to
+`AGENTS.md`, preserving existing instructions. English templates are optional;
+content can remain in its original language. No private memory is imported.
+Optional local hooks: add `--with-codex` or `--with-claude` to project setup,
+then review/trust the hooks in that client. No MCP server is required.
+
+The dashboard's Project wiki page edits revision-bound pages, inspects sources,
+binds read-only shared knowledge and configures local maintenance or separately
+consented, budgeted assistance. The fast librarian selects exact excerpts; it
+does not invent facts or automatically rewrite knowledge. Markdown remains
+usable without DeMemory. See the [wiki guide](https://github.com/GonzaloTorreras/ai-dememory/blob/main/docs/project-wiki.md).
+
+## Private shared vault and existing integrations
+
+```bash
 ai-dememory setup
 ai-dememory remember "Something worth remembering"
 ```

@@ -1,10 +1,11 @@
 # Project wiki
 
-Source candidate `3.0.0a6`; not a claim that the candidate is published or installed.
+Available in `3.0.0a6`. Check the matching release and `ai-dememory --version`;
+source checkout, package publication and a running client's version are distinct.
 
 ## Start with your project, not another store
 
-Install this source candidate, then use an existing project folder:
+Install the matching a6 package, then use an existing project folder:
 
 ```bash
 ai-dememory setup --project . --yes
