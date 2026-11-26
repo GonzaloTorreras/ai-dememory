@@ -109,7 +109,7 @@ def install_user(vault, *, remove=False, projects=()):
             raise ValueError("Global integration receipt belongs to another client home")
         if remove and not receipt:
             return {"installed": False, "changed": False}
-        python, selector = str(Path(sys.executable).resolve()), str(config_dir())
+        python, selector = str(Path(sys.executable).absolute()), str(config_dir())
         args = ["-m", "ai_dememory", "--vault", str(vault.root), "serve", "mcp", "--auto-scope"]
         block = (BEGIN + f"[mcp_servers.{SERVER_NAME}]\ncommand = {json.dumps(python)}\nargs = {json.dumps(args)}\n"
                  f"startup_timeout_sec = 10\ntool_timeout_sec = 8\n[mcp_servers.{SERVER_NAME}.env]\n"
@@ -152,7 +152,11 @@ def install_user(vault, *, remove=False, projects=()):
                 if "--scope" not in old_args:
                     raise ValueError("Only exact generated project-local V3 connections can be retired")
                 scope = old_args[old_args.index("--scope") + 1]
-                expected = project_files(vault, project, "codex", scope)
+                # a6 generated project files with the resolved interpreter. Retire
+                # those only when both files still match that exact definition.
+                old_python = str(Path(sys.executable).resolve())
+                expected = project_files(vault, project, "codex", scope,
+                                         interpreter=old_python if server.get("command") == old_python else None)
                 for path, before in expected.items():
                     if _read(path) != before:
                         raise ValueError("Project settings have other edits; retire owned entries manually")

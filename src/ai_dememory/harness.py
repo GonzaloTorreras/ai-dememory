@@ -53,14 +53,14 @@ def _shell_command(args):
     return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
 
 
-def project_files(vault, project, client, scope):
+def project_files(vault, project, client, scope, *, interpreter=None):
     validate_scope(scope)
     if client not in {"codex", "claude"}:
         raise ValueError("Unsupported client")
     if project.is_symlink():
         raise ValueError("Project cannot be a symbolic link")
     project = project.expanduser().resolve()
-    interpreter = str(Path(sys.executable).resolve())
+    interpreter = interpreter or str(Path(sys.executable).absolute())
     selector = str(config_dir())
     args = ["-m", "ai_dememory", "--vault", str(vault.root), "serve", "mcp", "--scope", scope]
     hook_args = [interpreter, "-m", "ai_dememory.harness", "--vault", str(vault.root),
