@@ -5,6 +5,14 @@ use `## [VERSION] - Unreleased`. A reviewed release-prep change
 replaces `Unreleased` with the actual `YYYY-MM-DD`; only that dated form is
 accepted by the release identity guard.
 
+## [3.0.0a7] - Unreleased
+
+### Added
+
+- `setup --with-claude` installs user-level Claude Code MCP and recall hooks
+  for a private vault. `setup --project PATH --with-claude` continues to
+  install project-local wiki hooks.
+
 ## [3.0.0a6] - 2026-11-21
 
 ### Added
