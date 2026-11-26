@@ -29,16 +29,19 @@ class ClientBinding:
     def __init__(self, cwd):
         from ai_dememory.projects import resolve_project
         self.cwd = Path(cwd).resolve()
-        self.project = resolve_project(self.cwd)
+        self.project = resolve_project(self.cwd, allow_global=True)
         self.scope = self.project["scope"]
-        self.name_recorded = False
+        self.global_fallback = self.project["reason"] == "global"
+        self.name_recorded = self.global_fallback
         self.thread = None
 
     def enabled(self):
-        from ai_dememory.config import load_config
-        from ai_dememory.projects import project_enabled, resolve_project
-        return ("mcp" in load_config().enabled_modules and project_enabled(self.cwd, "codex")
-                and resolve_project(self.cwd)["scope"] == self.scope)
+        from ai_dememory.config import harness_enabled, load_config
+        from ai_dememory.projects import resolve_project
+        project = resolve_project(self.cwd, allow_global=True)
+        return ("mcp" in load_config().enabled_modules and harness_enabled("codex")
+                and "codex" not in project["excluded_clients"] and project["scope"] == self.scope
+                and (project["reason"] == "global") == self.global_fallback)
 
     def check(self, request):
         if not self.enabled():
@@ -84,7 +87,7 @@ def get_manifest() -> ModuleManifest:
     )
 
 
-def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
+def tool_definitions(bound_scope: str | None = None, *, global_fallback: bool = False) -> list[dict[str, Any]]:
     tools = [
         {
             "name": "memory.search",
@@ -196,7 +199,7 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
             scope = tool["inputSchema"]["properties"].get("scope")
             if scope is not None:
                 scope.update({"default": bound_scope, "enum": [bound_scope]})
-            if tool["name"] == "memory.propose":
+            if tool["name"] == "memory.propose" and not (global_fallback and bound_scope == "global"):
                 tool["description"] = "Unavailable on a scope-bound server; use memory.learn with provisional=true for a scoped candidate."
     for tool in tools:
         tool["annotations"] = {"readOnlyHint": tool["name"] in {"memory.search", "memory.get", "memory.context", "memory.status"},
@@ -204,11 +207,15 @@ def tool_definitions(bound_scope: str | None = None) -> list[dict[str, Any]]:
     return tools
 
 
-def instructions(bound_scope: str | None = None) -> str:
+def instructions(bound_scope: str | None = None, *, global_fallback: bool = False) -> str:
     scope = (f"This server is bound to scope {bound_scope}; all scope arguments must match it. "
-             "Retrieval also includes global memories. memory.propose is unavailable here. "
+             "Retrieval also includes global memories. "
              if bound_scope is not None else
              "Choose the current project scope; use global only for genuinely shared preferences. ")
+    if global_fallback and bound_scope == "global":
+        scope += "No project binding was found; recall and proposals use global memory. "
+    elif bound_scope is not None:
+        scope += "memory.propose is unavailable here. "
     return (
         scope
         + "Before a nontrivial task, call memory.context with relevant keywords and the task scope. "
@@ -247,13 +254,13 @@ def _validate(value: Any, schema: dict[str, Any], label: str = "arguments") -> N
 
 
 def call_tool(services: CoreServices, name: str, arguments: dict[str, Any],
-              bound_scope: str | None = None) -> Any:
-    definition = next((tool for tool in tool_definitions(bound_scope) if tool["name"] == name), None)
+              bound_scope: str | None = None, *, global_fallback: bool = False) -> Any:
+    definition = next((tool for tool in tool_definitions(bound_scope, global_fallback=global_fallback) if tool["name"] == name), None)
     if definition is None:
         raise ValueError(f"Unknown MCP tool: {name}")
     _validate(arguments, definition["inputSchema"])
     if bound_scope is not None:
-        if name == "memory.propose":
+        if name == "memory.propose" and not (global_fallback and bound_scope == "global"):
             raise ValueError("Scope-bound servers cannot create unscoped proposals; use provisional memory.learn")
         if "scope" in definition["inputSchema"]["properties"]:
             arguments = {"scope": bound_scope, **arguments}
@@ -270,7 +277,7 @@ def _response(request_id: Any, result: Any = None, error: dict[str, Any] | None 
 
 
 def handle_request(services: CoreServices, request: dict[str, Any],
-                   bound_scope: str | None = None) -> dict[str, Any] | None:
+                   bound_scope: str | None = None, *, global_fallback: bool = False) -> dict[str, Any] | None:
     request_id = request.get("id")
     method = request.get("method")
     if request_id is None:
@@ -282,13 +289,13 @@ def handle_request(services: CoreServices, request: dict[str, Any],
                 "protocolVersion": "2025-11-25",
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "ai-dememory", "version": __version__},
-                "instructions": instructions(bound_scope),
+                "instructions": instructions(bound_scope, global_fallback=global_fallback),
             },
         )
     if method == "ping":
         return _response(request_id, {})
     if method == "tools/list":
-        return _response(request_id, {"tools": tool_definitions(bound_scope)})
+        return _response(request_id, {"tools": tool_definitions(bound_scope, global_fallback=global_fallback)})
     if method == "tools/call":
         params = request.get("params") or {}
         if not isinstance(params, dict):
@@ -301,7 +308,7 @@ def handle_request(services: CoreServices, request: dict[str, Any],
                 request_id, error={"code": -32602, "message": "arguments must be an object"}
             )
         try:
-            value = call_tool(services, str(params.get("name", "")), arguments, bound_scope)
+            value = call_tool(services, str(params.get("name", "")), arguments, bound_scope, global_fallback=global_fallback)
             return _response(
                 request_id,
                 {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]},
@@ -362,7 +369,8 @@ def serve(
                     if binding and request.get("method") == "tools/list" and not binding.enabled():
                         response = _response(request.get("id"), {"tools": []})
                     else:
-                        response = handle_request(services, request, bound_scope)
+                        response = handle_request(services, request, bound_scope,
+                                                  global_fallback=binding.global_fallback if binding else False)
                         if binding and request.get("method") == "initialize" and response is not None:
                             response["result"]["instructions"] += (
                                 " Native Codex binds source provider/session/turn from transport metadata; "
